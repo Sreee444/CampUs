@@ -61,10 +61,23 @@ export default function SignupScreen() {
 
       navigation.navigate('RoleSelection');
     } catch (error: any) {
+      console.error('Signup error:', error);
+      
+      let errorMessage = error?.message || 'Please try again';
+      
+      // Check for common Supabase errors
+      if (error?.message?.includes('Email not confirmed')) {
+        errorMessage = 'Email confirmation is required. Check Supabase settings.';
+      } else if (error?.message?.includes('signups not allowed')) {
+        errorMessage = 'Signups are disabled. Enable in Supabase dashboard.';
+      } else if (error?.status === 401) {
+        errorMessage = 'Auth error: Check Supabase email settings (disable email confirmation for dev)';
+      }
+      
       Toast.show({
         type: 'error',
         text1: 'Signup failed',
-        text2: error?.message || 'Please try again',
+        text2: errorMessage,
       });
     } finally {
       setIsLoading(false);
@@ -238,9 +251,17 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.light.background,
+    ...(Platform.OS === 'web' && ({
+      height: '100vh',
+      width: '100vw',
+    } as any)),
   },
   gradient: {
     flex: 1,
+    ...(Platform.OS === 'web' && ({
+      minHeight: '100vh',
+      width: '100%',
+    } as any)),
   },
   keyboardView: {
     flex: 1,
@@ -249,6 +270,10 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.md,
+    ...(Platform.OS === 'web' && ({
+      minHeight: '100vh',
+      justifyContent: 'center',
+    } as any)),
   },
   header: {
     flexDirection: 'row',

@@ -171,9 +171,17 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.light.background,
+    ...(Platform.OS === 'web' && ({
+      height: '100vh',
+      width: '100vw',
+    } as any)),
   },
   gradient: {
     flex: 1,
+    ...(Platform.OS === 'web' && ({
+      minHeight: '100vh',
+      width: '100%',
+    } as any)),
   },
   keyboardView: {
     flex: 1,
@@ -182,6 +190,10 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.md,
+    ...(Platform.OS === 'web' && ({
+      minHeight: '100vh',
+      justifyContent: 'center',
+    } as any)),
   },
   header: {
     alignItems: 'center',

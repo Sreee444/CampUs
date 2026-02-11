@@ -8,6 +8,7 @@ import {
   ScrollView,
   TextInput,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -264,6 +265,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   container: {
     flex: 1,
     backgroundColor: Colors.background,
+    ...(Platform.OS === 'web' && ({ height: '100vh', width: '100vw' } as any)),
   },
   header: {
     flexDirection: 'row',

@@ -162,9 +162,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.light.background,
+    ...(Platform.OS === 'web' && ({ height: '100vh', width: '100vw' } as any)),
   },
   gradient: {
     flex: 1,
+    ...(Platform.OS === 'web' && ({ minHeight: '100vh' } as any)),
   },
   decorBlur1: {
     position: 'absolute',

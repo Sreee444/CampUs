@@ -10,7 +10,9 @@ export const signUp = async (email: string, password: string) => {
       emailRedirectTo: undefined,
     }
   });
+  
   if (error) throw error;
+  
   return data;
 };
 
