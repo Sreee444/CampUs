@@ -63,3 +63,7 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+
+# Database and documentation folders
+database/
+docs/

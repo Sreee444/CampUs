@@ -19,7 +19,7 @@ import { RootStackParamList, MainTabParamList } from '../../navigation/types';
 import { useTheme } from '../../contexts/ThemeContext';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getProjectTeams } from '../../api/projects';
+import { getProjectTeams, getProjectsByRole, getMentoredProjects } from '../../api/projects';
 import { ProjectTeam } from '../../types/database';
 
 type ProjectsScreenNavigationProp = CompositeNavigationProp<
@@ -29,31 +29,52 @@ type ProjectsScreenNavigationProp = CompositeNavigationProp<
 
 const categories = ['All', 'Web', 'Mobile', 'AI/ML', 'IoT', 'Other'];
 
+const statusColors = {
+  planning: '#3b82f6',
+  'in-progress': '#f59e0b',
+  completed: '#10b981',
+  'on-hold': '#ef4444',
+};
+
 export default function ProjectsScreen() {
   const navigation = useNavigation<ProjectsScreenNavigationProp>();
   const { isDark } = useTheme();
   const Colors = getColors(isDark);
   const styles = createStyles(Colors);
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
 
   const [projectTeams, setProjectTeams] = useState<ProjectTeam[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedTab, setSelectedTab] = useState<'all' | 'my' | 'mentoring'>('all');
+
+  const isFacultyOrAlumni = profile?.role === 'faculty' || profile?.role === 'alumni';
+  const isStudent = profile?.role === 'student';
 
   useEffect(() => {
     let isMounted = true;
 
     const loadProjects = async () => {
-      if (!user?.id) {
+      if (!user?.id || !profile?.role) {
         setIsLoading(false);
         return;
       }
 
       try {
         setIsLoading(true);
-        const data = await getProjectTeams(user.id);
+        let data: ProjectTeam[] = [];
+        
+        if (selectedTab === 'all') {
+          data = await getProjectsByRole(profile.role, user.id);
+        } else if (selectedTab === 'my') {
+          const allData = await getProjectTeams(user.id);
+          data = allData.filter(p => p.created_by === user.id || p.is_member);
+        } else if (selectedTab === 'mentoring' && isFacultyOrAlumni) {
+          data = await getMentoredProjects(user.id);
+        }
+        
         if (isMounted) {
           setProjectTeams(data);
           setFetchError('');
@@ -75,7 +96,17 @@ export default function ProjectsScreen() {
     return () => {
       isMounted = false;
     };
-  }, [user?.id]);
+  }, [user?.id, profile?.role, selectedTab]);
+
+  const canCreateProject = profile && [
+    'student', 'faculty', 'alumni', 'admin'
+  ].includes(profile.role);
+
+  const handleCreateProject = () => {
+    if (canCreateProject) {
+      navigation.navigate('CreateProject');
+    }
+  };
 
   const filteredProjects = useMemo(() => {
     const normalizedSearch = searchQuery.trim().toLowerCase();
@@ -94,9 +125,47 @@ export default function ProjectsScreen() {
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Projects</Text>
-        <TouchableOpacity style={styles.addButton} onPress={() => {}}>
-          <MaterialIcons name="add" size={24} color="#fff" />
+        {canCreateProject && (
+          <TouchableOpacity 
+            style={styles.addButton} 
+            onPress={handleCreateProject}
+            activeOpacity={0.7}
+          >
+            <MaterialIcons name="add" size={24} color="#fff" />
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {/* Tab Selection */}
+      <View style={styles.tabsContainer}>
+        <TouchableOpacity
+          style={[styles.tab, selectedTab === 'all' && styles.tabActive]}
+          onPress={() => setSelectedTab('all')}
+        >
+          <Text style={[styles.tabText, selectedTab === 'all' && styles.tabTextActive]}>
+            All Projects
+          </Text>
         </TouchableOpacity>
+        
+        <TouchableOpacity
+          style={[styles.tab, selectedTab === 'my' && styles.tabActive]}
+          onPress={() => setSelectedTab('my')}
+        >
+          <Text style={[styles.tabText, selectedTab === 'my' && styles.tabTextActive]}>
+            My Projects
+          </Text>
+        </TouchableOpacity>
+        
+        {isFacultyOrAlumni && (
+          <TouchableOpacity
+            style={[styles.tab, selectedTab === 'mentoring' && styles.tabActive]}
+            onPress={() => setSelectedTab('mentoring')}
+          >
+            <Text style={[styles.tabText, selectedTab === 'mentoring' && styles.tabTextActive]}>
+              Mentoring
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       <View style={styles.searchSection}>
@@ -169,12 +238,22 @@ export default function ProjectsScreen() {
               const progressPercent = project.max_members
                 ? Math.min(100, Math.round(((project.members_count || 0) / project.max_members) * 100))
                 : 0;
+              const statusColor = statusColors[project.status || 'planning'];
+              
               return (
                 <TouchableOpacity
                   key={project.id}
                   style={styles.projectCard}
                   onPress={() => navigation.navigate('ProjectDetails', { teamId: project.id })}
                 >
+                  {/* Featured Badge */}
+                  {project.is_featured && (
+                    <View style={styles.featuredBadge}>
+                      <MaterialIcons name="star" size={14} color="#fbbf24" />
+                      <Text style={styles.featuredText}>Featured</Text>
+                    </View>
+                  )}
+                  
                   <View style={styles.projectHeader}>
                     <View style={styles.projectInfo}>
                       <Text style={styles.projectTitle}>{project.name}</Text>
@@ -203,6 +282,21 @@ export default function ProjectsScreen() {
                     </View>
                   </View>
 
+                  {/* Project Status */}
+                  {project.status && (
+                    <View style={[styles.projectStatusBadge, { backgroundColor: statusColor + '15' }]}>
+                      <View style={[styles.projectStatusDot, { backgroundColor: statusColor }]} />
+                      <Text style={[styles.projectStatusText, { color: statusColor }]}>
+                        {project.status.charAt(0).toUpperCase() + project.status.slice(1).replace('-', ' ')}
+                      </Text>
+                      {project.completion_percentage !== undefined && project.completion_percentage > 0 && (
+                        <Text style={[styles.projectStatusText, { color: statusColor }]}>
+                          {' • '}{project.completion_percentage}%
+                        </Text>
+                      )}
+                    </View>
+                  )}
+
                   <Text style={styles.projectDescription}>
                     {project.description || 'Team description is coming soon.'}
                   </Text>
@@ -213,6 +307,16 @@ export default function ProjectsScreen() {
                       Created by {project.creator?.full_name || 'Campus'}
                     </Text>
                   </View>
+
+                  {/* Mentor Information */}
+                  {project.mentor && (
+                    <View style={[styles.creatorRow, { marginTop: 4 }]}>
+                      <MaterialIcons name="school" size={16} color={Colors.primary} />
+                      <Text style={[styles.creatorText, { color: Colors.primary }]}>
+                        Mentor: {project.mentor.full_name}
+                      </Text>
+                    </View>
+                  )}
 
                   <View style={styles.progressSection}>
                     <View style={styles.progressHeader}>
@@ -291,6 +395,32 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     justifyContent: 'center',
     ...Shadows.sm,
   },
+  tabsContainer: {
+    flexDirection: 'row',
+    backgroundColor: Colors.surface,
+    paddingHorizontal: Spacing.md,
+    gap: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  tab: {
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  tabActive: {
+    borderBottomColor: Colors.primary,
+  },
+  tabText: {
+    fontSize: FontSizes.sm,
+    fontWeight: FontWeights.medium,
+    color: Colors.textSecondary,
+  },
+  tabTextActive: {
+    color: Colors.primary,
+    fontWeight: FontWeights.semibold,
+  },
   searchSection: {
     paddingHorizontal: Spacing.md,
     paddingVertical: 12,
@@ -358,6 +488,25 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     padding: Spacing.md,
     marginBottom: 12,
     ...Shadows.sm,
+    position: 'relative',
+  },
+  featuredBadge: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: '#fef3c7',
+    borderRadius: BorderRadius.full,
+    ...Shadows.xs,
+  },
+  featuredText: {
+    fontSize: 11,
+    fontWeight: FontWeights.semibold,
+    color: '#d97706',
   },
   projectHeader: {
     flexDirection: 'row',
@@ -412,6 +561,24 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   statusTextClosed: {
     color: '#991b1b',
+  },
+  projectStatusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: BorderRadius.md,
+    marginBottom: 12,
+    gap: 6,
+  },
+  projectStatusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  projectStatusText: {
+    fontSize: 12,
+    fontWeight: FontWeights.medium,
   },
   projectDescription: {
     fontSize: FontSizes.sm,

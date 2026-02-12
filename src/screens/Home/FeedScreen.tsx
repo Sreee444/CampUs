@@ -2,72 +2,121 @@ import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
-  TouchableOpacity,
   StyleSheet,
   SafeAreaView,
   ScrollView,
+  RefreshControl,
+  ActivityIndicator,
+  TouchableOpacity,
   Platform,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import { CompositeNavigationProp } from '@react-navigation/native';
-import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
-import { StackNavigationProp } from '@react-navigation/stack';
-import { RootStackParamList, MainTabParamList } from '../../navigation/types';
-import { getColors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } from '../../theme';
+import { getColors, Spacing, FontSizes, FontWeights, Shadows, BorderRadius } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../contexts/AuthContext';
+import { getEvents, registerForEvent } from '../../api/events';
 import { getUserStats } from '../../api/users';
-import { getProjectTeams } from '../../api/projects';
-import { getEvents } from '../../api/events';
-import { getCollaboratorSuggestions } from '../../api/ai';
+import { getProfile } from '../../api/auth';
+import { EventFeedItem } from '../../components/EventFeedItem';
+import { LinearGradient } from 'expo-linear-gradient';
+import Toast from 'react-native-toast-message';
 
-type HomeScreenNavigationProp = CompositeNavigationProp<
-  BottomTabNavigationProp<MainTabParamList, 'Home'>,
-  StackNavigationProp<RootStackParamList>
->;
-
-export default function HomeScreen() {
-  const navigation = useNavigation<HomeScreenNavigationProp>();
+export default function FeedScreen() {
+  const navigation = useNavigation();
   const { isDark } = useTheme();
-  const { user, profile } = useAuth();
+  const { user } = useAuth();
   const Colors = getColors(isDark);
   const styles = createStyles(Colors);
-
-  const [stats, setStats] = useState({ posts: 0, events: 0, connections: 0, projects: 0 });
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [events, setEvents] = useState<any[]>([]);
+  const [stats, setStats] = useState({ projects: 0, events: 0, connections: 0 });
   const [recentProjects, setRecentProjects] = useState<any[]>([]);
   const [upcomingEvents, setUpcomingEvents] = useState<any[]>([]);
-  const [aiSuggestion, setAiSuggestion] = useState<string>('Find teammates that match your skills.');
+  const [aiSuggestion, setAiSuggestion] = useState('');
+  const [profile, setProfile] = useState<any>(null);
+
+  const loadFeedData = async (refresh = false) => {
+        // Load user profile
+        if (user?.id) {
+          try {
+            const prof = await getProfile(user.id);
+            setProfile(prof);
+          } catch (err) {
+            setProfile(null);
+          }
+        }
+    try {
+      if (refresh) setIsRefreshing(true);
+      else setIsLoading(true);
+
+      // Get upcoming and live events for feed
+      const eventsData = await getEvents(user?.id, undefined, true);
+      const liveEvents = eventsData.filter(event => {
+        const now = new Date();
+        const eventStart = new Date(event.start_date);
+        const eventEnd = new Date(event.end_date);
+        return eventStart <= now && eventEnd >= now;
+      });
+      // Combine and sort by relevance (live first, then by start time)
+      const feedEvents = [...liveEvents, ...eventsData.filter(e =>
+        !liveEvents.find(le => le.id === e.id)
+      )].slice(0, 5); // Show top 5 events in feed
+      setEvents(feedEvents);
+      setUpcomingEvents(eventsData.slice(0, 3)); // Show top 3 upcoming events
+
+      // Load stats
+      if (user?.id) {
+        try {
+          const userStats = await getUserStats(user.id);
+          setStats({
+            projects: userStats.total_projects || 0,
+            events: userStats.total_events || 0,
+            connections: userStats.total_connections || 0,
+          });
+        } catch (err) {
+          setStats({ projects: 0, events: 0, connections: 0 });
+        }
+      }
+
+      // Load recent projects (mock or fetch from API if available)
+      setRecentProjects([]); // TODO: Replace with real API call if available
+
+      // AI suggestion (mock)
+      setAiSuggestion('Check out the latest events and join a project team!');
+    } catch (error) {
+      console.error('Feed load error:', error);
+      Toast.show({
+        type: 'error',
+        text1: 'Failed to load feed',
+        text2: 'Please try again'
+      });
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+  };
 
   useEffect(() => {
-    if (!user?.id) return;
-
-    const loadData = async () => {
-      try {
-        const [statsData, projects, events, suggestions] = await Promise.all([
-          getUserStats(user.id),
-          getProjectTeams(user.id, true),
-          getEvents(user.id, undefined, true),
-          getCollaboratorSuggestions(user.id),
-        ]);
-
-        setStats(statsData);
-        setRecentProjects(projects.slice(0, 3));
-        setUpcomingEvents(events.slice(0, 3));
-
-        if (suggestions.length > 0) {
-          setAiSuggestion(
-            `You could collaborate with ${suggestions[0].full_name || 'a student'} based on skill alignment.`
-          );
-        }
-      } catch (error) {
-        console.error('Home load error:', error);
-      }
-    };
-
-    loadData();
+    loadFeedData();
   }, [user?.id]);
+
+  const handleEventRegistration = async (eventId: string) => {
+    if (!user?.id) {
+      Toast.show({ type: 'error', text1: 'Please login to register' });
+      return;
+    }
+
+    try {
+      await registerForEvent(eventId, user.id);
+      Toast.show({ type: 'success', text1: 'Registered successfully!' });
+      loadFeedData(true);
+    } catch (error) {
+      console.error('Registration error:', error);
+      Toast.show({ type: 'error', text1: 'Registration failed', text2: 'Please try again' });
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -79,7 +128,7 @@ export default function HomeScreen() {
         <View style={styles.header}>
           <View>
             <Text style={styles.greeting}>Welcome!</Text>
-            <Text style={styles.userName}>{profile?.full_name || 'Student'}</Text>
+            <Text style={styles.userName}>{profile?.full_name || user?.email || 'Student'}</Text>
           </View>
           <TouchableOpacity
             style={styles.notificationButton}

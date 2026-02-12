@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator, CardStyleInterpolators } from '@react-navigation/stack';
 import { View, ActivityIndicator } from 'react-native';
@@ -20,13 +20,46 @@ import LinkedAccountsScreen from '../screens/Settings/LinkedAccountsScreen';
 import NotificationsScreen from '../screens/Settings/NotificationsScreen';
 import PrivacyScreen from '../screens/Settings/PrivacyScreen';
 import ProjectDetailsScreen from '../screens/Projects/ProjectDetailsScreen';
+import CreateProjectScreen from '../screens/Projects/CreateProjectScreen';
+import CreateEventScreen from '../screens/Home/CreateEventScreen';
+import EventDetailsScreen from '../screens/Home/EventDetailsScreen';
 import ChatConversationScreen from '../screens/Home/ChatConversationScreen';
+import DiscussionTopicScreen from '../screens/Home/DiscussionTopicScreen';
+import CreateTopicScreen from '../screens/Home/CreateTopicScreen';
 import { MainTabNavigator } from './MainTabNavigator';
 
 const Stack = createStackNavigator<RootStackParamList>();
 
 export default function RootNavigator() {
   const { isAuthenticated, isLoading, profile } = useAuth();
+  const navigationRef = useRef<any>(null);
+
+  // Navigate based on auth and profile state changes
+  useEffect(() => {
+    if (!isLoading && navigationRef.current && isAuthenticated) {
+      const currentRoute = navigationRef.current.getCurrentRoute()?.name;
+      
+      // Determine where user should be
+      let targetRoute: keyof RootStackParamList | null = null;
+      
+      if (!profile || !profile.role) {
+        targetRoute = 'RoleSelection';
+      } else if (!profile.full_name) {
+        targetRoute = 'CompleteProfile';
+      } else {
+        targetRoute = 'MainTabs';
+      }
+
+      // Only navigate if we're not already at the target and not on a nested screen
+      const onboardingScreens = ['RoleSelection', 'CompleteProfile', 'Login', 'Signup'];
+      if (targetRoute && currentRoute && onboardingScreens.includes(currentRoute) && currentRoute !== targetRoute) {
+        navigationRef.current.reset({
+          index: 0,
+          routes: [{ name: targetRoute }],
+        });
+      }
+    }
+  }, [isAuthenticated, isLoading, profile?.role, profile?.full_name]);
 
   // Show loading screen while checking auth
   if (isLoading) {
@@ -46,7 +79,7 @@ export default function RootNavigator() {
   };
 
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef}>
       <Stack.Navigator
         initialRouteName={getInitialRoute()}
         screenOptions={{
@@ -142,6 +175,26 @@ export default function RootNavigator() {
             <Stack.Screen
               name="ChatConversation"
               component={ChatConversationScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="DiscussionTopic"
+              component={DiscussionTopicScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="CreateTopic"
+              component={CreateTopicScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="CreateProject"
+              component={CreateProjectScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="CreateEvent"
+              component={CreateEventScreen}
               options={{ animationEnabled: true }}
             />
           </>

@@ -106,3 +106,40 @@ export const moderateText = async (text: string) => {
 
   return !flagged;
 };
+
+/**
+ * 🔹 GET COLLABORATOR SUGGESTIONS
+ * Returns full user profiles of recommended collaborators
+ */
+export const getCollaboratorSuggestions = async (userId: string) => {
+  try {
+    const recommendations = await recommendTeams(userId);
+    
+    if (recommendations.length === 0) {
+      return [];
+    }
+
+    const userIds = recommendations.map(r => r.userId);
+    
+    const { data: users, error } = await supabase
+      .from("profiles")
+      .select("id, full_name, department, skills, interests, avatar_url, role")
+      .in("id", userIds);
+
+    if (error) {
+      console.error("Failed to fetch collaborator profiles", error);
+      return [];
+    }
+
+    // Sort users by the recommendation score
+    const scoredUsers = users?.map(user => {
+      const rec = recommendations.find(r => r.userId === user.id);
+      return { ...user, matchScore: rec?.score || 0 };
+    }).sort((a, b) => b.matchScore - a.matchScore) || [];
+
+    return scoredUsers;
+  } catch (error) {
+    console.error("Error getting collaborator suggestions:", error);
+    return [];
+  }
+};

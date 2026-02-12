@@ -117,7 +117,7 @@ export default function CompleteProfileScreen() {
 
       await refreshProfile();
       Toast.show({ type: 'success', text1: 'Profile updated' });
-      navigation.navigate('MainTabs');
+      navigation.replace('MainTabs');
     } catch (error: any) {
       Toast.show({
         type: 'error',
@@ -135,7 +135,7 @@ export default function CompleteProfileScreen() {
 
   const handleSkip = () => {
     Toast.show({ type: 'info', text1: 'Complete your profile later in Settings' });
-    navigation.navigate('MainTabs');
+    navigation.replace('MainTabs');
   };
 
   const handlePickAvatar = async () => {

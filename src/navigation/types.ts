@@ -1,10 +1,21 @@
+import { NavigatorScreenParams } from '@react-navigation/native';
+
+export type MainTabParamList = {
+  Home: undefined;
+  Projects: undefined;
+  Events: undefined;
+  Discussions: undefined;
+  Chat: undefined;
+  Profile: undefined;
+};
+
 export type RootStackParamList = {
   Login: undefined;
   Signup: undefined;
   RoleSelection: undefined;
   CompleteProfile: undefined;
   ResetPassword: undefined;
-  MainTabs: undefined;
+  MainTabs: NavigatorScreenParams<MainTabParamList> | undefined;
   Settings: undefined;
   ProjectDetails: { teamId: string };
   EditProfile: undefined;
@@ -15,15 +26,12 @@ export type RootStackParamList = {
   Notifications: undefined;
   Privacy: undefined;
   ChatConversation: { conversationId: string; name: string; isGroup: boolean };
+  DiscussionTopic: { topicId: string };
+  CreateTopic: undefined;
+  CreateProject: undefined;
+  CreateEvent: undefined;
+  EventDetails: { eventId: string };
   AIChatAssistant: undefined;
-};
-
-export type MainTabParamList = {
-  Home: undefined;
-  Projects: undefined;
-  Events: undefined;
-  Chat: undefined;
-  Profile: undefined;
 };
 
 declare global {

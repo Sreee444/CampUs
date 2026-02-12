@@ -15,6 +15,7 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../../navigation/types';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
+import { useAuth } from '../../contexts/AuthContext';
 import { Toast } from '../../components/Toast';
 
 type SettingsScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Settings'>;
@@ -47,12 +48,14 @@ const preferencesSettings: SettingItem[] = [
 export default function SettingsScreen() {
   const navigation = useNavigation<SettingsScreenNavigationProp>();
   const { isDark, toggleTheme } = useTheme();
+  const { signOut } = useAuth();
   const Colors = getColors(isDark);
   const styles = createStyles(Colors);
   
   const [settings, setSettings] = useState({
     emailVerification: true,
   });
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [toast, setToast] = useState({ visible: false, message: '', type: 'info' as 'success' | 'info' | 'warning' | 'error' });
 
   const showToast = (message: string, type: 'success' | 'info' | 'warning' | 'error' = 'info') => {
@@ -81,13 +84,22 @@ export default function SettingsScreen() {
   };
 
   const handleLogout = () => {
-    showToast('Logging out...', 'info');
-    setTimeout(() => {
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'Login' }],
-      });
-    }, 1000);
+    setShowLogoutConfirm(true);
+  };
+
+  const confirmLogout = async () => {
+    setShowLogoutConfirm(false);
+    try {
+      showToast('Logging out...', 'info');
+      await signOut();
+      // Navigation will be handled automatically by RootNavigator
+    } catch (error) {
+      showToast('Failed to log out. Please try again.', 'error');
+    }
+  };
+
+  const cancelLogout = () => {
+    setShowLogoutConfirm(false);
   };
 
   const handleSettingPress = (label: string) => {
@@ -156,12 +168,8 @@ export default function SettingsScreen() {
   );
 
   const handleBack = () => {
-    if (navigation.canGoBack()) {
-      navigation.goBack();
-    } else {
-      // Fallback: navigate to MainTabs if can't go back
-      navigation.navigate('MainTabs');
-    }
+    // Go back to the previous screen (Profile)
+    navigation.goBack();
   };
 
   return (
@@ -263,6 +271,35 @@ export default function SettingsScreen() {
         type={toast.type}
         onHide={() => setToast({ ...toast, visible: false })}
       />
+
+      {/* Logout Confirmation Dialog */}
+      {showLogoutConfirm && (
+        <View style={styles.modalOverlay}>
+          <View style={styles.confirmDialog}>
+            <View style={styles.confirmHeader}>
+              <MaterialIcons name="logout" size={48} color="#ef4444" />
+              <Text style={styles.confirmTitle}>Log Out</Text>
+              <Text style={styles.confirmMessage}>Are you sure you want to log out?</Text>
+            </View>
+            <View style={styles.confirmButtons}>
+              <TouchableOpacity 
+                style={[styles.confirmButton, styles.cancelButton]} 
+                onPress={cancelLogout}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.confirmButton, styles.logoutConfirmButton]} 
+                onPress={confirmLogout}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.logoutConfirmButtonText}>Log Out</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -282,11 +319,13 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     backgroundColor: Colors.surface,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
+    position: 'relative',
   },
   backButton: {
     flexDirection: 'row',
     alignItems: 'center',
     marginLeft: -8,
+    zIndex: 10,
   },
   backButtonText: {
     fontSize: FontSizes.md,
@@ -302,6 +341,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     fontSize: FontSizes.lg,
     fontWeight: FontWeights.bold,
     color: Colors.text,
+    ...(Platform.OS === 'web' ? { pointerEvents: 'none' } : {}),
   },
   headerSpacer: {
     width: 32,
@@ -368,5 +408,66 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   versionText: {
     fontSize: FontSizes.xs,
     color: Colors.textSecondary,
+  },
+  modalOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  confirmDialog: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.xl,
+    width: '85%',
+    maxWidth: 400,
+    padding: Spacing.xl,
+    ...Shadows.lg,
+  },
+  confirmHeader: {
+    alignItems: 'center',
+    marginBottom: Spacing.lg,
+  },
+  confirmTitle: {
+    fontSize: FontSizes.xl,
+    fontWeight: FontWeights.bold,
+    color: Colors.text,
+    marginTop: Spacing.md,
+    marginBottom: Spacing.xs,
+  },
+  confirmMessage: {
+    fontSize: FontSizes.md,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+  },
+  confirmButtons: {
+    flexDirection: 'row',
+    gap: Spacing.md,
+  },
+  confirmButton: {
+    flex: 1,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    alignItems: 'center',
+  },
+  cancelButton: {
+    backgroundColor: Colors.border,
+  },
+  cancelButtonText: {
+    fontSize: FontSizes.md,
+    fontWeight: FontWeights.semibold,
+    color: Colors.text,
+  },
+  logoutConfirmButton: {
+    backgroundColor: '#ef4444',
+  },
+  logoutConfirmButtonText: {
+    fontSize: FontSizes.md,
+    fontWeight: FontWeights.semibold,
+    color: '#ffffff',
   },
 });
