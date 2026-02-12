@@ -95,12 +95,22 @@ export const getUsersByInterests = async (interests: string[]) => {
 
 // Update last active
 export const updateLastActive = async (userId: string) => {
-  const { error } = await supabase
-    .from("profiles")
-    .update({ last_active: new Date().toISOString() })
-    .eq("id", userId);
+  try {
+    const { error } = await supabase
+      .from("profiles")
+      .update({ last_active: new Date().toISOString() })
+      .eq("id", userId);
 
-  if (error) console.error('Update last active error:', error);
+    // Ignore abort errors (happens when component unmounts or request is cancelled)
+    if (error && !error.message?.includes('AbortError')) {
+      console.error('Update last active error:', error);
+    }
+  } catch (error: any) {
+    // Silently ignore abort errors
+    if (!error?.message?.includes('AbortError') && error?.name !== 'AbortError') {
+      console.error('Update last active error:', error);
+    }
+  }
 };
 
 // Get user statistics

@@ -70,7 +70,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser({ id: currentUser.id, email: currentUser.email });
         await loadProfile(currentUser.id);
       }
-    } catch (error) {
+    } catch (error: any) {
+      // Ignore abort errors
+      if (error?.message?.includes('AbortError') || error?.name === 'AbortError') {
+        return;
+      }
       console.error('Error loading session:', error);
     } finally {
       setIsLoading(false);
@@ -81,7 +85,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const userProfile = await getProfile(userId);
       setProfile(userProfile);
-    } catch (error) {
+    } catch (error: any) {
+      // Ignore abort errors (happens when component unmounts or request is cancelled)
+      if (error?.message?.includes('AbortError') || error?.name === 'AbortError') {
+        return;
+      }
       console.error('Error loading profile:', error);
     }
   };

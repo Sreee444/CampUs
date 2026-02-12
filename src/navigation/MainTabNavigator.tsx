@@ -7,6 +7,7 @@ import { Colors } from '../theme';
 import FeedScreen from '../screens/Home/FeedScreen';
 import ProjectsScreen from '../screens/Projects/ProjectsScreen';
 import EventsScreen from '../screens/Home/EventsScreen';
+import DiscussionsScreen from '../screens/Home/DiscussionsScreen';
 import ChatListScreen from '../screens/Home/ChatListScreen';
 import ProfileScreen from '../screens/Home/ProfileScreen';
 
@@ -60,6 +61,16 @@ export const MainTabNavigator = () => {
           tabBarLabel: 'Events',
           tabBarIcon: ({ color, size }) => (
             <MaterialIcons name="event" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Discussions"
+        component={DiscussionsScreen}
+        options={{
+          tabBarLabel: 'Discuss',
+          tabBarIcon: ({ color, size }) => (
+            <MaterialIcons name="forum" size={size} color={color} />
           ),
         }}
       />

@@ -276,18 +276,32 @@ export type ProjectTeam = {
   created_at: string;
   updated_at: string;
   
+  // New role-based fields
+  status?: 'planning' | 'in-progress' | 'completed' | 'on-hold';
+  mentor_id?: string;
+  is_featured?: boolean;
+  completion_percentage?: number;
+  github_url?: string;
+  demo_url?: string;
+  tags?: string[];
+  
   // Joined
   creator?: Profile;
   members?: Profile[];
   members_count?: number;
+  mentor?: Profile;
+  is_member?: boolean;
 };
 
 export type ProjectTeamMember = {
   id: string;
   team_id: string;
   user_id: string;
-  role: string;
+  role: 'leader' | 'member' | 'mentor' | 'advisor';
   joined_at: string;
+  
+  // Joined
+  user?: Profile;
 };
 
 export type SuggestionType = 'collaborator' | 'mentor' | 'team' | 'event';
