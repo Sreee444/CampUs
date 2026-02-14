@@ -178,8 +178,7 @@ export const updatePassword = async (newPassword: string) => {
 // Upload avatar
 export const uploadAvatar = async (userId: string, fileUri: string) => {
   try {
-    // For React Native, we need to handle the file differently
-    // Create FormData for better React Native compatibility
+    // Extract file extension and create file path
     const fileExt = fileUri.split('.').pop()?.toLowerCase() || 'jpg';
     const fileName = `avatar.${fileExt}`;
     const filePath = `${userId}/${fileName}`;
@@ -189,10 +188,11 @@ export const uploadAvatar = async (userId: string, fileUri: string) => {
     if (fileExt === 'png') mimeType = 'image/png';
     else if (fileExt === 'webp') mimeType = 'image/webp';
     
-    // Read file as blob using fetch
+    // Read file as blob
     let blob: Blob;
     try {
       const response = await fetch(fileUri);
+      
       if (!response.ok) {
         throw new Error(`Failed to read image file: ${response.statusText}`);
       }
@@ -213,26 +213,48 @@ export const uploadAvatar = async (userId: string, fileUri: string) => {
       throw new Error('Only JPG, PNG, and WebP images are allowed');
     }
 
+    // Upload to storage
     const { data, error: uploadError } = await supabase.storage
       .from('avatars')
       .upload(filePath, blob, {
         upsert: true,
         contentType: mimeType,
+        cacheControl: '3600',
       });
 
     if (uploadError) {
       console.error('Storage upload error:', uploadError);
-      throw new Error(uploadError.message || 'Failed to upload to storage');
+      
+      // Check if bucket exists
+      if (uploadError.message?.includes('Bucket not found')) {
+        throw new Error('Storage bucket not configured. Please create the "avatars" bucket in Supabase Dashboard > Storage.');
+      }
+      
+      throw new Error(uploadError.message || 'Failed to upload image');
     }
 
+    // Success! Get public URL
     const { data: { publicUrl } } = supabase.storage
       .from('avatars')
       .getPublicUrl(filePath);
 
     return publicUrl;
+    
   } catch (error: any) {
     console.error('Upload avatar error:', error);
-    throw error;
+    
+    // Provide user-friendly error messages
+    let errorMessage = error.message || 'Failed to upload avatar';
+    
+    if (errorMessage.includes('aborted') || errorMessage.includes('signal')) {
+      errorMessage = 'Upload interrupted. Please check your internet connection and try again.';
+    } else if (errorMessage.includes('network') || errorMessage.includes('fetch')) {
+      errorMessage = 'Network error. Please check your internet connection.';
+    } else if (errorMessage.includes('bucket not found') || errorMessage.includes('Storage bucket not configured')) {
+      errorMessage = 'Storage not configured. Please create the "avatars" bucket in Supabase.';
+    }
+    
+    throw new Error(errorMessage);
   }
 };
 
