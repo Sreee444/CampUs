@@ -10,12 +10,12 @@ WebBrowser.maybeCompleteAuthSession();
 export const signInWithGoogle = async () => {
   try {
     // For web, use window location
-    const redirectUrl = Platform.OS === 'web' 
-      ? `${window.location.origin}/auth/callback`
+    const redirectUrl = Platform.OS === 'web'
+      ? `${(typeof window !== 'undefined' ? window.location.origin : '')}/auth/callback`
       : makeRedirectUri({
-          scheme: 'campus',
-          path: 'auth/callback',
-        });
+        scheme: 'campus',
+        path: 'auth/callback',
+      });
 
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
@@ -47,7 +47,7 @@ export const signInWithGoogle = async () => {
         const refresh_token = params.get('refresh_token');
 
         if (access_token && refresh_token) {
-          const { data: sessionData, error: sessionError } = 
+          const { data: sessionData, error: sessionError } =
             await supabase.auth.setSession({
               access_token,
               refresh_token,
@@ -125,12 +125,16 @@ export const createProfile = async (
       email,
       role,
       full_name: fullName,
-    })
+    } as any) // Type assertion until database types are generated
     .select()
     .single();
-  
-  if (error) throw error;
-  return data;
+
+  if (error) {
+    console.error("Error creating profile:", error);
+    throw new Error(error.message || "Failed to create profile");
+  }
+
+  return data as Profile;
 };
 
 // Get user profile
@@ -140,7 +144,7 @@ export const getProfile = async (userId: string): Promise<Profile | null> => {
     .select("*")
     .eq("id", userId)
     .single();
-  
+
   if (error && error.code !== 'PGRST116') throw error;
   return data;
 };
@@ -152,13 +156,14 @@ export const updateProfile = async (
 ) => {
   const { data, error } = await supabase
     .from("profiles")
+    // @ts-ignore - Supabase type inference issue until database is set up
     .update(updates)
     .eq("id", userId)
     .select()
     .single();
-  
+
   if (error) throw error;
-  return data;
+  return data as Profile;
 };
 
 // Reset password
@@ -182,35 +187,36 @@ export const uploadAvatar = async (userId: string, fileUri: string) => {
     const fileExt = fileUri.split('.').pop()?.toLowerCase() || 'jpg';
     const fileName = `avatar.${fileExt}`;
     const filePath = `${userId}/${fileName}`;
-    
+
     // Determine mime type
     let mimeType = 'image/jpeg';
     if (fileExt === 'png') mimeType = 'image/png';
     else if (fileExt === 'webp') mimeType = 'image/webp';
-    
+    else if (fileExt === 'gif') mimeType = 'image/gif';
+
     // Read file as blob
     let blob: Blob;
     try {
       const response = await fetch(fileUri);
-      
+
       if (!response.ok) {
         throw new Error(`Failed to read image file: ${response.statusText}`);
       }
       blob = await response.blob();
     } catch (fetchError: any) {
       console.error('Fetch error:', fetchError);
-      throw new Error('Failed to read image. Please try again.');
+      throw new Error('❌ Failed to read image. Please try selecting another image.');
     }
-    
+
     // Validate file size (max 5MB)
     if (blob.size > 5 * 1024 * 1024) {
-      throw new Error('Image size must be less than 5MB');
+      throw new Error('📦 Image size must be less than 5MB. Please select a smaller image.');
     }
-    
+
     // Validate file type
-    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
     if (blob.type && !allowedTypes.includes(blob.type)) {
-      throw new Error('Only JPG, PNG, and WebP images are allowed');
+      throw new Error('🖼️ Only JPG, PNG, WebP, and GIF images are allowed.');
     }
 
     // Upload to storage
@@ -224,13 +230,27 @@ export const uploadAvatar = async (userId: string, fileUri: string) => {
 
     if (uploadError) {
       console.error('Storage upload error:', uploadError);
-      
-      // Check if bucket exists
-      if (uploadError.message?.includes('Bucket not found')) {
-        throw new Error('Storage bucket not configured. Please create the "avatars" bucket in Supabase Dashboard > Storage.');
+
+      // Check for specific error types
+      if (uploadError.message?.includes('Bucket not found') || uploadError.message?.includes('not found')) {
+        throw new Error(
+          '🔧 Storage not configured!\n\n' +
+          'Please run the setup:\n' +
+          '1. Open Supabase SQL Editor\n' +
+          '2. Run supabase_storage_setup.sql\n' +
+          '3. Try uploading again'
+        );
       }
-      
-      throw new Error(uploadError.message || 'Failed to upload image');
+
+      if (uploadError.message?.includes('policy')) {
+        throw new Error('🔒 Permission denied. Please check storage policies in Supabase.');
+      }
+
+      if (uploadError.message?.includes('size')) {
+        throw new Error('📦 File too large. Maximum size is 5MB.');
+      }
+
+      throw new Error(`❌ Upload failed: ${uploadError.message}`);
     }
 
     // Success! Get public URL
@@ -239,23 +259,22 @@ export const uploadAvatar = async (userId: string, fileUri: string) => {
       .getPublicUrl(filePath);
 
     return publicUrl;
-    
+
   } catch (error: any) {
     console.error('Upload avatar error:', error);
-    
+
     // Provide user-friendly error messages
-    let errorMessage = error.message || 'Failed to upload avatar';
-    
+    let errorMessage = error.message || '❌ Failed to upload avatar';
+
+    // Handle abort signal errors
     if (errorMessage.includes('aborted') || errorMessage.includes('signal')) {
-      errorMessage = 'Upload interrupted. Please check your internet connection and try again.';
+      errorMessage = '⚠️ Upload interrupted.\n\nThis usually means:\n1. Storage bucket not set up (run SQL setup)\n2. Network timeout\n3. Try a smaller image\n\nCheck SETUP_GUIDE.md for help.';
     } else if (errorMessage.includes('network') || errorMessage.includes('fetch')) {
-      errorMessage = 'Network error. Please check your internet connection.';
-    } else if (errorMessage.includes('bucket not found') || errorMessage.includes('Storage bucket not configured')) {
-      errorMessage = 'Storage not configured. Please create the "avatars" bucket in Supabase.';
+      errorMessage = '📡 Network error. Please check your internet connection and try again.';
+    } else if (errorMessage.includes('timeout')) {
+      errorMessage = '⏱️ Upload timeout. Please try again with a better connection.';
     }
-    
+
     throw new Error(errorMessage);
   }
 };
-
-

@@ -54,7 +54,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (user?.id) {
       updateLastActive(user.id);
-      
+
       const interval = setInterval(() => {
         updateLastActive(user.id);
       }, 5 * 60 * 1000); // Every 5 minutes
@@ -105,7 +105,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await supabase.auth.signOut();
       setUser(null);
       setProfile(null);
-    } catch (error) {
+    } catch (error: any) {
+      // Ignore abort errors (common on web during hot reload)
+      if (error?.message?.includes('AbortError') || error?.message?.includes('aborted') || error?.name === 'AbortError') {
+        return;
+      }
       console.error('Error signing out:', error);
     }
   };

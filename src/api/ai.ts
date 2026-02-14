@@ -1,4 +1,7 @@
 import { supabase } from "./supabase";
+import { Profile } from "../types/database";
+
+type UserMatchData = Pick<Profile, 'id' | 'skills' | 'interests' | 'department'>;
 
 /**
  * 🔹 AI TEAM MATCHING (CORE USP)
@@ -9,7 +12,7 @@ export const recommendTeams = async (userId: string) => {
     .from("profiles")
     .select("skills, interests, department")
     .eq("id", userId)
-    .single();
+    .single() as { data: Pick<Profile, 'skills' | 'interests' | 'department'> | null, error: any };
 
   if (userErr || !user) {
     console.error("User not found", userErr);
@@ -18,7 +21,8 @@ export const recommendTeams = async (userId: string) => {
 
   const { data: allUsers, error: usersErr } = await supabase
     .from("profiles")
-    .select("id, skills, interests, department");
+    .select("id, skills, interests, department")
+    .returns<UserMatchData[]>();
 
   if (usersErr || !allUsers) {
     console.error("Failed to fetch users", usersErr);
@@ -56,7 +60,7 @@ export const recommendMentor = async (studentId: string) => {
     .from("profiles")
     .select("skills")
     .eq("id", studentId)
-    .single();
+    .single() as { data: Pick<Profile, 'skills'> | null, error: any };
 
   if (sErr || !student) {
     console.error("Student not found", sErr);
@@ -66,7 +70,8 @@ export const recommendMentor = async (studentId: string) => {
   const { data: mentors, error: mErr } = await supabase
     .from("profiles")
     .select("id, skills")
-    .eq("role", "alumni");
+    .eq("role", "alumni")
+    .returns<Pick<Profile, 'id' | 'skills'>[]>();
 
   if (mErr || !mentors) {
     console.error("Failed to fetch mentors", mErr);
@@ -101,7 +106,7 @@ export const moderateText = async (text: string) => {
       flagged_reason: "Policy Violation",
       text,
       created_at: new Date().toISOString(),
-    });
+    } as any);
   }
 
   return !flagged;
@@ -124,7 +129,8 @@ export const getCollaboratorSuggestions = async (userId: string) => {
     const { data: users, error } = await supabase
       .from("profiles")
       .select("id, full_name, department, skills, interests, avatar_url, role")
-      .in("id", userIds);
+      .in("id", userIds)
+      .returns<Pick<Profile, 'id' | 'full_name' | 'department' | 'skills' | 'interests' | 'avatar_url' | 'role'>[]>();
 
     if (error) {
       console.error("Failed to fetch collaborator profiles", error);

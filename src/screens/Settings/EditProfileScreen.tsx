@@ -152,7 +152,7 @@ export default function EditProfileScreen() {
 
   const handlePickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    
+
     if (status !== 'granted') {
       setToast({ visible: true, message: 'Permission required to access photos', type: 'error' });
       return;
@@ -172,7 +172,7 @@ export default function EditProfileScreen() {
 
   const handleTakePhoto = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    
+
     if (status !== 'granted') {
       setToast({ visible: true, message: 'Camera permission required', type: 'error' });
       return;
@@ -197,18 +197,11 @@ export default function EditProfileScreen() {
       setIsUploading(true);
       const publicUrl = await uploadAvatar(user.id, uri);
       setAvatarUrl(publicUrl);
-      setToast({ visible: true, message: 'Avatar uploaded!', type: 'success' });
+      setToast({ visible: true, message: '✅ Avatar uploaded successfully!', type: 'success' });
     } catch (error: any) {
       console.error('Avatar upload error:', error);
-      
-      let errorMsg = 'Failed to upload avatar';
-      if (error.message?.includes('Network request failed')) {
-        errorMsg = 'Network error. Check your internet connection.';
-      } else if (error.message) {
-        errorMsg = error.message;
-      }
-      
-      setToast({ visible: true, message: errorMsg, type: 'error' });
+      // Use error message directly from uploadAvatar - it's already user-friendly
+      setToast({ visible: true, message: error.message || '❌ Failed to upload avatar', type: 'error' });
     } finally {
       setIsUploading(false);
     }

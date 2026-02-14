@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { MaterialIcons } from '@expo/vector-icons';
+import { Platform, LogBox } from 'react-native';
 import { MainTabParamList } from './types';
 import { Colors } from '../theme';
 
@@ -12,6 +13,14 @@ import ChatListScreen from '../screens/Home/ChatListScreen';
 import ProfileScreen from '../screens/Home/ProfileScreen';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
+
+// Suppress native driver warning on web
+if (Platform.OS === 'web') {
+  LogBox.ignoreLogs([
+    'Animated: `useNativeDriver` is not supported',
+    'useNativeDriver',
+  ]);
+}
 
 export const MainTabNavigator = () => {
   return (

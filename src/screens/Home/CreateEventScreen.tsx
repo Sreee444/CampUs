@@ -76,7 +76,7 @@ export default function CreateEventScreen() {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [4, 3],
       quality: 0.8,
@@ -120,7 +120,7 @@ export default function CreateEventScreen() {
 
   const handleDateChange = (event: any, selectedDate?: Date) => {
     setShowPicker({ field: null, show: false });
-    
+
     if (selectedDate && showPicker.field) {
       setFormData(prev => ({
         ...prev,
@@ -199,7 +199,7 @@ export default function CreateEventScreen() {
           banner_image: formData.banner_image.trim() || null,
           created_by: user.id,
           organizers: [user.id], // User as main organizer
-        })
+        } as any) // Type assertion until database types are generated
         .select()
         .single();
 
@@ -278,7 +278,7 @@ export default function CreateEventScreen() {
         {/* Basic Info */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Event Details</Text>
-          
+
           <Text style={styles.label}>Event Title *</Text>
           <TextInput
             style={styles.textInput}
@@ -413,7 +413,7 @@ export default function CreateEventScreen() {
         {/* Registration */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Registration</Text>
-          
+
           <Text style={styles.label}>Maximum Participants</Text>
           <View style={styles.participantsContainer}>
             <TouchableOpacity
