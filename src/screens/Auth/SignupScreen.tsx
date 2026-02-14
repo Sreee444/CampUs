@@ -52,15 +52,12 @@ export default function SignupScreen() {
       }
 
       if (!session) {
-        Toast.show({
-          type: 'info',
-          text1: 'Check your email to verify your account',
-        });
+        // Navigate to verification screen
+        navigation.navigate('VerifyEmail', { email: email.trim() });
       } else {
         Toast.show({ type: 'success', text1: 'Account created!' });
+        // Don't navigate manually - let auth state change handle routing
       }
-
-      // Don't navigate manually - let auth state change handle routing
     } catch (error: any) {
       console.error('Signup error:', error);
       

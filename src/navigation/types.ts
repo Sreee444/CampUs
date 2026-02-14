@@ -12,6 +12,7 @@ export type MainTabParamList = {
 export type RootStackParamList = {
   Login: undefined;
   Signup: undefined;
+  VerifyEmail: { email: string };
   RoleSelection: undefined;
   CompleteProfile: undefined;
   ResetPassword: undefined;

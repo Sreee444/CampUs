@@ -8,6 +8,7 @@ import { useAuth } from '../contexts/AuthContext';
 // Import screens
 import LoginScreen from '../screens/Auth/LoginScreen';
 import SignupScreen from '../screens/Auth/SignupScreen';
+import VerifyEmailScreen from '../screens/Auth/VerifyEmailScreen';
 import RoleSelectionScreen from '../screens/Auth/RoleSelectionScreen';
 import CompleteProfileScreen from '../screens/Auth/CompleteProfileScreen';
 import ResetPasswordScreen from '../screens/Auth/ResetPasswordScreen';
@@ -101,6 +102,11 @@ export default function RootNavigator() {
             <Stack.Screen
               name="Signup"
               component={SignupScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="VerifyEmail"
+              component={VerifyEmailScreen}
               options={{ animationEnabled: true }}
             />
             <Stack.Screen
