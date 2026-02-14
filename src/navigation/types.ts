@@ -13,7 +13,6 @@ export type RootStackParamList = {
   Login: undefined;
   Signup: undefined;
   VerifyEmail: { email: string };
-  RoleSelection: undefined;
   CompleteProfile: undefined;
   ResetPassword: undefined;
   MainTabs: NavigatorScreenParams<MainTabParamList> | undefined;

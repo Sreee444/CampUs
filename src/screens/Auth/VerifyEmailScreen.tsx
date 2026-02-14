@@ -150,11 +150,20 @@ export default function VerifyEmailScreen() {
           {/* Action Buttons */}
           <TouchableOpacity
             style={styles.primaryButton}
-            onPress={handleCheckEmailApp}
+            onPress={() => navigation.navigate('Login')}
             activeOpacity={0.9}
           >
-            <MaterialIcons name="email" size={20} color="#111818" />
-            <Text style={styles.primaryButtonText}>Open Email App</Text>
+            <MaterialIcons name="login" size={20} color="#111818" />
+            <Text style={styles.primaryButtonText}>Go to Login</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.secondaryButtonAlt}
+            onPress={handleCheckEmailApp}
+            activeOpacity={0.7}
+          >
+            <MaterialIcons name="email" size={20} color="#475569" />
+            <Text style={styles.secondaryButtonTextAlt}>Open Email App</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -172,6 +181,24 @@ export default function VerifyEmailScreen() {
               {isResending ? 'Sending...' : 'Resend Verification Email'}
             </Text>
           </TouchableOpacity>
+
+          {/* Already Verified Section */}
+          <View style={styles.verifiedSection}>
+            <View style={styles.divider}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>Already verified?</Text>
+              <View style={styles.dividerLine} />
+            </View>
+            
+            <TouchableOpacity
+              style={styles.loginButton}
+              onPress={() => navigation.navigate('Login')}
+              activeOpacity={0.7}
+            >
+              <MaterialIcons name="login" size={20} color="#ffffff" />
+              <Text style={styles.loginButtonText}>Go to Login</Text>
+            </TouchableOpacity>
+          </View>
 
           {/* Info Box */}
           <View style={styles.infoBox}>
@@ -350,6 +377,65 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.sm,
     fontWeight: FontWeights.semibold,
     color: Colors.primary,
+  },
+  secondaryButtonAlt: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    width: '100%',
+    maxWidth: 400,
+    marginBottom: Spacing.md,
+  },
+  secondaryButtonTextAlt: {
+    fontSize: FontSizes.sm,
+    fontWeight: FontWeights.medium,
+    color: '#475569',
+  },
+  verifiedSection: {
+    width: '100%',
+    maxWidth: 400,
+    marginTop: Spacing.lg,
+    marginBottom: Spacing.md,
+  },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: Spacing.md,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#cbd5e1',
+  },
+  dividerText: {
+    marginHorizontal: Spacing.sm,
+    fontSize: FontSizes.sm,
+    color: '#64748b',
+    fontWeight: FontWeights.medium,
+  },
+  loginButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#334155',
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    borderRadius: BorderRadius.lg,
+    width: '100%',
+    ...Shadows.md,
+  },
+  loginButtonText: {
+    fontSize: FontSizes.sm,
+    fontWeight: FontWeights.semibold,
+    color: '#ffffff',
   },
   infoBox: {
     flexDirection: 'row',

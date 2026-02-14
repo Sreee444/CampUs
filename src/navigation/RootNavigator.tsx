@@ -9,7 +9,6 @@ import { useAuth } from '../contexts/AuthContext';
 import LoginScreen from '../screens/Auth/LoginScreen';
 import SignupScreen from '../screens/Auth/SignupScreen';
 import VerifyEmailScreen from '../screens/Auth/VerifyEmailScreen';
-import RoleSelectionScreen from '../screens/Auth/RoleSelectionScreen';
 import CompleteProfileScreen from '../screens/Auth/CompleteProfileScreen';
 import ResetPasswordScreen from '../screens/Auth/ResetPasswordScreen';
 import SettingsScreen from '../screens/Settings/SettingsScreen';
@@ -43,16 +42,15 @@ export default function RootNavigator() {
       // Determine where user should be
       let targetRoute: keyof RootStackParamList | null = null;
       
-      if (!profile || !profile.role) {
-        targetRoute = 'RoleSelection';
-      } else if (!profile.full_name) {
+      // Role is now set during signup, so skip RoleSelection
+      if (!profile || !profile.full_name) {
         targetRoute = 'CompleteProfile';
       } else {
         targetRoute = 'MainTabs';
       }
 
       // Only navigate if we're not already at the target and not on a nested screen
-      const onboardingScreens = ['RoleSelection', 'CompleteProfile', 'Login', 'Signup'];
+      const onboardingScreens = ['CompleteProfile', 'Login', 'Signup'];
       if (targetRoute && currentRoute && onboardingScreens.includes(currentRoute) && currentRoute !== targetRoute) {
         navigationRef.current.reset({
           index: 0,
@@ -60,7 +58,7 @@ export default function RootNavigator() {
         });
       }
     }
-  }, [isAuthenticated, isLoading, profile?.role, profile?.full_name]);
+  }, [isAuthenticated, isLoading, profile?.full_name]);
 
   // Show loading screen while checking auth
   if (isLoading) {
@@ -74,8 +72,8 @@ export default function RootNavigator() {
   // Determine initial route based on auth and profile state
   const getInitialRoute = (): keyof RootStackParamList => {
     if (!isAuthenticated) return 'Login';
-    if (!profile || !profile.role) return 'RoleSelection';
-    if (!profile.full_name) return 'CompleteProfile';
+    // Role is set during signup, so go straight to CompleteProfile if name is missing
+    if (!profile || !profile.full_name) return 'CompleteProfile';
     return 'MainTabs';
   };
 
@@ -118,11 +116,7 @@ export default function RootNavigator() {
         ) : (
           // App Stack
           <>
-            <Stack.Screen
-              name="RoleSelection"
-              component={RoleSelectionScreen}
-              options={{ animationEnabled: true }}
-            />
+            {/* RoleSelection removed - role is now set during signup */}
             <Stack.Screen
               name="CompleteProfile"
               component={CompleteProfileScreen}
