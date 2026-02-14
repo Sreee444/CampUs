@@ -160,10 +160,12 @@ export default function DiscussionTopicScreen() {
         onPress: async () => {
           try {
             await deleteReply(replyId);
-            await loadTopic();
             Toast.show({ type: 'success', text1: 'Reply deleted' });
+            // Reload topic to refresh replies list
+            await loadTopic();
           } catch (error) {
-            Toast.show({ type: 'error', text1: 'Failed to delete' });
+            console.error('Delete reply error:', error);
+            Toast.show({ type: 'error', text1: 'Failed to delete reply' });
           }
         },
       },

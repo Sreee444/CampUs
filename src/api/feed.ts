@@ -28,7 +28,7 @@ export const getFeedPosts = async (
 
   // Get likes and comments counts for each post
   const postsWithCounts = await Promise.all(
-    (data || []).map(async (post: any) => {
+    (data || []).map(async (post) => {
       const [likesCount, commentsCount, isLiked] = await Promise.all([
         supabase
           .from("post_likes")
@@ -75,7 +75,7 @@ export const createPost = async (
       content,
       type,
       images,
-    } as any)
+    })
     .select(`
       *,
       author:profiles!feed_posts_author_id_fkey(*)
@@ -94,7 +94,7 @@ export const updatePost = async (
   // @ts-ignore - Supabase type inference issue
   const { data, error } = await supabase
     .from("feed_posts")
-    .update(updates as any)
+    .update(updates)
     .eq("id", postId)
     .select()
     .single();
@@ -114,7 +114,7 @@ export const likePost = async (postId: string, userId: string) => {
   // @ts-ignore - Supabase type inference issue
   const { data, error } = await supabase
     .from("post_likes")
-    .insert({ post_id: postId, user_id: userId } as any)
+    .insert({ post_id: postId, user_id: userId })
     .select()
     .single();
 
@@ -163,7 +163,7 @@ export const addComment = async (
   // @ts-ignore - Supabase type inference issue
   const { data, error } = await supabase
     .from("post_comments")
-    .insert({ post_id: postId, user_id: userId, content } as any)
+    .insert({ post_id: postId, user_id: userId, content })
     .select(`
       *,
       user:profiles!post_comments_user_id_fkey(*)
@@ -200,14 +200,13 @@ export const getPendingPosts = async () => {
 
 // Approve post (admin/faculty only)
 export const approvePost = async (postId: string, moderatorId: string) => {
-  // @ts-ignore - Supabase type inference issue
   const { data, error } = await supabase
     .from("feed_posts")
     .update({
       is_approved: true,
       moderated_by: moderatorId,
       moderated_at: new Date().toISOString(),
-    } as any)
+    })
     .eq("id", postId)
     .select()
     .single();

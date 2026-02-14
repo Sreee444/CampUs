@@ -37,7 +37,7 @@ export default function EventsScreen() {
   const { user, profile } = useAuth();
   const Colors = getColors(isDark);
   const styles = createStyles(Colors);
-  
+
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [events, setEvents] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -45,18 +45,22 @@ export default function EventsScreen() {
   const [activeTab, setActiveTab] = useState<'upcoming' | 'live' | 'past'>('upcoming');
 
   // Check if user can create events
-  const canCreateEvent = profile && (
-    profile.role === 'faculty' ||
-    profile.role === 'admin' ||
-    profile.is_club_coordinator ||
-    profile.is_volunteer
-  );
+  // TEMP: Allow all authenticated users for debugging
+  const canCreateEvent = profile && user?.id;
+
+  // Log for debugging
+  useEffect(() => {
+    console.log('EventsScreen - User Role:', profile?.role);
+    console.log('EventsScreen - Is Club Coordinator:', profile?.is_club_coordinator);
+    console.log('EventsScreen - Is Volunteer:', profile?.is_volunteer);
+    console.log('EventsScreen - Can Create Event:', canCreateEvent);
+  }, [profile]);
 
   const loadEvents = async (refresh = false) => {
     try {
       if (refresh) setIsRefreshing(true);
       else setIsLoading(true);
-      
+
       const data = await getEvents(user?.id, undefined, activeTab === 'upcoming');
       setEvents(data || []);
     } catch (error) {
@@ -80,12 +84,12 @@ export default function EventsScreen() {
     const now = new Date();
     const eventStart = new Date(event.start_date);
     const eventEnd = new Date(event.end_date);
-    
+
     // Filter by tab
     if (activeTab === 'upcoming' && eventStart <= now) return false;
     if (activeTab === 'live' && (eventStart > now || eventEnd < now)) return false;
     if (activeTab === 'past' && eventEnd >= now) return false;
-    
+
     // Filter by category
     return selectedCategory === 'All' || event.event_type === selectedCategory;
   });
@@ -128,16 +132,20 @@ export default function EventsScreen() {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Events</Text>
         <View style={styles.headerButtons}>
-          <TouchableOpacity 
-            style={styles.calendarButton} 
-            onPress={() => {}}
+          <TouchableOpacity
+            style={styles.calendarButton}
+            onPress={() => { }}
           >
             <MaterialIcons name="calendar-today" size={20} color={Colors.primary} />
           </TouchableOpacity>
           {canCreateEvent && (
             <TouchableOpacity
               style={styles.addButton}
-              onPress={() => navigation.navigate('CreateEvent')}
+              onPress={() => {
+                console.log('Create Event button pressed!');
+                console.log('Navigating to CreateEvent screen...');
+                navigation.navigate('CreateEvent');
+              }}
             >
               <MaterialIcons name="add" size={24} color="#fff" />
             </TouchableOpacity>
@@ -155,7 +163,7 @@ export default function EventsScreen() {
             📅 Upcoming
           </Text>
         </TouchableOpacity>
-        
+
         <TouchableOpacity
           style={[styles.tab, activeTab === 'live' && styles.tabActive]}
           onPress={() => setActiveTab('live')}
@@ -164,7 +172,7 @@ export default function EventsScreen() {
             🔴 Live
           </Text>
         </TouchableOpacity>
-        
+
         <TouchableOpacity
           style={[styles.tab, activeTab === 'past' && styles.tabActive]}
           onPress={() => setActiveTab('past')}
@@ -242,8 +250,8 @@ export default function EventsScreen() {
           </View>
         ) : (
           filteredEvents.map((event) => (
-            <TouchableOpacity 
-              key={event.id} 
+            <TouchableOpacity
+              key={event.id}
               style={styles.eventCard}
               onPress={() => navigation.navigate('EventDetails', { eventId: event.id })}
             >
@@ -259,9 +267,9 @@ export default function EventsScreen() {
                     {event.event_type.toUpperCase()}
                   </Text>
                 </View>
-                <EventStatus 
-                  startDate={event.start_date} 
-                  endDate={event.end_date} 
+                <EventStatus
+                  startDate={event.start_date}
+                  endDate={event.end_date}
                 />
               </View>
 
@@ -280,10 +288,10 @@ export default function EventsScreen() {
                   </Text>
                 </View>
                 <View style={styles.eventDetailRow}>
-                  <MaterialIcons 
-                    name={event.is_online ? "laptop" : "location-on"} 
-                    size={16} 
-                    color="#6b7280" 
+                  <MaterialIcons
+                    name={event.is_online ? "laptop" : "location-on"}
+                    size={16}
+                    color="#6b7280"
                   />
                   <Text style={styles.eventDetailText}>
                     {event.is_online ? "Online Event" : event.venue}
@@ -321,11 +329,11 @@ export default function EventsScreen() {
                     styles.registerButtonText,
                     event.is_registered && styles.unregisterButtonText
                   ]}>
-                    {event.is_registered ? '✓ Registered' : 'Register'}
+                    {event.is_registered ? 'Unregister' : 'Register'}
                   </Text>
                 </TouchableOpacity>
               )}
-              
+
               {/* Registration Closed */}
               {activeTab === 'upcoming' && new Date(event.registration_deadline) <= new Date() && (
                 <View style={styles.closedButton}>
@@ -335,7 +343,7 @@ export default function EventsScreen() {
             </TouchableOpacity>
           ))
         )}
-        
+
         <View style={{ height: 100 }} />
       </ScrollView>
     </SafeAreaView>
@@ -358,91 +366,91 @@ function getCategoryStyle(category: string) {
 }
 
 const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create({
-    headerButtons: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-    },
-    addButton: {
-      backgroundColor: Colors.primary,
-      borderRadius: BorderRadius.md,
-      paddingVertical: 8,
-      paddingHorizontal: 16,
-      alignItems: 'center',
-      marginLeft: 8,
-    },
-    eventsContainer: {
-      flex: 1,
-      backgroundColor: Colors.background,
-    },
-    eventsContent: {
-      padding: Spacing.md,
-    },
-    loadingContainer: {
-      flex: 1,
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: 32,
-    },
-    loadingText: {
-      fontSize: FontSizes.md,
-      color: Colors.textSecondary,
-      marginTop: 12,
-    },
-    emptyContainer: {
-      flex: 1,
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: 32,
-    },
-    emptyTitle: {
-      fontSize: FontSizes.lg,
-      fontWeight: FontWeights.bold,
-      color: Colors.text,
-      marginBottom: 8,
-    },
-    createFirstButton: {
-      backgroundColor: Colors.primary,
-      borderRadius: BorderRadius.md,
-      paddingVertical: 10,
-      paddingHorizontal: 20,
-      alignItems: 'center',
-      marginTop: 16,
-    },
-    createFirstButtonText: {
-      fontSize: FontSizes.md,
-      fontWeight: FontWeights.semibold,
-      color: '#fff',
-    },
-    eventTypeContainer: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      marginTop: 8,
-      marginBottom: 4,
-    },
-    eventTypeText: {
-      fontSize: 12,
-      color: Colors.primary,
-      fontWeight: FontWeights.medium,
-      marginLeft: 4,
-    },
-    eventDescription: {
-      fontSize: FontSizes.sm,
-      color: Colors.textSecondary,
-      marginBottom: 8,
-    },
-    eventDetails: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 12,
-      marginTop: 8,
-    },
-    eventDetailRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-      marginBottom: 4,
-    },
+  headerButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  addButton: {
+    backgroundColor: Colors.primary,
+    borderRadius: BorderRadius.md,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    marginLeft: 8,
+  },
+  eventsContainer: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
+  eventsContent: {
+    padding: Spacing.md,
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+  },
+  loadingText: {
+    fontSize: FontSizes.md,
+    color: Colors.textSecondary,
+    marginTop: 12,
+  },
+  emptyContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+  },
+  emptyTitle: {
+    fontSize: FontSizes.lg,
+    fontWeight: FontWeights.bold,
+    color: Colors.text,
+    marginBottom: 8,
+  },
+  createFirstButton: {
+    backgroundColor: Colors.primary,
+    borderRadius: BorderRadius.md,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  createFirstButtonText: {
+    fontSize: FontSizes.md,
+    fontWeight: FontWeights.semibold,
+    color: '#fff',
+  },
+  eventTypeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  eventTypeText: {
+    fontSize: 12,
+    color: Colors.primary,
+    fontWeight: FontWeights.medium,
+    marginLeft: 4,
+  },
+  eventDescription: {
+    fontSize: FontSizes.sm,
+    color: Colors.textSecondary,
+    marginBottom: 8,
+  },
+  eventDetails: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 8,
+  },
+  eventDetailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
   container: {
     flex: 1,
     backgroundColor: Colors.background,

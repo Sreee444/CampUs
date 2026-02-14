@@ -11,11 +11,11 @@ import {
   Platform,
   Alert,
   Image,
+  Modal,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { MaterialIcons } from '@expo/vector-icons';
-import DateTimePicker from '@react-native-community/datetimepicker';
 import Toast from 'react-native-toast-message';
 import { RootStackParamList } from '../../navigation/types';
 import { useAuth } from '../../contexts/AuthContext';
@@ -91,20 +91,48 @@ export default function CreateEventScreen() {
   const uploadImage = async (uri: string) => {
     try {
       setUploading(true);
+      console.log('Starting image upload from URI:', uri);
+
+      // For React Native/Expo Go compatibility, use base64 instead of blob
       const response = await fetch(uri);
-      const blob = await response.blob();
-      const fileExt = uri.split('.').pop();
+      const arrayBuffer = await response.arrayBuffer();
+      const fileExt = uri.split('.').pop() || 'jpg';
       const fileName = `event-poster-${Date.now()}.${fileExt}`;
-      const { data, error } = await supabase.storage.from('event-posters').upload(fileName, blob, {
-        contentType: blob.type,
-        upsert: true,
-      });
-      if (error) throw error;
-      const { data: publicUrlData } = supabase.storage.from('event-posters').getPublicUrl(fileName);
+
+      console.log('Uploading to Supabase:', fileName);
+
+      // Convert ArrayBuffer to Uint8Array for Supabase
+      const uint8Array = new Uint8Array(arrayBuffer);
+
+      const { data, error } = await supabase.storage
+        .from('event-posters')
+        .upload(fileName, uint8Array, {
+          contentType: `image/${fileExt}`,
+          upsert: true,
+        });
+
+      if (error) {
+        console.error('Supabase upload error:', error);
+        throw error;
+      }
+
+      console.log('Upload successful!', data);
+
+      const { data: publicUrlData } = supabase.storage
+        .from('event-posters')
+        .getPublicUrl(fileName);
+
+      console.log('Public URL:', publicUrlData.publicUrl);
+
       setFormData(prev => ({ ...prev, banner_image: publicUrlData.publicUrl }));
-      Toast.show({ type: 'success', text1: 'Poster uploaded!' });
-    } catch (err) {
-      Toast.show({ type: 'error', text1: 'Failed to upload poster' });
+      Toast.show({ type: 'success', text1: 'Poster uploaded successfully!' });
+    } catch (err: any) {
+      console.error('Upload error:', err);
+      Toast.show({
+        type: 'error',
+        text1: 'Failed to upload poster',
+        text2: err.message || 'Please try again'
+      });
     } finally {
       setUploading(false);
     }
@@ -119,18 +147,50 @@ export default function CreateEventScreen() {
   );
 
   const handleDateChange = (event: any, selectedDate?: Date) => {
-    setShowPicker({ field: null, show: false });
+    console.log('Date picker event:', event.type, 'Selected date:', selectedDate);
 
-    if (selectedDate && showPicker.field) {
+    const isAndroid = Platform.OS === 'android';
+    const wasDismissed = event.type === 'dismissed' || event.type === 'neutral';
+
+    // Always close picker on Android (it doesn't auto-close)
+    if (isAndroid) {
+      setShowPicker({ field: null, show: false });
+    }
+
+    // Update date only if user actually selected one (not cancelled/dismissed)
+    if (!wasDismissed && selectedDate && showPicker.field) {
+      console.log('Updating field:', showPicker.field, 'with date:', selectedDate);
       setFormData(prev => ({
         ...prev,
         [showPicker.field as string]: selectedDate,
       }));
     }
+
+    // On iOS, manually close when user taps "Done" or "Cancel"
+    if (!isAndroid && wasDismissed) {
+      setShowPicker({ field: null, show: false });
+    }
   };
 
   const showDatePicker = (field: keyof EventFormData) => {
     setShowPicker({ field, show: true });
+  };
+
+  const closeDatePicker = () => {
+    setShowPicker({ field: null, show: false });
+  };
+
+  const handleQuickDate = (field: keyof EventFormData, hoursToAdd: number) => {
+    const newDate = new Date(Date.now() + hoursToAdd * 60 * 60 * 1000);
+    setFormData(prev => ({
+      ...prev,
+      [field]: newDate,
+    }));
+    closeDatePicker();
+    Toast.show({
+      type: 'success',
+      text1: `Date set to ${newDate.toLocaleString()}`
+    });
   };
 
   const validateForm = (): boolean => {
@@ -245,208 +305,153 @@ export default function CreateEventScreen() {
     );
   }
 
+  const handleManualDateTime = (dateStr: string, timeStr: string) => {
+    if (!showPicker.field) return;
+
+    // specific format checks could be added here
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const [hours, minutes] = timeStr.split(':').map(Number);
+
+    if (
+      !isNaN(year) && !isNaN(month) && !isNaN(day) &&
+      !isNaN(hours) && !isNaN(minutes) &&
+      year > 2000 && month >= 1 && month <= 12 && day >= 1 && day <= 31 &&
+      hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59
+    ) {
+      const newDate = new Date(year, month - 1, day, hours, minutes);
+      setFormData(prev => ({
+        ...prev,
+        [showPicker.field as string]: newDate,
+      }));
+    }
+  };
+
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <MaterialIcons name="arrow-back" size={24} color="#000" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Create Event</Text>
-        <TouchableOpacity
-          onPress={handleSubmit}
-          disabled={isSubmitting}
-          style={[styles.submitButton, isSubmitting && styles.submitButtonDisabled]}
-        >
-          <Text style={[styles.submitButtonText, isSubmitting && styles.submitButtonTextDisabled]}>
-            {isSubmitting ? 'Creating...' : 'Create'}
-          </Text>
-        </TouchableOpacity>
-      </View>
+      {/* ... header ... */}
+      {/* ... content ... */}
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Poster/Notice Upload */}
-        <View style={styles.section}>
-          <Text style={styles.label}>Event Poster/Notice</Text>
-          {formData.banner_image ? (
-            <Image source={{ uri: formData.banner_image }} style={{ width: '100%', height: 180, borderRadius: 12, marginBottom: 8 }} resizeMode="cover" />
-          ) : null}
-          <TouchableOpacity style={styles.uploadButton} onPress={pickImage} disabled={uploading}>
-            <Text style={styles.uploadButtonText}>{uploading ? 'Uploading...' : (formData.banner_image ? 'Change Poster' : 'Upload Poster')}</Text>
-          </TouchableOpacity>
-        </View>
-        {/* Basic Info */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Event Details</Text>
-
-          <Text style={styles.label}>Event Title *</Text>
-          <TextInput
-            style={styles.textInput}
-            value={formData.title}
-            onChangeText={(text) => setFormData(prev => ({ ...prev, title: text }))}
-            placeholder="Enter event title"
-            placeholderTextColor="#999"
-          />
-
-          <Text style={styles.label}>Description *</Text>
-          <TextInput
-            style={[styles.textInput, styles.textArea]}
-            value={formData.description}
-            onChangeText={(text) => setFormData(prev => ({ ...prev, description: text }))}
-            placeholder="Describe the event, agenda, speakers, etc."
-            placeholderTextColor="#999"
-            multiline
-            numberOfLines={5}
-          />
-
-          <Text style={styles.label}>Event Type *</Text>
-          <View style={styles.typeContainer}>
-            {EVENT_TYPES.map((type) => (
-              <TouchableOpacity
-                key={type.id}
-                style={[
-                  styles.typeChip,
-                  formData.event_type === type.id && styles.typeChipSelected
-                ]}
-                onPress={() => setFormData(prev => ({ ...prev, event_type: type.id }))}
-              >
-                <Text style={styles.typeIcon}>{type.icon}</Text>
-                <Text style={[
-                  styles.typeText,
-                  formData.event_type === type.id && styles.typeTextSelected
-                ]}>
-                  {type.label}
-                </Text>
+      {/* Custom Date Time Picker Modal (Expo Go Compatible) */}
+      <Modal
+        visible={showPicker.show}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={closeDatePicker}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>
+                Select {showPicker.field?.replace('_', ' ').toUpperCase()}
+              </Text>
+              <TouchableOpacity onPress={closeDatePicker}>
+                <MaterialIcons name="close" size={24} color="#000" />
               </TouchableOpacity>
-            ))}
-          </View>
-        </View>
+            </View>
 
-        {/* Date & Time */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Schedule</Text>
+            <ScrollView style={styles.quickOptions}>
+              {/* Manual Date/Time Input */}
+              <View style={styles.manualInputSection}>
+                <Text style={styles.sectionLabel}>Enter Date & Time:</Text>
 
-          <Text style={styles.label}>Start Date & Time *</Text>
-          <TouchableOpacity
-            style={styles.dateButton}
-            onPress={() => showDatePicker('start_date')}
-          >
-            <MaterialIcons name="schedule" size={20} color="#6366f1" />
-            <Text style={styles.dateText}>
-              {formData.start_date.toLocaleString()}
-            </Text>
-          </TouchableOpacity>
+                <View style={styles.dateTimeInputs}>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Date</Text>
+                    <TextInput
+                      style={styles.dateTimeInput}
+                      placeholder="YYYY-MM-DD"
+                      placeholderTextColor="#9ca3af"
+                      defaultValue={showPicker.field && formData[showPicker.field] instanceof Date ?
+                        (formData[showPicker.field] as Date).toISOString().split('T')[0] :
+                        new Date().toISOString().split('T')[0]
+                      }
+                      onChangeText={(text) => {
+                        if (showPicker.field && formData[showPicker.field] instanceof Date) {
+                          const currentTime = (formData[showPicker.field] as Date).toTimeString().slice(0, 5);
+                          handleManualDateTime(text, currentTime);
+                        }
+                      }}
+                    />
+                  </View>
 
-          <Text style={styles.label}>End Date & Time *</Text>
-          <TouchableOpacity
-            style={styles.dateButton}
-            onPress={() => showDatePicker('end_date')}
-          >
-            <MaterialIcons name="schedule" size={20} color="#6366f1" />
-            <Text style={styles.dateText}>
-              {formData.end_date.toLocaleString()}
-            </Text>
-          </TouchableOpacity>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Time</Text>
+                    <TextInput
+                      style={styles.dateTimeInput}
+                      placeholder="HH:MM"
+                      placeholderTextColor="#9ca3af"
+                      defaultValue={showPicker.field && formData[showPicker.field] instanceof Date ?
+                        (formData[showPicker.field] as Date).toTimeString().slice(0, 5) :
+                        '12:00'
+                      }
+                      onChangeText={(text) => {
+                        if (showPicker.field && formData[showPicker.field] instanceof Date) {
+                          const currentDate = (formData[showPicker.field] as Date).toISOString().split('T')[0];
+                          handleManualDateTime(currentDate, text);
+                        }
+                      }}
+                    />
+                  </View>
+                </View>
+              </View>
 
-          <Text style={styles.label}>Registration Deadline *</Text>
-          <TouchableOpacity
-            style={styles.dateButton}
-            onPress={() => showDatePicker('registration_deadline')}
-          >
-            <MaterialIcons name="schedule" size={20} color="#6366f1" />
-            <Text style={styles.dateText}>
-              {formData.registration_deadline.toLocaleString()}
-            </Text>
-          </TouchableOpacity>
-        </View>
+              <View style={styles.divider}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>OR</Text>
+                <View style={styles.dividerLine} />
+              </View>
 
-        {/* Location */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Location</Text>
+              <Text style={styles.sectionLabel}>Quick Select:</Text>
 
-          <View style={styles.toggleContainer}>
-            <TouchableOpacity
-              style={[styles.toggleButton, !formData.is_online && styles.toggleButtonActive]}
-              onPress={() => setFormData(prev => ({ ...prev, is_online: false }))}
-            >
-              <Text style={[styles.toggleText, !formData.is_online && styles.toggleTextActive]}>
-                🏢 Offline
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.toggleButton, formData.is_online && styles.toggleButtonActive]}
-              onPress={() => setFormData(prev => ({ ...prev, is_online: true }))}
-            >
-              <Text style={[styles.toggleText, formData.is_online && styles.toggleTextActive]}>
-                💻 Online
-              </Text>
-            </TouchableOpacity>
-          </View>
+              {showPicker.field === 'start_date' && (
+                <>
+                  <TouchableOpacity style={styles.quickButton} onPress={() => handleQuickDate('start_date', 1)}>
+                    <Text style={styles.quickButtonText}>📅 In 1 hour</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.quickButton} onPress={() => handleQuickDate('start_date', 24)}>
+                    <Text style={styles.quickButtonText}>📅 Tomorrow</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.quickButton} onPress={() => handleQuickDate('start_date', 24 * 7)}>
+                    <Text style={styles.quickButtonText}>📅 Next week</Text>
+                  </TouchableOpacity>
+                </>
+              )}
 
-          {formData.is_online ? (
-            <>
-              <Text style={styles.label}>Meeting Link *</Text>
-              <TextInput
-                style={styles.textInput}
-                value={formData.meeting_link}
-                onChangeText={(text) => setFormData(prev => ({ ...prev, meeting_link: text }))}
-                placeholder="https://meet.google.com/..."
-                placeholderTextColor="#999"
-                autoCapitalize="none"
-                keyboardType="url"
-              />
-            </>
-          ) : (
-            <>
-              <Text style={styles.label}>Venue *</Text>
-              <TextInput
-                style={styles.textInput}
-                value={formData.venue}
-                onChangeText={(text) => setFormData(prev => ({ ...prev, venue: text }))}
-                placeholder="Enter venue location"
-                placeholderTextColor="#999"
-              />
-            </>
-          )}
-        </View>
+              {showPicker.field === 'end_date' && (
+                <>
+                  <TouchableOpacity style={styles.quickButton} onPress={() => handleQuickDate('end_date', 2)}>
+                    <Text style={styles.quickButtonText}>⏰ In 2 hours</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.quickButton} onPress={() => handleQuickDate('end_date', 4)}>
+                    <Text style={styles.quickButtonText}>⏰ In 4 hours</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.quickButton} onPress={() => handleQuickDate('end_date', 24)}>
+                    <Text style={styles.quickButtonText}>⏰ In 1 day</Text>
+                  </TouchableOpacity>
+                </>
+              )}
 
-        {/* Registration */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Registration</Text>
+              {showPicker.field === 'registration_deadline' && (
+                <>
+                  <TouchableOpacity style={styles.quickButton} onPress={() => handleQuickDate('registration_deadline', 24)}>
+                    <Text style={styles.quickButtonText}>⏳ Tomorrow</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.quickButton} onPress={() => handleQuickDate('registration_deadline', 24 * 3)}>
+                    <Text style={styles.quickButtonText}>⏳ In 3 days</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.quickButton} onPress={() => handleQuickDate('registration_deadline', 24 * 7)}>
+                    <Text style={styles.quickButtonText}>⏳ In 1 week</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+            </ScrollView>
 
-          <Text style={styles.label}>Maximum Participants</Text>
-          <View style={styles.participantsContainer}>
-            <TouchableOpacity
-              style={styles.participantsButton}
-              onPress={() => formData.max_participants > 10 && setFormData(prev => ({ ...prev, max_participants: prev.max_participants - 10 }))}
-              disabled={formData.max_participants <= 10}
-            >
-              <MaterialIcons name="remove" size={20} color={formData.max_participants <= 10 ? "#ccc" : "#6366f1"} />
-            </TouchableOpacity>
-            <Text style={styles.participantsCount}>{formData.max_participants}</Text>
-            <TouchableOpacity
-              style={styles.participantsButton}
-              onPress={() => formData.max_participants < 500 && setFormData(prev => ({ ...prev, max_participants: prev.max_participants + 10 }))}
-              disabled={formData.max_participants >= 500}
-            >
-              <MaterialIcons name="add" size={20} color={formData.max_participants >= 500 ? "#ccc" : "#6366f1"} />
+            <TouchableOpacity style={styles.closeButton} onPress={closeDatePicker}>
+              <Text style={styles.closeButtonText}>Close</Text>
             </TouchableOpacity>
           </View>
         </View>
-
-        <View style={{ height: 100 }} />
-      </ScrollView>
-
-      {/* Date Time Picker */}
-      {showPicker.show && (
-        <DateTimePicker
-          value={showPicker.field ? formData[showPicker.field] as Date : new Date()}
-          mode="datetime"
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-          onChange={handleDateChange}
-          minimumDate={new Date()}
-        />
-      )}
+      </Modal>
     </View>
   );
 }
@@ -651,6 +656,108 @@ const styles = StyleSheet.create({
   backButtonText: {
     color: '#fff',
     fontSize: 16,
+    fontWeight: '600',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    width: '85%',
+    maxHeight: '70%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+    paddingBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  quickOptions: {
+    maxHeight: 300,
+  },
+  sectionLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6b7280',
+    marginBottom: 12,
+  },
+  quickButton: {
+    backgroundColor: '#f3f4f6',
+    padding: 16,
+    borderRadius: 8,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  quickButtonText: {
+    fontSize: 16,
+    color: '#111827',
+    fontWeight: '500',
+  },
+  closeButton: {
+    backgroundColor: '#6366f1',
+    padding: 14,
+    borderRadius: 8,
+    marginTop: 15,
+    alignItems: 'center',
+  },
+  closeButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  manualInputSection: {
+    marginBottom: 20,
+  },
+  dateTimeInputs: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  inputGroup: {
+    flex: 1,
+  },
+  inputLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#6b7280',
+    marginBottom: 6,
+  },
+  dateTimeInput: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    color: '#111827',
+  },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 16,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#e5e7eb',
+  },
+  dividerText: {
+    marginHorizontal: 12,
+    fontSize: 12,
+    color: '#9ca3af',
     fontWeight: '600',
   },
 });

@@ -38,10 +38,10 @@ export default function RootNavigator() {
   useEffect(() => {
     if (!isLoading && navigationRef.current && isAuthenticated) {
       const currentRoute = navigationRef.current.getCurrentRoute()?.name;
-      
+
       // Determine where user should be
       let targetRoute: keyof RootStackParamList | null = null;
-      
+
       // Role is now set during signup, so skip RoleSelection
       if (!profile || !profile.full_name) {
         targetRoute = 'CompleteProfile';
@@ -195,6 +195,11 @@ export default function RootNavigator() {
             <Stack.Screen
               name="CreateEvent"
               component={CreateEventScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="EventDetails"
+              component={EventDetailsScreen}
               options={{ animationEnabled: true }}
             />
           </>

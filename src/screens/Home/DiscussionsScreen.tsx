@@ -11,7 +11,7 @@ import {
   Platform,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { CompositeNavigationProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -61,9 +61,11 @@ export default function DiscussionsScreen() {
 
   const isFacultyOrAdmin = profile?.role === 'faculty' || profile?.role === 'admin';
 
-  useEffect(() => {
-    loadTopics();
-  }, []);
+  useFocusEffect(
+    React.useCallback(() => {
+      loadTopics();
+    }, [])
+  );
 
   const loadTopics = async () => {
     try {

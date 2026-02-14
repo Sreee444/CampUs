@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,8 @@ import {
   StyleSheet,
   SafeAreaView,
   Alert,
+  Image,
+  Dimensions,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -18,6 +20,7 @@ import { supabase } from '../../api/supabase';
 import { CountdownTimer, EventStatus } from '../../components/CountdownTimer';
 import { scheduleEventReminder, createEventReminder } from '../../api/eventReminders';
 import Toast from 'react-native-toast-message';
+import { LinearGradient } from 'expo-linear-gradient';
 
 type EventDetailsScreenNavigationProp = StackNavigationProp<RootStackParamList, 'EventDetails'>;
 type EventDetailsScreenRouteProp = RouteProp<RootStackParamList, 'EventDetails'>;
@@ -45,6 +48,8 @@ interface EventDetails {
   };
 }
 
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
 export default function EventDetailsScreen() {
   const navigation = useNavigation<EventDetailsScreenNavigationProp>();
   const route = useRoute<EventDetailsScreenRouteProp>();
@@ -55,14 +60,10 @@ export default function EventDetailsScreen() {
 
   const { eventId } = route.params;
 
-  useEffect(() => {
-    loadEventDetails();
-  }, [eventId]);
-
-  const loadEventDetails = async () => {
+  const loadEventDetails = useCallback(async () => {
     try {
       setIsLoading(true);
-      
+
       const { data, error } = await supabase
         .from('events')
         .select(`
@@ -77,42 +78,49 @@ export default function EventDetailsScreen() {
 
       if (error) throw error;
 
-      // Check registration status
+      // Check if user is registered for this event
       let isRegistered = false;
       if (user?.id) {
-        const { data: registration } = await supabase
+        const { data: registrationData, error: regError } = await supabase
           .from('event_registrations')
           .select('id')
           .eq('event_id', eventId)
           .eq('user_id', user.id)
-          .single();
-        
-        isRegistered = !!registration;
+          .maybeSingle();
+
+        if (!regError && registrationData) {
+          isRegistered = true;
+        }
       }
 
-      // Get registration count
-      const { count } = await supabase
+      // Get participant count
+      const { count: participantCount } = await supabase
         .from('event_registrations')
-        .select('id', { count: 'exact' })
+        .select('id', { count: 'exact', head: true })
         .eq('event_id', eventId);
 
-      setEvent({
-        ...data,
-        is_registered: isRegistered,
-        registrations_count: count || 0,
-      });
+      console.log('Event registration check:', { isRegistered, userId: user?.id, eventId });
 
+      setEvent({
+        ...(data as any),
+        is_registered: isRegistered,
+        registrations_count: participantCount || 0,
+      } as EventDetails);
     } catch (error) {
-      console.error('Error loading event details:', error);
+      console.error('Failed to load event details:', error);
       Toast.show({
         type: 'error',
-        text1: 'Failed to load event details',
+        text1: 'Failed to load event',
         text2: 'Please try again',
       });
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [eventId, user?.id]);
+
+  useEffect(() => {
+    loadEventDetails();
+  }, [loadEventDetails]);
 
   const handleRegistration = async () => {
     if (!user?.id || !event) return;
@@ -122,13 +130,27 @@ export default function EventDetailsScreen() {
 
       if (event.is_registered) {
         // Unregister
-        const { error } = await supabase
+        console.log('Attempting to unregister:', { eventId, userId: user.id });
+
+        const { error, count } = await supabase
           .from('event_registrations')
           .delete()
           .eq('event_id', eventId)
           .eq('user_id', user.id);
 
-        if (error) throw error;
+        console.log('Delete result:', { error, count });
+
+        if (error) {
+          console.error('Delete error:', error);
+          throw error;
+        }
+
+        // Optimistically update UI immediately
+        setEvent({
+          ...event,
+          is_registered: false,
+          registrations_count: Math.max(0, (event.registrations_count || 1) - 1),
+        });
 
         Toast.show({
           type: 'success',
@@ -141,9 +163,16 @@ export default function EventDetailsScreen() {
           .insert({
             event_id: eventId,
             user_id: user.id,
-          });
+          } as any);
 
         if (error) throw error;
+
+        // Optimistically update UI immediately
+        setEvent({
+          ...event,
+          is_registered: true,
+          registrations_count: (event.registrations_count || 0) + 1,
+        });
 
         // Schedule reminder notification
         try {
@@ -155,7 +184,7 @@ export default function EventDetailsScreen() {
           );
 
           await createEventReminder(eventId, user.id, 60);
-          
+
           Toast.show({
             type: 'success',
             text1: 'Registered successfully!',
@@ -170,8 +199,6 @@ export default function EventDetailsScreen() {
           });
         }
       }
-
-      await loadEventDetails();
     } catch (error: any) {
       console.error('Registration error:', error);
       Toast.show({
@@ -179,6 +206,8 @@ export default function EventDetailsScreen() {
         text1: 'Registration failed',
         text2: error.message || 'Please try again',
       });
+      // Revert optimistic update on error
+      await loadEventDetails();
     } finally {
       setIsRegistering(false);
     }
@@ -192,7 +221,7 @@ export default function EventDetailsScreen() {
         `Open meeting link?\n${event.meeting_link}`,
         [
           { text: 'Cancel', style: 'cancel' },
-          { text: 'Open', onPress: () => {} }, // Linking.openURL(event.meeting_link)
+          { text: 'Open', onPress: () => { } }, // Linking.openURL(event.meeting_link)
         ]
       );
     }
@@ -208,6 +237,18 @@ export default function EventDetailsScreen() {
       hour: '2-digit',
       minute: '2-digit',
     });
+  };
+
+  const getDaysUntil = (dateStr: string) => {
+    const target = new Date(dateStr);
+    const now = new Date();
+    const diffTime = Math.abs(target.getTime() - now.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return '1 day';
+    if (diffDays < 7) return `${diffDays} days`;
+    return target.toLocaleDateString();
   };
 
   if (isLoading || !event) {
@@ -249,6 +290,22 @@ export default function EventDetailsScreen() {
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        {/* Event Banner/Poster */}
+        {event.banner_image && (
+          <View style={styles.bannerContainer}>
+            <Image
+              source={{ uri: event.banner_image }}
+              style={styles.bannerImage}
+              resizeMode="cover"
+            />
+            {/* Gradient overlay for better text visibility */}
+            <LinearGradient
+              colors={['transparent', 'rgba(0,0,0,0.7)']}
+              style={styles.bannerGradient}
+            />
+          </View>
+        )}
+
         {/* Event Header */}
         <View style={styles.eventHeader}>
           <View style={styles.eventTypeContainer}>
@@ -260,17 +317,7 @@ export default function EventDetailsScreen() {
         {/* Event Title */}
         <Text style={styles.eventTitle}>{event.title}</Text>
 
-        {/* Countdown Timer for Upcoming Events */}
-        {isUpcoming && (
-          <View style={styles.timerSection}>
-            <Text style={styles.timerLabel}>Event starts in:</Text>
-            <CountdownTimer
-              targetDate={event.start_date}
-              showDays={true}
-              compact={false}
-            />
-          </View>
-        )}
+
 
         {/* Live Indicator */}
         {isLive && (
@@ -354,28 +401,94 @@ export default function EventDetailsScreen() {
           <Text style={styles.description}>{event.description}</Text>
         </View>
 
+        {/* Event Timeline Section */}
+        <View style={styles.timelineSection}>
+          <Text style={styles.sectionTitle}>📅 Event Timeline</Text>
+
+          <View style={styles.timelineContainer}>
+            {/* Registration Deadline */}
+            <View style={styles.timelineItem}>
+              <View style={[styles.timelineIconContainer, { backgroundColor: '#fef3c7' }]}>
+                <MaterialIcons name="event-available" size={20} color="#f59e0b" />
+              </View>
+              <View style={styles.timelineContent}>
+                <Text style={styles.timelineLabel}>Registration Closes</Text>
+                <Text style={styles.timelineDate}>{formatEventDate(event.registration_deadline)}</Text>
+                {/* Show countdown if registration deadline is approaching */}
+                {isUpcoming && new Date(event.registration_deadline) > new Date() && (
+                  <View style={styles.miniCountdown}>
+                    <MaterialIcons name="timer" size={14} color="#f59e0b" />
+                    <Text style={styles.miniCountdownText}>
+                      {getDaysUntil(event.registration_deadline)} left to register
+                    </Text>
+                  </View>
+                )}
+                {new Date(event.registration_deadline) <= new Date() && (
+                  <View style={styles.closedBadge}>
+                    <Text style={styles.closedBadgeText}>Registration Closed</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+
+            {/* Event Start */}
+            <View style={styles.timelineItem}>
+              <View style={[styles.timelineIconContainer, { backgroundColor: '#d1fae5' }]}>
+                <MaterialIcons name="play-circle-filled" size={20} color="#10b981" />
+              </View>
+              <View style={styles.timelineContent}>
+                <Text style={styles.timelineLabel}>Event Starts</Text>
+                <Text style={styles.timelineDate}>{formatEventDate(event.start_date)}</Text>
+              </View>
+            </View>
+
+            {/* Event End */}
+            <View style={styles.timelineItem}>
+              <View style={[styles.timelineIconContainer, { backgroundColor: '#fee2e2' }]}>
+                <MaterialIcons name="stop-circle" size={20} color="#ef4444" />
+              </View>
+              <View style={styles.timelineContent}>
+                <Text style={styles.timelineLabel}>Event Ends</Text>
+                <Text style={styles.timelineDate}>{formatEventDate(event.end_date)}</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
         {/* Registration Section */}
         {canRegister && (
           <View style={styles.registrationSection}>
-            <TouchableOpacity
-              style={[
-                styles.registerButton,
-                event.is_registered && styles.unregisterButton,
-                isRegistering && styles.registerButtonDisabled,
-              ]}
-              onPress={handleRegistration}
-              disabled={isRegistering}
-            >
-              <Text style={[
-                styles.registerButtonText,
-                event.is_registered && styles.unregisterButtonText,
-              ]}>
-                {isRegistering
-                  ? (event.is_registered ? 'Unregistering...' : 'Registering...')
-                  : (event.is_registered ? '✓ Registered' : 'Register for Event')
-                }
-              </Text>
-            </TouchableOpacity>
+            {event.is_registered ? (
+              // Already Registered - Show Unregister Button
+              <TouchableOpacity
+                style={[
+                  styles.unregisterButton,
+                  isRegistering && styles.registerButtonDisabled,
+                ]}
+                onPress={handleRegistration}
+                disabled={isRegistering}
+              >
+                <MaterialIcons name="cancel" size={20} color="#ef4444" />
+                <Text style={styles.unregisterButtonText}>
+                  {isRegistering ? 'Unregistering...' : 'Unregister'}
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              // Not Registered - Show Register Button
+              <TouchableOpacity
+                style={[
+                  styles.registerButton,
+                  isRegistering && styles.registerButtonDisabled,
+                ]}
+                onPress={handleRegistration}
+                disabled={isRegistering}
+              >
+                <MaterialIcons name="event-available" size={20} color="#fff" />
+                <Text style={styles.registerButtonText}>
+                  {isRegistering ? 'Registering...' : 'Register for Event'}
+                </Text>
+              </TouchableOpacity>
+            )}
 
             <Text style={styles.registrationInfo}>
               Registration deadline: {new Date(event.registration_deadline).toLocaleDateString()}
@@ -556,13 +669,24 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 24,
     borderRadius: 12,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
     marginBottom: 8,
   },
   unregisterButton: {
     backgroundColor: '#fff',
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 12,
     borderWidth: 2,
-    borderColor: '#6366f1',
+    borderColor: '#ef4444',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 8,
   },
   registerButtonDisabled: {
     opacity: 0.6,
@@ -573,7 +697,9 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
   unregisterButtonText: {
-    color: '#6366f1',
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#ef4444',
   },
   registrationInfo: {
     fontSize: 12,
@@ -592,5 +718,94 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     color: '#6b7280',
+  },
+  bannerContainer: {
+    width: '100%',
+    height: 250,
+    marginBottom: 20,
+    position: 'relative',
+    backgroundColor: '#f3f4f6',
+  },
+  bannerImage: {
+    width: '100%',
+    height: '100%',
+  },
+  imagePlaceholder: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f3f4f6',
+  },
+  bannerGradient: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 100,
+  },
+  // Timeline Section Styles
+  timelineSection: {
+    backgroundColor: '#fff',
+    paddingHorizontal: 20,
+    paddingVertical: 24,
+    marginBottom: 16,
+  },
+  timelineContainer: {
+    marginTop: 16,
+  },
+  timelineItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 20,
+  },
+  timelineIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
+  },
+  timelineContent: {
+    flex: 1,
+  },
+  timelineLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6b7280',
+    marginBottom: 4,
+  },
+  timelineDate: {
+    fontSize: 15,
+    color: '#111827',
+    fontWeight: '500',
+  },
+  miniCountdown: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    gap: 6,
+  },
+  miniCountdownText: {
+    fontSize: 13,
+    color: '#f59e0b',
+    fontWeight: '500',
+  },
+  closedBadge: {
+    backgroundColor: '#fee2e2',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginTop: 6,
+    alignSelf: 'flex-start',
+  },
+  closedBadgeText: {
+    fontSize: 12,
+    color: '#ef4444',
+    fontWeight: '600',
   },
 });

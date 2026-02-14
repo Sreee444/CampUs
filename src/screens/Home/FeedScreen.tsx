@@ -18,6 +18,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { getEvents, registerForEvent } from '../../api/events';
 import { getUserStats } from '../../api/users';
 import { getProfile } from '../../api/auth';
+import { supabase } from '../../api/supabase';
 import { EventFeedItem } from '../../components/EventFeedItem';
 import { LinearGradient } from 'expo-linear-gradient';
 import Toast from 'react-native-toast-message';
@@ -38,15 +39,15 @@ export default function FeedScreen() {
   const [profile, setProfile] = useState<any>(null);
 
   const loadFeedData = async (refresh = false) => {
-        // Load user profile
-        if (user?.id) {
-          try {
-            const prof = await getProfile(user.id);
-            setProfile(prof);
-          } catch (err) {
-            setProfile(null);
-          }
-        }
+    // Load user profile
+    if (user?.id) {
+      try {
+        const prof = await getProfile(user.id);
+        setProfile(prof);
+      } catch (err) {
+        setProfile(null);
+      }
+    }
     try {
       if (refresh) setIsRefreshing(true);
       else setIsLoading(true);
@@ -66,16 +67,38 @@ export default function FeedScreen() {
       setEvents(feedEvents);
       setUpcomingEvents(eventsData.slice(0, 3)); // Show top 3 upcoming events
 
-      // Load stats
+      // Load stats - show total counts, not user-specific
       if (user?.id) {
         try {
-          const userStats = await getUserStats(user.id);
+          // Count total active projects (recruiting)
+          const { count: projectsCount } = await supabase
+            .from('project_teams')
+            .select('id', { count: 'exact', head: true })
+            .eq('is_recruiting', true);
+
+          // Count upcoming events
+          const now = new Date().toISOString();
+          const { count: eventsCount } = await supabase
+            .from('events')
+            .select('id', { count: 'exact', head: true })
+            .gte('start_date', now);
+
+          // Count user's connections
+          const { count: connectionsCount } = await supabase
+            .from('connections')
+            .select('id', { count: 'exact', head: true })
+            .eq('user_id', user.id)
+            .eq('status', 'accepted');
+
+          console.log('Dashboard stats:', { projectsCount, eventsCount, connectionsCount });
+
           setStats({
-            projects: userStats.total_projects || 0,
-            events: userStats.total_events || 0,
-            connections: userStats.total_connections || 0,
+            projects: projectsCount || 0,
+            events: eventsCount || 0,
+            connections: connectionsCount || 0,
           });
         } catch (err) {
+          console.error('Stats load error:', err);
           setStats({ projects: 0, events: 0, connections: 0 });
         }
       }

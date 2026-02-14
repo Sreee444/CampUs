@@ -136,7 +136,7 @@ export default function CreateProjectScreen() {
           demo_url: formData.demo_url.trim() || null,
           tags: formData.tags,
           created_by: user.id,
-        })
+        } as any)
         .select()
         .single();
 
@@ -199,7 +199,7 @@ export default function CreateProjectScreen() {
         {/* Basic Info */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Basic Information</Text>
-          
+
           <Text style={styles.label}>Project Name *</Text>
           <TextInput
             style={styles.textInput}
@@ -245,7 +245,7 @@ export default function CreateProjectScreen() {
         {/* Team Details */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Team Details</Text>
-          
+
           <Text style={styles.label}>Maximum Members</Text>
           <View style={styles.memberCountContainer}>
             <TouchableOpacity
@@ -269,7 +269,7 @@ export default function CreateProjectScreen() {
         {/* Required Skills */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Required Skills</Text>
-          
+
           <Text style={styles.label}>Popular Skills</Text>
           <View style={styles.skillsContainer}>
             {COMMON_SKILLS.map((skill) => (
@@ -326,7 +326,7 @@ export default function CreateProjectScreen() {
         {/* Links */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Project Links (Optional)</Text>
-          
+
           <Text style={styles.label}>GitHub Repository</Text>
           <TextInput
             style={styles.textInput}
@@ -353,7 +353,7 @@ export default function CreateProjectScreen() {
         {/* Tags */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Tags (Optional)</Text>
-          
+
           <View style={styles.addSkillContainer}>
             <TextInput
               style={styles.addSkillInput}

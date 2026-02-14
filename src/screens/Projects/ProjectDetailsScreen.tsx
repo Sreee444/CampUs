@@ -17,7 +17,7 @@ import { getColors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } fro
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import Toast from 'react-native-toast-message';
-import { getProjectTeam, joinProjectTeam } from '../../api/projects';
+import { getProjectTeam, joinProjectTeam, leaveProjectTeam } from '../../api/projects';
 import { ProjectTeam } from '../../types/database';
 
 type ProjectDetailsScreenNavigationProp = StackNavigationProp<RootStackParamList, 'ProjectDetails'>;
@@ -71,18 +71,29 @@ export default function ProjectDetailsScreen() {
     };
   }, [teamId]);
 
-  const handleJoin = async () => {
-    if (!team || !teamId || !user?.id || isMember || !team.is_recruiting) return;
+  const handleToggleMembership = async () => {
+    if (!team || !teamId || !user?.id) return;
 
     try {
       setIsJoining(true);
-      await joinProjectTeam(teamId, user.id);
+
+      if (isMember) {
+        // Leave team
+        await leaveProjectTeam(teamId, user.id);
+        Toast.show({ type: 'success', text1: 'Left team', text2: team.name });
+      } else {
+        // Join team
+        if (!team.is_recruiting) return;
+        await joinProjectTeam(teamId, user.id);
+        Toast.show({ type: 'success', text1: 'Joined team', text2: team.name });
+      }
+
+      // Refresh team data
       const refreshed = await getProjectTeam(teamId);
       setTeam(refreshed);
-      Toast.show({ type: 'success', text1: 'Joined team', text2: team.name });
     } catch (err) {
-      console.error('Failed to join team', err);
-      Toast.show({ type: 'error', text1: 'Unable to join', text2: 'Try again in a moment.' });
+      console.error('Failed to update membership', err);
+      Toast.show({ type: 'error', text1: 'Unable to update', text2: 'Try again in a moment.' });
     } finally {
       setIsJoining(false);
     }
@@ -93,9 +104,11 @@ export default function ProjectDetailsScreen() {
     : 0;
   const isMember = !!team?.members?.some((member) => member.id === user?.id);
 
-  const canJoin = !!team?.is_recruiting && !isMember && !!user?.id;
-  const joinLabel = isMember
-    ? 'Joined'
+  const canInteract = !!user?.id && (isMember || !!team?.is_recruiting);
+  const buttonLabel = isMember
+    ? isJoining
+      ? 'Leaving...'
+      : 'Leave Team'
     : team?.is_recruiting
       ? isJoining
         ? 'Joining...'
@@ -127,13 +140,13 @@ export default function ProjectDetailsScreen() {
         <Text style={styles.headerTitle}>{team?.name || 'Project Details'}</Text>
         <TouchableOpacity
           style={[
-            styles.joinButton,
-            (!canJoin && !isMember) || isJoining ? styles.joinButtonDisabled : {},
+            isMember ? styles.leaveButton : styles.joinButton,
+            !canInteract || isJoining ? styles.joinButtonDisabled : {},
           ]}
-          onPress={handleJoin}
-          disabled={!canJoin || isJoining}
+          onPress={handleToggleMembership}
+          disabled={!canInteract || isJoining}
         >
-          <Text style={styles.joinLabel}>{joinLabel}</Text>
+          <Text style={[styles.joinLabel, isMember && styles.leaveLabel]}>{buttonLabel}</Text>
         </TouchableOpacity>
       </View>
 
@@ -283,13 +296,27 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     alignItems: 'center',
     justifyContent: 'center',
   },
+  leaveButton: {
+    borderRadius: BorderRadius.full,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: '#fff',
+    borderWidth: 2,
+    borderColor: '#ef4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   joinButtonDisabled: {
     backgroundColor: Colors.border,
+    borderColor: Colors.border,
   },
   joinLabel: {
     fontSize: FontSizes.sm,
     fontWeight: FontWeights.semibold,
     color: '#ffffff',
+  },
+  leaveLabel: {
+    color: '#ef4444',
   },
   scrollView: {
     flex: 1,

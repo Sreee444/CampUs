@@ -1,4 +1,5 @@
 import { registerRootComponent } from 'expo';
+import './src/utils/consoleSuppression'; // Suppress known warnings
 
 import App from './App';
 

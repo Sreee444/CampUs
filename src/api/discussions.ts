@@ -14,7 +14,7 @@ export const getDiscussionTopics = async () => {
     .order('created_at', { ascending: false });
 
   if (error) throw error;
-  
+
   // Get replies count for each topic
   const topicsWithCounts = await Promise.all(
     (data || []).map(async (topic: any) => {
@@ -22,7 +22,7 @@ export const getDiscussionTopics = async () => {
         .from('discussion_replies')
         .select('id', { count: 'exact', head: true })
         .eq('topic_id', topic.id);
-      
+
       return { ...topic, replies_count: count || 0 };
     })
   );
@@ -105,16 +105,39 @@ export const postReply = async (
 
 // Mark reply as solution
 export const markAsSolution = async (replyId: string) => {
-  // @ts-ignore - Supabase type inference issue
-  const { data, error } = await supabase
-    .from('discussion_replies')
-    .update({ is_solution: true } as any)
-    .eq('id', replyId)
-    .select()
-    .single();
+  try {
+    // First, get the topic_id of this reply
+    const { data: reply, error: replyError } = await supabase
+      .from('discussion_replies')
+      .select('topic_id')
+      .eq('id', replyId)
+      .single();
 
-  if (error) throw error;
-  return data;
+    if (replyError) throw replyError;
+    if (!reply) throw new Error('Reply not found');
+
+    // Unmark any existing solutions for this topic
+    await supabase
+      .from('discussion_replies')
+      .update({ is_solution: false } as any)
+      .eq('topic_id', reply.topic_id)
+      .eq('is_solution', true);
+
+    // Mark this reply as the solution
+    // @ts-ignore - Supabase type inference issue
+    const { data, error } = await supabase
+      .from('discussion_replies')
+      .update({ is_solution: true } as any)
+      .eq('id', replyId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error('Error marking solution:', error);
+    throw error;
+  }
 };
 
 // Pin/Unpin topic (Faculty/Admin only)
