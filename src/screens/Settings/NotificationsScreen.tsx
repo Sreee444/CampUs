@@ -6,7 +6,6 @@ import {
   StyleSheet,
   ScrollView,
   Switch,
-  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -210,7 +209,6 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   container: {
     flex: 1,
     backgroundColor: Colors.background,
-    ...(Platform.OS === 'web' && ({ height: '100vh', width: '100vw' } as any)),
   },
   header: {
     flexDirection: 'row',

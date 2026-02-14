@@ -4,10 +4,9 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
   ScrollView,
-  Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -15,7 +14,7 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import Toast from 'react-native-toast-message';
 import { RootStackParamList } from '../../navigation/types';
 import { Colors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } from '../../theme';
-import { updateProfile } from '../../api/auth';
+import { updateProfile, createProfile } from '../../api/auth';
 import { useAuth } from '../../contexts/AuthContext';
 
 type RoleSelectionScreenNavigationProp = StackNavigationProp<RootStackParamList, 'RoleSelection'>;
@@ -50,29 +49,14 @@ export default function RoleSelectionScreen() {
     try {
       setIsSaving(true);
 
-      // Only allow role selection if role is 'student' or missing
-      if (profile && profile.role && profile.role !== 'student') {
-        // Already has a real role, skip
-        navigation.replace(profile.full_name ? 'MainTabs' : 'CompleteProfile');
-        return;
-      }
-      
-      // Update profile role (profile is always created by Supabase trigger)
       if (!profile) {
-        Toast.show({ type: 'error', text1: 'Profile not found. Please try logging in again.' });
-        return;
-      }
-      
-      await updateProfile(user.id, { role: selectedRole });
-      await refreshProfile();
-      
-      // Navigate based on profile completeness
-      // If profile already has full_name, go to MainTabs; otherwise, complete profile
-      if (profile?.full_name) {
-        navigation.replace('MainTabs');
+        await createProfile(user.id, user.email || '', selectedRole);
       } else {
-        navigation.replace('CompleteProfile');
+        await updateProfile(user.id, { role: selectedRole });
       }
+
+      await refreshProfile();
+      navigation.navigate('CompleteProfile');
     } catch (error: any) {
       Toast.show({
         type: 'error',
@@ -169,11 +153,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.light.background,
-    ...(Platform.OS === 'web' && ({ height: '100vh', width: '100vw' } as any)),
   },
   gradient: {
     flex: 1,
-    ...(Platform.OS === 'web' && ({ minHeight: '100vh' } as any)),
   },
   scrollContent: {
     flexGrow: 1,

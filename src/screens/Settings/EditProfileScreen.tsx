@@ -8,7 +8,6 @@ import {
   TextInput,
   Image,
   ActivityIndicator,
-  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -28,7 +27,6 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   container: {
     flex: 1,
     backgroundColor: Colors.background,
-    ...(Platform.OS === 'web' && ({ height: '100vh', width: '100vw' } as any)),
   },
   header: {
     flexDirection: 'row',
@@ -159,30 +157,10 @@ export default function EditProfileScreen() {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [1, 1],
-      quality: 0.8,
-    });
-
-    if (!result.canceled && result.assets[0]) {
-      await handleUploadAvatar(result.assets[0].uri);
-    }
-  };
-
-  const handleTakePhoto = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    
-    if (status !== 'granted') {
-      setToast({ visible: true, message: 'Camera permission required', type: 'error' });
-      return;
-    }
-
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8,
+      quality: 0.7,
     });
 
     if (!result.canceled && result.assets[0]) {
@@ -200,15 +178,7 @@ export default function EditProfileScreen() {
       setToast({ visible: true, message: 'Avatar uploaded!', type: 'success' });
     } catch (error: any) {
       console.error('Avatar upload error:', error);
-      
-      let errorMsg = 'Failed to upload avatar';
-      if (error.message?.includes('Network request failed')) {
-        errorMsg = 'Network error. Check your internet connection.';
-      } else if (error.message) {
-        errorMsg = error.message;
-      }
-      
-      setToast({ visible: true, message: errorMsg, type: 'error' });
+      setToast({ visible: true, message: error.message || 'Failed to upload avatar', type: 'error' });
     } finally {
       setIsUploading(false);
     }
@@ -276,24 +246,16 @@ export default function EditProfileScreen() {
               <Text style={styles.avatarText}>{getInitials()}</Text>
             </View>
           )}
-          <View style={{ flexDirection: 'row', gap: 16, marginTop: 4 }}>
-            <TouchableOpacity style={styles.changePhotoButton} onPress={handlePickImage} disabled={isUploading}>
-              {isUploading ? (
-                <ActivityIndicator size="small" color={Colors.primary} />
-              ) : (
-                <>
-                  <MaterialIcons name="photo-library" size={20} color={Colors.primary} />
-                  <Text style={styles.changePhotoText}>Gallery</Text>
-                </>
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.changePhotoButton} onPress={handleTakePhoto} disabled={isUploading}>
+          <TouchableOpacity style={styles.changePhotoButton} onPress={handlePickImage} disabled={isUploading}>
+            {isUploading ? (
+              <ActivityIndicator size="small" color={Colors.primary} />
+            ) : (
               <>
                 <MaterialIcons name="camera-alt" size={20} color={Colors.primary} />
-                <Text style={styles.changePhotoText}>Camera</Text>
+                <Text style={styles.changePhotoText}>Change Photo</Text>
               </>
-            </TouchableOpacity>
-          </View>
+            )}
+          </TouchableOpacity>
         </View>
 
         <View style={styles.form}>

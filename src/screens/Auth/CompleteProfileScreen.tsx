@@ -8,7 +8,6 @@ import {
   SafeAreaView,
   ScrollView,
   Image,
-  Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -117,7 +116,7 @@ export default function CompleteProfileScreen() {
 
       await refreshProfile();
       Toast.show({ type: 'success', text1: 'Profile updated' });
-      navigation.replace('MainTabs');
+      navigation.navigate('MainTabs');
     } catch (error: any) {
       Toast.show({
         type: 'error',
@@ -135,7 +134,7 @@ export default function CompleteProfileScreen() {
 
   const handleSkip = () => {
     Toast.show({ type: 'info', text1: 'Complete your profile later in Settings' });
-    navigation.replace('MainTabs');
+    navigation.navigate('MainTabs');
   };
 
   const handlePickAvatar = async () => {
@@ -396,11 +395,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.creamSoft,
-    ...(Platform.OS === 'web' && ({ height: '100vh', width: '100vw' } as any)),
   },
   gradient: {
     flex: 1,
-    ...(Platform.OS === 'web' && ({ minHeight: '100vh' } as any)),
   },
   header: {
     flexDirection: 'row',

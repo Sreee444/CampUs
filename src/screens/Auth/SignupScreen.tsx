@@ -17,7 +17,7 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import Toast from 'react-native-toast-message';
 import { RootStackParamList } from '../../navigation/types';
 import { Colors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } from '../../theme';
-import { signUp } from '../../api/auth';
+import { signUp, createProfile } from '../../api/auth';
 import { useAuth } from '../../contexts/AuthContext';
 
 type SignupScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Signup'>;
@@ -30,7 +30,6 @@ export default function SignupScreen() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [role, setRole] = useState('student');
 
   const handleSignup = async () => {
     if (!fullName.trim() || !email.trim() || !password) {
@@ -44,10 +43,10 @@ export default function SignupScreen() {
 
     try {
       setIsLoading(true);
-      const { user, session } = await signUp(email.trim(), password, fullName.trim(), role);
+      const { user, session } = await signUp(email.trim(), password);
 
       if (user) {
-        // Profile will be created by Supabase trigger. Optionally, refresh profile here.
+        await createProfile(user.id, email.trim(), 'student', fullName.trim());
         await refreshProfile();
       }
 
@@ -59,66 +58,63 @@ export default function SignupScreen() {
       } else {
         Toast.show({ type: 'success', text1: 'Account created!' });
       }
-
-      // Don't navigate manually - let auth state change handle routing
+      // RoleSelection screen will be shown automatically by RootNavigator
+      // once isAuthenticated is updated in the auth context
     } catch (error: any) {
-      console.error('Signup error:', error);
-      
-      let errorMessage = error?.message || 'Please try again';
-      
-      // Check for common Supabase errors
-      if (error?.message?.includes('Email not confirmed')) {
-        errorMessage = 'Email confirmation is required. Check Supabase settings.';
-      } else if (error?.message?.includes('signups not allowed')) {
-        errorMessage = 'Signups are disabled. Enable in Supabase dashboard.';
-      } else if (error?.status === 401) {
-        errorMessage = 'Auth error: Check Supabase email settings (disable email confirmation for dev)';
-      }
-      
       Toast.show({
         type: 'error',
         text1: 'Signup failed',
-        text2: errorMessage,
+        text2: error?.message || 'Please try again',
       });
     } finally {
       setIsLoading(false);
     }
   };
 
+  const handleBack = () => {
+    navigation.goBack();
+  };
+
+  const handleLogin = () => {
+    navigation.navigate('Login');
+  };
+
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      <LinearGradient
+        colors={['#e0c3fc', '#ffd1b3', '#f6f8f8']}
+        style={styles.gradient}
       >
-        <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-          <LinearGradient colors={['#e0f7fa', '#f3e5f5']} style={styles.gradient}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.keyboardView}
+        >
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
+            {/* Header */}
             <View style={styles.header}>
+              <TouchableOpacity style={styles.backButton} onPress={handleBack}>
+                <MaterialIcons name="arrow-back" size={24} color="#111818" />
+              </TouchableOpacity>
               <Text style={styles.headerTitle}>CAMPUS</Text>
+              <View style={styles.headerSpacer} />
             </View>
-            <View style={styles.form}>
-              <Text style={styles.title}>Create your account</Text>
-              
-              {/* Role selection */}
-              <Text style={{ marginTop: 16, marginBottom: 8, fontWeight: 'bold', color: '#333' }}>Select your role</Text>
-              <View style={{ flexDirection: 'row', marginBottom: 16, flexWrap: 'wrap' }}>
-                {['student', 'alumni', 'faculty', 'admin'].map((r) => (
-                  <TouchableOpacity
-                    key={r}
-                    style={{
-                      backgroundColor: role === r ? '#6366f1' : '#e5e7eb',
-                      paddingVertical: 8,
-                      paddingHorizontal: 14,
-                      borderRadius: 8,
-                      marginRight: 8,
-                      marginBottom: 8,
-                    }}
-                    onPress={() => setRole(r)}
-                  >
-                    <Text style={{ color: role === r ? '#fff' : '#333', fontWeight: 'bold' }}>{r.charAt(0).toUpperCase() + r.slice(1)}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+
+            {/* Main Content */}
+            <View style={styles.mainContent}>
+              <View style={styles.glassPanel}>
+                <View style={styles.titleSection}>
+                  <Text style={styles.title}>Create your account</Text>
+                  <Text style={styles.subtitle}>
+                    Join the modern academic network.
+                  </Text>
+                </View>
+
+                {/* Form */}
+                <View style={styles.form}>
                   {/* Full Name Input */}
                   <View style={styles.inputGroup}>
                     <Text style={styles.label}>Full Name</Text>
@@ -214,12 +210,13 @@ export default function SignupScreen() {
                     <MaterialIcons name="arrow-forward" size={18} color="#111818" />
                   </TouchableOpacity>
                 </View>
+              </View>
 
               {/* Footer Link */}
               <View style={styles.footer}>
                 <Text style={styles.footerText}>
                   Already a member?{' '}
-                  <Text style={styles.footerLink} onPress={() => navigation.navigate('Login')}>Log In</Text>
+                  <Text style={styles.footerLink} onPress={handleLogin}>Log In</Text>
                 </Text>
               </View>
 
@@ -229,10 +226,11 @@ export default function SignupScreen() {
                   By signing up, you agree to our Terms of Service and Privacy Policy.
                 </Text>
               </View>
-            </LinearGradient>
+            </View>
           </ScrollView>
         </KeyboardAvoidingView>
-      </SafeAreaView>
+      </LinearGradient>
+    </SafeAreaView>
   );
 }
 
@@ -240,17 +238,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.light.background,
-    ...(Platform.OS === 'web' && ({
-      height: '100vh',
-      width: '100vw',
-    } as any)),
   },
   gradient: {
     flex: 1,
-    ...(Platform.OS === 'web' && ({
-      minHeight: '100vh',
-      width: '100%',
-    } as any)),
   },
   keyboardView: {
     flex: 1,
@@ -259,10 +249,6 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.md,
-    ...(Platform.OS === 'web' && ({
-      minHeight: '100vh',
-      justifyContent: 'center',
-    } as any)),
   },
   header: {
     flexDirection: 'row',

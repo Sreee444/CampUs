@@ -6,120 +6,55 @@ import {
   StyleSheet,
   SafeAreaView,
   ScrollView,
-  ActivityIndicator,
-  RefreshControl,
-  Image,
-  Platform,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
-import { CompositeNavigationProp } from '@react-navigation/native';
-import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
-import { StackNavigationProp } from '@react-navigation/stack';
-import { RootStackParamList, MainTabParamList } from '../../navigation/types';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { getEvents, registerForEvent, unregisterFromEvent } from '../../api/events';
-import { CountdownTimer, EventStatus } from '../../components/CountdownTimer';
-import Toast from 'react-native-toast-message';
-
-type EventsScreenNavigationProp = CompositeNavigationProp<
-  BottomTabNavigationProp<MainTabParamList, 'Events'>,
-  StackNavigationProp<RootStackParamList>
->;
 
 const categories = ['All', 'workshop', 'seminar', 'hackathon', 'competition', 'fest', 'other'];
 
 export default function EventsScreen() {
-  const navigation = useNavigation<EventsScreenNavigationProp>();
   const { isDark } = useTheme();
-  const { user, profile } = useAuth();
+  const { user } = useAuth();
   const Colors = getColors(isDark);
   const styles = createStyles(Colors);
-  
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [events, setEvents] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState<'upcoming' | 'live' | 'past'>('upcoming');
-
-  // Check if user can create events
-  const canCreateEvent = profile && (
-    profile.role === 'faculty' ||
-    profile.role === 'admin' ||
-    profile.is_club_coordinator ||
-    profile.is_volunteer
-  );
-
-  const loadEvents = async (refresh = false) => {
-    try {
-      if (refresh) setIsRefreshing(true);
-      else setIsLoading(true);
-      
-      const data = await getEvents(user?.id, undefined, activeTab === 'upcoming');
-      setEvents(data || []);
-    } catch (error) {
-      console.error('Events load error:', error);
-      Toast.show({
-        type: 'error',
-        text1: 'Failed to load events',
-        text2: 'Please try again'
-      });
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
-    }
-  };
 
   useEffect(() => {
-    loadEvents();
-  }, [user?.id, activeTab]);
+    const loadEvents = async () => {
+      try {
+        const data = await getEvents(user?.id, undefined, true);
+        setEvents(data);
+      } catch (error) {
+        console.error('Events load error:', error);
+      }
+    };
 
-  const filteredEvents = events.filter((event) => {
-    const now = new Date();
-    const eventStart = new Date(event.start_date);
-    const eventEnd = new Date(event.end_date);
-    
-    // Filter by tab
-    if (activeTab === 'upcoming' && eventStart <= now) return false;
-    if (activeTab === 'live' && (eventStart > now || eventEnd < now)) return false;
-    if (activeTab === 'past' && eventEnd >= now) return false;
-    
-    // Filter by category
-    return selectedCategory === 'All' || event.event_type === selectedCategory;
-  });
+    loadEvents();
+  }, [user?.id]);
+
+  const filteredEvents = events.filter((event) =>
+    selectedCategory === 'All' || event.event_type === selectedCategory
+  );
 
   const handleRegister = async (event: any) => {
-    if (!user?.id) {
-      Toast.show({ type: 'error', text1: 'Please login to register' });
-      return;
-    }
+    if (!user?.id) return;
 
     try {
       if (event.is_registered) {
         await unregisterFromEvent(event.id, user.id);
-        Toast.show({ type: 'success', text1: 'Unregistered successfully' });
       } else {
         await registerForEvent(event.id, user.id);
-        Toast.show({ type: 'success', text1: 'Registered successfully!' });
       }
-      loadEvents(true);
+
+      const updated = await getEvents(user.id, undefined, true);
+      setEvents(updated);
     } catch (error) {
       console.error('Registration error:', error);
-      Toast.show({ type: 'error', text1: 'Registration failed', text2: 'Please try again' });
     }
-  };
-
-  const formatEventDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
   };
 
   return (
@@ -127,51 +62,8 @@ export default function EventsScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Events</Text>
-        <View style={styles.headerButtons}>
-          <TouchableOpacity 
-            style={styles.calendarButton} 
-            onPress={() => {}}
-          >
-            <MaterialIcons name="calendar-today" size={20} color={Colors.primary} />
-          </TouchableOpacity>
-          {canCreateEvent && (
-            <TouchableOpacity
-              style={styles.addButton}
-              onPress={() => navigation.navigate('CreateEvent')}
-            >
-              <MaterialIcons name="add" size={24} color="#fff" />
-            </TouchableOpacity>
-          )}
-        </View>
-      </View>
-
-      {/* Tab Selection */}
-      <View style={styles.tabsContainer}>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'upcoming' && styles.tabActive]}
-          onPress={() => setActiveTab('upcoming')}
-        >
-          <Text style={[styles.tabText, activeTab === 'upcoming' && styles.tabTextActive]}>
-            📅 Upcoming
-          </Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'live' && styles.tabActive]}
-          onPress={() => setActiveTab('live')}
-        >
-          <Text style={[styles.tabText, activeTab === 'live' && styles.tabTextActive]}>
-            🔴 Live
-          </Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'past' && styles.tabActive]}
-          onPress={() => setActiveTab('past')}
-        >
-          <Text style={[styles.tabText, activeTab === 'past' && styles.tabTextActive]}>
-            ⏰ Past
-          </Text>
+        <TouchableOpacity style={styles.calendarButton} onPress={() => {}}>
+          <MaterialIcons name="calendar-today" size={20} color={Colors.primary} />
         </TouchableOpacity>
       </View>
 
@@ -205,138 +97,70 @@ export default function EventsScreen() {
 
       {/* Events List */}
       <ScrollView
-        style={styles.eventsContainer}
-        contentContainerStyle={styles.eventsContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={() => loadEvents(true)}
-            tintColor={Colors.primary}
-          />
-        }
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
       >
-        {isLoading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={Colors.primary} />
-            <Text style={styles.loadingText}>Loading events...</Text>
+        <Text style={styles.sectionTitle}>Upcoming Events</Text>
+
+        {filteredEvents.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyText}>No events available</Text>
           </View>
-        ) : filteredEvents.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <MaterialIcons name="event-busy" size={64} color="#d1d5db" />
-            <Text style={styles.emptyTitle}>
-              No {activeTab === 'upcoming' ? 'upcoming' : activeTab === 'live' ? 'live' : 'past'} events
-            </Text>
-            <Text style={styles.emptyText}>
-              {activeTab === 'upcoming' && "Check back later for new events"}
-              {activeTab === 'live' && "No events are currently live"}
-              {activeTab === 'past' && "No past events to show"}
-            </Text>
-            {canCreateEvent && activeTab === 'upcoming' && (
-              <TouchableOpacity
-                style={styles.createFirstButton}
-                onPress={() => navigation.navigate('CreateEvent')}
-              >
-                <Text style={styles.createFirstButtonText}>Create First Event</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        ) : (
-          filteredEvents.map((event) => (
-            <TouchableOpacity 
-              key={event.id} 
-              style={styles.eventCard}
-              onPress={() => navigation.navigate('EventDetails', { eventId: event.id })}
+        ) : filteredEvents.map((event) => (
+          <TouchableOpacity key={event.id} style={styles.eventCard}>
+            <View style={styles.eventHeader}>
+              <View style={styles.dateBox}>
+                <Text style={styles.dateMonth}>
+                  {new Date(event.start_date).toLocaleString('en-US', { month: 'short' }).toUpperCase()}
+                </Text>
+                <Text style={styles.dateDay}>
+                  {new Date(event.start_date).getDate()}
+                </Text>
+              </View>
+
+              <View style={styles.eventInfo}>
+                <Text style={styles.eventTitle}>{event.title}</Text>
+                
+                <View style={styles.eventDetail}>
+                  <MaterialIcons name="access-time" size={14} color="#64748b" />
+                  <Text style={styles.eventDetailText}>
+                    {new Date(event.start_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </Text>
+                </View>
+
+                <View style={styles.eventDetail}>
+                  <MaterialIcons name="place" size={14} color="#64748b" />
+                  <Text style={styles.eventDetailText}>{event.venue || 'TBA'}</Text>
+                </View>
+
+                <View style={styles.eventFooter}>
+                  <View style={styles.attendeesInfo}>
+                    <MaterialIcons name="people" size={16} color={Colors.primary} />
+                    <Text style={styles.attendeesText}>
+                      {event.registrations_count || 0} attending
+                    </Text>
+                  </View>
+
+                  <View style={[styles.categoryBadge, getCategoryStyle(event.event_type)]}>
+                    <Text style={styles.categoryBadgeText}>{event.event_type}</Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.registerButton, event.is_registered && styles.registeredButton]}
+              onPress={() => handleRegister(event)}
             >
-              {/* Event Poster/Notice */}
-              {event.banner_image ? (
-                <Image source={{ uri: event.banner_image }} style={{ width: '100%', height: 160, borderRadius: 10, marginBottom: 8 }} resizeMode="cover" />
-              ) : null}
-
-              {/* Event Header */}
-              <View style={styles.eventHeader}>
-                <View style={styles.eventTypeContainer}>
-                  <Text style={styles.eventTypeText}>
-                    {event.event_type.toUpperCase()}
-                  </Text>
-                </View>
-                <EventStatus 
-                  startDate={event.start_date} 
-                  endDate={event.end_date} 
-                />
-              </View>
-
-              {/* Event Title & Description */}
-              <Text style={styles.eventTitle}>{event.title}</Text>
-              <Text style={styles.eventDescription} numberOfLines={2}>
-                {event.description}
+              <Text style={styles.registerButtonText}>
+                {event.is_registered ? 'Registered' : 'Register'}
               </Text>
-
-              {/* Event Details */}
-              <View style={styles.eventDetails}>
-                <View style={styles.eventDetailRow}>
-                  <MaterialIcons name="schedule" size={16} color="#6b7280" />
-                  <Text style={styles.eventDetailText}>
-                    {formatEventDate(event.start_date)}
-                  </Text>
-                </View>
-                <View style={styles.eventDetailRow}>
-                  <MaterialIcons 
-                    name={event.is_online ? "laptop" : "location-on"} 
-                    size={16} 
-                    color="#6b7280" 
-                  />
-                  <Text style={styles.eventDetailText}>
-                    {event.is_online ? "Online Event" : event.venue}
-                  </Text>
-                </View>
-                <View style={styles.eventDetailRow}>
-                  <MaterialIcons name="people" size={16} color="#6b7280" />
-                  <Text style={styles.eventDetailText}>
-                    {event.registrations_count || 0} / {event.max_participants || '∞'} registered
-                  </Text>
-                </View>
-              </View>
-
-              {/* Countdown Timer for Upcoming Events */}
-              {activeTab === 'upcoming' && (
-                <View style={styles.timerContainer}>
-                  <CountdownTimer
-                    targetDate={event.start_date}
-                    compact={true}
-                    onExpire={() => loadEvents(true)}
-                  />
-                </View>
-              )}
-
-              {/* Registration Button */}
-              {activeTab === 'upcoming' && new Date(event.registration_deadline) > new Date() && (
-                <TouchableOpacity
-                  style={[
-                    styles.registerButton,
-                    event.is_registered && styles.unregisterButton
-                  ]}
-                  onPress={() => handleRegister(event)}
-                >
-                  <Text style={[
-                    styles.registerButtonText,
-                    event.is_registered && styles.unregisterButtonText
-                  ]}>
-                    {event.is_registered ? '✓ Registered' : 'Register'}
-                  </Text>
-                </TouchableOpacity>
-              )}
-              
-              {/* Registration Closed */}
-              {activeTab === 'upcoming' && new Date(event.registration_deadline) <= new Date() && (
-                <View style={styles.closedButton}>
-                  <Text style={styles.closedButtonText}>Registration Closed</Text>
-                </View>
-              )}
             </TouchableOpacity>
-          ))
-        )}
-        
-        <View style={{ height: 100 }} />
+          </TouchableOpacity>
+        ))}
+
+        <View style={{ height: 32 }} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -358,95 +182,9 @@ function getCategoryStyle(category: string) {
 }
 
 const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create({
-    headerButtons: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-    },
-    addButton: {
-      backgroundColor: Colors.primary,
-      borderRadius: BorderRadius.md,
-      paddingVertical: 8,
-      paddingHorizontal: 16,
-      alignItems: 'center',
-      marginLeft: 8,
-    },
-    eventsContainer: {
-      flex: 1,
-      backgroundColor: Colors.background,
-    },
-    eventsContent: {
-      padding: Spacing.md,
-    },
-    loadingContainer: {
-      flex: 1,
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: 32,
-    },
-    loadingText: {
-      fontSize: FontSizes.md,
-      color: Colors.textSecondary,
-      marginTop: 12,
-    },
-    emptyContainer: {
-      flex: 1,
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: 32,
-    },
-    emptyTitle: {
-      fontSize: FontSizes.lg,
-      fontWeight: FontWeights.bold,
-      color: Colors.text,
-      marginBottom: 8,
-    },
-    createFirstButton: {
-      backgroundColor: Colors.primary,
-      borderRadius: BorderRadius.md,
-      paddingVertical: 10,
-      paddingHorizontal: 20,
-      alignItems: 'center',
-      marginTop: 16,
-    },
-    createFirstButtonText: {
-      fontSize: FontSizes.md,
-      fontWeight: FontWeights.semibold,
-      color: '#fff',
-    },
-    eventTypeContainer: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      marginTop: 8,
-      marginBottom: 4,
-    },
-    eventTypeText: {
-      fontSize: 12,
-      color: Colors.primary,
-      fontWeight: FontWeights.medium,
-      marginLeft: 4,
-    },
-    eventDescription: {
-      fontSize: FontSizes.sm,
-      color: Colors.textSecondary,
-      marginBottom: 8,
-    },
-    eventDetails: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 12,
-      marginTop: 8,
-    },
-    eventDetailRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-      marginBottom: 4,
-    },
   container: {
     flex: 1,
     backgroundColor: Colors.background,
-    ...(Platform.OS === 'web' && ({ height: '100vh', width: '100vw' } as any)),
   },
   header: {
     flexDirection: 'row',
@@ -501,30 +239,6 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   categoryTextActive: {
     color: '#ffffff',
-  },
-  tabsContainer: {
-    flexDirection: 'row',
-    backgroundColor: '#ffffff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-  },
-  tab: {
-    flex: 1,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  tabActive: {
-    borderBottomWidth: 2,
-    borderBottomColor: Colors.primary,
-  },
-  tabText: {
-    fontSize: FontSizes.sm,
-    fontWeight: FontWeights.medium,
-    color: '#64748b',
-  },
-  tabTextActive: {
-    color: Colors.primary,
-    fontWeight: FontWeights.semibold,
   },
   scrollView: {
     flex: 1,
@@ -625,49 +339,18 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     fontWeight: FontWeights.medium,
     color: '#334155',
   },
-  timerContainer: {
-    backgroundColor: '#fef8e7',
-    padding: 8,
-    borderRadius: BorderRadius.sm,
-    marginTop: 8,
-    borderLeftWidth: 3,
-    borderLeftColor: '#f59e0b',
-  },
-  timerText: {
-    fontSize: 12,
-    fontWeight: FontWeights.medium,
-    color: '#92400e',
-  },
   registerButton: {
     backgroundColor: Colors.primary,
     borderRadius: BorderRadius.md,
     paddingVertical: 10,
-    paddingHorizontal: 20,
     alignItems: 'center',
-    marginTop: 12,
+  },
+  registeredButton: {
+    backgroundColor: '#10b981',
   },
   registerButtonText: {
     fontSize: FontSizes.sm,
     fontWeight: FontWeights.semibold,
     color: '#ffffff',
-  },
-  unregisterButton: {
-    backgroundColor: '#ef4444',
-  },
-  unregisterButtonText: {
-    color: '#ffffff',
-  },
-  closedButton: {
-    backgroundColor: '#f3f4f6',
-    borderRadius: BorderRadius.md,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    alignItems: 'center',
-    marginTop: 12,
-  },
-  closedButtonText: {
-    fontSize: FontSizes.sm,
-    fontWeight: FontWeights.medium,
-    color: '#6b7280',
   },
 });

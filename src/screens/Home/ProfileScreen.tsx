@@ -9,7 +9,6 @@ import {
   ActivityIndicator,
   Image,
   Share,
-  Platform,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -22,7 +21,6 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { getUserStats } from '../../api/users';
 import { LinearGradient } from 'expo-linear-gradient';
-import Toast from 'react-native-toast-message';
 
 type ProfileScreenNavigationProp = CompositeNavigationProp<
   BottomTabNavigationProp<MainTabParamList, 'Profile'>,
@@ -32,13 +30,12 @@ type ProfileScreenNavigationProp = CompositeNavigationProp<
 export default function ProfileScreen() {
   const navigation = useNavigation<ProfileScreenNavigationProp>();
   const { isDark } = useTheme();
-  const { user, profile, signOut } = useAuth();
+  const { user, profile } = useAuth();
   const Colors = getColors(isDark);
   const styles = createStyles(Colors);
 
   const [stats, setStats] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -76,24 +73,6 @@ export default function ProfileScreen() {
     } catch (error) {
       console.error('Share failed', error);
     }
-  };
-
-  const handleLogout = () => {
-    setShowLogoutConfirm(true);
-  };
-
-  const confirmLogout = async () => {
-    setShowLogoutConfirm(false);
-    try {
-      Toast.show({ type: 'info', text1: 'Logging out...' });
-      await signOut();
-    } catch (error) {
-      Toast.show({ type: 'error', text1: 'Failed to log out' });
-    }
-  };
-
-  const cancelLogout = () => {
-    setShowLogoutConfirm(false);
   };
 
   return (
@@ -224,50 +203,10 @@ export default function ProfileScreen() {
             </View>
             <MaterialIcons name="arrow-forward-ios" size={16} color="#94a3b8" />
           </TouchableOpacity>
-
-          <TouchableOpacity style={styles.actionItem} onPress={handleLogout}>
-            <View style={[styles.actionIcon, { backgroundColor: '#fee2e2' }]}>
-              <MaterialIcons name="logout" size={20} color="#ef4444" />
-            </View>
-            <View style={styles.actionInfo}>
-              <Text style={[styles.actionTitle, { color: '#ef4444' }]}>Log Out</Text>
-              <Text style={styles.actionSubtitle}>Sign out of your account</Text>
-            </View>
-            <MaterialIcons name="arrow-forward-ios" size={16} color="#94a3b8" />
-          </TouchableOpacity>
         </View>
 
         <View style={{ height: 32 }} />
       </ScrollView>
-
-      {/* Logout Confirmation Dialog */}
-      {showLogoutConfirm && (
-        <View style={styles.modalOverlay}>
-          <View style={styles.confirmDialog}>
-            <View style={styles.confirmHeader}>
-              <MaterialIcons name="logout" size={48} color="#ef4444" />
-              <Text style={styles.confirmTitle}>Log Out</Text>
-              <Text style={styles.confirmMessage}>Are you sure you want to log out?</Text>
-            </View>
-            <View style={styles.confirmButtons}>
-              <TouchableOpacity 
-                style={[styles.confirmButton, styles.cancelButton]} 
-                onPress={cancelLogout}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.confirmButton, styles.logoutConfirmButton]} 
-                onPress={confirmLogout}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.logoutConfirmButtonText}>Log Out</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      )}
     </SafeAreaView>
   );
 }
@@ -276,7 +215,6 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   container: {
     flex: 1,
     backgroundColor: Colors.background,
-    ...(Platform.OS === 'web' && ({ height: '100vh', width: '100vw' } as any)),
   },
   header: {
     flexDirection: 'row',
@@ -441,66 +379,5 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   actionSubtitle: {
     fontSize: FontSizes.sm,
     color: Colors.textSecondary,
-  },
-  modalOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 1000,
-  },
-  confirmDialog: {
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.xl,
-    width: '85%',
-    maxWidth: 400,
-    padding: Spacing.xl,
-    ...Shadows.lg,
-  },
-  confirmHeader: {
-    alignItems: 'center',
-    marginBottom: Spacing.lg,
-  },
-  confirmTitle: {
-    fontSize: FontSizes.xl,
-    fontWeight: FontWeights.bold,
-    color: Colors.text,
-    marginTop: Spacing.md,
-    marginBottom: Spacing.xs,
-  },
-  confirmMessage: {
-    fontSize: FontSizes.md,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-  },
-  confirmButtons: {
-    flexDirection: 'row',
-    gap: Spacing.md,
-  },
-  confirmButton: {
-    flex: 1,
-    paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.lg,
-    alignItems: 'center',
-  },
-  cancelButton: {
-    backgroundColor: Colors.border,
-  },
-  cancelButtonText: {
-    fontSize: FontSizes.md,
-    fontWeight: FontWeights.semibold,
-    color: Colors.text,
-  },
-  logoutConfirmButton: {
-    backgroundColor: '#ef4444',
-  },
-  logoutConfirmButtonText: {
-    fontSize: FontSizes.md,
-    fontWeight: FontWeights.semibold,
-    color: '#ffffff',
   },
 });

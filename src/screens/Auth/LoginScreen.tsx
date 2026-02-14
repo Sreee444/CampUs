@@ -16,7 +16,7 @@ import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import Toast from 'react-native-toast-message';
 import { RootStackParamList } from '../../navigation/types';
-import { signIn, signInWithGoogle } from '../../api/auth';
+import { signIn } from '../../api/auth';
 import { Colors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } from '../../theme';
 
 type LoginScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Login'>;
@@ -27,23 +27,6 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
-
-  const handleGoogleSignIn = async () => {
-    try {
-      setIsGoogleLoading(true);
-      await signInWithGoogle();
-      Toast.show({ type: 'success', text1: 'Signed in with Google!' });
-    } catch (error: any) {
-      Toast.show({
-        type: 'error',
-        text1: 'Google sign-in failed',
-        text2: error?.message || 'Please try again',
-      });
-    } finally {
-      setIsGoogleLoading(false);
-    }
-  };
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
@@ -162,24 +145,6 @@ export default function LoginScreen() {
                     </Text>
                     <MaterialIcons name="arrow-forward" size={18} color="#111818" />
                   </TouchableOpacity>
-
-                  <View style={styles.divider}>
-                    <View style={styles.dividerLine} />
-                    <Text style={styles.dividerText}>OR</Text>
-                    <View style={styles.dividerLine} />
-                  </View>
-
-                  <TouchableOpacity
-                    style={[styles.googleButton, isGoogleLoading && styles.buttonDisabled]}
-                    onPress={handleGoogleSignIn}
-                    activeOpacity={0.9}
-                    disabled={isGoogleLoading}
-                  >
-                    <MaterialIcons name="g-translate" size={20} color="#EA4335" />
-                    <Text style={styles.googleButtonText}>
-                      {isGoogleLoading ? 'Connecting...' : 'Continue with Google'}
-                    </Text>
-                  </TouchableOpacity>
                 </View>
               </View>
 
@@ -206,17 +171,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.light.background,
-    ...(Platform.OS === 'web' && ({
-      height: '100vh',
-      width: '100vw',
-    } as any)),
   },
   gradient: {
     flex: 1,
-    ...(Platform.OS === 'web' && ({
-      minHeight: '100vh',
-      width: '100%',
-    } as any)),
   },
   keyboardView: {
     flex: 1,
@@ -225,10 +182,6 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.md,
-    ...(Platform.OS === 'web' && ({
-      minHeight: '100vh',
-      justifyContent: 'center',
-    } as any)),
   },
   header: {
     alignItems: 'center',
@@ -324,39 +277,6 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.lg,
     fontWeight: FontWeights.bold,
     color: '#111818',
-  },
-  divider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: Spacing.md,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: '#e2e8f0',
-  },
-  dividerText: {
-    marginHorizontal: 12,
-    fontSize: FontSizes.sm,
-    color: '#94a3b8',
-    fontWeight: FontWeights.medium,
-  },
-  googleButton: {
-    backgroundColor: '#ffffff',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: BorderRadius.lg,
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 12,
-    borderWidth: 1.5,
-    borderColor: '#e2e8f0',
-  },
-  googleButtonText: {
-    fontSize: FontSizes.md,
-    fontWeight: FontWeights.semibold,
-    color: '#374151',
   },
   footer: {
     alignItems: 'center',
