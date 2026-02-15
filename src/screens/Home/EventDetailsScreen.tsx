@@ -86,6 +86,7 @@ export default function EventDetailsScreen() {
           .select('id')
           .eq('event_id', eventId)
           .eq('user_id', user.id)
+          .eq('status', 'registered')
           .maybeSingle();
 
         if (!regError && registrationData) {
@@ -97,7 +98,8 @@ export default function EventDetailsScreen() {
       const { count: participantCount } = await supabase
         .from('event_registrations')
         .select('id', { count: 'exact', head: true })
-        .eq('event_id', eventId);
+        .eq('event_id', eventId)
+        .eq('status', 'registered');
 
       console.log('Event registration check:', { isRegistered, userId: user?.id, eventId });
 
@@ -163,6 +165,7 @@ export default function EventDetailsScreen() {
           .insert({
             event_id: eventId,
             user_id: user.id,
+            status: 'registered',
           } as any);
 
         if (error) throw error;

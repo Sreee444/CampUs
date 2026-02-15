@@ -204,7 +204,7 @@ export default function DiscussionTopicScreen() {
         <Text style={styles.headerTitle} numberOfLines={1}>
           Discussion
         </Text>
-        {isFacultyOrAdmin && (
+        {(isFacultyOrAdmin || isTopicCreator) && (
           <TouchableOpacity onPress={handleLockTopic} style={styles.headerAction}>
             <MaterialIcons
               name={topic.is_locked ? 'lock' : 'lock-open'}
@@ -213,7 +213,7 @@ export default function DiscussionTopicScreen() {
             />
           </TouchableOpacity>
         )}
-        {isFacultyOrAdmin && (
+        {(isFacultyOrAdmin || isTopicCreator) && (
           <TouchableOpacity onPress={handleDeleteTopic} style={styles.headerAction}>
             <MaterialIcons name="delete-outline" size={22} color="#ef4444" />
           </TouchableOpacity>
@@ -290,7 +290,7 @@ export default function DiscussionTopicScreen() {
                     </TouchableOpacity>
                   )}
 
-                  {(reply.user_id === user?.id || isFacultyOrAdmin) && (
+                  {(reply.user_id === user?.id || isFacultyOrAdmin || isTopicCreator) && (
                     <TouchableOpacity
                       onPress={() => handleDeleteReply(reply.id)}
                       style={styles.actionButton}
