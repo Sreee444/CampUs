@@ -10,8 +10,9 @@ import {
   ActivityIndicator,
   Platform,
 } from 'react-native';
+import { RefreshControl } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { CompositeNavigationProp } from '@react-navigation/native';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -53,49 +54,44 @@ export default function ProjectsScreen() {
   const isFacultyOrAlumni = profile?.role === 'faculty' || profile?.role === 'alumni';
   const isStudent = profile?.role === 'student';
 
-  useEffect(() => {
-    let isMounted = true;
+  const [refreshing, setRefreshing] = useState(false);
 
-    const loadProjects = async () => {
-      if (!user?.id || !profile?.role) {
-        setIsLoading(false);
-        return;
+  const loadProjects = async (showLoading = true) => {
+    if (!user?.id || !profile?.role) return;
+
+    try {
+      if (showLoading) setIsLoading(true);
+      let data: ProjectTeam[] = [];
+
+      if (selectedTab === 'all') {
+        data = await getProjectsByRole(profile.role, user.id);
+      } else if (selectedTab === 'my') {
+        const allData = await getProjectTeams(user.id);
+        data = allData.filter(p => p.created_by === user.id || p.is_member);
+      } else if (selectedTab === 'mentoring' && isFacultyOrAlumni) {
+        data = await getMentoredProjects(user.id);
       }
 
-      try {
-        setIsLoading(true);
-        let data: ProjectTeam[] = [];
-        
-        if (selectedTab === 'all') {
-          data = await getProjectsByRole(profile.role, user.id);
-        } else if (selectedTab === 'my') {
-          const allData = await getProjectTeams(user.id);
-          data = allData.filter(p => p.created_by === user.id || p.is_member);
-        } else if (selectedTab === 'mentoring' && isFacultyOrAlumni) {
-          data = await getMentoredProjects(user.id);
-        }
-        
-        if (isMounted) {
-          setProjectTeams(data);
-          setFetchError('');
-        }
-      } catch (error) {
-        console.error('Failed to load projects:', error);
-        if (isMounted) {
-          setFetchError('Unable to load projects at the moment.');
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
-    };
+      setProjectTeams(data);
+      setFetchError('');
+    } catch (error) {
+      console.error('Failed to load projects:', error);
+      setFetchError('Unable to load projects at the moment.');
+    } finally {
+      setIsLoading(false);
+      setRefreshing(false);
+    }
+  };
 
-    loadProjects();
+  useFocusEffect(
+    React.useCallback(() => {
+      loadProjects();
+    }, [user?.id, profile?.role, selectedTab])
+  );
 
-    return () => {
-      isMounted = false;
-    };
+  const onRefresh = React.useCallback(() => {
+    setRefreshing(true);
+    loadProjects(false);
   }, [user?.id, profile?.role, selectedTab]);
 
   const canCreateProject = profile && [
@@ -126,8 +122,8 @@ export default function ProjectsScreen() {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Projects</Text>
         {canCreateProject && (
-          <TouchableOpacity 
-            style={styles.addButton} 
+          <TouchableOpacity
+            style={styles.addButton}
             onPress={handleCreateProject}
             activeOpacity={0.7}
           >
@@ -146,7 +142,7 @@ export default function ProjectsScreen() {
             All Projects
           </Text>
         </TouchableOpacity>
-        
+
         <TouchableOpacity
           style={[styles.tab, selectedTab === 'my' && styles.tabActive]}
           onPress={() => setSelectedTab('my')}
@@ -155,7 +151,7 @@ export default function ProjectsScreen() {
             My Projects
           </Text>
         </TouchableOpacity>
-        
+
         {isFacultyOrAlumni && (
           <TouchableOpacity
             style={[styles.tab, selectedTab === 'mentoring' && styles.tabActive]}
@@ -216,6 +212,9 @@ export default function ProjectsScreen() {
         <ScrollView
           style={styles.scrollView}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
           contentContainerStyle={styles.scrollContent}
         >
           <Text style={styles.resultsText}>
@@ -239,7 +238,7 @@ export default function ProjectsScreen() {
                 ? Math.min(100, Math.round(((project.members_count || 0) / project.max_members) * 100))
                 : 0;
               const statusColor = statusColors[project.status || 'planning'];
-              
+
               return (
                 <TouchableOpacity
                   key={project.id}
@@ -253,7 +252,7 @@ export default function ProjectsScreen() {
                       <Text style={styles.featuredText}>Featured</Text>
                     </View>
                   )}
-                  
+
                   <View style={styles.projectHeader}>
                     <View style={styles.projectInfo}>
                       <Text style={styles.projectTitle}>{project.name}</Text>
@@ -501,7 +500,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     paddingVertical: 4,
     backgroundColor: '#fef3c7',
     borderRadius: BorderRadius.full,
-    ...Shadows.xs,
+    ...Shadows.sm,
   },
   featuredText: {
     fontSize: 11,

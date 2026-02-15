@@ -119,10 +119,10 @@ export const updateLastActive = async (userId: string) => {
 export const getUserStats = async (userId: string) => {
   // Get counts for various activities
   const [postsCount, eventsCount, connectionsCount, projectsCount] = await Promise.all([
-    supabase.from("feed_posts").select("id", { count: 'exact', head: true }).eq("author_id", userId),
-    supabase.from("event_registrations").select("id", { count: 'exact', head: true }).eq("user_id", userId),
-    supabase.from("connections").select("id", { count: 'exact', head: true }).eq("user_id", userId).eq("status", "accepted"),
-    supabase.from("project_team_members").select("id", { count: 'exact', head: true }).eq("user_id", userId),
+    supabase.from("feed_posts").select("*", { count: 'exact', head: true }).eq("author_id", userId),
+    supabase.from("event_registrations").select("*", { count: 'exact', head: true }).eq("user_id", userId),
+    supabase.from("connections").select("*", { count: 'exact', head: true }).eq("user_id", userId).eq("status", "accepted"),
+    supabase.from("project_team_members").select("*", { count: 'exact', head: true }).eq("user_id", userId),
   ]);
 
   return {

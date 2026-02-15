@@ -8,6 +8,9 @@ import {
   ScrollView,
   TextInput,
   Platform,
+  Modal,
+  ActivityIndicator,
+  Image,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -18,7 +21,10 @@ import { RootStackParamList, MainTabParamList } from '../../navigation/types';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { getConversations } from '../../api/chat';
+import { getConversations, createDirectConversation } from '../../api/chat';
+import { getMyConnections, ConnectionWithProfile } from '../../api/connections';
+import { LinearGradient } from 'expo-linear-gradient';
+import Toast from 'react-native-toast-message';
 
 type ChatScreenNavigationProp = CompositeNavigationProp<
   BottomTabNavigationProp<MainTabParamList, 'Chat'>,
@@ -33,6 +39,12 @@ export default function ChatScreen() {
   const styles = createStyles(Colors);
   const [conversations, setConversations] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  
+  // New Chat Modal state
+  const [showNewChatModal, setShowNewChatModal] = useState(false);
+  const [connections, setConnections] = useState<ConnectionWithProfile[]>([]);
+  const [loadingConnections, setLoadingConnections] = useState(false);
+  const [creatingChat, setCreatingChat] = useState(false);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -48,6 +60,62 @@ export default function ChatScreen() {
 
     loadConversations();
   }, [user?.id]);
+
+  // Load connections when modal opens
+  useEffect(() => {
+    if (showNewChatModal) {
+      loadConnections();
+    }
+  }, [showNewChatModal]);
+
+  const loadConnections = async () => {
+    try {
+      setLoadingConnections(true);
+      const data = await getMyConnections('accepted');
+      setConnections(data);
+    } catch (error) {
+      console.error('Error loading connections:', error);
+      Toast.show({
+        type: 'error',
+        text1: 'Error',
+        text2: 'Failed to load connections',
+      });
+    } finally {
+      setLoadingConnections(false);
+    }
+  };
+
+  const handleStartChat = async (connection: ConnectionWithProfile) => {
+    try {
+      setCreatingChat(true);
+      
+      // Get the other user's ID
+      const otherUserId = connection.profile?.id;
+      if (!otherUserId || !user?.id) return;
+
+      // Create or find existing conversation
+      const conversation = await createDirectConversation(user.id, otherUserId);
+
+      // Close modal
+      setShowNewChatModal(false);
+
+      // Navigate to conversation
+      navigation.navigate('ChatConversation', {
+        conversationId: conversation.id,
+        name: connection.profile?.full_name || 'User',
+        isGroup: false,
+      });
+    } catch (error) {
+      console.error('Error creating chat:', error);
+      Toast.show({
+        type: 'error',
+        text1: 'Error',
+        text2: 'Failed to start chat',
+      });
+    } finally {
+      setCreatingChat(false);
+    }
+  };
 
   const getConversationName = (conversation: any, currentUserId: string) => {
     if (conversation.is_group) {
@@ -88,7 +156,10 @@ export default function ChatScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Messages</Text>
-        <TouchableOpacity style={styles.composeButton} onPress={() => {}}>
+        <TouchableOpacity 
+          style={styles.composeButton} 
+          onPress={() => setShowNewChatModal(true)}
+        >
           <MaterialIcons name="edit" size={20} color={Colors.primary} />
         </TouchableOpacity>
       </View>
@@ -179,6 +250,104 @@ export default function ChatScreen() {
       >
         <MaterialIcons name="auto-awesome" size={24} color="#fff" />
       </TouchableOpacity>
+
+      {/* New Chat Modal */}
+      <Modal
+        visible={showNewChatModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowNewChatModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            {/* Modal Header */}
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>New Message</Text>
+              <TouchableOpacity onPress={() => setShowNewChatModal(false)}>
+                <MaterialIcons name="close" size={24} color={Colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Connections List */}
+            <ScrollView style={styles.modalScrollView}>
+              {loadingConnections ? (
+                <View style={styles.modalLoading}>
+                  <ActivityIndicator size="large" color={Colors.primary} />
+                </View>
+              ) : connections.length === 0 ? (
+                <View style={styles.emptyConnections}>
+                  <MaterialIcons name="people-outline" size={64} color={Colors.textSecondary} />
+                  <Text style={styles.emptyConnectionsText}>No connections yet</Text>
+                  <Text style={styles.emptyConnectionsSubtext}>
+                    Connect with others to start messaging
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.browseUsersButton}
+                    onPress={() => {
+                      setShowNewChatModal(false);
+                      navigation.navigate('AllUsers');
+                    }}
+                  >
+                    <MaterialIcons name="explore" size={20} color="#ffffff" />
+                    <Text style={styles.browseUsersText}>Browse Users</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                connections.map((connection) => {
+                  const profile = connection.profile;
+                  if (!profile) return null;
+
+                  const initials = getInitials(profile.full_name || 'U');
+                  const color = getColorFromString(profile.full_name || 'User');
+
+                  return (
+                    <TouchableOpacity
+                      key={connection.id}
+                      style={styles.connectionItem}
+                      onPress={() => handleStartChat(connection)}
+                      disabled={creatingChat}
+                    >
+                      {/* Avatar */}
+                      {profile.avatar_url ? (
+                        <Image 
+                          source={{ uri: profile.avatar_url }} 
+                          style={styles.connectionAvatar} 
+                        />
+                      ) : (
+                        <LinearGradient
+                          colors={Colors.gradients.softMesh}
+                          style={styles.connectionAvatarGradient}
+                        >
+                          <Text style={styles.connectionAvatarText}>{initials}</Text>
+                        </LinearGradient>
+                      )}
+
+                      {/* User Info */}
+                      <View style={styles.connectionInfo}>
+                        <Text style={styles.connectionName}>
+                          {profile.full_name || 'Unknown User'}
+                        </Text>
+                        {profile.department && (
+                          <Text style={styles.connectionDetail}>
+                            {profile.department}
+                          </Text>
+                        )}
+                      </View>
+
+                      {/* Chevron */}
+                      {creatingChat ? (
+                        <ActivityIndicator size="small" color={Colors.primary} />
+                      ) : (
+                        <MaterialIcons name="chevron-right" size={24} color={Colors.textSecondary} />
+                      )}
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -327,5 +496,110 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     alignItems: 'center',
     justifyContent: 'center',
     ...Shadows.lg,
+  },
+  // New Chat Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: Colors.surface,
+    borderTopLeftRadius: BorderRadius.xl,
+    borderTopRightRadius: BorderRadius.xl,
+    maxHeight: '80%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  modalTitle: {
+    fontSize: FontSizes.lg,
+    fontWeight: FontWeights.semibold,
+    color: Colors.text,
+  },
+  modalScrollView: {
+    maxHeight: 500,
+  },
+  modalLoading: {
+    paddingVertical: Spacing.xxl,
+    alignItems: 'center',
+  },
+  emptyConnections: {
+    paddingVertical: Spacing.xxl,
+    paddingHorizontal: Spacing.xl,
+    alignItems: 'center',
+  },
+  emptyConnectionsText: {
+    fontSize: FontSizes.lg,
+    fontWeight: FontWeights.semibold,
+    color: Colors.text,
+    marginTop: Spacing.md,
+  },
+  emptyConnectionsSubtext: {
+    fontSize: FontSizes.md,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    marginTop: Spacing.xs,
+  },
+  browseUsersButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    backgroundColor: Colors.primary,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.md,
+    marginTop: Spacing.lg,
+  },
+  browseUsersText: {
+    fontSize: FontSizes.md,
+    fontWeight: FontWeights.semibold,
+    color: '#ffffff',
+  },
+  connectionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  connectionAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: BorderRadius.full,
+    marginRight: Spacing.md,
+  },
+  connectionAvatarGradient: {
+    width: 48,
+    height: 48,
+    borderRadius: BorderRadius.full,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: Spacing.md,
+  },
+  connectionAvatarText: {
+    fontSize: FontSizes.lg,
+    fontWeight: FontWeights.bold,
+    color: '#ffffff',
+  },
+  connectionInfo: {
+    flex: 1,
+  },
+  connectionName: {
+    fontSize: FontSizes.md,
+    fontWeight: FontWeights.semibold,
+    color: Colors.text,
+  },
+  connectionDetail: {
+    fontSize: FontSizes.sm,
+    color: Colors.textSecondary,
+    marginTop: 2,
   },
 });

@@ -18,8 +18,9 @@ import { RootStackParamList } from '../../navigation/types';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { getMessages, sendMessage, subscribeToMessages, chatWithAI } from '../../api/chat';
+import { getMessages, sendMessage, subscribeToMessages, chatWithAI, deleteMessage } from '../../api/chat';
 import Toast from 'react-native-toast-message';
+import ConfirmDialog from '../../components/ConfirmDialog';
 
 type ChatConversationScreenNavigationProp = StackNavigationProp<RootStackParamList, 'ChatConversation'>;
 type ChatConversationScreenRouteProp = RouteProp<RootStackParamList, 'ChatConversation'>;
@@ -37,6 +38,12 @@ export default function ChatConversationScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({ visible: false, title: '', message: '', onConfirm: () => {} });
 
   const { conversationId = '', name = 'Chat', isGroup = false } = route.params || {};
   const isAIChat = conversationId === 'ai-assistant';
@@ -116,6 +123,30 @@ export default function ChatConversationScreen() {
     }
   };
 
+  const handleDeleteMessage = (messageId: string) => {
+    if (isAIChat) return; // Can't delete AI chat messages
+
+    console.log('Delete message clicked:', messageId);
+    setConfirmDialog({
+      visible: true,
+      title: 'Delete Message',
+      message: 'Are you sure you want to delete this message? This action cannot be undone.',
+      onConfirm: () => deleteMessageConfirmed(messageId),
+    });
+  };
+
+  const deleteMessageConfirmed = async (messageId: string) => {
+    try {
+      console.log('Deleting message:', messageId);
+      await deleteMessage(messageId);
+      setMessages((prev) => prev.filter((msg) => msg.id !== messageId));
+      Toast.show({ type: 'success', text1: 'Message deleted' });
+    } catch (error) {
+      console.error('Delete message error:', error);
+      Toast.show({ type: 'error', text1: 'Failed to delete message' });
+    }
+  };
+
   const getInitials = (displayName: string) => {
     const parts = displayName.trim().split(' ');
     const first = parts[0]?.[0] || '';
@@ -184,22 +215,43 @@ export default function ChatConversationScreen() {
                 <View
                   key={message.id}
                   style={[
-                    styles.messageBubble,
-                    isMyMessage ? styles.myMessage : styles.otherMessage,
+                    styles.messageWrapper,
+                    isMyMessage ? styles.myMessageWrapper : styles.otherMessageWrapper,
                   ]}
                 >
-                  <Text style={[
-                    styles.messageText,
-                    isMyMessage ? styles.myMessageText : styles.otherMessageText
-                  ]}>
-                    {message.content}
-                  </Text>
-                  <Text style={[
-                    styles.messageTime,
-                    isMyMessage ? styles.myMessageTime : styles.otherMessageTime
-                  ]}>
-                    {messageTime}
-                  </Text>
+                  <TouchableOpacity
+                    style={[
+                      styles.messageBubble,
+                      isMyMessage ? styles.myMessage : styles.otherMessage,
+                    ]}
+                    onLongPress={() => isMyMessage && handleDeleteMessage(message.id)}
+                    delayLongPress={500}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[
+                      styles.messageText,
+                      isMyMessage ? styles.myMessageText : styles.otherMessageText
+                    ]}>
+                      {message.content}
+                    </Text>
+                    <View style={styles.messageFooter}>
+                      <Text style={[
+                        styles.messageTime,
+                        isMyMessage ? styles.myMessageTime : styles.otherMessageTime
+                      ]}>
+                        {messageTime}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                  {isMyMessage && !isAIChat && (
+                    <TouchableOpacity
+                      onPress={() => handleDeleteMessage(message.id)}
+                      style={styles.deleteButton}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    >
+                      <MaterialIcons name="delete-outline" size={16} color={Colors.textSecondary} />
+                    </TouchableOpacity>
+                  )}
                 </View>
               );
             })
@@ -243,6 +295,18 @@ export default function ChatConversationScreen() {
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
+
+      <ConfirmDialog
+        visible={confirmDialog.visible}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        onConfirm={() => {
+          confirmDialog.onConfirm();
+          setConfirmDialog({ ...confirmDialog, visible: false });
+        }}
+        onCancel={() => setConfirmDialog({ ...confirmDialog, visible: false })}
+        type="danger"
+      />
     </SafeAreaView>
   );
 }
@@ -298,30 +362,49 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     paddingHorizontal: Spacing.md,
     paddingTop: Spacing.md,
   },
+  messageWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    gap: 8,
+  },
+  myMessageWrapper: {
+    justifyContent: 'flex-end',
+  },
+  otherMessageWrapper: {
+    justifyContent: 'flex-start',
+  },
   messageBubble: {
     maxWidth: '75%',
-    marginBottom: 12,
     borderRadius: BorderRadius.md,
     padding: 12,
   },
   myMessage: {
-    alignSelf: 'flex-end',
     backgroundColor: Colors.primary,
   },
   otherMessage: {
-    alignSelf: 'flex-start',
     backgroundColor: Colors.card,
   },
   messageText: {
     fontSize: FontSizes.md,
     lineHeight: 20,
-    marginBottom: 4,
+  },
+  messageFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    marginTop: 4,
+    gap: 4,
   },
   myMessageText: {
     color: '#ffffff',
   },
   otherMessageText: {
     color: Colors.text,
+  },
+  deleteButton: {
+    padding: 4,
+    opacity: 0.6,
   },
   messageTime: {
     fontSize: 11,

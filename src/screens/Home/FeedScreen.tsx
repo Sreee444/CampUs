@@ -11,7 +11,7 @@ import {
   Platform,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { getColors, Spacing, FontSizes, FontWeights, Shadows, BorderRadius } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
@@ -22,6 +22,8 @@ import { supabase } from '../../api/supabase';
 import { EventFeedItem } from '../../components/EventFeedItem';
 import { LinearGradient } from 'expo-linear-gradient';
 import Toast from 'react-native-toast-message';
+import { getNotifications } from '../../api/notifications';
+import { getPendingReceivedRequests } from '../../api/connections';
 
 export default function FeedScreen() {
   const navigation = useNavigation();
@@ -37,6 +39,7 @@ export default function FeedScreen() {
   const [upcomingEvents, setUpcomingEvents] = useState<any[]>([]);
   const [aiSuggestion, setAiSuggestion] = useState('');
   const [profile, setProfile] = useState<any>(null);
+  const [notificationCount, setNotificationCount] = useState(0);
 
   const loadFeedData = async (refresh = false) => {
     // Load user profile
@@ -97,9 +100,19 @@ export default function FeedScreen() {
             events: eventsCount || 0,
             connections: connectionsCount || 0,
           });
+
+          // Load notification count (unread notifications + friend requests)
+          const [notifications, requests] = await Promise.all([
+            getNotifications(user.id),
+            getPendingReceivedRequests(),
+          ]);
+          const unreadCount = notifications.filter((n: any) => !n.is_read).length;
+          const requestCount = requests.length;
+          setNotificationCount(unreadCount + requestCount);
         } catch (err) {
           console.error('Stats load error:', err);
           setStats({ projects: 0, events: 0, connections: 0 });
+          setNotificationCount(0);
         }
       }
 
@@ -124,6 +137,27 @@ export default function FeedScreen() {
   useEffect(() => {
     loadFeedData();
   }, [user?.id]);
+
+  // Refresh notification count when screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      const loadNotificationCount = async () => {
+        if (!user?.id) return;
+        try {
+          const [notifications, requests] = await Promise.all([
+            getNotifications(user.id),
+            getPendingReceivedRequests(),
+          ]);
+          const unreadCount = notifications.filter((n: any) => !n.is_read).length;
+          const requestCount = requests.length;
+          setNotificationCount(unreadCount + requestCount);
+        } catch (err) {
+          console.error('Notification count error:', err);
+        }
+      };
+      loadNotificationCount();
+    }, [user?.id])
+  );
 
   const handleEventRegistration = async (eventId: string) => {
     if (!user?.id) {
@@ -158,7 +192,13 @@ export default function FeedScreen() {
             onPress={() => navigation.navigate('Notifications')}
           >
             <MaterialIcons name="notifications-none" size={24} color="#111818" />
-            <View style={styles.notificationBadge} />
+            {notificationCount > 0 && (
+              <View style={styles.notificationBadge}>
+                <Text style={styles.badgeText}>
+                  {notificationCount > 99 ? '99+' : notificationCount}
+                </Text>
+              </View>
+            )}
           </TouchableOpacity>
         </View>
       </LinearGradient>
@@ -323,14 +363,22 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   notificationBadge: {
     position: 'absolute',
-    top: 10,
-    right: 10,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    top: 8,
+    right: 8,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
     backgroundColor: '#ef4444',
     borderWidth: 2,
     borderColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  badgeText: {
+    color: '#ffffff',
+    fontSize: 10,
+    fontWeight: 'bold',
   },
   scrollView: {
     flex: 1,

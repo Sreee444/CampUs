@@ -387,7 +387,15 @@ export default function EventDetailsScreen() {
             </View>
           </View>
 
-          <View style={styles.detailRow}>
+          <TouchableOpacity 
+            style={styles.detailRow}
+            onPress={() => {
+              if (event.created_by) {
+                navigation.navigate('PublicProfile', { userId: event.created_by });
+              }
+            }}
+            activeOpacity={0.7}
+          >
             <MaterialIcons name="person" size={20} color="#6b7280" />
             <View style={styles.detailContent}>
               <Text style={styles.detailLabel}>Organizer</Text>
@@ -395,7 +403,8 @@ export default function EventDetailsScreen() {
                 {event.organizer_profile?.full_name || 'Campus Team'}
               </Text>
             </View>
-          </View>
+            <MaterialIcons name="chevron-right" size={20} color="#6b7280" />
+          </TouchableOpacity>
         </View>
 
         {/* Description */}

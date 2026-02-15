@@ -24,6 +24,7 @@ export type RootStackParamList = {
   ChangePassword: undefined;
   LinkedAccounts: undefined;
   Notifications: undefined;
+  NotificationSettings: undefined;
   Privacy: undefined;
   ChatConversation: { conversationId: string; name: string; isGroup: boolean };
   DiscussionTopic: { topicId: string };
@@ -32,6 +33,8 @@ export type RootStackParamList = {
   CreateEvent: undefined;
   EventDetails: { eventId: string };
   AIChatAssistant: undefined;
+  PublicProfile: { userId: string };
+  AllUsers: undefined;
 };
 
 declare global {

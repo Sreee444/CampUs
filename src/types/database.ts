@@ -10,32 +10,32 @@ export type Profile = {
   bio?: string;
   role: UserRole;
   phone?: string;
-  
+
   // Academic Info
   department?: string;
   year?: number;
   enrollment_number?: string;
-  
+
   // Student specific
   is_club_coordinator?: boolean;
   is_volunteer?: boolean;
   club_name?: string;
-  
+
   // Skills & Interests
   skills?: string[];
   interests?: string[];
   project_preferences?: string[];
-  
+
   // Mentor fields
   is_mentor?: boolean;
   mentor_bio?: string;
   areas_of_expertise?: string[];
-  
+
   // Metadata
   created_at?: string;
   updated_at?: string;
   last_active?: string;
-  
+
   // Settings
   notification_enabled?: boolean;
   chat_enabled?: boolean;
@@ -55,7 +55,7 @@ export type FeedPost = {
   moderated_at?: string;
   created_at: string;
   updated_at: string;
-  
+
   // Joined data
   author?: Profile;
   likes_count?: number;
@@ -77,7 +77,7 @@ export type PostComment = {
   content: string;
   created_at: string;
   updated_at: string;
-  
+
   // Joined
   user?: Profile;
 };
@@ -101,7 +101,7 @@ export type Event = {
   registration_deadline?: string;
   created_at: string;
   updated_at: string;
-  
+
   // Joined
   creator?: Profile;
   registrations_count?: number;
@@ -123,7 +123,7 @@ export type EventDiscussion = {
   message: string;
   is_pre_event: boolean;
   created_at: string;
-  
+
   // Joined
   user?: Profile;
 };
@@ -139,7 +139,7 @@ export type DiscussionTopic = {
   is_locked: boolean;
   created_at: string;
   updated_at: string;
-  
+
   // Joined
   creator?: Profile;
   replies_count?: number;
@@ -154,7 +154,7 @@ export type DiscussionReply = {
   is_solution: boolean;
   created_at: string;
   updated_at: string;
-  
+
   // Joined
   user?: Profile;
 };
@@ -163,16 +163,27 @@ export type ConnectionStatus = 'pending' | 'accepted' | 'rejected';
 
 export type Connection = {
   id: string;
-  user_id: string;
-  connected_user_id: string;
+  requester_id: string;
+  recipient_id: string;
   status: ConnectionStatus;
-  requested_by: string;
   created_at: string;
   updated_at: string;
-  
+
   // Joined
-  connected_user?: Profile;
+  requester?: Profile;
+  recipient?: Profile;
 };
+
+export interface ConnectionWithProfile extends Connection {
+  profile?: {
+    id: string;
+    full_name?: string;
+    avatar_url?: string;
+    role?: string;
+    department?: string;
+    bio?: string;
+  };
+}
 
 export type Conversation = {
   id: string;
@@ -182,7 +193,7 @@ export type Conversation = {
   created_by: string;
   created_at: string;
   updated_at: string;
-  
+
   // Joined
   participants?: Profile[];
   last_message?: Message;
@@ -211,7 +222,7 @@ export type Message = {
   deleted_at?: string;
   created_at: string;
   updated_at: string;
-  
+
   // Joined
   sender?: Profile;
   is_read?: boolean;
@@ -240,7 +251,7 @@ export type MentorRequest = {
   message?: string;
   created_at: string;
   updated_at: string;
-  
+
   // Joined
   mentor?: Profile;
   mentee?: Profile;
@@ -255,7 +266,7 @@ export type MentorshipSession = {
   notes?: string;
   status: 'scheduled' | 'completed' | 'cancelled';
   created_at: string;
-  
+
   // Joined
   mentor?: Profile;
   mentee?: Profile;
@@ -275,7 +286,7 @@ export type ProjectTeam = {
   created_by: string;
   created_at: string;
   updated_at: string;
-  
+
   // New role-based fields
   status?: 'planning' | 'in-progress' | 'completed' | 'on-hold';
   mentor_id?: string;
@@ -284,7 +295,7 @@ export type ProjectTeam = {
   github_url?: string;
   demo_url?: string;
   tags?: string[];
-  
+
   // Joined
   creator?: Profile;
   members?: Profile[];
@@ -299,7 +310,7 @@ export type ProjectTeamMember = {
   user_id: string;
   role: 'leader' | 'member' | 'mentor' | 'advisor';
   joined_at: string;
-  
+
   // Joined
   user?: Profile;
 };
@@ -317,7 +328,7 @@ export type AISuggestion = {
   reasoning?: string;
   status: 'pending' | 'accepted' | 'rejected' | 'viewed';
   created_at: string;
-  
+
   // Joined
   suggested_user?: Profile;
   suggested_team?: ProjectTeam;

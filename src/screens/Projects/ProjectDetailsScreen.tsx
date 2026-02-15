@@ -216,7 +216,15 @@ export default function ProjectDetailsScreen() {
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Faculty lead</Text>
-            <View style={styles.facultyCard}>
+            <TouchableOpacity 
+              style={styles.facultyCard}
+              onPress={() => {
+                if (team?.creator_id) {
+                  navigation.navigate('PublicProfile', { userId: team.creator_id });
+                }
+              }}
+              activeOpacity={0.7}
+            >
               <View style={styles.facultyInfo}>
                 <View style={styles.facultyAvatar}>
                   <Text style={styles.facultyInitials}>{getInitials(team?.creator?.full_name || 'F')}</Text>
@@ -229,14 +237,19 @@ export default function ProjectDetailsScreen() {
               <View style={styles.facultyBadge}>
                 <Text style={styles.facultyBadgeText}>View-only</Text>
               </View>
-            </View>
+            </TouchableOpacity>
           </View>
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Team Members</Text>
             <View style={styles.teamList}>
               {(team?.members || []).map((member) => (
-                <View key={member.id} style={styles.teamMemberCard}>
+                <TouchableOpacity 
+                  key={member.id} 
+                  style={styles.teamMemberCard}
+                  onPress={() => navigation.navigate('PublicProfile', { userId: member.id })}
+                  activeOpacity={0.7}
+                >
                   <View style={styles.teamMemberInfo}>
                     <View
                       style={[
@@ -251,7 +264,7 @@ export default function ProjectDetailsScreen() {
                       <Text style={styles.teamMemberRole}>{member.role || 'Member'}</Text>
                     </View>
                   </View>
-                </View>
+                </TouchableOpacity>
               ))}
             </View>
           </View>

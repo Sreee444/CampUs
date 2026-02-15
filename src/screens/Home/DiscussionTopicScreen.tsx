@@ -10,7 +10,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
-  Alert,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -32,6 +31,7 @@ import {
 import { DiscussionTopic, DiscussionReply } from '../../types/database';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
+import ConfirmDialog from '../../components/ConfirmDialog';
 
 dayjs.extend(relativeTime);
 
@@ -59,6 +59,12 @@ export default function DiscussionTopicScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [replyContent, setReplyContent] = useState('');
   const [isPosting, setIsPosting] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({ visible: false, title: '', message: '', onConfirm: () => {} });
 
   const isFacultyOrAdmin = profile?.role === 'faculty' || profile?.role === 'admin';
   const isTopicCreator = topic?.created_by === user?.id;
@@ -133,43 +139,48 @@ export default function DiscussionTopicScreen() {
   };
 
   const handleDeleteTopic = () => {
-    Alert.alert('Delete Discussion', 'Are you sure you want to delete this discussion?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await deleteDiscussionTopic(topicId);
-            Toast.show({ type: 'success', text1: 'Discussion deleted' });
-            navigation.goBack();
-          } catch (error) {
-            Toast.show({ type: 'error', text1: 'Failed to delete' });
-          }
-        },
-      },
-    ]);
+    console.log('Delete topic clicked:', topicId);
+    setConfirmDialog({
+      visible: true,
+      title: 'Delete Discussion',
+      message: 'Are you sure you want to delete this discussion? This action cannot be undone.',
+      onConfirm: deleteTopicConfirmed,
+    });
+  };
+
+  const deleteTopicConfirmed = async () => {
+    try {
+      console.log('Deleting topic:', topicId);
+      await deleteDiscussionTopic(topicId);
+      Toast.show({ type: 'success', text1: 'Discussion deleted' });
+      navigation.goBack();
+    } catch (error) {
+      console.error('Delete topic error:', error);
+      Toast.show({ type: 'error', text1: 'Failed to delete' });
+    }
   };
 
   const handleDeleteReply = (replyId: string) => {
-    Alert.alert('Delete Reply', 'Are you sure you want to delete this reply?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await deleteReply(replyId);
-            Toast.show({ type: 'success', text1: 'Reply deleted' });
-            // Reload topic to refresh replies list
-            await loadTopic();
-          } catch (error) {
-            console.error('Delete reply error:', error);
-            Toast.show({ type: 'error', text1: 'Failed to delete reply' });
-          }
-        },
-      },
-    ]);
+    console.log('Delete reply clicked:', replyId);
+    setConfirmDialog({
+      visible: true,
+      title: 'Delete Reply',
+      message: 'Are you sure you want to delete this reply? This action cannot be undone.',
+      onConfirm: () => deleteReplyConfirmed(replyId),
+    });
+  };
+
+  const deleteReplyConfirmed = async (replyId: string) => {
+    try {
+      console.log('Deleting reply:', replyId);
+      await deleteReply(replyId);
+      Toast.show({ type: 'success', text1: 'Reply deleted' });
+      // Reload topic to refresh replies list
+      await loadTopic();
+    } catch (error) {
+      console.error('Delete reply error:', error);
+      Toast.show({ type: 'error', text1: 'Failed to delete reply' });
+    }
   };
 
   if (isLoading) {
@@ -198,14 +209,23 @@ export default function DiscussionTopicScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+        <TouchableOpacity 
+          onPress={() => navigation.goBack()} 
+          style={styles.backButton}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
           <MaterialIcons name="arrow-back" size={24} color={Colors.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle} numberOfLines={1}>
           Discussion
         </Text>
         {(isFacultyOrAdmin || isTopicCreator) && (
-          <TouchableOpacity onPress={handleLockTopic} style={styles.headerAction}>
+          <TouchableOpacity 
+            onPress={handleLockTopic} 
+            style={styles.headerAction}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            activeOpacity={0.6}
+          >
             <MaterialIcons
               name={topic.is_locked ? 'lock' : 'lock-open'}
               size={22}
@@ -214,7 +234,12 @@ export default function DiscussionTopicScreen() {
           </TouchableOpacity>
         )}
         {(isFacultyOrAdmin || isTopicCreator) && (
-          <TouchableOpacity onPress={handleDeleteTopic} style={styles.headerAction}>
+          <TouchableOpacity 
+            onPress={handleDeleteTopic} 
+            style={styles.headerAction}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            activeOpacity={0.6}
+          >
             <MaterialIcons name="delete-outline" size={22} color="#ef4444" />
           </TouchableOpacity>
         )}
@@ -257,7 +282,21 @@ export default function DiscussionTopicScreen() {
               {replies.length} {replies.length === 1 ? 'Reply' : 'Replies'}
             </Text>
 
-            {replies.map((reply) => (
+            {replies.map((reply) => {
+              const canDelete = reply.user_id === user?.id || isFacultyOrAdmin || isTopicCreator;
+              const canMarkSolution = !reply.is_solution && (isFacultyOrAdmin || isTopicCreator);
+              
+              console.log('Reply permissions:', {
+                replyId: reply.id,
+                replyUserId: reply.user_id,
+                currentUserId: user?.id,
+                canDelete,
+                canMarkSolution,
+                isFacultyOrAdmin,
+                isTopicCreator
+              });
+              
+              return (
               <View
                 key={reply.id}
                 style={[
@@ -273,27 +312,45 @@ export default function DiscussionTopicScreen() {
                 )}
 
                 <View style={styles.replyHeader}>
-                  <View style={styles.replyAuthor}>
+                  <TouchableOpacity 
+                    style={styles.replyAuthor}
+                    onPress={() => {
+                      if (reply.user_id) {
+                        navigation.navigate('PublicProfile', { userId: reply.user_id });
+                      }
+                    }}
+                    activeOpacity={0.7}
+                  >
                     <MaterialIcons name="account-circle" size={32} color={Colors.textSecondary} />
                     <View style={{ flex: 1 }}>
                       <Text style={styles.authorName}>{reply.user?.full_name || 'User'}</Text>
                       <Text style={styles.replyTime}>{dayjs(reply.created_at).fromNow()}</Text>
                     </View>
-                  </View>
+                  </TouchableOpacity>
 
-                  {!reply.is_solution && (isFacultyOrAdmin || isTopicCreator) && (
+                  {canMarkSolution && (
                     <TouchableOpacity
-                      onPress={() => handleMarkSolution(reply.id)}
+                      onPress={() => {
+                        console.log('Mark solution clicked for reply:', reply.id);
+                        handleMarkSolution(reply.id);
+                      }}
                       style={styles.actionButton}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      activeOpacity={0.6}
                     >
                       <MaterialIcons name="check-circle" size={20} color={Colors.primary} />
                     </TouchableOpacity>
                   )}
 
-                  {(reply.user_id === user?.id || isFacultyOrAdmin || isTopicCreator) && (
+                  {canDelete && (
                     <TouchableOpacity
-                      onPress={() => handleDeleteReply(reply.id)}
+                      onPress={() => {
+                        console.log('Delete button clicked for reply:', reply.id);
+                        handleDeleteReply(reply.id);
+                      }}
                       style={styles.actionButton}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      activeOpacity={0.6}
                     >
                       <MaterialIcons name="delete-outline" size={20} color="#ef4444" />
                     </TouchableOpacity>
@@ -302,7 +359,8 @@ export default function DiscussionTopicScreen() {
 
                 <Text style={styles.replyContent}>{reply.content}</Text>
               </View>
-            ))}
+            );
+            })}
           </View>
         </ScrollView>
 
@@ -328,6 +386,18 @@ export default function DiscussionTopicScreen() {
           </View>
         )}
       </KeyboardAvoidingView>
+
+      <ConfirmDialog
+        visible={confirmDialog.visible}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        onConfirm={() => {
+          confirmDialog.onConfirm();
+          setConfirmDialog({ ...confirmDialog, visible: false });
+        }}
+        onCancel={() => setConfirmDialog({ ...confirmDialog, visible: false })}
+        type="danger"
+      />
     </SafeAreaView>
   );
 }
@@ -358,7 +428,11 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       color: Colors.text,
     },
     headerAction: {
-      padding: 4,
+      padding: 8,
+      minWidth: 32,
+      minHeight: 32,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     content: {
       flex: 1,
@@ -476,7 +550,11 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       marginTop: 2,
     },
     actionButton: {
-      padding: 4,
+      padding: 8,
+      minWidth: 32,
+      minHeight: 32,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     replyContent: {
       fontSize: FontSizes.sm,

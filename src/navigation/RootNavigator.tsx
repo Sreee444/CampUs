@@ -17,7 +17,7 @@ import AcademicDetailsScreen from '../screens/Settings/AcademicDetailsScreen';
 import SkillsInterestsScreen from '../screens/Settings/SkillsInterestsScreen';
 import ChangePasswordScreen from '../screens/Settings/ChangePasswordScreen';
 import LinkedAccountsScreen from '../screens/Settings/LinkedAccountsScreen';
-import NotificationsScreen from '../screens/Settings/NotificationsScreen';
+import NotificationSettingsScreen from '../screens/Settings/NotificationSettingsScreen';
 import PrivacyScreen from '../screens/Settings/PrivacyScreen';
 import ProjectDetailsScreen from '../screens/Projects/ProjectDetailsScreen';
 import CreateProjectScreen from '../screens/Projects/CreateProjectScreen';
@@ -26,6 +26,8 @@ import EventDetailsScreen from '../screens/Home/EventDetailsScreen';
 import ChatConversationScreen from '../screens/Home/ChatConversationScreen';
 import DiscussionTopicScreen from '../screens/Home/DiscussionTopicScreen';
 import CreateTopicScreen from '../screens/Home/CreateTopicScreen';
+import PublicProfileScreen from '../screens/Home/PublicProfileScreen';
+import AllUsersScreen from '../screens/Home/AllUsersScreen';
 import { MainTabNavigator } from './MainTabNavigator';
 
 const Stack = createStackNavigator<RootStackParamList>();
@@ -164,7 +166,7 @@ export default function RootNavigator() {
             />
             <Stack.Screen
               name="Notifications"
-              component={NotificationsScreen}
+              component={NotificationSettingsScreen}
               options={{ animationEnabled: true }}
             />
             <Stack.Screen
@@ -200,6 +202,16 @@ export default function RootNavigator() {
             <Stack.Screen
               name="EventDetails"
               component={EventDetailsScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="PublicProfile"
+              component={PublicProfileScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="AllUsers"
+              component={AllUsersScreen}
               options={{ animationEnabled: true }}
             />
           </>

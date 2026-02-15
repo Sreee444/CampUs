@@ -43,7 +43,7 @@ export const getEvents = async (
               .eq("event_id", event.id)
               .eq("user_id", userId)
               .eq("status", "registered")
-              .single()
+              .maybeSingle()
           : Promise.resolve({ data: null }),
       ]);
 
@@ -85,7 +85,7 @@ export const getEvent = async (eventId: string, userId?: string) => {
           .eq("event_id", eventId)
           .eq("user_id", userId)
           .eq("status", "registered")
-          .single()
+          .maybeSingle()
       : Promise.resolve({ data: null }),
   ]);
 

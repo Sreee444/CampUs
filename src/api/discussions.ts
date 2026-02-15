@@ -170,13 +170,18 @@ export const lockDiscussionTopic = async (topicId: string, isLocked: boolean) =>
 
 // Delete topic (Faculty/Admin only)
 export const deleteDiscussionTopic = async (topicId: string) => {
-  // First delete all replies
-  await supabase
+  // Try to delete replies first (best effort)
+  // This handles cases where ON DELETE CASCADE is missing in the DB
+  const { error: replyError } = await supabase
     .from('discussion_replies')
     .delete()
     .eq('topic_id', topicId);
 
-  // Then delete topic
+  if (replyError) {
+    console.log('Reply delete warning:', replyError);
+    // Continue to try deleting the topic anyway
+  }
+
   const { error } = await supabase
     .from('discussion_topics')
     .delete()
