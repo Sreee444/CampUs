@@ -28,6 +28,7 @@ import DiscussionTopicScreen from '../screens/Home/DiscussionTopicScreen';
 import CreateTopicScreen from '../screens/Home/CreateTopicScreen';
 import PublicProfileScreen from '../screens/Home/PublicProfileScreen';
 import AllUsersScreen from '../screens/Home/AllUsersScreen';
+import NotificationsScreen from '../screens/Notifications/NotificationsScreen';
 import { MainTabNavigator } from './MainTabNavigator';
 
 const Stack = createStackNavigator<RootStackParamList>();
@@ -166,6 +167,11 @@ export default function RootNavigator() {
             />
             <Stack.Screen
               name="Notifications"
+              component={NotificationsScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="NotificationSettings"
               component={NotificationSettingsScreen}
               options={{ animationEnabled: true }}
             />
