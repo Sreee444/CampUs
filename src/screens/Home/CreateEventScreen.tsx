@@ -328,8 +328,191 @@ export default function CreateEventScreen() {
 
   return (
     <View style={styles.container}>
-      {/* ... header ... */}
-      {/* ... content ... */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()}>
+          <MaterialIcons name="arrow-back" size={24} color="#000" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Create Event</Text>
+        <TouchableOpacity
+          onPress={handleSubmit}
+          disabled={isSubmitting}
+          style={[styles.submitButton, isSubmitting && styles.submitButtonDisabled]}
+        >
+          <Text style={[styles.submitButtonText, isSubmitting && styles.submitButtonTextDisabled]}>
+            {isSubmitting ? 'Creating...' : 'Create'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Basic Info</Text>
+
+          <Text style={styles.label}>Title *</Text>
+          <TextInput
+            style={styles.textInput}
+            value={formData.title}
+            onChangeText={(text) => setFormData(prev => ({ ...prev, title: text }))}
+            placeholder="Event title"
+            placeholderTextColor="#9ca3af"
+          />
+
+          <Text style={styles.label}>Description *</Text>
+          <TextInput
+            style={[styles.textInput, styles.textArea]}
+            value={formData.description}
+            onChangeText={(text) => setFormData(prev => ({ ...prev, description: text }))}
+            placeholder="Describe the event"
+            placeholderTextColor="#9ca3af"
+            multiline
+            numberOfLines={4}
+          />
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Event Type</Text>
+          <View style={styles.typeContainer}>
+            {EVENT_TYPES.map((type) => {
+              const isSelected = formData.event_type === type.id;
+              return (
+                <TouchableOpacity
+                  key={type.id}
+                  style={[styles.typeChip, isSelected && styles.typeChipSelected]}
+                  onPress={() => setFormData(prev => ({ ...prev, event_type: type.id }))}
+                >
+                  <Text style={styles.typeIcon}>{type.icon}</Text>
+                  <Text style={[styles.typeText, isSelected && styles.typeTextSelected]}>
+                    {type.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Schedule</Text>
+
+          <Text style={styles.label}>Start Date *</Text>
+          <TouchableOpacity style={styles.dateButton} onPress={() => showDatePicker('start_date')}>
+            <MaterialIcons name="event" size={20} color="#6b7280" />
+            <Text style={styles.dateText}>{formData.start_date.toLocaleString()}</Text>
+          </TouchableOpacity>
+
+          <Text style={styles.label}>End Date *</Text>
+          <TouchableOpacity style={styles.dateButton} onPress={() => showDatePicker('end_date')}>
+            <MaterialIcons name="event" size={20} color="#6b7280" />
+            <Text style={styles.dateText}>{formData.end_date.toLocaleString()}</Text>
+          </TouchableOpacity>
+
+          <Text style={styles.label}>Registration Deadline *</Text>
+          <TouchableOpacity
+            style={styles.dateButton}
+            onPress={() => showDatePicker('registration_deadline')}
+          >
+            <MaterialIcons name="event" size={20} color="#6b7280" />
+            <Text style={styles.dateText}>{formData.registration_deadline.toLocaleString()}</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Location</Text>
+          <View style={styles.toggleContainer}>
+            <TouchableOpacity
+              style={[styles.toggleButton, !formData.is_online && styles.toggleButtonActive]}
+              onPress={() => setFormData(prev => ({ ...prev, is_online: false }))}
+            >
+              <Text style={[styles.toggleText, !formData.is_online && styles.toggleTextActive]}>
+                Offline
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.toggleButton, formData.is_online && styles.toggleButtonActive]}
+              onPress={() => setFormData(prev => ({ ...prev, is_online: true }))}
+            >
+              <Text style={[styles.toggleText, formData.is_online && styles.toggleTextActive]}>
+                Online
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {formData.is_online ? (
+            <>
+              <Text style={styles.label}>Meeting Link *</Text>
+              <TextInput
+                style={styles.textInput}
+                value={formData.meeting_link}
+                onChangeText={(text) => setFormData(prev => ({ ...prev, meeting_link: text }))}
+                placeholder="https://"
+                placeholderTextColor="#9ca3af"
+              />
+            </>
+          ) : (
+            <>
+              <Text style={styles.label}>Venue *</Text>
+              <TextInput
+                style={styles.textInput}
+                value={formData.venue}
+                onChangeText={(text) => setFormData(prev => ({ ...prev, venue: text }))}
+                placeholder="Event location"
+                placeholderTextColor="#9ca3af"
+              />
+            </>
+          )}
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Capacity</Text>
+          <Text style={styles.label}>Max Participants</Text>
+          <View style={styles.participantsContainer}>
+            <TouchableOpacity
+              style={styles.participantsButton}
+              onPress={() =>
+                setFormData(prev => ({
+                  ...prev,
+                  max_participants: Math.max(1, prev.max_participants - 1),
+                }))
+              }
+            >
+              <MaterialIcons name="remove" size={20} color="#374151" />
+            </TouchableOpacity>
+            <Text style={styles.participantsCount}>{formData.max_participants}</Text>
+            <TouchableOpacity
+              style={styles.participantsButton}
+              onPress={() =>
+                setFormData(prev => ({
+                  ...prev,
+                  max_participants: prev.max_participants + 1,
+                }))
+              }
+            >
+              <MaterialIcons name="add" size={20} color="#374151" />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Poster</Text>
+          <TouchableOpacity
+            style={styles.uploadButton}
+            onPress={pickImage}
+            disabled={uploading}
+          >
+            <Text style={styles.uploadButtonText}>
+              {uploading ? 'Uploading...' : formData.banner_image ? 'Change Poster' : 'Upload Poster'}
+            </Text>
+          </TouchableOpacity>
+          {formData.banner_image ? (
+            <Image
+              source={{ uri: formData.banner_image }}
+              style={{ width: '100%', height: 180, borderRadius: 12, marginTop: 8 }}
+              resizeMode="cover"
+            />
+          ) : null}
+        </View>
+
+        <View style={{ height: 32 }} />
+      </ScrollView>
 
       {/* Custom Date Time Picker Modal (Expo Go Compatible) */}
       <Modal

@@ -13,6 +13,12 @@ export interface EventReminder {
   created_at: string;
 }
 
+const getCurrentUserId = async (): Promise<string | null> => {
+  const { data, error } = await supabase.auth.getUser();
+  if (error || !data.user) return null;
+  return data.user.id;
+};
+
 // Configure notifications (wrapped in try-catch for Expo Go compatibility)
 try {
   Notifications.setNotificationHandler({
@@ -108,13 +114,18 @@ export async function createEventReminder(
   reminderMinutes: number = 60
 ): Promise<EventReminder> {
   const reminderTime = new Date(Date.now() + reminderMinutes * 60 * 1000).toISOString();
+  const currentUserId = await getCurrentUserId();
+
+  if (currentUserId && currentUserId !== userId) {
+    throw new Error('Unauthorized reminder request');
+  }
 
   // @ts-ignore - Supabase type inference issue
   const { data, error } = await supabase
     .from('event_reminders')
     .insert({
       event_id: eventId,
-      user_id: userId,
+      user_id: currentUserId || userId,
       reminder_time: reminderTime,
       notification_type: 'push',
       is_sent: false,

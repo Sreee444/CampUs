@@ -116,9 +116,9 @@ export default function PublicProfileScreen() {
       const { data, error } = await supabase
         .from('project_team_members')
         .select(`
-          project_id,
+          team_id,
           role,
-          projects:project_id (
+          team:project_teams (
             id,
             name,
             description,
@@ -577,7 +577,7 @@ export default function PublicProfileScreen() {
                   <View key={index} style={styles.projectItem}>
                     <MaterialIcons name="folder" size={16} color={Colors.textSecondary} />
                     <Text style={styles.projectName} numberOfLines={1}>
-                      {project.projects?.name}
+                      {project.team?.name}
                     </Text>
                     <Text style={styles.projectRole}>{project.role}</Text>
                   </View>
