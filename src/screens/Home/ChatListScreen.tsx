@@ -268,6 +268,19 @@ export default function ChatScreen() {
               </TouchableOpacity>
             </View>
 
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.browseUsersButton}
+                onPress={() => {
+                  setShowNewChatModal(false);
+                  navigation.navigate('AllUsers');
+                }}
+              >
+                <MaterialIcons name="explore" size={20} color="#ffffff" />
+                <Text style={styles.browseUsersText}>Browse Users</Text>
+              </TouchableOpacity>
+            </View>
+
             {/* Connections List */}
             <ScrollView style={styles.modalScrollView}>
               {loadingConnections ? (
@@ -315,7 +328,7 @@ export default function ChatScreen() {
                         />
                       ) : (
                         <LinearGradient
-                          colors={Colors.gradients.softMesh}
+                          colors={Colors.gradients.softMesh as [string, string, ...string[]]}
                           style={styles.connectionAvatarGradient}
                         >
                           <Text style={styles.connectionAvatarText}>{initials}</Text>
@@ -529,6 +542,11 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   modalLoading: {
     paddingVertical: Spacing.xxl,
     alignItems: 'center',
+  },
+  modalActions: {
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.sm,
+    alignItems: 'flex-start',
   },
   emptyConnections: {
     paddingVertical: Spacing.xxl,

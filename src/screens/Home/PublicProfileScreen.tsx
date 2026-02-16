@@ -114,7 +114,7 @@ export default function PublicProfileScreen() {
   const loadUserProjects = async () => {
     try {
       const { data, error } = await supabase
-        .from('project_members')
+        .from('project_team_members')
         .select(`
           project_id,
           role,
