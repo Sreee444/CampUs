@@ -3,6 +3,7 @@ import { supabase } from "./supabase";
 import { Notification } from "../types/database";
 import * as ExpoNotifications from "expo-notifications";
 import * as Device from "expo-device";
+import Constants from "expo-constants";
 import { Platform } from "react-native";
 
 // Configure notifications (wrapped in try-catch for Expo Go compatibility)
@@ -34,22 +35,36 @@ export const registerForPushNotifications = async () => {
     if (Device.isDevice) {
       const { status: existingStatus } =
         await ExpoNotifications.getPermissionsAsync();
-    let finalStatus = existingStatus;
+      let finalStatus = existingStatus;
 
-    if (existingStatus !== "granted") {
-      const { status } = await ExpoNotifications.requestPermissionsAsync();
-      finalStatus = status;
+      if (existingStatus !== "granted") {
+        const { status } = await ExpoNotifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+
+      if (finalStatus !== "granted") {
+        console.log("Failed to get push token for push notification!");
+        return null;
+      }
+
+      const projectId =
+        process.env.EXPO_PUBLIC_EAS_PROJECT_ID ||
+        Constants?.expoConfig?.extra?.eas?.projectId ||
+        (Constants as any)?.easConfig?.projectId ||
+        null;
+
+      if (!projectId) {
+        console.log("Missing EAS projectId for push notifications");
+        return null;
+      }
+
+      token = (
+        await ExpoNotifications.getExpoPushTokenAsync({ projectId })
+      ).data;
+    } else {
+      console.log("Must use physical device for Push Notifications");
+      return null;
     }
-
-    if (finalStatus !== "granted") {
-      console.log("Failed to get push token for push notification!");
-      return;
-    }
-
-    token = (await ExpoNotifications.getExpoPushTokenAsync()).data;
-  } else {
-    console.log("Must use physical device for Push Notifications");
-  }
 
     if (Platform.OS === "android") {
       ExpoNotifications.setNotificationChannelAsync("default", {
