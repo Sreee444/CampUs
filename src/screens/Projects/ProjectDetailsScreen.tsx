@@ -219,8 +219,8 @@ export default function ProjectDetailsScreen() {
             <TouchableOpacity 
               style={styles.facultyCard}
               onPress={() => {
-                if (team?.creator_id) {
-                  navigation.navigate('PublicProfile', { userId: team.creator_id });
+                if (team?.creator?.id) {
+                  navigation.navigate('PublicProfile', { userId: team.creator.id });
                 }
               }}
               activeOpacity={0.7}
