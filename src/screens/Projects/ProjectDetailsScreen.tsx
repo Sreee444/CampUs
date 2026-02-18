@@ -233,8 +233,6 @@ export default function ProjectDetailsScreen() {
               onPress={() => {
                 if (creatorId) {
                   navigation.navigate('PublicProfile', { userId: creatorId });
-                if (team?.creator?.id) {
-                  navigation.navigate('PublicProfile', { userId: team.creator.id });
                 }
               }}
               activeOpacity={0.7}
