@@ -1,8 +1,8 @@
 const lightColors = {
-  background: '#f6f8f8',
+  background: '#fdfbf7', // cream-warm
   backgroundAlt: '#ffffff',
   surface: '#ffffff',
-  surfaceAlt: '#fdfbf7', // cream warm
+  surfaceAlt: '#fdfbf7',
   text: '#111818',
   textSecondary: '#60707d',
   border: '#e2e8f0',
@@ -21,11 +21,11 @@ const darkColors = {
 };
 
 export const getColors = (isDark: boolean) => ({
-  // Primary Colors
-  primary: '#196ee6',
+  // Primary Colors - Stitch design system
+  primary: '#13ecec',
   primaryContent: '#0e3a3a',
-  primaryDark: '#0e7490',
-  
+  primaryDark: '#0fdbdb',
+
   // Theme-specific colors
   background: isDark ? darkColors.background : lightColors.background,
   backgroundAlt: isDark ? darkColors.backgroundAlt : lightColors.backgroundAlt,
@@ -35,33 +35,43 @@ export const getColors = (isDark: boolean) => ({
   textSecondary: isDark ? darkColors.textSecondary : lightColors.textSecondary,
   border: isDark ? darkColors.border : lightColors.border,
   card: isDark ? darkColors.card : lightColors.card,
-  
+
   // Keep light/dark objects for reference
   light: lightColors,
   dark: darkColors,
-  
-  // Accent Colors
-  lilac: '#e0c3fc',
-  lilacSoft: '#f3e5f5',
-  peach: '#ffd1b3',
-  peachSoft: '#ffe8e0',
-  creamSoft: '#fff8f0',
+
+  // Stitch Palette
   creamWarm: '#fdfbf7',
   mintSoft: '#e0f2f1',
-  
+  mintMist: '#e0f7fa',
+  lilacSoft: '#f3e5f5',
+  paleAqua: '#e0f7fa',
+  softPeach: '#ffe8d6',
+  softMint: '#e0f2f1',
+  softLilac: '#f3e5f5',
+  softCream: '#fff9c4',
+  tealSoft: '#d6f2f2',
+  tealSender: '#e0f2f1',
+  primarySoft: '#e0fbfb',
+  aquaSoft: '#E0F7FA',
+
   // Semantic Colors
   success: '#10b981',
   error: '#ef4444',
   warning: '#f59e0b',
   info: '#3b82f6',
-  
+
   // Gradients (for LinearGradient)
   gradients: {
-    mesh: isDark ? ['#4c1d95', '#9a3412', '#0e7490'] : ['#e0c3fc', '#ffd1b3', '#196ee6', '#f6f8f8'],
-    meshDark: ['#4c1d95', '#9a3412', '#0e7490'],
-    campus: isDark ? ['#1a1a1a', '#102222'] : ['#fff8f0', '#fff5eb', '#ffe8e0'],
-    campusDark: ['#1a1a1a', '#102222'],
-    softMesh: ['#e0c3fc', '#ffd1b3', '#196ee6'],
+    mesh: isDark
+      ? ['#102222', '#1a2a2a', '#102222']
+      : ['#e0f7fa', '#fdfbf7', '#f3e5f5'],
+    meshLight: ['#e0f7fa', '#fdfbf7', '#f3e5f5', '#fff8f0'],
+    peach: ['#fff5e6', '#ffe0cc'],
+    mint: ['#e6fffa', '#d1f7f0'],
+    lilac: ['#f8f0fc', '#ecdcf7'],
+    aqua: ['#e6ffff', '#ccfbfb'],
+    cream: ['#fffdf5', '#fff8e1'],
     glass: isDark ? 'rgba(0, 0, 0, 0.4)' : 'rgba(255, 255, 255, 0.4)',
   },
 });
@@ -82,16 +92,17 @@ export const BorderRadius = {
   sm: 8,
   md: 12,
   lg: 16,
-  xl: 24,
-  xxl: 28,
+  xl: 20,
+  xxl: 24,
+  xxxl: 32,
   full: 9999,
 };
 
 export const FontSizes = {
-  xs: 12,
-  sm: 14,
-  md: 16,
-  lg: 18,
+  xs: 11,
+  sm: 13,
+  md: 15,
+  lg: 17,
   xl: 20,
   xxl: 24,
   xxxl: 32,
@@ -102,6 +113,7 @@ export const FontWeights = {
   medium: '500' as const,
   semibold: '600' as const,
   bold: '700' as const,
+  extrabold: '800' as const,
 };
 
 export const Shadows = {
@@ -115,21 +127,21 @@ export const Shadows = {
   md: {
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.08,
     shadowRadius: 4,
     elevation: 3,
   },
   lg: {
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.12,
     shadowRadius: 8,
     elevation: 5,
   },
   xl: {
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.15,
     shadowRadius: 16,
     elevation: 10,
   },

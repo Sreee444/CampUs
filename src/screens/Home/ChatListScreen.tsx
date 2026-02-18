@@ -23,7 +23,6 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { getConversations, createDirectConversation } from '../../api/chat';
 import { getMyConnections, ConnectionWithProfile } from '../../api/connections';
-import { LinearGradient } from 'expo-linear-gradient';
 import Toast from 'react-native-toast-message';
 
 type ChatScreenNavigationProp = CompositeNavigationProp<
@@ -39,7 +38,7 @@ export default function ChatScreen() {
   const styles = createStyles(Colors);
   const [conversations, setConversations] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  
+
   // New Chat Modal state
   const [showNewChatModal, setShowNewChatModal] = useState(false);
   const [connections, setConnections] = useState<ConnectionWithProfile[]>([]);
@@ -88,7 +87,7 @@ export default function ChatScreen() {
   const handleStartChat = async (connection: ConnectionWithProfile) => {
     try {
       setCreatingChat(true);
-      
+
       // Get the other user's ID
       const otherUserId = connection.profile?.id;
       if (!otherUserId || !user?.id) return;
@@ -156,8 +155,8 @@ export default function ChatScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Messages</Text>
-        <TouchableOpacity 
-          style={styles.composeButton} 
+        <TouchableOpacity
+          style={styles.composeButton}
           onPress={() => setShowNewChatModal(true)}
         >
           <MaterialIcons name="edit" size={20} color={Colors.primary} />
@@ -187,14 +186,14 @@ export default function ChatScreen() {
           const name = getConversationName(conversation, user.id);
           const initials = getInitials(name);
           const color = getColorFromString(name);
-          const lastMessageTime = conversation.last_message 
+          const lastMessageTime = conversation.last_message
             ? new Date(conversation.last_message.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
             : '';
 
           return (
-            <TouchableOpacity 
-              key={conversation.id} 
-              style={styles.conversationItem} 
+            <TouchableOpacity
+              key={conversation.id}
+              style={styles.conversationItem}
               onPress={() => navigation.navigate('ChatConversation', {
                 conversationId: conversation.id,
                 name,
@@ -240,9 +239,9 @@ export default function ChatScreen() {
       </ScrollView>
 
       {/* AI Chat Assistant FAB */}
-      <TouchableOpacity 
-        style={styles.aiChatFab} 
-        onPress={() => navigation.navigate('ChatConversation', { 
+      <TouchableOpacity
+        style={styles.aiChatFab}
+        onPress={() => navigation.navigate('ChatConversation', {
           conversationId: 'ai-assistant',
           name: 'AI Assistant',
           isGroup: false
@@ -322,17 +321,16 @@ export default function ChatScreen() {
                     >
                       {/* Avatar */}
                       {profile.avatar_url ? (
-                        <Image 
-                          source={{ uri: profile.avatar_url }} 
-                          style={styles.connectionAvatar} 
+                        <Image
+                          source={{ uri: profile.avatar_url }}
+                          style={styles.connectionAvatar}
                         />
                       ) : (
-                        <LinearGradient
-                          colors={Colors.gradients.softMesh as [string, string, ...string[]]}
-                          style={styles.connectionAvatarGradient}
+                        <View
+                          style={[styles.connectionAvatarGradient, { backgroundColor: color }]}
                         >
                           <Text style={styles.connectionAvatarText}>{initials}</Text>
-                        </LinearGradient>
+                        </View>
                       )}
 
                       {/* User Info */}
@@ -368,7 +366,7 @@ export default function ChatScreen() {
 const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: '#fdfbf7',
     ...(Platform.OS === 'web' && ({ height: '100vh', width: '100vw' } as any)),
   },
   header: {
@@ -377,9 +375,9 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     justifyContent: 'space-between',
     paddingHorizontal: Spacing.md,
     paddingVertical: 12,
-    backgroundColor: Colors.surface,
+    backgroundColor: '#ffffff',
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomColor: 'rgba(0,0,0,0.06)',
   },
   headerTitle: {
     fontSize: FontSizes.xl,
@@ -396,19 +394,21 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   searchSection: {
     paddingHorizontal: Spacing.md,
-    paddingVertical: 12,
+    paddingVertical: 10,
     backgroundColor: '#ffffff',
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: 'rgba(0,0,0,0.06)',
   },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.light.background,
+    backgroundColor: '#f8fafc',
     borderRadius: BorderRadius.lg,
     paddingHorizontal: 12,
     paddingVertical: 10,
     gap: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.08)',
   },
   searchInput: {
     flex: 1,
@@ -425,7 +425,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     gap: 12,
     backgroundColor: '#ffffff',
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: 'rgba(0,0,0,0.05)',
   },
   avatar: {
     width: 48,

@@ -381,7 +381,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   eventsContainer: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: '#fdfbf7',
   },
   eventsContent: {
     padding: Spacing.md,
@@ -439,21 +439,10 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     color: Colors.textSecondary,
     marginBottom: 8,
   },
-  eventDetails: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginTop: 8,
-  },
-  eventDetailRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 4,
-  },
+
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: '#fdfbf7',
     ...(Platform.OS === 'web' && ({ height: '100vh', width: '100vw' } as any)),
   },
   header: {
@@ -462,9 +451,9 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     justifyContent: 'space-between',
     paddingHorizontal: Spacing.md,
     paddingVertical: 12,
-    backgroundColor: Colors.surface,
+    backgroundColor: 'rgba(255,255,255,0.8)',
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomColor: 'rgba(255,255,255,0.5)',
   },
   headerTitle: {
     fontSize: FontSizes.xl,
@@ -481,9 +470,9 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   categoriesContainer: {
     maxHeight: 50,
-    backgroundColor: '#ffffff',
+    backgroundColor: 'rgba(255,255,255,0.7)',
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: 'rgba(255,255,255,0.5)',
   },
   categoriesContent: {
     paddingHorizontal: Spacing.md,
@@ -494,13 +483,13 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: BorderRadius.full,
-    backgroundColor: Colors.light.background,
+    backgroundColor: 'rgba(255,255,255,0.6)',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: 'rgba(255,255,255,0.8)',
   },
   categoryChipActive: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
+    backgroundColor: '#13ecec',
+    borderColor: '#13ecec',
   },
   categoryText: {
     fontSize: FontSizes.sm,
@@ -508,13 +497,14 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     color: '#64748b',
   },
   categoryTextActive: {
-    color: '#ffffff',
+    color: '#111818',
+    fontWeight: '700',
   },
   tabsContainer: {
     flexDirection: 'row',
     backgroundColor: '#ffffff',
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: 'rgba(0,0,0,0.06)',
   },
   tab: {
     flex: 1,
@@ -562,7 +552,11 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     borderRadius: BorderRadius.lg,
     padding: Spacing.md,
     marginBottom: 12,
-    ...Shadows.sm,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
   },
   eventHeader: {
     flexDirection: 'row',
@@ -596,16 +590,30 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     fontWeight: FontWeights.semibold,
     color: '#111818',
     marginBottom: 8,
+    overflow: 'hidden',
   },
   eventDetail: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     marginBottom: 4,
+    flexShrink: 1,
+  },
+  eventDetails: {
+    gap: 4,
+    marginBottom: 8,
+  },
+  eventDetailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexShrink: 1,
   },
   eventDetailText: {
     fontSize: 12,
     color: '#64748b',
+    flex: 1,
+    flexShrink: 1,
   },
   eventFooter: {
     flexDirection: 'row',

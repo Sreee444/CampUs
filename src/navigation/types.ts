@@ -1,12 +1,11 @@
 import { NavigatorScreenParams } from '@react-navigation/native';
 
 export type MainTabParamList = {
-  Home: undefined;
-  Projects: undefined;
   Events: undefined;
-  Discussions: undefined;
-  Chat: undefined;
+  Projects: undefined;
+  Home: undefined;
   Profile: undefined;
+  Chat: undefined;
 };
 
 export type RootStackParamList = {
@@ -35,10 +34,11 @@ export type RootStackParamList = {
   AIChatAssistant: undefined;
   PublicProfile: { userId: string };
   AllUsers: undefined;
+  Discussions: undefined;
 };
 
 declare global {
   namespace ReactNavigation {
-    interface RootParamList extends RootStackParamList {}
+    interface RootParamList extends RootStackParamList { }
   }
 }

@@ -10,14 +10,12 @@ import {
   Platform,
   ScrollView,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import Toast from 'react-native-toast-message';
 import { RootStackParamList } from '../../navigation/types';
 import { signIn, signInWithGoogle } from '../../api/auth';
-import { Colors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } from '../../theme';
 
 type LoginScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Login'>;
 
@@ -50,7 +48,6 @@ export default function LoginScreen() {
       Toast.show({ type: 'error', text1: 'Enter email and password' });
       return;
     }
-
     try {
       setIsLoading(true);
       await signIn(email.trim(), password);
@@ -68,136 +65,123 @@ export default function LoginScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <LinearGradient
-        colors={['#e0f7fa', '#f3e5f5', '#fff8f0']}
-        style={styles.gradient}
+      {/* Mesh gradient background blobs */}
+      <View style={styles.blob1} />
+      <View style={styles.blob2} />
+
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.keyboardView}
       >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.keyboardView}
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
-          <ScrollView
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-          >
-            <View style={styles.header}>
-              <Text style={styles.headerTitle}>CAMPUS</Text>
+          {/* Header */}
+          <View style={styles.header}>
+            <View style={styles.logoRow}>
+              <MaterialIcons name="school" size={28} color="#111818" />
+              <Text style={styles.logoText}>CAMPUS</Text>
             </View>
+            <Text style={styles.title}>Welcome back.</Text>
+            <Text style={styles.subtitle}>
+              Login to your academic portal to access courses and grades.
+            </Text>
+          </View>
 
-            <View style={styles.mainContent}>
-              <View style={styles.glassPanel}>
-                <View style={styles.titleSection}>
-                  <Text style={styles.title}>Welcome back</Text>
-                  <Text style={styles.subtitle}>Sign in to continue</Text>
-                </View>
-
-                <View style={styles.form}>
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.label}>Email</Text>
-                    <View style={styles.inputWrapper}>
-                      <MaterialIcons
-                        name="mail-outline"
-                        size={20}
-                        color="#94a3b8"
-                        style={styles.inputIcon}
-                      />
-                      <TextInput
-                        style={styles.input}
-                        placeholder="you@university.edu"
-                        value={email}
-                        onChangeText={setEmail}
-                        keyboardType="email-address"
-                        autoCapitalize="none"
-                        placeholderTextColor="#94a3b8"
-                      />
-                    </View>
-                  </View>
-
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.label}>Password</Text>
-                    <View style={styles.inputWrapper}>
-                      <MaterialIcons
-                        name="lock"
-                        size={20}
-                        color="#94a3b8"
-                        style={styles.inputIcon}
-                      />
-                      <TextInput
-                        style={styles.input}
-                        placeholder="••••••••"
-                        value={password}
-                        onChangeText={setPassword}
-                        secureTextEntry={!showPassword}
-                        placeholderTextColor="#94a3b8"
-                      />
-                      <TouchableOpacity
-                        onPress={() => setShowPassword(!showPassword)}
-                        style={styles.eyeIcon}
-                      >
-                        <MaterialIcons
-                          name={showPassword ? 'visibility' : 'visibility-off'}
-                          size={20}
-                          color="#94a3b8"
-                        />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-
-                  <TouchableOpacity
-                    style={styles.forgotButton}
-                    onPress={() => navigation.navigate('ResetPassword')}
-                  >
-                    <Text style={styles.forgotButtonText}>Forgot password?</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[styles.loginButton, isLoading && styles.buttonDisabled]}
-                    onPress={handleLogin}
-                    activeOpacity={0.9}
-                    disabled={isLoading}
-                  >
-                    <Text style={styles.loginButtonText}>
-                      {isLoading ? 'Signing in...' : 'Sign In'}
-                    </Text>
-                    <MaterialIcons name="arrow-forward" size={18} color="#111818" />
-                  </TouchableOpacity>
-
-                  <View style={styles.divider}>
-                    <View style={styles.dividerLine} />
-                    <Text style={styles.dividerText}>OR</Text>
-                    <View style={styles.dividerLine} />
-                  </View>
-
-                  <TouchableOpacity
-                    style={[styles.googleButton, isGoogleLoading && styles.buttonDisabled]}
-                    onPress={handleGoogleSignIn}
-                    activeOpacity={0.9}
-                    disabled={isGoogleLoading}
-                  >
-                    <MaterialIcons name="g-translate" size={20} color="#EA4335" />
-                    <Text style={styles.googleButtonText}>
-                      {isGoogleLoading ? 'Connecting...' : 'Continue with Google'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              <View style={styles.footer}>
-                <Text style={styles.footerText}>
-                  New to CAMPUS?{' '}
-                  <Text
-                    style={styles.footerLink}
-                    onPress={() => navigation.navigate('Signup')}
-                  >
-                    Create account
-                  </Text>
-                </Text>
+          {/* Form */}
+          <View style={styles.form}>
+            {/* Email */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Email</Text>
+              <View style={styles.inputWrapper}>
+                <MaterialIcons name="mail-outline" size={20} color="#94a3b8" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="student@campus.edu"
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  placeholderTextColor="#94a3b8"
+                />
               </View>
             </View>
-          </ScrollView>
-        </KeyboardAvoidingView>
-      </LinearGradient>
+
+            {/* Password */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Password</Text>
+              <View style={styles.inputWrapper}>
+                <MaterialIcons name="lock" size={20} color="#94a3b8" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="••••••••"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword}
+                  placeholderTextColor="#94a3b8"
+                />
+                <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeIcon}>
+                  <MaterialIcons
+                    name={showPassword ? 'visibility' : 'visibility-off'}
+                    size={20}
+                    color="#94a3b8"
+                  />
+                </TouchableOpacity>
+              </View>
+              <TouchableOpacity
+                style={styles.forgotButton}
+                onPress={() => navigation.navigate('ResetPassword')}
+              >
+                <Text style={styles.forgotButtonText}>Forgot Password?</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Login button */}
+            <TouchableOpacity
+              style={[styles.loginButton, isLoading && styles.buttonDisabled]}
+              onPress={handleLogin}
+              activeOpacity={0.9}
+              disabled={isLoading}
+            >
+              <Text style={styles.loginButtonText}>
+                {isLoading ? 'Signing in...' : 'Log In'}
+              </Text>
+            </TouchableOpacity>
+
+            {/* Divider */}
+            <View style={styles.divider}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>Or continue with</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            {/* Google button */}
+            <TouchableOpacity
+              style={[styles.googleButton, isGoogleLoading && styles.buttonDisabled]}
+              onPress={handleGoogleSignIn}
+              activeOpacity={0.9}
+              disabled={isGoogleLoading}
+            >
+              <MaterialIcons name="g-translate" size={20} color="#EA4335" />
+              <Text style={styles.googleButtonText}>
+                {isGoogleLoading ? 'Connecting...' : 'Google'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Footer */}
+          <View style={styles.footer}>
+            <Text style={styles.footerText}>
+              Don't have an account?{' '}
+              <Text style={styles.footerLink} onPress={() => navigation.navigate('Signup')}>
+                Join now
+              </Text>
+            </Text>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -205,96 +189,102 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.light.background,
-    ...(Platform.OS === 'web' && ({
-      height: '100vh',
-      width: '100vw',
-    } as any)),
+    backgroundColor: '#fdfbf7',
+    ...(Platform.OS === 'web' && ({ height: '100vh', width: '100vw' } as any)),
   },
-  gradient: {
-    flex: 1,
-    ...(Platform.OS === 'web' && ({
-      minHeight: '100vh',
-      width: '100%',
-    } as any)),
+  blob1: {
+    position: 'absolute',
+    top: -80,
+    left: -80,
+    width: 250,
+    height: 250,
+    borderRadius: 125,
+    backgroundColor: 'rgba(19,236,236,0.15)',
+  },
+  blob2: {
+    position: 'absolute',
+    top: '45%',
+    right: -60,
+    width: 300,
+    height: 300,
+    borderRadius: 150,
+    backgroundColor: 'rgba(255,248,225,0.5)',
   },
   keyboardView: {
     flex: 1,
   },
   scrollContent: {
     flexGrow: 1,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.md,
-    ...(Platform.OS === 'web' && ({
-      minHeight: '100vh',
-      justifyContent: 'center',
-    } as any)),
+    paddingHorizontal: 24,
+    paddingTop: 48,
+    paddingBottom: 32,
+    justifyContent: 'space-between',
+    ...(Platform.OS === 'web' && ({ minHeight: '100vh' } as any)),
   },
   header: {
     alignItems: 'center',
-    paddingVertical: Spacing.md,
+    marginBottom: 32,
   },
-  headerTitle: {
-    fontSize: FontSizes.sm,
-    fontWeight: FontWeights.bold,
-    letterSpacing: 2,
-    color: '#111818',
-  },
-  mainContent: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  glassPanel: {
-    backgroundColor: 'rgba(255, 255, 255, 0.7)',
-    borderRadius: BorderRadius.xxl,
-    padding: Spacing.lg,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.6)',
-    ...Shadows.xl,
-  },
-  titleSection: {
+  logoRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: Spacing.xl,
+    gap: 8,
+    marginBottom: 32,
+  },
+  logoText: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#111818',
+    letterSpacing: 1,
   },
   title: {
-    fontSize: 30,
-    fontWeight: FontWeights.bold,
+    fontSize: 36,
+    fontWeight: '700',
     color: '#111818',
-    marginBottom: Spacing.sm,
     textAlign: 'center',
+    marginBottom: 8,
+    letterSpacing: -0.5,
   },
   subtitle: {
-    fontSize: FontSizes.md,
+    fontSize: 15,
     color: '#64748b',
     textAlign: 'center',
+    lineHeight: 22,
+    maxWidth: 280,
   },
   form: {
-    gap: Spacing.md,
+    gap: 16,
+    flex: 1,
+    justifyContent: 'center',
   },
   inputGroup: {
     gap: 8,
   },
   label: {
-    fontSize: FontSizes.sm,
-    fontWeight: FontWeights.semibold,
+    fontSize: 14,
+    fontWeight: '500',
     color: '#374151',
+    paddingLeft: 4,
   },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#ffffff',
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    paddingHorizontal: 12,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 2,
   },
   inputIcon: {
-    marginRight: 8,
+    marginRight: 10,
   },
   input: {
     flex: 1,
-    height: 48,
-    fontSize: FontSizes.md,
+    height: 52,
+    fontSize: 15,
     color: '#111818',
   },
   eyeIcon: {
@@ -302,72 +292,81 @@ const styles = StyleSheet.create({
   },
   forgotButton: {
     alignSelf: 'flex-end',
+    marginTop: 4,
   },
   forgotButtonText: {
-    fontSize: FontSizes.sm,
-    color: Colors.primary,
-    fontWeight: FontWeights.medium,
+    fontSize: 14,
+    color: '#64748b',
+    fontWeight: '500',
   },
   loginButton: {
-    backgroundColor: Colors.primary,
+    backgroundColor: '#13ecec',
     paddingVertical: 16,
-    borderRadius: BorderRadius.lg,
+    borderRadius: 12,
     alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 8,
+    shadowColor: '#13ecec',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
+    marginTop: 8,
   },
   buttonDisabled: {
     opacity: 0.7,
   },
   loginButtonText: {
-    fontSize: FontSizes.lg,
-    fontWeight: FontWeights.bold,
+    fontSize: 16,
+    fontWeight: '700',
     color: '#111818',
   },
   divider: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: Spacing.md,
+    gap: 12,
   },
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: '#e2e8f0',
+    backgroundColor: 'rgba(0,0,0,0.1)',
   },
   dividerText: {
-    marginHorizontal: 12,
-    fontSize: FontSizes.sm,
+    fontSize: 13,
     color: '#94a3b8',
-    fontWeight: FontWeights.medium,
+    fontWeight: '500',
   },
   googleButton: {
-    backgroundColor: '#ffffff',
+    backgroundColor: 'rgba(255,255,255,0.85)',
     paddingVertical: 14,
     paddingHorizontal: 16,
-    borderRadius: BorderRadius.lg,
+    borderRadius: 12,
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'center',
     gap: 12,
-    borderWidth: 1.5,
-    borderColor: '#e2e8f0',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.08)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
   },
   googleButtonText: {
-    fontSize: FontSizes.md,
-    fontWeight: FontWeights.semibold,
+    fontSize: 15,
+    fontWeight: '600',
     color: '#374151',
   },
   footer: {
     alignItems: 'center',
-    marginTop: Spacing.lg,
+    paddingTop: 32,
   },
   footerText: {
-    fontSize: FontSizes.sm,
-    color: '#475569',
+    fontSize: 14,
+    color: '#64748b',
   },
   footerLink: {
-    color: Colors.primary,
-    fontWeight: FontWeights.semibold,
+    color: '#111818',
+    fontWeight: '700',
+    textDecorationLine: 'underline',
   },
 });

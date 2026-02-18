@@ -12,10 +12,8 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
-import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
-import { CompositeNavigationProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
-import { MainTabParamList, RootStackParamList } from '../../navigation/types';
+import { RootStackParamList } from '../../navigation/types';
 import { useTheme } from '../../contexts/ThemeContext';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
@@ -26,10 +24,7 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 
 dayjs.extend(relativeTime);
 
-type NavigationProp = CompositeNavigationProp<
-  BottomTabNavigationProp<MainTabParamList, 'Discussions'>,
-  StackNavigationProp<RootStackParamList>
->;
+type NavigationProp = StackNavigationProp<RootStackParamList>;
 
 const categories = ['All', 'Academic', 'Doubt', 'Project', 'General'];
 
@@ -289,12 +284,12 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
   StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: Colors.background,
+      backgroundColor: '#fdfbf7',
     },
     header: {
-      backgroundColor: Colors.surface,
+      backgroundColor: '#ffffff',
       borderBottomWidth: 1,
-      borderBottomColor: Colors.border,
+      borderBottomColor: 'rgba(0,0,0,0.06)',
     },
     headerTop: {
       flexDirection: 'row',
@@ -319,17 +314,19 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     },
     searchSection: {
       paddingHorizontal: Spacing.md,
-      paddingVertical: 12,
-      backgroundColor: Colors.surface,
+      paddingVertical: 10,
+      backgroundColor: '#ffffff',
     },
     searchBar: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: Colors.card,
+      backgroundColor: '#f8fafc',
       borderRadius: BorderRadius.lg,
       paddingHorizontal: 12,
       paddingVertical: 10,
       gap: 8,
+      borderWidth: 1,
+      borderColor: 'rgba(0,0,0,0.08)',
     },
     searchInput: {
       flex: 1,
@@ -338,9 +335,9 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     },
     categoriesContainer: {
       maxHeight: 50,
-      backgroundColor: Colors.surface,
+      backgroundColor: '#ffffff',
       borderBottomWidth: 1,
-      borderBottomColor: Colors.border,
+      borderBottomColor: 'rgba(0,0,0,0.06)',
     },
     categoriesContent: {
       paddingHorizontal: Spacing.md,
@@ -351,13 +348,13 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       paddingHorizontal: 16,
       paddingVertical: 8,
       borderRadius: BorderRadius.full,
-      backgroundColor: Colors.surface,
+      backgroundColor: 'rgba(255,255,255,0.6)',
       borderWidth: 1,
-      borderColor: Colors.border,
+      borderColor: 'rgba(255,255,255,0.8)',
     },
     categoryChipActive: {
-      backgroundColor: Colors.primary,
-      borderColor: Colors.primary,
+      backgroundColor: '#13ecec',
+      borderColor: '#13ecec',
     },
     categoryText: {
       fontSize: FontSizes.sm,
@@ -365,7 +362,8 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       color: Colors.textSecondary,
     },
     categoryTextActive: {
-      color: '#ffffff',
+      color: '#111818',
+      fontWeight: '700',
     },
     scrollView: {
       flex: 1,
@@ -390,12 +388,15 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       color: Colors.text,
     },
     topicCard: {
-      backgroundColor: Colors.card,
+      backgroundColor: '#ffffff',
       borderRadius: BorderRadius.lg,
       padding: Spacing.md,
       marginBottom: 12,
-      borderWidth: 1,
-      ...Shadows.sm,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.05,
+      shadowRadius: 4,
+      elevation: 1,
       position: 'relative',
     },
     topicHeader: {

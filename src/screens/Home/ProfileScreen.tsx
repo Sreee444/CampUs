@@ -110,7 +110,9 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
       >
         <LinearGradient
-          colors={['#e0f7fa', '#f3e5f5', '#fff8f0']}
+          colors={['#e0f7fa', '#fdfbf7', '#f3e5f5']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
           style={styles.profileHeader}
         >
           <View style={styles.avatarContainer}>
@@ -121,8 +123,8 @@ export default function ProfileScreen() {
                 <Text style={styles.avatarText}>{getInitials()}</Text>
               </View>
             )}
-            <TouchableOpacity 
-              style={styles.editAvatarButton} 
+            <TouchableOpacity
+              style={styles.editAvatarButton}
               onPress={() => navigation.navigate('EditProfile')}
             >
               <MaterialIcons name="camera-alt" size={16} color="#fff" />
@@ -250,15 +252,15 @@ export default function ProfileScreen() {
               <Text style={styles.confirmMessage}>Are you sure you want to log out?</Text>
             </View>
             <View style={styles.confirmButtons}>
-              <TouchableOpacity 
-                style={[styles.confirmButton, styles.cancelButton]} 
+              <TouchableOpacity
+                style={[styles.confirmButton, styles.cancelButton]}
                 onPress={cancelLogout}
                 activeOpacity={0.8}
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.confirmButton, styles.logoutConfirmButton]} 
+              <TouchableOpacity
+                style={[styles.confirmButton, styles.logoutConfirmButton]}
                 onPress={confirmLogout}
                 activeOpacity={0.8}
               >
@@ -275,7 +277,7 @@ export default function ProfileScreen() {
 const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: '#fdfbf7',
     ...(Platform.OS === 'web' && ({ height: '100vh', width: '100vw' } as any)),
   },
   header: {
@@ -284,9 +286,9 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     justifyContent: 'space-between',
     paddingHorizontal: Spacing.md,
     paddingVertical: 12,
-    backgroundColor: Colors.surface,
+    backgroundColor: '#ffffff',
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomColor: 'rgba(0,0,0,0.06)',
   },
   headerTitle: {
     fontSize: FontSizes.xl,
@@ -351,9 +353,9 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   statsContainer: {
     flexDirection: 'row',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 20,
-    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    gap: 10,
   },
   loadingContainer: {
     paddingVertical: Spacing.md,
@@ -361,11 +363,15 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   statItem: {
     flex: 1,
-    backgroundColor: Colors.card,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 14,
     alignItems: 'center',
-    ...Shadows.sm,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
   },
   statValue: {
     fontSize: 24,
@@ -379,14 +385,14 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     marginTop: 4,
   },
   section: {
-    paddingHorizontal: Spacing.md,
-    marginBottom: 24,
+    paddingHorizontal: 16,
+    marginBottom: 20,
   },
   sectionTitle: {
-    fontSize: FontSizes.lg,
-    fontWeight: FontWeights.bold,
-    color: Colors.text,
-    marginBottom: 12,
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#111818',
+    marginBottom: 10,
   },
   aboutText: {
     fontSize: FontSizes.md,
@@ -399,9 +405,9 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     gap: 8,
   },
   interestChip: {
-    backgroundColor: '#eff6ff',
+    backgroundColor: 'rgba(19,236,236,0.08)',
     borderWidth: 1,
-    borderColor: '#dbeafe',
+    borderColor: 'rgba(19,236,236,0.2)',
     borderRadius: BorderRadius.full,
     paddingHorizontal: 16,
     paddingVertical: 8,
@@ -409,16 +415,20 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   interestText: {
     fontSize: FontSizes.sm,
     fontWeight: FontWeights.medium,
-    color: Colors.primary,
+    color: '#0d9488',
   },
   actionItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.card,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
-    marginBottom: 12,
-    ...Shadows.sm,
+    backgroundColor: '#ffffff',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
   },
   actionIcon: {
     width: 40,

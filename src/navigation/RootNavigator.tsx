@@ -29,6 +29,7 @@ import DiscussionTopicScreen from '../screens/Home/DiscussionTopicScreen';
 import CreateTopicScreen from '../screens/Home/CreateTopicScreen';
 import PublicProfileScreen from '../screens/Home/PublicProfileScreen';
 import AllUsersScreen from '../screens/Home/AllUsersScreen';
+import DiscussionsScreen from '../screens/Home/DiscussionsScreen';
 import NotificationsScreen from '../screens/Notifications/NotificationsScreen';
 import { MainTabNavigator } from './MainTabNavigator';
 
@@ -58,7 +59,12 @@ export default function RootNavigator() {
       if (targetRoute && currentRoute && onboardingScreens.includes(currentRoute) && currentRoute !== targetRoute) {
         navigationRef.current.reset({
           index: 0,
-          routes: [{ name: targetRoute }],
+          routes: [{
+            name: targetRoute,
+            state: targetRoute === 'MainTabs' ? {
+              routes: [{ name: 'Home' }],
+            } : undefined,
+          }],
         });
       }
     }
@@ -215,6 +221,11 @@ export default function RootNavigator() {
             <Stack.Screen
               name="AllUsers"
               component={AllUsersScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="Discussions"
+              component={DiscussionsScreen}
               options={{ animationEnabled: true }}
             />
           </>

@@ -10,13 +10,11 @@ import {
   Platform,
   ScrollView,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import Toast from 'react-native-toast-message';
 import { RootStackParamList } from '../../navigation/types';
-import { Colors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } from '../../theme';
 import { signUp } from '../../api/auth';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -41,327 +39,307 @@ export default function SignupScreen() {
       Toast.show({ type: 'error', text1: 'Password must be at least 6 characters' });
       return;
     }
-
     try {
       setIsLoading(true);
       const { user, session } = await signUp(email.trim(), password, fullName.trim(), role);
-
       if (user) {
-        // Profile will be created by Supabase trigger. Optionally, refresh profile here.
         await refreshProfile();
       }
-
       if (!session) {
-        // Navigate to verification screen
         navigation.navigate('VerifyEmail', { email: email.trim() });
       } else {
         Toast.show({ type: 'success', text1: 'Account created!' });
-        // Don't navigate manually - let auth state change handle routing
       }
     } catch (error: any) {
-      console.error('Signup error:', error);
-      
       let errorMessage = error?.message || 'Please try again';
-      
-      // Check for common Supabase errors
       if (error?.message?.includes('Email not confirmed')) {
-        errorMessage = 'Email confirmation is required. Check Supabase settings.';
+        errorMessage = 'Email confirmation is required.';
       } else if (error?.message?.includes('signups not allowed')) {
         errorMessage = 'Signups are disabled. Enable in Supabase dashboard.';
-      } else if (error?.status === 401) {
-        errorMessage = 'Auth error: Check Supabase email settings (disable email confirmation for dev)';
       }
-      
-      Toast.show({
-        type: 'error',
-        text1: 'Signup failed',
-        text2: errorMessage,
-      });
+      Toast.show({ type: 'error', text1: 'Signup failed', text2: errorMessage });
     } finally {
       setIsLoading(false);
     }
   };
 
+  const roles = ['student', 'alumni', 'faculty', 'admin'];
+
   return (
     <SafeAreaView style={styles.container}>
+      {/* Background blobs */}
+      <View style={styles.blob1} />
+      <View style={styles.blob2} />
+
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-          <LinearGradient colors={['#e0f7fa', '#f3e5f5']} style={styles.gradient}>
-            <View style={styles.header}>
-              <Text style={styles.headerTitle}>CAMPUS</Text>
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Header */}
+          <View style={styles.header}>
+            <View style={styles.logoRow}>
+              <MaterialIcons name="school" size={28} color="#111818" />
+              <Text style={styles.logoText}>CAMPUS</Text>
             </View>
-            <View style={styles.form}>
-              <Text style={styles.title}>Create your account</Text>
-              
-              {/* Role selection */}
-              <Text style={{ marginTop: 16, marginBottom: 8, fontWeight: 'bold', color: '#333' }}>Select your role</Text>
-              <View style={{ flexDirection: 'row', marginBottom: 16, flexWrap: 'wrap' }}>
-                {['student', 'alumni', 'faculty', 'admin'].map((r) => (
-                  <TouchableOpacity
-                    key={r}
-                    style={{
-                      backgroundColor: role === r ? '#6366f1' : '#e5e7eb',
-                      paddingVertical: 8,
-                      paddingHorizontal: 14,
-                      borderRadius: 8,
-                      marginRight: 8,
-                      marginBottom: 8,
-                    }}
-                    onPress={() => setRole(r)}
-                  >
-                    <Text style={{ color: role === r ? '#fff' : '#333', fontWeight: 'bold' }}>{r.charAt(0).toUpperCase() + r.slice(1)}</Text>
-                  </TouchableOpacity>
-                ))}
+            <Text style={styles.title}>Create account</Text>
+            <Text style={styles.subtitle}>Join your academic community today.</Text>
+          </View>
+
+          {/* Role selection */}
+          <View style={styles.section}>
+            <Text style={styles.label}>I am a</Text>
+            <View style={styles.roleRow}>
+              {roles.map((r) => (
+                <TouchableOpacity
+                  key={r}
+                  style={[styles.roleChip, role === r && styles.roleChipActive]}
+                  onPress={() => setRole(r)}
+                >
+                  <Text style={[styles.roleChipText, role === r && styles.roleChipTextActive]}>
+                    {r.charAt(0).toUpperCase() + r.slice(1)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          {/* Form */}
+          <View style={styles.form}>
+            {/* Full Name */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Full Name</Text>
+              <View style={styles.inputWrapper}>
+                <MaterialIcons name="person" size={20} color="#94a3b8" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Jane Doe"
+                  value={fullName}
+                  onChangeText={setFullName}
+                  placeholderTextColor="#94a3b8"
+                />
               </View>
-                  {/* Full Name Input */}
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.label}>Full Name</Text>
-                    <View style={styles.inputWrapper}>
-                      <MaterialIcons
-                        name="person"
-                        size={20}
-                        color="#94a3b8"
-                        style={styles.inputIcon}
-                      />
-                      <TextInput
-                        style={styles.input}
-                        placeholder="Jane Doe"
-                        value={fullName}
-                        onChangeText={setFullName}
-                        placeholderTextColor="#94a3b8"
-                      />
-                    </View>
-                  </View>
+            </View>
 
-                  {/* Academic Email Input */}
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.label}>Academic Email</Text>
-                    <View style={styles.inputWrapper}>
-                      <MaterialIcons
-                        name="school"
-                        size={20}
-                        color="#94a3b8"
-                        style={styles.inputIcon}
-                      />
-                      <TextInput
-                        style={styles.input}
-                        placeholder="jane@university.edu"
-                        value={email}
-                        onChangeText={setEmail}
-                        keyboardType="email-address"
-                        autoCapitalize="none"
-                        placeholderTextColor="#94a3b8"
-                      />
-                    </View>
-                  </View>
-
-                  {/* Password Input */}
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.label}>Password</Text>
-                    <View style={styles.inputWrapper}>
-                      <MaterialIcons
-                        name="lock"
-                        size={20}
-                        color="#94a3b8"
-                        style={styles.inputIcon}
-                      />
-                      <TextInput
-                        style={styles.input}
-                        placeholder="••••••••"
-                        value={password}
-                        onChangeText={setPassword}
-                        secureTextEntry={!showPassword}
-                        placeholderTextColor="#94a3b8"
-                      />
-                      <TouchableOpacity
-                        onPress={() => setShowPassword(!showPassword)}
-                        style={styles.eyeIcon}
-                      >
-                        <MaterialIcons
-                          name={showPassword ? 'visibility' : 'visibility-off'}
-                          size={20}
-                          color="#94a3b8"
-                        />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-
-                  {/* AI Tip */}
-                  <View style={styles.aiTipContainer}>
-                    <MaterialIcons name="auto-awesome" size={18} color={Colors.primary} />
-                    <Text style={styles.aiTipText}>
-                      <Text style={styles.aiTipLabel}>AI Tip: </Text>
-                      Use your institutional email for faster verification. We prioritize .edu domains.
-                    </Text>
-                  </View>
-
-                  {/* Signup Button */}
-                  <TouchableOpacity
-                    style={styles.signupButton}
-                    onPress={handleSignup}
-                    activeOpacity={0.9}
-                    disabled={isLoading}
-                  >
-                    <Text style={styles.signupButtonText}>
-                      {isLoading ? 'Creating...' : 'Create Account'}
-                    </Text>
-                    <MaterialIcons name="arrow-forward" size={18} color="#111818" />
-                  </TouchableOpacity>
-                </View>
-
-              {/* Footer Link */}
-              <View style={styles.footer}>
-                <Text style={styles.footerText}>
-                  Already a member?{' '}
-                  <Text style={styles.footerLink} onPress={() => navigation.navigate('Login')}>Log In</Text>
-                </Text>
+            {/* Email */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Academic Email</Text>
+              <View style={styles.inputWrapper}>
+                <MaterialIcons name="school" size={20} color="#94a3b8" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="jane@university.edu"
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  placeholderTextColor="#94a3b8"
+                />
               </View>
+            </View>
 
-              {/* Terms */}
-              <View style={styles.terms}>
-                <Text style={styles.termsText}>
-                  By signing up, you agree to our Terms of Service and Privacy Policy.
-                </Text>
+            {/* Password */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Password</Text>
+              <View style={styles.inputWrapper}>
+                <MaterialIcons name="lock" size={20} color="#94a3b8" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="••••••••"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword}
+                  placeholderTextColor="#94a3b8"
+                />
+                <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeIcon}>
+                  <MaterialIcons
+                    name={showPassword ? 'visibility' : 'visibility-off'}
+                    size={20}
+                    color="#94a3b8"
+                  />
+                </TouchableOpacity>
               </View>
-            </LinearGradient>
-          </ScrollView>
-        </KeyboardAvoidingView>
-      </SafeAreaView>
+            </View>
+
+            {/* AI Tip */}
+            <View style={styles.aiTip}>
+              <MaterialIcons name="auto-awesome" size={16} color="#13ecec" />
+              <Text style={styles.aiTipText}>
+                <Text style={styles.aiTipBold}>AI Tip: </Text>
+                Use your institutional email for faster verification.
+              </Text>
+            </View>
+
+            {/* Signup button */}
+            <TouchableOpacity
+              style={[styles.signupButton, isLoading && styles.buttonDisabled]}
+              onPress={handleSignup}
+              activeOpacity={0.9}
+              disabled={isLoading}
+            >
+              <Text style={styles.signupButtonText}>
+                {isLoading ? 'Creating...' : 'Create Account'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Footer */}
+          <View style={styles.footer}>
+            <Text style={styles.footerText}>
+              Already a member?{' '}
+              <Text style={styles.footerLink} onPress={() => navigation.navigate('Login')}>
+                Log In
+              </Text>
+            </Text>
+            <Text style={styles.termsText}>
+              By signing up, you agree to our Terms of Service and Privacy Policy.
+            </Text>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.light.background,
-    ...(Platform.OS === 'web' && ({
-      height: '100vh',
-      width: '100vw',
-    } as any)),
+    backgroundColor: '#fdfbf7',
+    ...(Platform.OS === 'web' && ({ height: '100vh', width: '100vw' } as any)),
   },
-  gradient: {
-    flex: 1,
-    ...(Platform.OS === 'web' && ({
-      minHeight: '100vh',
-      width: '100%',
-    } as any)),
+  blob1: {
+    position: 'absolute',
+    top: -80,
+    left: -80,
+    width: 250,
+    height: 250,
+    borderRadius: 125,
+    backgroundColor: 'rgba(19,236,236,0.12)',
   },
-  keyboardView: {
-    flex: 1,
+  blob2: {
+    position: 'absolute',
+    bottom: -60,
+    right: -60,
+    width: 280,
+    height: 280,
+    borderRadius: 140,
+    backgroundColor: 'rgba(243,229,245,0.6)',
   },
   scrollContent: {
     flexGrow: 1,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.md,
-    ...(Platform.OS === 'web' && ({
-      minHeight: '100vh',
-      justifyContent: 'center',
-    } as any)),
+    paddingHorizontal: 24,
+    paddingTop: 48,
+    paddingBottom: 32,
+    ...(Platform.OS === 'web' && ({ minHeight: '100vh' } as any)),
   },
   header: {
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  logoRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: Spacing.sm,
-    marginBottom: Spacing.md,
+    gap: 8,
+    marginBottom: 24,
   },
-  backButton: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 20,
-  },
-  headerTitle: {
-    fontSize: FontSizes.sm,
-    fontWeight: FontWeights.bold,
-    letterSpacing: 2,
+  logoText: {
+    fontSize: 20,
+    fontWeight: '700',
     color: '#111818',
-  },
-  headerSpacer: {
-    width: 40,
-  },
-  mainContent: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  glassPanel: {
-    backgroundColor: 'rgba(255, 255, 255, 0.65)',
-    borderRadius: BorderRadius.xxl,
-    padding: Spacing.lg,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.5)',
-    ...Shadows.xl,
-  },
-  titleSection: {
-    alignItems: 'center',
-    marginBottom: Spacing.xl,
+    letterSpacing: 1,
   },
   title: {
-    fontSize: 30,
-    fontWeight: FontWeights.bold,
+    fontSize: 32,
+    fontWeight: '700',
     color: '#111818',
-    marginBottom: Spacing.sm,
     textAlign: 'center',
+    marginBottom: 8,
+    letterSpacing: -0.5,
   },
   subtitle: {
-    fontSize: FontSizes.md,
+    fontSize: 15,
     color: '#64748b',
     textAlign: 'center',
   },
+  section: {
+    marginBottom: 16,
+  },
+  roleRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
+  },
+  roleChip: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.6)',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  roleChipActive: {
+    backgroundColor: '#13ecec',
+    borderColor: '#13ecec',
+  },
+  roleChipText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#64748b',
+  },
+  roleChipTextActive: {
+    color: '#111818',
+    fontWeight: '700',
+  },
   form: {
-    gap: Spacing.md,
+    gap: 16,
   },
   inputGroup: {
     gap: 6,
   },
   label: {
-    fontSize: FontSizes.sm,
-    fontWeight: FontWeights.medium,
-    color: '#475569',
-    marginLeft: 4,
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#374151',
+    paddingLeft: 4,
   },
   inputWrapper: {
-    position: 'relative',
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.5)',
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 2,
   },
   inputIcon: {
-    position: 'absolute',
-    left: 12,
-    zIndex: 1,
+    marginRight: 10,
   },
   input: {
     flex: 1,
-    paddingVertical: 14,
-    paddingLeft: 40,
-    paddingRight: 16,
-    fontSize: FontSizes.sm,
+    height: 52,
+    fontSize: 15,
     color: '#111818',
   },
   eyeIcon: {
-    position: 'absolute',
-    right: 12,
     padding: 4,
   },
-  aiTipContainer: {
+  aiTip: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 10,
-    backgroundColor: `${Colors.primary}1A`,
+    gap: 8,
+    backgroundColor: 'rgba(19,236,236,0.08)',
     borderWidth: 1,
-    borderColor: `${Colors.primary}33`,
-    borderRadius: BorderRadius.lg,
+    borderColor: 'rgba(19,236,236,0.2)',
+    borderRadius: 12,
     padding: 12,
-    marginTop: 8,
-    marginBottom: 4,
   },
   aiTipText: {
     flex: 1,
@@ -369,49 +347,46 @@ const styles = StyleSheet.create({
     color: '#334155',
     lineHeight: 18,
   },
-  aiTipLabel: {
-    fontWeight: FontWeights.bold,
-    color: Colors.primary,
+  aiTipBold: {
+    fontWeight: '700',
+    color: '#0d9488',
   },
   signupButton: {
-    flexDirection: 'row',
+    backgroundColor: '#13ecec',
+    paddingVertical: 16,
+    borderRadius: 12,
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: Colors.primary,
-    paddingVertical: 14,
-    borderRadius: BorderRadius.lg,
-    marginTop: Spacing.sm,
-    shadowColor: Colors.primary,
+    shadowColor: '#13ecec',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.25,
     shadowRadius: 8,
     elevation: 4,
+    marginTop: 8,
+  },
+  buttonDisabled: {
+    opacity: 0.7,
   },
   signupButtonText: {
-    fontSize: FontSizes.sm,
-    fontWeight: FontWeights.bold,
+    fontSize: 16,
+    fontWeight: '700',
     color: '#111818',
   },
   footer: {
-    marginTop: Spacing.xl,
     alignItems: 'center',
+    paddingTop: 24,
+    gap: 12,
   },
   footerText: {
-    fontSize: FontSizes.sm,
+    fontSize: 14,
     color: '#64748b',
   },
   footerLink: {
-    fontWeight: FontWeights.semibold,
     color: '#111818',
-  },
-  terms: {
-    marginTop: Spacing.lg,
-    paddingBottom: Spacing.sm,
-    alignItems: 'center',
+    fontWeight: '700',
+    textDecorationLine: 'underline',
   },
   termsText: {
-    fontSize: 10,
+    fontSize: 11,
     color: '#94a3b8',
     textAlign: 'center',
     maxWidth: 280,

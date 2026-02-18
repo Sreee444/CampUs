@@ -30,7 +30,6 @@ export default function FeedScreen() {
   const { isDark } = useTheme();
   const { user } = useAuth();
   const Colors = getColors(isDark);
-  const styles = createStyles(Colors);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [events, setEvents] = useState<any[]>([]);
@@ -42,7 +41,6 @@ export default function FeedScreen() {
   const [notificationCount, setNotificationCount] = useState(0);
 
   const loadFeedData = async (refresh = false) => {
-    // Load user profile
     if (user?.id) {
       try {
         const prof = await getProfile(user.id);
@@ -55,7 +53,6 @@ export default function FeedScreen() {
       if (refresh) setIsRefreshing(true);
       else setIsLoading(true);
 
-      // Get upcoming and live events for feed
       const eventsData = await getEvents(user?.id, undefined, true);
       const liveEvents = eventsData.filter(event => {
         const now = new Date();
@@ -63,37 +60,30 @@ export default function FeedScreen() {
         const eventEnd = new Date(event.end_date);
         return eventStart <= now && eventEnd >= now;
       });
-      // Combine and sort by relevance (live first, then by start time)
       const feedEvents = [...liveEvents, ...eventsData.filter(e =>
         !liveEvents.find(le => le.id === e.id)
-      )].slice(0, 5); // Show top 5 events in feed
+      )].slice(0, 5);
       setEvents(feedEvents);
-      setUpcomingEvents(eventsData.slice(0, 3)); // Show top 3 upcoming events
+      setUpcomingEvents(eventsData.slice(0, 3));
 
-      // Load stats - show total counts, not user-specific
       if (user?.id) {
         try {
-          // Count total active projects (recruiting)
           const { count: projectsCount } = await supabase
             .from('project_teams')
             .select('id', { count: 'exact', head: true })
             .eq('is_recruiting', true);
 
-          // Count upcoming events
           const now = new Date().toISOString();
           const { count: eventsCount } = await supabase
             .from('events')
             .select('id', { count: 'exact', head: true })
             .gte('start_date', now);
 
-          // Count user's connections
           const { count: connectionsCount } = await supabase
             .from('connections')
             .select('id', { count: 'exact', head: true })
             .eq('user_id', user.id)
             .eq('status', 'accepted');
-
-          console.log('Dashboard stats:', { projectsCount, eventsCount, connectionsCount });
 
           setStats({
             projects: projectsCount || 0,
@@ -101,7 +91,6 @@ export default function FeedScreen() {
             connections: connectionsCount || 0,
           });
 
-          // Load notification count (unread notifications + friend requests)
           const [notifications, requests] = await Promise.all([
             getNotifications(user.id),
             getPendingReceivedRequests(),
@@ -116,18 +105,11 @@ export default function FeedScreen() {
         }
       }
 
-      // Load recent projects (mock or fetch from API if available)
-      setRecentProjects([]); // TODO: Replace with real API call if available
-
-      // AI suggestion (mock)
+      setRecentProjects([]);
       setAiSuggestion('Check out the latest events and join a project team!');
     } catch (error) {
       console.error('Feed load error:', error);
-      Toast.show({
-        type: 'error',
-        text1: 'Failed to load feed',
-        text2: 'Please try again'
-      });
+      Toast.show({ type: 'error', text1: 'Failed to load feed', text2: 'Please try again' });
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -138,7 +120,6 @@ export default function FeedScreen() {
     loadFeedData();
   }, [user?.id]);
 
-  // Refresh notification count when screen comes into focus
   useFocusEffect(
     React.useCallback(() => {
       const loadNotificationCount = async () => {
@@ -164,7 +145,6 @@ export default function FeedScreen() {
       Toast.show({ type: 'error', text1: 'Please login to register' });
       return;
     }
-
     try {
       await registerForEvent(eventId, user.id);
       Toast.show({ type: 'success', text1: 'Registered successfully!' });
@@ -175,21 +155,25 @@ export default function FeedScreen() {
     }
   };
 
+  const firstName = profile?.full_name?.split(' ')[0] || user?.email?.split('@')[0] || 'Student';
+
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: Colors.background }]}>
       {/* Header */}
       <LinearGradient
-        colors={['#e0f7fa', '#f3e5f5', '#fff8f0']}
+        colors={['#e0f7fa', '#fdfbf7', '#f3e5f5']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
         style={styles.headerGradient}
       >
         <View style={styles.header}>
           <View>
-            <Text style={styles.greeting}>Welcome!</Text>
-            <Text style={styles.userName}>{profile?.full_name || user?.email || 'Student'}</Text>
+            <Text style={styles.greeting}>Good morning 👋</Text>
+            <Text style={styles.userName}>{firstName}</Text>
           </View>
           <TouchableOpacity
             style={styles.notificationButton}
-            onPress={() => navigation.navigate('Notifications')}
+            onPress={() => navigation.navigate('Notifications' as any)}
           >
             <MaterialIcons name="notifications-none" size={24} color="#111818" />
             {notificationCount > 0 && (
@@ -206,84 +190,88 @@ export default function FeedScreen() {
       <ScrollView
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={() => loadFeedData(true)}
+            tintColor="#13ecec"
+          />
+        }
       >
         {/* Quick Stats */}
         <View style={styles.statsContainer}>
-          <View style={styles.statCard}>
-            <MaterialIcons name="folder-open" size={24} color={Colors.primary} />
+          <LinearGradient colors={['#e0f7fa', '#ccfbfb']} style={styles.statCard}>
+            <MaterialIcons name="folder-open" size={22} color="#0d9488" />
             <Text style={styles.statNumber}>{stats.projects}</Text>
-            <Text style={styles.statLabel}>Active Projects</Text>
-          </View>
-          <View style={styles.statCard}>
-            <MaterialIcons name="event" size={24} color="#10b981" />
+            <Text style={styles.statLabel}>Projects</Text>
+          </LinearGradient>
+          <LinearGradient colors={['#f3e5f5', '#ecdcf7']} style={styles.statCard}>
+            <MaterialIcons name="event" size={22} color="#9333ea" />
             <Text style={styles.statNumber}>{stats.events}</Text>
             <Text style={styles.statLabel}>Events</Text>
-          </View>
-          <View style={styles.statCard}>
-            <MaterialIcons name="chat-bubble-outline" size={24} color="#f59e0b" />
+          </LinearGradient>
+          <LinearGradient colors={['#fff5e6', '#ffe0cc']} style={styles.statCard}>
+            <MaterialIcons name="people-outline" size={22} color="#ea580c" />
             <Text style={styles.statNumber}>{stats.connections}</Text>
-            <Text style={styles.statLabel}>Messages</Text>
+            <Text style={styles.statLabel}>Connects</Text>
+          </LinearGradient>
+        </View>
+
+        {/* Quick Actions */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Quick Access</Text>
+          <View style={styles.quickActions}>
+            <TouchableOpacity
+              style={styles.actionCard}
+              onPress={() => navigation.navigate('Discussions' as any)}
+            >
+              <View style={[styles.actionIcon, { backgroundColor: '#e0f7fa' }]}>
+                <MaterialIcons name="forum" size={24} color="#0d9488" />
+              </View>
+              <Text style={styles.actionLabel}>Discussions</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.actionCard}
+              onPress={() => navigation.navigate('AllUsers' as any)}
+            >
+              <View style={[styles.actionIcon, { backgroundColor: '#f3e5f5' }]}>
+                <MaterialIcons name="people" size={24} color="#9333ea" />
+              </View>
+              <Text style={styles.actionLabel}>Connect</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.actionCard}
+              onPress={() => navigation.navigate('CreateEvent' as any)}
+            >
+              <View style={[styles.actionIcon, { backgroundColor: '#fff5e6' }]}>
+                <MaterialIcons name="add-circle-outline" size={24} color="#ea580c" />
+              </View>
+              <Text style={styles.actionLabel}>New Event</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.actionCard}
+              onPress={() => navigation.navigate('CreateProject' as any)}
+            >
+              <View style={[styles.actionIcon, { backgroundColor: '#e0fbfb' }]}>
+                <MaterialIcons name="work-outline" size={24} color="#0891b2" />
+              </View>
+              <Text style={styles.actionLabel}>New Project</Text>
+            </TouchableOpacity>
           </View>
         </View>
 
         {/* AI Suggestion */}
         <View style={styles.section}>
-          <View style={styles.aiSuggestion}>
-            <MaterialIcons name="auto-awesome" size={20} color={Colors.primary} />
+          <LinearGradient
+            colors={['rgba(19,236,236,0.08)', 'rgba(19,236,236,0.03)']}
+            style={styles.aiSuggestion}
+          >
+            <MaterialIcons name="auto-awesome" size={20} color="#0d9488" />
             <View style={styles.aiContent}>
               <Text style={styles.aiTitle}>AI Suggestion</Text>
-              <Text style={styles.aiText}>
-                {aiSuggestion}
-              </Text>
+              <Text style={styles.aiText}>{aiSuggestion}</Text>
             </View>
-          </View>
-        </View>
-
-        {/* Recent Projects */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Recent Projects</Text>
-            <TouchableOpacity onPress={() => navigation.navigate('Projects' as any)}>
-              <Text style={styles.seeAllText}>See All</Text>
-            </TouchableOpacity>
-          </View>
-
-          {recentProjects.length === 0 ? (
-            <View style={styles.emptyCard}>
-              <Text style={styles.emptyText}>No active projects yet</Text>
-            </View>
-          ) : recentProjects.map((project) => (
-            <TouchableOpacity
-              key={project.id}
-              style={styles.projectCard}
-              onPress={() => navigation.navigate('ProjectDetails', { teamId: project.id })}
-            >
-              <View style={styles.projectHeader}>
-                <View>
-                  <Text style={styles.projectTitle}>{project.name}</Text>
-                  <Text style={styles.projectCategory}>{project.category || 'Project'}</Text>
-                </View>
-                <View style={[
-                  styles.statusBadge,
-                  project.is_recruiting ? styles.statusActive : styles.statusPlanning
-                ]}>
-                  <Text style={styles.statusText}>
-                    {project.is_recruiting ? 'Recruiting' : 'Closed'}
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.progressSection}>
-                <Text style={styles.progressText}>
-                  {project.members_count || 0} members
-                </Text>
-                <View style={styles.progressBar}>
-                  <View
-                    style={[styles.progressFill, { width: `${Math.min(100, (project.members_count || 0) * 20)}%` }]}
-                  />
-                </View>
-              </View>
-            </TouchableOpacity>
-          ))}
+          </LinearGradient>
         </View>
 
         {/* Upcoming Events */}
@@ -295,28 +283,44 @@ export default function FeedScreen() {
             </TouchableOpacity>
           </View>
 
-          {upcomingEvents.length === 0 ? (
+          {isLoading ? (
+            <ActivityIndicator color="#13ecec" style={{ marginVertical: 16 }} />
+          ) : upcomingEvents.length === 0 ? (
             <View style={styles.emptyCard}>
+              <MaterialIcons name="event-busy" size={32} color="#cbd5e1" />
               <Text style={styles.emptyText}>No upcoming events</Text>
             </View>
           ) : upcomingEvents.map((event) => (
-            <View key={event.id} style={styles.eventCard}>
-              <View style={styles.eventDate}>
-                <MaterialIcons name="event" size={20} color={Colors.primary} />
-                <Text style={styles.eventDateText}>
-                  {new Date(event.start_date).toLocaleDateString()}
+            <TouchableOpacity
+              key={event.id}
+              style={styles.eventCard}
+              onPress={() => navigation.navigate('EventDetails' as any, { eventId: event.id })}
+            >
+              <View style={styles.eventDateBadge}>
+                <Text style={styles.eventDateDay}>
+                  {new Date(event.start_date).getDate()}
+                </Text>
+                <Text style={styles.eventDateMonth}>
+                  {new Date(event.start_date).toLocaleString('default', { month: 'short' })}
                 </Text>
               </View>
               <View style={styles.eventInfo}>
-                <Text style={styles.eventTitle}>{event.title}</Text>
-                <View style={styles.eventTime}>
-                  <MaterialIcons name="access-time" size={14} color="#64748b" />
-                  <Text style={styles.eventTimeText}>
+                <Text style={styles.eventTitle} numberOfLines={1}>{event.title}</Text>
+                <View style={styles.eventMeta}>
+                  <MaterialIcons name="access-time" size={13} color="#94a3b8" />
+                  <Text style={styles.eventMetaText}>
                     {new Date(event.start_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </Text>
+                  {event.location && (
+                    <>
+                      <MaterialIcons name="place" size={13} color="#94a3b8" />
+                      <Text style={styles.eventMetaText} numberOfLines={1}>{event.location}</Text>
+                    </>
+                  )}
                 </View>
               </View>
-            </View>
+              <MaterialIcons name="chevron-right" size={20} color="#cbd5e1" />
+            </TouchableOpacity>
           ))}
         </View>
 
@@ -326,10 +330,9 @@ export default function FeedScreen() {
   );
 }
 
-const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create({
+const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
     ...(Platform.OS === 'web' && ({ height: '100vh', width: '100vw' } as any)),
   },
   headerGradient: {
@@ -339,78 +342,88 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: Spacing.md,
-    paddingBottom: 16,
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+    paddingTop: 8,
   },
   greeting: {
-    fontSize: FontSizes.sm,
-    color: Colors.textSecondary,
+    fontSize: 13,
+    color: '#64748b',
+    fontWeight: '500',
   },
   userName: {
-    fontSize: FontSizes.xl,
-    fontWeight: FontWeights.bold,
-    color: Colors.text,
-    marginTop: 4,
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#111818',
+    marginTop: 2,
   },
   notificationButton: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: Colors.card,
+    backgroundColor: 'rgba(255,255,255,0.8)',
     alignItems: 'center',
     justifyContent: 'center',
-    ...Shadows.sm,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
   },
   notificationBadge: {
     position: 'absolute',
     top: 8,
     right: 8,
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
     backgroundColor: '#ef4444',
-    borderWidth: 2,
+    borderWidth: 1.5,
     borderColor: '#ffffff',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 4,
+    paddingHorizontal: 3,
   },
   badgeText: {
     color: '#ffffff',
-    fontSize: 10,
-    fontWeight: 'bold',
+    fontSize: 9,
+    fontWeight: '700',
   },
   scrollView: {
     flex: 1,
   },
   statsContainer: {
     flexDirection: 'row',
-    paddingHorizontal: Spacing.md,
-    paddingTop: Spacing.md,
+    paddingHorizontal: 20,
+    paddingTop: 20,
     gap: 12,
   },
   statCard: {
     flex: 1,
-    backgroundColor: '#ffffff',
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
+    borderRadius: 16,
+    padding: 14,
     alignItems: 'center',
-    ...Shadows.sm,
+    gap: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 2,
   },
   statNumber: {
-    fontSize: 24,
-    fontWeight: FontWeights.bold,
+    fontSize: 22,
+    fontWeight: '700',
     color: '#111818',
-    marginTop: 8,
-  },
-  statLabel: {
-    fontSize: 12,
-    color: '#64748b',
     marginTop: 4,
   },
+  statLabel: {
+    fontSize: 11,
+    color: '#64748b',
+    fontWeight: '500',
+  },
   section: {
-    paddingHorizontal: Spacing.md,
-    marginTop: Spacing.lg,
+    paddingHorizontal: 20,
+    marginTop: 24,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -418,142 +431,133 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     justifyContent: 'space-between',
     marginBottom: 12,
   },
-  emptyCard: {
-    backgroundColor: Colors.card,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
-    alignItems: 'center',
-    ...Shadows.sm,
-  },
-  emptyText: {
-    fontSize: FontSizes.sm,
-    color: Colors.textSecondary,
-  },
   sectionTitle: {
-    fontSize: FontSizes.lg,
-    fontWeight: FontWeights.bold,
+    fontSize: 17,
+    fontWeight: '700',
     color: '#111818',
+    marginBottom: 12,
   },
-  seeAllText: {
-    fontSize: FontSizes.sm,
-    color: Colors.primary,
-    fontWeight: FontWeights.medium,
+  quickActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  actionCard: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 8,
+  },
+  actionIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  actionLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#374151',
+    textAlign: 'center',
   },
   aiSuggestion: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 12,
-    backgroundColor: '#eff6ff',
     borderWidth: 1,
-    borderColor: '#dbeafe',
-    borderRadius: BorderRadius.lg,
-    padding: 12,
+    borderColor: 'rgba(19,236,236,0.2)',
+    borderRadius: 16,
+    padding: 14,
   },
   aiContent: {
     flex: 1,
   },
   aiTitle: {
-    fontSize: FontSizes.sm,
-    fontWeight: FontWeights.semibold,
-    color: Colors.primary,
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0d9488',
     marginBottom: 4,
   },
   aiText: {
-    fontSize: FontSizes.sm,
+    fontSize: 13,
     color: '#334155',
     lineHeight: 18,
   },
-  projectCard: {
-    backgroundColor: Colors.card,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
+  emptyCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 24,
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.06)',
+  },
+  emptyText: {
+    fontSize: 14,
+    color: '#94a3b8',
+  },
+  seeAllText: {
+    fontSize: 13,
+    color: '#13ecec',
+    fontWeight: '600',
     marginBottom: 12,
-    ...Shadows.sm,
-  },
-  projectHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  projectTitle: {
-    fontSize: FontSizes.md,
-    fontWeight: FontWeights.semibold,
-    color: Colors.text,
-    marginBottom: 4,
-  },
-  projectCategory: {
-    fontSize: FontSizes.sm,
-    color: '#64748b',
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  statusActive: {
-    backgroundColor: '#d1fae5',
-  },
-  statusPlanning: {
-    backgroundColor: '#fef3c7',
-  },
-  statusText: {
-    fontSize: 11,
-    fontWeight: FontWeights.medium,
-    color: '#047857',
-  },
-  progressSection: {
-    gap: 6,
-  },
-  progressText: {
-    fontSize: 12,
-    color: '#64748b',
-  },
-  progressBar: {
-    height: 6,
-    backgroundColor: '#e2e8f0',
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: Colors.primary,
-    borderRadius: 3,
   },
   eventCard: {
-    backgroundColor: Colors.card,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
-    marginBottom: 12,
     flexDirection: 'row',
-    gap: 12,
-    ...Shadows.sm,
-  },
-  eventDate: {
     alignItems: 'center',
-    gap: 4,
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 10,
+    gap: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
   },
-  eventDateText: {
-    fontSize: 12,
-    fontWeight: FontWeights.medium,
-    color: '#111818',
+  eventDateBadge: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: 'rgba(19,236,236,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  eventDateDay: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0d9488',
+    lineHeight: 18,
+  },
+  eventDateMonth: {
+    fontSize: 10,
+    fontWeight: '500',
+    color: '#0d9488',
+    textTransform: 'uppercase',
   },
   eventInfo: {
     flex: 1,
   },
   eventTitle: {
-    fontSize: FontSizes.md,
-    fontWeight: FontWeights.semibold,
-    color: Colors.text,
-    marginBottom: 6,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#111818',
+    marginBottom: 4,
+    overflow: 'hidden',
   },
-  eventTime: {
+  eventMeta: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+    flexWrap: 'wrap',
   },
-  eventTimeText: {
+  eventMetaText: {
     fontSize: 12,
-    color: '#64748b',
+    color: '#94a3b8',
   },
 });

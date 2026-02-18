@@ -393,7 +393,7 @@ export default function ProjectsScreen() {
 const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: '#fdfbf7',
     ...(Platform.OS === 'web' && ({ height: '100vh', width: '100vw' } as any)),
   },
   header: {
@@ -402,9 +402,9 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     justifyContent: 'space-between',
     paddingHorizontal: Spacing.md,
     paddingVertical: 12,
-    backgroundColor: Colors.surface,
+    backgroundColor: 'rgba(255,255,255,0.8)',
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomColor: 'rgba(255,255,255,0.5)',
   },
   headerTitle: {
     fontSize: FontSizes.xl,
@@ -422,11 +422,11 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   tabsContainer: {
     flexDirection: 'row',
-    backgroundColor: Colors.surface,
+    backgroundColor: 'rgba(255,255,255,0.8)',
     paddingHorizontal: Spacing.md,
     gap: 12,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomColor: 'rgba(255,255,255,0.5)',
   },
   tab: {
     paddingVertical: 12,
@@ -449,16 +449,18 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   searchSection: {
     paddingHorizontal: Spacing.md,
     paddingVertical: 12,
-    backgroundColor: Colors.surface,
+    backgroundColor: 'rgba(255,255,255,0.7)',
   },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.card,
+    backgroundColor: 'rgba(255,255,255,0.6)',
     borderRadius: BorderRadius.lg,
     paddingHorizontal: 12,
     paddingVertical: 10,
     gap: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.8)',
   },
   searchInput: {
     flex: 1,
@@ -467,9 +469,9 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   categoriesContainer: {
     maxHeight: 50,
-    backgroundColor: Colors.surface,
+    backgroundColor: 'rgba(255,255,255,0.7)',
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomColor: 'rgba(255,255,255,0.5)',
   },
   categoriesContent: {
     paddingHorizontal: Spacing.md,
@@ -480,13 +482,13 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: BorderRadius.full,
-    backgroundColor: Colors.surface,
+    backgroundColor: 'rgba(255,255,255,0.6)',
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: 'rgba(255,255,255,0.8)',
   },
   categoryChipActive: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
+    backgroundColor: '#13ecec',
+    borderColor: '#13ecec',
   },
   categoryText: {
     fontSize: FontSizes.sm,
@@ -494,7 +496,8 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     color: Colors.textSecondary,
   },
   categoryTextActive: {
-    color: '#ffffff',
+    color: '#111818',
+    fontWeight: '700',
   },
   scrollView: {
     flex: 1,
@@ -508,11 +511,15 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     marginBottom: 12,
   },
   projectCard: {
-    backgroundColor: Colors.card,
+    backgroundColor: '#ffffff',
     borderRadius: BorderRadius.lg,
     padding: Spacing.md,
     marginBottom: 12,
-    ...Shadows.sm,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
     position: 'relative',
   },
   featuredBadge: {
@@ -547,6 +554,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     fontWeight: FontWeights.semibold,
     color: Colors.text,
     marginBottom: 4,
+    overflow: 'hidden',
   },
   projectCategory: {
     fontSize: FontSizes.sm,
