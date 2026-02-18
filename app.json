@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "campus-app",
-    "slug": "campus-app",
+    "name": "CampUs",
+    "slug": "CampUs",
     "scheme": "campusapp",
     "version": "1.0.0",
     "orientation": "portrait",

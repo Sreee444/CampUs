@@ -8,10 +8,15 @@ export default function SplashScreen() {
   const colors = getColors(isDark);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.3)).current;
-  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const rotateAnim = useRef(new Animated.Value(0)).current;
+  
+  // Individual animations for each loading dot
+  const dot1Anim = useRef(new Animated.Value(0)).current;
+  const dot2Anim = useRef(new Animated.Value(0)).current;
+  const dot3Anim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    // Fade in and scale up animation
+    // Fade in and scale up animation for main content
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
@@ -26,22 +31,65 @@ export default function SplashScreen() {
       }),
     ]).start();
 
-    // Pulsing animation for loading indicator
+    // Continuous rotation for logo container
     Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1.2,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-      ])
+      Animated.timing(rotateAnim, {
+        toValue: 1,
+        duration: 50000,
+        useNativeDriver: true,
+      })
     ).start();
-  }, [fadeAnim, scaleAnim, pulseAnim]);
+
+    // Staggered bouncing animation for loading dots
+    const createDotAnimation = (delay: number) => {
+      return Animated.loop(
+        Animated.sequence([
+          Animated.delay(delay),
+          Animated.parallel([
+            Animated.timing(dot1Anim, {
+              toValue: 1,
+              duration: 500,
+              useNativeDriver: true,
+            }),
+            Animated.timing(dot2Anim, {
+              toValue: 1,
+              duration: 500,
+              useNativeDriver: true,
+            }),
+            Animated.timing(dot3Anim, {
+              toValue: 1,
+              duration: 500,
+              useNativeDriver: true,
+            }),
+          ]),
+          Animated.parallel([
+            Animated.timing(dot1Anim, {
+              toValue: 0,
+              duration: 500,
+              useNativeDriver: true,
+            }),
+            Animated.timing(dot2Anim, {
+              toValue: 0,
+              duration: 500,
+              useNativeDriver: true,
+            }),
+            Animated.timing(dot3Anim, {
+              toValue: 0,
+              duration: 500,
+              useNativeDriver: true,
+            }),
+          ]),
+        ])
+      );
+    };
+
+    createDotAnimation(0).start();
+  }, [fadeAnim, scaleAnim, rotateAnim, dot1Anim, dot2Anim, dot3Anim]);
+
+  const rotationValue = rotateAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -54,14 +102,22 @@ export default function SplashScreen() {
           },
         ]}
       >
-        {/* Logo/Icon Container */}
-        <View style={[styles.iconContainer, { backgroundColor: colors.primary }]}>
+        {/* Logo/Icon Container with Rotation */}
+        <Animated.View
+          style={[
+            styles.iconContainer,
+            {
+              backgroundColor: colors.primary,
+              transform: [{ rotate: rotationValue }],
+            },
+          ]}
+        >
           <Image
             source={require('../../assets/icon.png')}
             style={styles.icon}
             resizeMode="contain"
           />
-        </View>
+        </Animated.View>
 
         {/* App Name */}
         <Text style={[styles.title, { color: colors.text }]}>CampUs</Text>
@@ -69,19 +125,60 @@ export default function SplashScreen() {
           Connect. Collaborate. Create.
         </Text>
 
-        {/* Loading Indicator */}
-        <Animated.View
-          style={[
-            styles.loadingContainer,
-            {
-              transform: [{ scale: pulseAnim }],
-            },
-          ]}
-        >
-          <View style={[styles.loadingDot, { backgroundColor: colors.primary }]} />
-          <View style={[styles.loadingDot, { backgroundColor: colors.primary }]} />
-          <View style={[styles.loadingDot, { backgroundColor: colors.primary }]} />
-        </Animated.View>
+        {/* Loading Indicator with Staggered Animation */}
+        <View style={styles.loadingContainer}>
+          <Animated.View
+            style={[
+              styles.loadingDot,
+              {
+                backgroundColor: colors.primary,
+                opacity: dot1Anim,
+                transform: [
+                  {
+                    scale: dot1Anim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.6, 1.2],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          />
+          <Animated.View
+            style={[
+              styles.loadingDot,
+              {
+                backgroundColor: colors.primary,
+                opacity: dot2Anim,
+                transform: [
+                  {
+                    scale: dot2Anim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.6, 1.2],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          />
+          <Animated.View
+            style={[
+              styles.loadingDot,
+              {
+                backgroundColor: colors.primary,
+                opacity: dot3Anim,
+                transform: [
+                  {
+                    scale: dot3Anim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.6, 1.2],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          />
+        </View>
       </Animated.View>
 
       {/* Footer */}
