@@ -23,6 +23,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { getConversations, createDirectConversation } from '../../api/chat';
 import { getMyConnections, ConnectionWithProfile } from '../../api/connections';
+import { UserAvatar } from '../../components/UserAvatar';
 import Toast from 'react-native-toast-message';
 
 type ChatScreenNavigationProp = CompositeNavigationProp<
@@ -200,13 +201,18 @@ export default function ChatScreen() {
                 isGroup: conversation.is_group
               })}
             >
-              <View style={[styles.avatar, { backgroundColor: color }]}>
+              <View style={styles.avatarWrapper}>
+                <UserAvatar
+                  uri={conversation.other_user?.avatar_url}
+                  name={name}
+                  size={48}
+                  showRing={false}
+                />
                 {conversation.is_group && (
                   <View style={styles.groupBadge}>
                     <MaterialIcons name="people" size={12} color="#fff" />
                   </View>
                 )}
-                <Text style={styles.avatarText}>{initials}</Text>
               </View>
 
               <View style={styles.conversationInfo}>
@@ -427,13 +433,46 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(0,0,0,0.05)',
   },
+  avatarWrapper: {
+    position: 'relative',
+    marginRight: 12,
+  },
   avatar: {
     width: 48,
     height: 48,
     borderRadius: 24,
+    backgroundColor: Colors.card,
     alignItems: 'center',
     justifyContent: 'center',
-    position: 'relative',
+  },
+  teamText: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    marginLeft: 8,
+  },
+  avatarStack: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  stackedAvatar: {
+    borderWidth: 2,
+    borderColor: '#ffffff',
+    borderRadius: 999,
+  },
+  moreMembersBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#ffffff',
+  },
+  moreMembersText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#64748b',
   },
   groupBadge: {
     position: 'absolute',

@@ -20,6 +20,7 @@ import { getUserStats } from '../../api/users';
 import { getProfile } from '../../api/auth';
 import { supabase } from '../../api/supabase';
 import { EventFeedItem } from '../../components/EventFeedItem';
+import { UserAvatar } from '../../components/UserAvatar';
 import { LinearGradient } from 'expo-linear-gradient';
 import Toast from 'react-native-toast-message';
 import { getNotifications } from '../../api/notifications';
@@ -167,9 +168,18 @@ export default function FeedScreen() {
         style={styles.headerGradient}
       >
         <View style={styles.header}>
-          <View>
-            <Text style={styles.greeting}>Good morning 👋</Text>
-            <Text style={styles.userName}>{firstName}</Text>
+          <View style={styles.greetingRow}>
+            <UserAvatar
+              uri={profile?.avatar_url}
+              name={profile?.full_name}
+              role={profile?.role}
+              size={42}
+              showRing={true}
+            />
+            <View style={{ marginLeft: 12 }}>
+              <Text style={styles.greeting}>Good morning 👋</Text>
+              <Text style={styles.userName}>{firstName}</Text>
+            </View>
           </View>
           <TouchableOpacity
             style={styles.notificationButton}
@@ -345,6 +355,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 20,
     paddingTop: 8,
+  },
+  greetingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   greeting: {
     fontSize: 13,

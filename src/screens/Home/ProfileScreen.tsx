@@ -22,6 +22,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { getUserStats } from '../../api/users';
 import { LinearGradient } from 'expo-linear-gradient';
+import { UserAvatar } from '../../components/UserAvatar';
 import Toast from 'react-native-toast-message';
 
 type ProfileScreenNavigationProp = CompositeNavigationProp<
@@ -66,7 +67,7 @@ export default function ProfileScreen() {
     return (first + second).toUpperCase();
   };
 
-  const interests = profile?.interests || [];
+  const interests = Array.isArray(profile?.interests) ? profile.interests : [];
 
   const shareProfile = async () => {
     try {
@@ -115,14 +116,15 @@ export default function ProfileScreen() {
           end={{ x: 1, y: 1 }}
           style={styles.profileHeader}
         >
+          {/* Avatar with role ring */}
           <View style={styles.avatarContainer}>
-            {profile?.avatar_url ? (
-              <Image source={{ uri: profile.avatar_url }} style={styles.avatar} />
-            ) : (
-              <View style={styles.avatar}>
-                <Text style={styles.avatarText}>{getInitials()}</Text>
-              </View>
-            )}
+            <UserAvatar
+              uri={profile?.avatar_url}
+              name={profile?.full_name}
+              role={profile?.role}
+              size={96}
+              showRing={true}
+            />
             <TouchableOpacity
               style={styles.editAvatarButton}
               onPress={() => navigation.navigate('EditProfile')}
@@ -142,21 +144,21 @@ export default function ProfileScreen() {
           </View>
         ) : stats ? (
           <View style={styles.statsContainer}>
-            <View style={styles.statItem}>
-              <MaterialIcons name="group" size={24} color={Colors.primary} />
+            <LinearGradient colors={['#e0f7fa', '#ccfbfb']} style={styles.statItem}>
+              <MaterialIcons name="group" size={22} color="#0d9488" />
               <Text style={styles.statValue}>{stats.total_connections || 0}</Text>
               <Text style={styles.statLabel}>Connections</Text>
-            </View>
-            <View style={styles.statItem}>
-              <MaterialIcons name="folder" size={24} color={Colors.primary} />
+            </LinearGradient>
+            <LinearGradient colors={['#f3e5f5', '#ecdcf7']} style={styles.statItem}>
+              <MaterialIcons name="folder" size={22} color="#9333ea" />
               <Text style={styles.statValue}>{stats.total_projects || 0}</Text>
               <Text style={styles.statLabel}>Projects</Text>
-            </View>
-            <View style={styles.statItem}>
-              <MaterialIcons name="event" size={24} color={Colors.primary} />
+            </LinearGradient>
+            <LinearGradient colors={['#fff5e6', '#ffe0cc']} style={styles.statItem}>
+              <MaterialIcons name="event" size={22} color="#ea580c" />
               <Text style={styles.statValue}>{stats.total_events || 0}</Text>
               <Text style={styles.statLabel}>Events</Text>
-            </View>
+            </LinearGradient>
           </View>
         ) : null}
 
@@ -306,6 +308,8 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   avatarContainer: {
     position: 'relative',
     marginBottom: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   avatar: {
     width: 100,
@@ -363,15 +367,15 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   statItem: {
     flex: 1,
-    backgroundColor: '#ffffff',
     borderRadius: 16,
     padding: 14,
     alignItems: 'center',
+    gap: 4,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 1,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 2,
   },
   statValue: {
     fontSize: 24,

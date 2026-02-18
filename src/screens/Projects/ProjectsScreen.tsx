@@ -22,6 +22,7 @@ import { getColors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } fro
 import { useAuth } from '../../contexts/AuthContext';
 import { getProjectTeams, getProjectsByRole, getMentoredProjects } from '../../api/projects';
 import { ProjectTeam } from '../../types/database';
+import { UserAvatar } from '../../components/UserAvatar';
 
 type ProjectsScreenNavigationProp = CompositeNavigationProp<
   BottomTabNavigationProp<MainTabParamList, 'Projects'>,
@@ -327,16 +328,27 @@ export default function ProjectsScreen() {
                   </Text>
 
                   <View style={styles.creatorRow}>
-                    <MaterialIcons name="person-outline" size={16} color={Colors.textSecondary} />
+                    <UserAvatar
+                      uri={project.creator?.avatar_url}
+                      name={project.creator?.full_name}
+                      size={20}
+                      showRing={false}
+                    />
                     <Text style={styles.creatorText}>
-                      Created by {project.creator?.full_name || 'Campus'}
+                      Created by {project.creator?.full_name || 'Campus Member'}
                     </Text>
                   </View>
 
                   {/* Mentor Information */}
                   {project.mentor && (
                     <View style={[styles.creatorRow, { marginTop: 4 }]}>
-                      <MaterialIcons name="school" size={16} color={Colors.primary} />
+                      <UserAvatar
+                        uri={project.mentor.avatar_url}
+                        name={project.mentor.full_name}
+                        role="faculty"
+                        size={20}
+                        showRing={false}
+                      />
                       <Text style={[styles.creatorText, { color: Colors.primary }]}>
                         Mentor: {project.mentor.full_name}
                       </Text>
@@ -353,9 +365,9 @@ export default function ProjectsScreen() {
                     </View>
                   </View>
 
-                  {(project.required_skills || []).length > 0 && (
+                  {Array.isArray(project.required_skills) && project.required_skills.length > 0 && (
                     <View style={styles.skillList}>
-                      {(project.required_skills || []).slice(0, 4).map((skill) => (
+                      {project.required_skills.slice(0, 4).map((skill) => (
                         <View key={skill} style={styles.skillChip}>
                           <Text style={styles.skillChipText}>{skill}</Text>
                         </View>
@@ -365,7 +377,24 @@ export default function ProjectsScreen() {
 
                   <View style={styles.projectFooter}>
                     <View style={styles.teamInfo}>
-                      <MaterialIcons name="people" size={16} color={Colors.textSecondary} />
+                      <View style={styles.avatarStack}>
+                        {Array.isArray(project.members) && project.members.slice(0, 3).map((member, index) => (
+                          <View key={member.id || index} style={[styles.stackedAvatar, { marginLeft: index > 0 ? -12 : 0, zIndex: 3 - index }]}>
+                            <UserAvatar
+                              uri={member.avatar_url}
+                              name={member.full_name}
+                              size={24}
+                              showRing={true}
+                              role={member.role}
+                            />
+                          </View>
+                        ))}
+                        {(project.members_count || 0) > 3 && (
+                          <View style={[styles.moreMembersBadge, { marginLeft: -12, zIndex: 0 }]}>
+                            <Text style={styles.moreMembersText}>+{(project.members_count || 0) - 3}</Text>
+                          </View>
+                        )}
+                      </View>
                       <Text style={styles.teamText}>
                         {project.members_count || 0}/{project.max_members || 0} members
                       </Text>
@@ -696,6 +725,31 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   teamText: {
     fontSize: 12,
     color: Colors.textSecondary,
+  },
+  avatarStack: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  stackedAvatar: {
+    borderWidth: 2,
+    borderColor: '#ffffff',
+    borderRadius: 999,
+  },
+  moreMembersBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#ffffff',
+  },
+  moreMembersText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#64748b',
   },
   viewButton: {
     flexDirection: 'row',

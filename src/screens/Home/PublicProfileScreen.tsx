@@ -26,9 +26,9 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import Toast from 'react-native-toast-message';
-import Animated, { 
-  useAnimatedStyle, 
-  withTiming, 
+import Animated, {
+  useAnimatedStyle,
+  withTiming,
   useSharedValue,
   withSpring,
   interpolateColor
@@ -145,7 +145,7 @@ export default function PublicProfileScreen() {
       animateButton();
 
       const result = await sendConnectionRequest(userId);
-      
+
       if (result.success) {
         Toast.show({
           type: 'success',
@@ -177,7 +177,7 @@ export default function PublicProfileScreen() {
       animateButton();
 
       const result = await cancelConnectionRequest(userId);
-      
+
       if (result.success) {
         Toast.show({
           type: 'success',
@@ -204,13 +204,13 @@ export default function PublicProfileScreen() {
 
   const handleAccept = async () => {
     if (!connectionStatus.connectionId) return;
-    
+
     try {
       setActionLoading(true);
       animateButton();
 
       const result = await acceptConnectionRequest(connectionStatus.connectionId);
-      
+
       if (result.success) {
         Toast.show({
           type: 'success',
@@ -238,12 +238,12 @@ export default function PublicProfileScreen() {
 
   const handleReject = async () => {
     if (!connectionStatus.connectionId) return;
-    
+
     try {
       setActionLoading(true);
 
       const result = await rejectConnectionRequest(connectionStatus.connectionId);
-      
+
       if (result.success) {
         Toast.show({
           type: 'success',
@@ -451,14 +451,14 @@ export default function PublicProfileScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView 
+      <ScrollView
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
         {/* Gradient Header Background */}
         <LinearGradient
-          colors={Colors.gradients.campus as any}
+          colors={Colors.gradients.mesh as any}
           style={styles.gradientHeader}
         />
 
@@ -469,7 +469,7 @@ export default function PublicProfileScreen() {
               <Image source={{ uri: profile.avatar_url }} style={styles.avatar} />
             ) : (
               <LinearGradient
-                colors={Colors.gradients.softMesh as any}
+                colors={Colors.gradients.meshLight as any}
                 style={styles.avatarGradient}
               >
                 <Text style={styles.avatarText}>{getInitials()}</Text>

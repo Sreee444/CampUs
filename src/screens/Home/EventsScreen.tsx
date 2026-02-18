@@ -298,16 +298,27 @@ export default function EventsScreen() {
                   </Text>
                 </View>
                 <View style={styles.eventDetailRow}>
-                  <MaterialIcons name="people" size={16} color="#6b7280" />
-                  <Text style={styles.eventDetailText}>
-                    {event.registrations_count || 0} / {event.max_participants || '∞'} registered
-                  </Text>
+                  {(() => {
+                    const count = event.registrations_count || 0;
+                    const max = event.max_participants;
+                    const isFull = max && count >= max;
+                    const color = isFull ? '#ef4444' : count > 0 ? '#10b981' : '#94a3b8';
+                    return (
+                      <>
+                        <MaterialIcons name="people" size={16} color={color} />
+                        <Text style={[styles.eventDetailText, { color, fontWeight: '600' }]}>
+                          {count} / {max || '∞'} {isFull ? 'Full' : 'registered'}
+                        </Text>
+                      </>
+                    );
+                  })()}
                 </View>
               </View>
 
               {/* Countdown Timer for Upcoming Events */}
               {activeTab === 'upcoming' && (
                 <View style={styles.timerContainer}>
+                  <MaterialIcons name="timer" size={14} color="#92400e" style={{ marginRight: 6 }} />
                   <CountdownTimer
                     targetDate={event.start_date}
                     compact={true}
@@ -325,11 +336,14 @@ export default function EventsScreen() {
                   ]}
                   onPress={() => handleRegister(event)}
                 >
-                  <Text style={[
-                    styles.registerButtonText,
-                    event.is_registered && styles.unregisterButtonText
-                  ]}>
-                    {event.is_registered ? 'Unregister' : 'Register'}
+                  <MaterialIcons
+                    name={event.is_registered ? 'person-remove' : 'how-to-reg'}
+                    size={16}
+                    color="#ffffff"
+                    style={{ marginRight: 6 }}
+                  />
+                  <Text style={styles.registerButtonText}>
+                    {event.is_registered ? 'Unregister' : 'Register Now'}
                   </Text>
                 </TouchableOpacity>
               )}
@@ -337,6 +351,7 @@ export default function EventsScreen() {
               {/* Registration Closed */}
               {activeTab === 'upcoming' && new Date(event.registration_deadline) <= new Date() && (
                 <View style={styles.closedButton}>
+                  <MaterialIcons name="block" size={14} color="#ffffff" style={{ marginRight: 4 }} />
                   <Text style={styles.closedButtonText}>Registration Closed</Text>
                 </View>
               )}
@@ -642,9 +657,11 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     color: '#334155',
   },
   timerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#fef8e7',
     padding: 8,
-    borderRadius: BorderRadius.sm,
+    borderRadius: 8,
     marginTop: 8,
     borderLeftWidth: 3,
     borderLeftColor: '#f59e0b',
@@ -655,11 +672,13 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     color: '#92400e',
   },
   registerButton: {
-    backgroundColor: Colors.primary,
+    backgroundColor: '#10b981',
     borderRadius: BorderRadius.md,
     paddingVertical: 10,
     paddingHorizontal: 20,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     marginTop: 12,
   },
   registerButtonText: {
@@ -670,15 +689,14 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   unregisterButton: {
     backgroundColor: '#ef4444',
   },
-  unregisterButtonText: {
-    color: '#ffffff',
-  },
   closedButton: {
-    backgroundColor: '#f3f4f6',
+    backgroundColor: '#ef4444',
     borderRadius: BorderRadius.md,
     paddingVertical: 10,
     paddingHorizontal: 20,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     marginTop: 12,
   },
   closedButtonText: {
