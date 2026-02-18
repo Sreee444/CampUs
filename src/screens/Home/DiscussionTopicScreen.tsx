@@ -19,7 +19,7 @@ import { RootStackParamList } from '../../navigation/types';
 import { useTheme } from '../../contexts/ThemeContext';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getEvent } from '../../api/events';
+import { addEventDiscussion, deleteEventDiscussionThread, getEvent } from '../../api/events';
 import {
   getDiscussionTopic,
   getTopicReplies,
@@ -30,7 +30,7 @@ import {
   deleteReply,
 } from '../../api/discussions';
 import { DiscussionTopic, DiscussionReply } from '../../types/database';
-import { getCleanDiscussionTitle } from '../../utils/discussionHelpers';
+import { getCleanDiscussionTitle, getEventIdFromTitle, isPreEventDiscussion } from '../../utils/discussionHelpers';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import ConfirmDialog from '../../components/ConfirmDialog';
@@ -155,6 +155,13 @@ export default function DiscussionTopicScreen() {
     try {
       setIsPosting(true);
       await postReply(topicId, user.id, replyContent.trim());
+
+      // Mirror into event_discussions if this is an event-linked topic
+      const eventId = getEventIdFromTitle(topic?.title);
+      if (eventId) {
+        await addEventDiscussion(eventId, user.id, replyContent.trim(), isPreEventDiscussion(topic?.title));
+      }
+
       setReplyContent('');
       await loadTopic();
       Toast.show({ type: 'success', text1: 'Reply posted!' });
@@ -206,6 +213,12 @@ export default function DiscussionTopicScreen() {
     try {
       console.log('Deleting topic:', topicId);
       await deleteDiscussionTopic(topicId);
+
+      const eventId = getEventIdFromTitle(topic?.title);
+      if (eventId) {
+        await deleteEventDiscussionThread(eventId, isPreEventDiscussion(topic?.title));
+      }
+
       Toast.show({ type: 'success', text1: 'Discussion deleted' });
       navigation.goBack();
     } catch (error) {

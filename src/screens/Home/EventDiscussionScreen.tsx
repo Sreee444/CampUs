@@ -19,7 +19,9 @@ import { RootStackParamList } from '../../navigation/types';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { getEvent, getEventDiscussions, addEventDiscussion, deleteEventDiscussions } from '../../api/events';
+import { getCleanDiscussionTitle } from '../../utils/discussionHelpers';
+import { addEventDiscussion, deleteEventDiscussionThread, getEvent } from '../../api/events';
+import { createDiscussionTopic, getDiscussionTopics, deleteDiscussionTopic } from '../../api/discussions';
 import Toast from 'react-native-toast-message';
 
 type EventDiscussionScreenNavigationProp = StackNavigationProp<RootStackParamList, 'EventDetails'>;
@@ -70,48 +72,21 @@ export default function EventDiscussionScreen() {
       const eventData = await getEvent(eventId, user?.id);
       setEvent(eventData);
 
-      // Load pre-event and post-event discussions from event_discussions table
-      const [preEventData, postEventData] = await Promise.all([
-        getEventDiscussions(eventId, true),
-        getEventDiscussions(eventId, false),
-      ]);
+      // Load discussions for this event
+      // Discussions are identified by title containing [event-{eventId}]
+      const allDiscussions = await getDiscussionTopics();
+      const eventDiscussions = allDiscussions.filter(
+        (topic: any) => topic.title?.includes(`[event-${eventId}]`)
+      );
 
-      setDiscussions([...preEventData, ...postEventData]);
-      
-      // Combine messages into discussion groups
-      // For pre-event: use first message as "title"
-      if (preEventData && preEventData.length > 0) {
-        const lastPreMessage = preEventData[preEventData.length - 1];
-        setPreEventDiscussion({
-          id: `pre-${eventId}`,
-          title: 'Pre-event Discussion',
-          event_id: eventId,
-          is_pre_event: true,
-          messages: preEventData,
-          reply_count: preEventData.length,
-          last_message: lastPreMessage,
-          description: lastPreMessage?.message,
-        });
-      } else {
-        setPreEventDiscussion(null);
-      }
+      setDiscussions(eventDiscussions);
 
-      // For post-event
-      if (postEventData && postEventData.length > 0) {
-        const lastPostMessage = postEventData[postEventData.length - 1];
-        setPostEventDiscussion({
-          id: `post-${eventId}`,
-          title: 'Post-event Discussion',
-          event_id: eventId,
-          is_pre_event: false,
-          messages: postEventData,
-          reply_count: postEventData.length,
-          last_message: lastPostMessage,
-          description: lastPostMessage?.message,
-        });
-      } else {
-        setPostEventDiscussion(null);
-      }
+      // Separate pre and post event discussions by title prefix
+      const preEvent = eventDiscussions.find((t: any) => t.title?.includes('[Pre-Event]'));
+      const postEvent = eventDiscussions.find((t: any) => t.title?.includes('[Post-Event]'));
+
+      setPreEventDiscussion(preEvent || null);
+      setPostEventDiscussion(postEvent || null);
     } catch (error) {
       console.error('Error loading event discussions:', error);
       Toast.show({ type: 'error', text1: 'Failed to load event discussions' });
@@ -122,7 +97,7 @@ export default function EventDiscussionScreen() {
 
   const handleCreateDiscussion = async () => {
     if (!newTopicTitle.trim() || !user?.id) {
-      Toast.show({ type: 'error', text1: 'Please enter a message' });
+      Toast.show({ type: 'error', text1: 'Please enter a title' });
       return;
     }
 
@@ -134,27 +109,34 @@ export default function EventDiscussionScreen() {
     try {
       setIsCreating(true);
 
-      // Add event discussion message to the event_discussions table
+      const newTopic = await createDiscussionTopic({
+        title: `${discussionType === 'pre' ? '[Pre-Event] ' : '[Post-Event] '}[event-${eventId}] ${newTopicTitle}`,
+        category: 'general',
+        created_by: user.id,
+      });
+
+      // Mirror into event_discussions for event-level storage
       await addEventDiscussion(
         eventId,
         user.id,
-        newTopicTitle,
+        `TITLE: ${newTopicTitle}`,
         discussionType === 'pre'
       );
 
+      if (discussionType === 'pre') {
+        setPreEventDiscussion(newTopic);
+      } else {
+        setPostEventDiscussion(newTopic);
+      }
+
       setNewTopicTitle('');
       setModalVisible(false);
-      
-      // Reload discussions to show the new message
-      await loadEventAndDiscussions();
-
       Toast.show({
         type: 'success',
-        text1: `${discussionType === 'pre' ? 'Pre-event' : 'Post-event'} message posted!`,
+        text1: `${discussionType === 'pre' ? 'Pre-event' : 'Post-event'} discussion created!`,
       });
     } catch (error: any) {
-      console.error('Error posting discussion:', error);
-      Toast.show({ type: 'error', text1: error.message || 'Failed to post discussion' });
+      Toast.show({ type: 'error', text1: error.message || 'Failed to create discussion' });
     } finally {
       setIsCreating(false);
     }
@@ -165,7 +147,7 @@ export default function EventDiscussionScreen() {
   };
 
   // Delete discussion if user is admin or event creator
-  const handleDeleteDiscussion = async (discussionType: 'pre' | 'post') => {
+  const handleDeleteDiscussion = async (discussionId: string, discussionType: 'pre' | 'post') => {
     if (!user?.id || !event) return;
 
     // Check if user has permission to delete
@@ -178,7 +160,8 @@ export default function EventDiscussionScreen() {
     }
 
     try {
-      await deleteEventDiscussions(event.id, discussionType === 'pre');
+      await deleteDiscussionTopic(discussionId);
+      await deleteEventDiscussionThread(event.id, discussionType === 'pre');
       
       // Update state to remove deleted discussion
       if (discussionType === 'pre') {
@@ -331,7 +314,7 @@ export default function EventDiscussionScreen() {
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   {(user?.role === 'admin' || event?.created_by === user?.id) && (
-                    <TouchableOpacity onPress={() => handleDeleteDiscussion('pre')}>
+                    <TouchableOpacity onPress={() => handleDeleteDiscussion(preEventDiscussion.id, 'pre')}>
                       <MaterialIcons name="delete" size={20} color={Colors.danger || '#ef4444'} />
                     </TouchableOpacity>
                   )}
@@ -399,7 +382,7 @@ export default function EventDiscussionScreen() {
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   {(user?.role === 'admin' || event?.created_by === user?.id) && (
-                    <TouchableOpacity onPress={() => handleDeleteDiscussion('post')}>
+                    <TouchableOpacity onPress={() => handleDeleteDiscussion(postEventDiscussion.id, 'post')}>
                       <MaterialIcons name="delete" size={20} color={Colors.danger || '#ef4444'} />
                     </TouchableOpacity>
                   )}
