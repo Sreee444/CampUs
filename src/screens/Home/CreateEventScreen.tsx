@@ -105,7 +105,7 @@ export default function CreateEventScreen() {
       const uint8Array = new Uint8Array(arrayBuffer);
 
       const { data, error } = await supabase.storage
-        .from('event-posters')
+        .from('event-banners')
         .upload(fileName, uint8Array, {
           contentType: `image/${fileExt}`,
           upsert: true,
@@ -119,7 +119,7 @@ export default function CreateEventScreen() {
       console.log('Upload successful!', data);
 
       const { data: publicUrlData } = supabase.storage
-        .from('event-posters')
+        .from('event-banners')
         .getPublicUrl(fileName);
 
       console.log('Public URL:', publicUrlData.publicUrl);

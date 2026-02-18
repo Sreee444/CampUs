@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -56,7 +56,7 @@ export default function ProjectsScreen() {
 
   const [refreshing, setRefreshing] = useState(false);
 
-  const loadProjects = async (showLoading = true) => {
+  const loadProjects = useCallback(async (showLoading = true) => {
     if (!user?.id || !profile?.role) return;
 
     try {
@@ -72,7 +72,7 @@ export default function ProjectsScreen() {
         data = await getMentoredProjects(user.id);
       }
 
-      setProjectTeams(data);
+      setProjectTeams([...data]); // Force a new array to ensure re-render
       setFetchError('');
     } catch (error) {
       console.error('Failed to load projects:', error);
@@ -81,18 +81,31 @@ export default function ProjectsScreen() {
       setIsLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [user?.id, profile?.role, selectedTab, isFacultyOrAlumni]);
 
+  // Load projects when component mounts or when tab changes
+  useEffect(() => {
+    if (user?.id && profile?.role) {
+      loadProjects();
+    }
+  }, [loadProjects, user?.id, profile?.role]);
+
+  // Also refresh when screen comes into focus
   useFocusEffect(
     React.useCallback(() => {
-      loadProjects();
-    }, [user?.id, profile?.role, selectedTab])
+      if (user?.id && profile?.role) {
+        loadProjects();
+      }
+      return () => {
+        // Cleanup if needed
+      };
+    }, [loadProjects, user?.id, profile?.role])
   );
 
   const onRefresh = React.useCallback(() => {
     setRefreshing(true);
     loadProjects(false);
-  }, [user?.id, profile?.role, selectedTab]);
+  }, [loadProjects]);
 
   const canCreateProject = profile && [
     'student', 'faculty', 'alumni', 'admin'
@@ -238,6 +251,7 @@ export default function ProjectsScreen() {
                 ? Math.min(100, Math.round(((project.members_count || 0) / project.max_members) * 100))
                 : 0;
               const statusColor = statusColors[project.status || 'planning'];
+              const isTeamFull = project.max_members ? (project.members_count || 0) >= project.max_members : false;
 
               return (
                 <TouchableOpacity
@@ -261,22 +275,34 @@ export default function ProjectsScreen() {
                     <View
                       style={[
                         styles.statusBadge,
-                        project.is_recruiting ? styles.statusRecruiting : styles.statusClosed,
+                        isTeamFull
+                          ? styles.statusFull
+                          : project.is_recruiting
+                            ? styles.statusRecruiting
+                            : styles.statusClosed,
                       ]}
                     >
                       <View
                         style={[
                           styles.statusDot,
-                          project.is_recruiting ? styles.statusDotActive : styles.statusDotClosed,
+                          isTeamFull
+                            ? styles.statusDotFull
+                            : project.is_recruiting
+                              ? styles.statusDotActive
+                              : styles.statusDotClosed,
                         ]}
                       />
                       <Text
                         style={[
                           styles.statusText,
-                          project.is_recruiting ? styles.statusTextActive : styles.statusTextClosed,
+                          isTeamFull
+                            ? styles.statusTextFull
+                            : project.is_recruiting
+                              ? styles.statusTextActive
+                              : styles.statusTextClosed,
                         ]}
                       >
-                        {project.is_recruiting ? 'Recruiting' : 'Closed'}
+                        {isTeamFull ? 'Team Full' : project.is_recruiting ? 'Recruiting' : 'Closed'}
                       </Text>
                     </View>
                   </View>
@@ -540,6 +566,9 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   statusClosed: {
     backgroundColor: '#fee2e2',
   },
+  statusFull: {
+    backgroundColor: '#fde2e4',
+  },
   statusDot: {
     width: 6,
     height: 6,
@@ -551,6 +580,9 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   statusDotClosed: {
     backgroundColor: '#dc2626',
   },
+  statusDotFull: {
+    backgroundColor: '#f43f5e',
+  },
   statusText: {
     fontSize: 11,
     fontWeight: FontWeights.medium,
@@ -560,6 +592,9 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   statusTextClosed: {
     color: '#991b1b',
+  },
+  statusTextFull: {
+    color: '#be123c',
   },
   projectStatusBadge: {
     flexDirection: 'row',

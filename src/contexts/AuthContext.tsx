@@ -22,10 +22,14 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+// Minimum splash screen display time in milliseconds
+const MINIMUM_SPLASH_TIME = 3000; // 3 seconds
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const startTimeRef = React.useRef<number>(Date.now());
 
   // Load user session and profile on mount
   useEffect(() => {
@@ -41,7 +45,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setUser(null);
           setProfile(null);
         }
-        setIsLoading(false);
+        // Ensure minimum splash time before hiding
+        const elapsedTime = Date.now() - startTimeRef.current;
+        const remainingTime = Math.max(0, MINIMUM_SPLASH_TIME - elapsedTime);
+        setTimeout(() => setIsLoading(false), remainingTime);
       }
     );
 
@@ -77,7 +84,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       console.error('Error loading session:', error);
     } finally {
-      setIsLoading(false);
+      // Ensure minimum splash time before hiding
+      const elapsedTime = Date.now() - startTimeRef.current;
+      const remainingTime = Math.max(0, MINIMUM_SPLASH_TIME - elapsedTime);
+      setTimeout(() => setIsLoading(false), remainingTime);
     }
   };
 

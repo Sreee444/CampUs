@@ -218,14 +218,18 @@ export const approvePost = async (postId: string, moderatorId: string) => {
 // Upload post image
 export const uploadPostImage = async (userId: string, fileUri: string) => {
   const response = await fetch(fileUri);
-  const blob = await response.blob();
+  const arrayBuffer = await response.arrayBuffer();
+  const uint8Array = new Uint8Array(arrayBuffer);
   const fileExt = fileUri.split(".").pop();
   const fileName = `${Date.now()}.${fileExt}`;
   const filePath = `${userId}/${fileName}`;
 
   const { error: uploadError } = await supabase.storage
     .from("post-images")
-    .upload(filePath, blob);
+    .upload(filePath, uint8Array, {
+      contentType: `image/${fileExt}`,
+      upsert: true,
+    });
 
   if (uploadError) throw uploadError;
 

@@ -194,35 +194,34 @@ export const uploadAvatar = async (userId: string, fileUri: string) => {
     else if (fileExt === 'webp') mimeType = 'image/webp';
     else if (fileExt === 'gif') mimeType = 'image/gif';
 
-    // Read file as blob
-    let blob: Blob;
+    // Read file using React Native compatible approach
+    let arrayBuffer: ArrayBuffer;
     try {
       const response = await fetch(fileUri);
 
       if (!response.ok) {
         throw new Error(`Failed to read image file: ${response.statusText}`);
       }
-      blob = await response.blob();
+      
+      // Convert to ArrayBuffer instead of Blob for React Native compatibility
+      arrayBuffer = await response.arrayBuffer();
     } catch (fetchError: any) {
       console.error('Fetch error:', fetchError);
       throw new Error('❌ Failed to read image. Please try selecting another image.');
     }
 
     // Validate file size (max 5MB)
-    if (blob.size > 5 * 1024 * 1024) {
+    if (arrayBuffer.byteLength > 5 * 1024 * 1024) {
       throw new Error('📦 Image size must be less than 5MB. Please select a smaller image.');
     }
 
-    // Validate file type
-    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
-    if (blob.type && !allowedTypes.includes(blob.type)) {
-      throw new Error('🖼️ Only JPG, PNG, WebP, and GIF images are allowed.');
-    }
+    // Convert ArrayBuffer to Uint8Array for Supabase (React Native compatible)
+    const uint8Array = new Uint8Array(arrayBuffer);
 
     // Upload to storage
     const { data, error: uploadError } = await supabase.storage
       .from('avatars')
-      .upload(filePath, blob, {
+      .upload(filePath, uint8Array, {
         upsert: true,
         contentType: mimeType,
         cacheControl: '3600',

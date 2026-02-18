@@ -6,6 +6,7 @@ import { RootStackParamList } from './types';
 import { useAuth } from '../contexts/AuthContext';
 
 // Import screens
+import SplashScreen from '../screens/SplashScreen';
 import LoginScreen from '../screens/Auth/LoginScreen';
 import SignupScreen from '../screens/Auth/SignupScreen';
 import VerifyEmailScreen from '../screens/Auth/VerifyEmailScreen';
@@ -63,13 +64,9 @@ export default function RootNavigator() {
     }
   }, [isAuthenticated, isLoading, profile?.full_name]);
 
-  // Show loading screen while checking auth
+  // Show splash screen while checking auth
   if (isLoading) {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
-        <ActivityIndicator size="large" color="#6366f1" />
-      </View>
-    );
+    return <SplashScreen />;
   }
 
   // Determine initial route based on auth and profile state
