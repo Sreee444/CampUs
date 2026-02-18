@@ -174,7 +174,7 @@ export default function AllUsersScreen() {
             <Image source={{ uri: item.avatar_url }} style={styles.avatar} />
           ) : (
             <LinearGradient
-              colors={Colors.gradients.softMesh as any}
+              colors={Colors.gradients.meshLight}
               style={styles.avatarGradient}
             >
               <Text style={styles.avatarText}>{getInitials(item.full_name)}</Text>
