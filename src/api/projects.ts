@@ -137,6 +137,35 @@ export const deleteProjectTeam = async (teamId: string) => {
 
 // Join team
 export const joinProjectTeam = async (teamId: string, userId: string) => {
+  // First, fetch the team to check capacity and recruiting status
+  const { data: team, error: fetchError } = await supabase
+    .from("project_teams")
+    .select("id, max_members, is_recruiting")
+    .eq("id", teamId)
+    .single();
+
+  if (fetchError) throw fetchError;
+
+  // Check if team is recruiting
+  if (!team.is_recruiting) {
+    throw new Error("Team is not recruiting");
+  }
+
+  // Get current member count
+  const { count, error: countError } = await supabase
+    .from("project_team_members")
+    .select("id", { count: "exact", head: true })
+    .eq("team_id", teamId);
+
+  if (countError) throw countError;
+
+  // Check if team is at or exceeds max capacity
+  const currentMembers = count || 0;
+  if (team.max_members && currentMembers >= team.max_members) {
+    throw new Error("Team is full");
+  }
+
+  // Add member
   // @ts-ignore - Supabase type inference issue
   const { data, error } = await supabase
     .from("project_team_members")
@@ -149,6 +178,13 @@ export const joinProjectTeam = async (teamId: string, userId: string) => {
     .single();
 
   if (error) throw error;
+
+  // Check if team is now full, and if so, close recruiting
+  const newMemberCount = (count || 0) + 1;
+  if (team.max_members && newMemberCount >= team.max_members) {
+    await updateProjectTeam(teamId, { is_recruiting: false });
+  }
+
   return data as ProjectTeamMember;
 };
 
@@ -313,7 +349,22 @@ export const getProjectsByRole = async (
   const { data, error } = await query;
   if (error) throw error;
 
-  return data as ProjectTeam[];
+  // Get members count for each team (same as getProjectTeams)
+  const teamsWithData = await Promise.all(
+    (data || []).map(async (team: any) => {
+      const membersCount = await supabase
+        .from("project_team_members")
+        .select("id", { count: "exact", head: true })
+        .eq("team_id", team.id);
+
+      return {
+        ...team,
+        members_count: membersCount.count || 0,
+      };
+    })
+  );
+
+  return teamsWithData as ProjectTeam[];
 };
 
 // Get projects mentored by faculty/alumni
@@ -328,5 +379,21 @@ export const getMentoredProjects = async (mentorId: string) => {
     .order("created_at", { ascending: false });
 
   if (error) throw error;
-  return data as ProjectTeam[];
+
+  // Get members count for each team (same as getProjectTeams)
+  const teamsWithData = await Promise.all(
+    (data || []).map(async (team: any) => {
+      const membersCount = await supabase
+        .from("project_team_members")
+        .select("id", { count: "exact", head: true })
+        .eq("team_id", team.id);
+
+      return {
+        ...team,
+        members_count: membersCount.count || 0,
+      };
+    })
+  );
+
+  return teamsWithData as ProjectTeam[];
 };

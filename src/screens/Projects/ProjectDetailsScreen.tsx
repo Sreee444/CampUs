@@ -91,9 +91,16 @@ export default function ProjectDetailsScreen() {
       // Refresh team data
       const refreshed = await getProjectTeam(teamId);
       setTeam(refreshed);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to update membership', err);
-      Toast.show({ type: 'error', text1: 'Unable to update', text2: 'Try again in a moment.' });
+      const errorMessage = err?.message;
+      if (errorMessage === 'Team is full') {
+        Toast.show({ type: 'error', text1: 'Team Full', text2: 'This team has reached maximum capacity.' });
+      } else if (errorMessage === 'Team is not recruiting') {
+        Toast.show({ type: 'error', text1: 'Team Closed', text2: 'This team is no longer recruiting.' });
+      } else {
+        Toast.show({ type: 'error', text1: 'Unable to update', text2: 'Try again in a moment.' });
+      }
     } finally {
       setIsJoining(false);
     }
@@ -103,17 +110,20 @@ export default function ProjectDetailsScreen() {
     ? Math.min(100, Math.round(((team.members_count || 0) / team.max_members) * 100))
     : 0;
   const isMember = !!team?.members?.some((member) => member.id === user?.id);
+  const isTeamFull = team?.max_members ? (team.members_count || 0) >= team.max_members : false;
 
   const canInteract = !!user?.id && (isMember || !!team?.is_recruiting);
   const buttonLabel = isMember
     ? isJoining
       ? 'Leaving...'
       : 'Leave Team'
-    : team?.is_recruiting
-      ? isJoining
-        ? 'Joining...'
-        : 'Join Team'
-      : 'Closed';
+    : isTeamFull
+      ? 'Team Full'
+      : team?.is_recruiting
+        ? isJoining
+          ? 'Joining...'
+          : 'Join Team'
+        : 'Closed';
 
   const getInitials = (displayName: string) => {
     const parts = displayName.trim().split(' ');
@@ -131,6 +141,8 @@ export default function ProjectDetailsScreen() {
     return colors[Math.abs(hash) % colors.length];
   };
 
+  const creatorId = team?.creator?.id ?? team?.created_by;
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -141,10 +153,10 @@ export default function ProjectDetailsScreen() {
         <TouchableOpacity
           style={[
             isMember ? styles.leaveButton : styles.joinButton,
-            !canInteract || isJoining ? styles.joinButtonDisabled : {},
+            !canInteract || isJoining || (isTeamFull && !isMember) ? styles.joinButtonDisabled : {},
           ]}
           onPress={handleToggleMembership}
-          disabled={!canInteract || isJoining}
+          disabled={!canInteract || isJoining || (isTeamFull && !isMember)}
         >
           <Text style={[styles.joinLabel, isMember && styles.leaveLabel]}>{buttonLabel}</Text>
         </TouchableOpacity>
@@ -219,8 +231,8 @@ export default function ProjectDetailsScreen() {
             <TouchableOpacity 
               style={styles.facultyCard}
               onPress={() => {
-                if (team?.creator_id) {
-                  navigation.navigate('PublicProfile', { userId: team.creator_id });
+                if (creatorId) {
+                  navigation.navigate('PublicProfile', { userId: creatorId });
                 }
               }}
               activeOpacity={0.7}
