@@ -3,8 +3,8 @@ module.exports = function(api) {
   return {
     presets: ['babel-preset-expo'],
     plugins: [
+      ['inline-dotenv', { unsafe: true }],
       'react-native-reanimated/plugin',
-      'inline-dotenv',
     ],
   };
 };
