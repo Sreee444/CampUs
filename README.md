@@ -19,7 +19,7 @@
 - Role-based access control (Student, Faculty, Alumni, Admin)
 - User profiles with academic information
 - Avatar uploads and bio customization
-- Skills, interests, and project preferences
+- Skills, interests and project preferences
 
 ### 📰 Campus Feed
 
