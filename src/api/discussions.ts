@@ -45,24 +45,49 @@ export const getDiscussionTopic = async (topicId: string) => {
   return data as DiscussionTopic;
 };
 
-// Create new topic
+// Create new topic - supports both old and new signatures
 export const createDiscussionTopic = async (
-  title: string,
-  category: DiscussionCategory,
-  createdBy: string
+  titleOrData: string | any,
+  categoryOrUndefined?: DiscussionCategory | string,
+  createdByOrUndefined?: string
 ) => {
-  // @ts-ignore - Supabase type inference issue
+  let insertData: any = {};
+
+  // Handle both function signatures
+  if (typeof titleOrData === 'string') {
+    // Old signature: (title, category, createdBy)
+    insertData = {
+      title: titleOrData,
+      category: categoryOrUndefined,
+      created_by: createdByOrUndefined,
+    };
+  } else {
+    // New signature: ({title, category, created_by, ...})
+    insertData = {
+      title: titleOrData.title,
+      category: titleOrData.category,
+      created_by: titleOrData.created_by,
+      // Note: description, event_id, type fields don't exist in schema
+      // Only include fields that exist in discussion_topics table
+    };
+  }
+
+  // Ensure created_by is set to current user for RLS compliance
+  const { data: sessionData } = await supabase.auth.getSession();
+  if (!insertData.created_by && sessionData?.session?.user?.id) {
+    insertData.created_by = sessionData.session.user.id;
+  }
+
   const { data, error } = await supabase
     .from('discussion_topics')
-    .insert({
-      title,
-      category,
-      created_by: createdBy,
-    } as any)
+    .insert(insertData as any)
     .select()
     .single();
 
-  if (error) throw error;
+  if (error) {
+    console.error('Error creating discussion topic:', error);
+    throw error;
+  }
   return data as DiscussionTopic;
 };
 
@@ -88,18 +113,28 @@ export const postReply = async (
   userId: string,
   content: string
 ) => {
-  // @ts-ignore - Supabase type inference issue
+  // Ensure user_id is set to current user for RLS compliance
+  const { data: sessionData } = await supabase.auth.getSession();
+  const currentUserId = userId || sessionData?.session?.user?.id;
+
+  if (!currentUserId) {
+    throw new Error('User must be authenticated to post replies');
+  }
+
   const { data, error } = await supabase
     .from('discussion_replies')
     .insert({
       topic_id: topicId,
-      user_id: userId,
+      user_id: currentUserId,
       content,
     } as any)
     .select()
     .single();
 
-  if (error) throw error;
+  if (error) {
+    console.error('Error posting reply:', error);
+    throw error;
+  }
   return data as DiscussionReply;
 };
 

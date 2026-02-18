@@ -514,6 +514,23 @@ export default function EventDetailsScreen() {
           </View>
         )}
 
+        {/* Event Collaboration/Discussion Section */}
+        <View style={styles.collaborationSection}>
+          <TouchableOpacity
+            style={styles.discussionButton}
+            onPress={() => navigation.navigate('EventDiscussion', { eventId })}
+          >
+            <MaterialIcons name="forum" size={20} color="#3b82f6" />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.discussionButtonTitle}>Event Discussion</Text>
+              <Text style={styles.discussionButtonSubtitle}>
+                {isUpcoming ? 'Ask questions & prepare' : 'Share feedback & learnings'}
+              </Text>
+            </View>
+            <MaterialIcons name="chevron-right" size={24} color="#9ca3b8" />
+          </TouchableOpacity>
+        </View>
+
         <View style={{ height: 100 }} />
       </ScrollView>
     </SafeAreaView>
@@ -819,5 +836,30 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#ef4444',
     fontWeight: '600',
+  },
+  collaborationSection: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+  },
+  discussionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f0f9ff',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#3b82f6',
+  },
+  discussionButtonTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1f2937',
+  },
+  discussionButtonSubtitle: {
+    fontSize: 13,
+    color: '#6b7280',
+    marginTop: 2,
   },
 });

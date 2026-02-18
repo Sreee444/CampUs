@@ -19,6 +19,7 @@ import { getColors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } fro
 import { useAuth } from '../../contexts/AuthContext';
 import { getDiscussionTopics, pinDiscussionTopic } from '../../api/discussions';
 import { DiscussionTopic } from '../../types/database';
+import { getCleanDiscussionTitle } from '../../utils/discussionHelpers';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 
@@ -250,7 +251,7 @@ function TopicCard({ topic, onPress, onPin, canPin, Colors, styles }: TopicCardP
         )}
       </View>
 
-      <Text style={[styles.topicTitle, { color: Colors.text }]}>{topic.title}</Text>
+      <Text style={[styles.topicTitle, { color: Colors.text }]}>{getCleanDiscussionTitle(topic.title)}</Text>
 
       <View style={styles.topicFooter}>
         <View style={styles.topicMeta}>

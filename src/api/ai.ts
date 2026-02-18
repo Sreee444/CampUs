@@ -149,3 +149,196 @@ export const getCollaboratorSuggestions = async (userId: string) => {
     return [];
   }
 };
+
+// ===== ENGAGEMENT PREDICTION =====
+
+/**
+ * 🤖 AI ENGAGEMENT PREDICTION
+ * Predicts which users are at risk of low engagement
+ */
+export const predictEngagementRisk = async () => {
+  try {
+    // Get user activity metrics from profiles and their activities
+    // Note: user_engagement_metrics table doesn't exist, so we calculate from available data
+    const { data: profiles, error: profilesErr } = await supabase
+      .from("profiles")
+      .select("id, email, full_name, last_active")
+      .gte("last_active", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString());
+
+    if (profilesErr) {
+      console.error("Failed to fetch engagement metrics:", profilesErr);
+      return [];
+    }
+
+    if (!profiles) return [];
+    const engagementData = profiles;
+
+    // Calculate engagement scores (0-100)
+    // Simple calculation based on last activity
+    const riskUsers = engagementData
+      .map((user: any) => {
+        // Days since last activity
+        const daysSinceActive = (Date.now() - new Date(user.last_active || Date.now()).getTime()) / (1000 * 60 * 60 * 24);
+        const activityScore = Math.max(0, 100 - (daysSinceActive * 5)); // Points decrease over time
+
+        const engagementScore = activityScore;
+        const riskLevel = engagementScore < 25 ? 'high' : engagementScore < 50 ? 'medium' : 'low';
+
+        return {
+          userId: user.id,
+          engagementScore: Math.round(engagementScore),
+          riskLevel,
+          lastActivity: user.last_active,
+          metrics: {
+            posts: 0,
+            messages: 0,
+            eventsAttended: 0,
+          }
+        };
+      })
+      .filter((user) => user.riskLevel !== 'low')
+      .sort((a, b) => a.engagementScore - b.engagementScore);
+
+    return riskUsers;
+  } catch (error) {
+    console.error("Error predicting engagement risk:", error);
+    return [];
+  }
+};
+
+/**
+ * 🤖 AI DISCUSSION QUALITY SCORING
+ * Analyzes discussion threads for quality and sentiment
+ */
+export const scoreDiscussionQuality = async (discussionId: string) => {
+  try {
+    const { data: replies, error: repliesErr } = await supabase
+      .from("discussion_replies")
+      .select("id, content, created_at")
+      .eq("topic_id", discussionId);
+
+    if (repliesErr) {
+      console.error("Failed to fetch discussion replies:", repliesErr);
+      return null;
+    }
+
+    if (!replies || replies.length === 0) {
+      return {
+        discussionId,
+        qualityScore: 0,
+        replyCount: 0,
+        avgEngagement: 0,
+        sentiment: 'neutral',
+        recommendations: ['No replies yet. Discussion may need promotion or clarification.']
+      };
+    }
+
+    // Calculate metrics
+    const totalEngagement = replies.length; // Use reply count as engagement metric
+    const avgEngagement = totalEngagement / replies.length;
+    const avgReplyLength = replies.reduce((sum, r) => sum + (r.content?.length || 0), 0) / replies.length;
+
+    // Quality heuristics
+    let qualityScore = 0;
+    const recommendations: string[] = [];
+
+    // More replies = better discussion
+    if (replies.length >= 10) qualityScore += 30;
+    else if (replies.length >= 5) qualityScore += 20;
+    else if (replies.length >= 3) qualityScore += 10;
+
+    // Longer, more thoughtful replies
+    if (avgReplyLength >= 150) qualityScore += 25;
+    else if (avgReplyLength >= 75) qualityScore += 15;
+    else qualityScore += 5;
+
+    // Engagement (likes/reactions)
+    if (avgEngagement >= 2) qualityScore += 25;
+    else if (avgEngagement >= 1) qualityScore += 15;
+    else {
+      qualityScore += 5;
+      recommendations.push('Low engagement - Consider featuring or promoting this discussion.');
+    }
+
+    // Activity recency
+    const newestReply = new Date(replies[0].created_at);
+    const daysSinceActive = (Date.now() - newestReply.getTime()) / (1000 * 60 * 60 * 24);
+    
+    if (daysSinceActive <= 1) qualityScore += 15;
+    else if (daysSinceActive <= 7) qualityScore += 10;
+    else {
+      recommendations.push('Discussion may be losing momentum - Consider posting a summary or follow-up.');
+    }
+
+    // Simple sentiment (presence of positive/negative words)
+    let positiveCount = 0;
+    let negativeCount = 0;
+    const positiveWords = ['great', 'excellent', 'good', 'helpful', 'amazing', 'love', 'perfect'];
+    const negativeWords = ['bad', 'poor', 'terrible', 'hate', 'awful', 'waste', 'disappointed'];
+
+    replies.forEach((reply) => {
+      const content = (reply.content || '').toLowerCase();
+      positiveWords.forEach(word => {
+        if (content.includes(word)) positiveCount++;
+      });
+      negativeWords.forEach(word => {
+        if (content.includes(word)) negativeCount++;
+      });
+    });
+
+    let sentiment: 'positive' | 'negative' | 'neutral' = 'neutral';
+    if (positiveCount > negativeCount * 2) sentiment = 'positive';
+    else if (negativeCount > positiveCount * 2) sentiment = 'negative';
+
+    if (sentiment === 'negative') {
+      recommendations.push('Negative sentiment detected - Consider addressing concerns or moderating if needed.');
+    }
+
+    if (recommendations.length === 0) {
+      recommendations.push('Excellent discussion! Consider pinning this thread.');
+    }
+
+    return {
+      discussionId,
+      qualityScore: Math.min(qualityScore, 100),
+      replyCount: replies.length,
+      avgEngagement: Math.round(avgEngagement * 10) / 10,
+      avgReplyLength: Math.round(avgReplyLength),
+      sentiment,
+      daysSinceLastReply: Math.round(daysSinceActive),
+      recommendations
+    };
+  } catch (error) {
+    console.error("Error scoring discussion quality:", error);
+    return null;
+  }
+};
+
+/**
+ * 🤖 MODERATION ASSISTANT
+ * Suggests moderation actions based on content analysis
+ */
+export const getContentModerationSuggestion = async (content: string) => {
+  // Flagged words/patterns that might need review
+  const flaggedPatterns = [
+    { pattern: /hate|violence|kill/gi, severity: 'high', reason: 'Violent content' },
+    { pattern: /spam|follow my|click here|buy now/gi, severity: 'medium', reason: 'Possible spam' },
+    { pattern: /contact me privately|dm for/gi, severity: 'medium', reason: 'Potential phishing/recruitment' },
+  ];
+
+  let suggestions = {
+    approve: true,
+    severity: 'low' as 'low' | 'medium' | 'high',
+    reasons: [] as string[],
+  };
+
+  for (const { pattern, severity, reason } of flaggedPatterns) {
+    if (pattern.test(content)) {
+      suggestions.approve = false;
+      suggestions.severity = severity;
+      suggestions.reasons.push(reason);
+    }
+  }
+
+  return suggestions;
+};

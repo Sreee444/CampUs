@@ -197,16 +197,23 @@ export const getEventDiscussions = async (
 // Add event discussion message
 export const addEventDiscussion = async (
   eventId: string,
-  userId: string,
+  _userId: string,
   message: string,
   isPreEvent = true
 ) => {
-  // @ts-ignore - Supabase type inference issue
+  // Ensure user_id is set to current authenticated user for RLS compliance
+  const { data: sessionData } = await supabase.auth.getSession();
+  const currentUserId = sessionData?.session?.user?.id;
+
+  if (!currentUserId) {
+    throw new Error('Please sign in again to post in event discussions');
+  }
+
   const { data, error } = await supabase
     .from("event_discussions")
     .insert({
       event_id: eventId,
-      user_id: userId,
+      user_id: currentUserId,
       message,
       is_pre_event: isPreEvent,
     } as any)
@@ -215,8 +222,32 @@ export const addEventDiscussion = async (
       user:profiles!event_discussions_user_id_fkey(*) `)
     .single();
 
-  if (error) throw error;
+  if (error) {
+    console.error('Error adding event discussion:', error);
+    throw error;
+  }
   return data as EventDiscussion;
+};
+
+// Delete all event discussion messages for a given event and discussion type
+export const deleteEventDiscussions = async (eventId: string, isPreEvent = true) => {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const currentUserId = sessionData?.session?.user?.id;
+
+  if (!currentUserId) {
+    throw new Error('Please sign in again to delete event discussions');
+  }
+
+  const { error } = await supabase
+    .from('event_discussions')
+    .delete()
+    .eq('event_id', eventId)
+    .eq('is_pre_event', isPreEvent);
+
+  if (error) {
+    console.error('Error deleting event discussions:', error);
+    throw error;
+  }
 };
 
 // Upload event banner

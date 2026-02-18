@@ -230,43 +230,86 @@ export default function FeedScreen() {
         {/* Quick Actions */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Quick Access</Text>
-          <View style={styles.quickActions}>
-            <TouchableOpacity
-              style={styles.actionCard}
-              onPress={() => navigation.navigate('Discussions' as any)}
-            >
-              <View style={[styles.actionIcon, { backgroundColor: '#e0f7fa' }]}>
-                <MaterialIcons name="forum" size={24} color="#0d9488" />
-              </View>
-              <Text style={styles.actionLabel}>Discussions</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.actionCard}
-              onPress={() => navigation.navigate('AllUsers' as any)}
-            >
-              <View style={[styles.actionIcon, { backgroundColor: '#f3e5f5' }]}>
-                <MaterialIcons name="people" size={24} color="#9333ea" />
-              </View>
-              <Text style={styles.actionLabel}>Connect</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.actionCard}
-              onPress={() => navigation.navigate('CreateEvent' as any)}
-            >
-              <View style={[styles.actionIcon, { backgroundColor: '#fff5e6' }]}>
-                <MaterialIcons name="add-circle-outline" size={24} color="#ea580c" />
-              </View>
-              <Text style={styles.actionLabel}>New Event</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.actionCard}
-              onPress={() => navigation.navigate('CreateProject' as any)}
-            >
-              <View style={[styles.actionIcon, { backgroundColor: '#e0fbfb' }]}>
-                <MaterialIcons name="work-outline" size={24} color="#0891b2" />
-              </View>
-              <Text style={styles.actionLabel}>New Project</Text>
-            </TouchableOpacity>
+          <View style={styles.quickActionsGrid}>
+            {/* Row 1 */}
+            <View style={styles.quickActionsRow}>
+              <TouchableOpacity
+                style={styles.actionCard}
+                onPress={() => navigation.navigate('Calendar' as any)}
+              >
+                <View style={[styles.actionIcon, { backgroundColor: '#e0f7fa' }]}>
+                  <MaterialIcons name="calendar-month" size={24} color="#0d9488" />
+                </View>
+                <Text style={styles.actionLabel}>Calendar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.actionCard}
+                onPress={() => navigation.navigate('TeamFormation' as any)}
+              >
+                <View style={[styles.actionIcon, { backgroundColor: '#f3e5f5' }]}>
+                  <MaterialIcons name="groups" size={24} color="#9333ea" />
+                </View>
+                <Text style={styles.actionLabel}>Team Up</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.actionCard}
+                onPress={() => navigation.navigate('Discussions' as any)}
+              >
+                <View style={[styles.actionIcon, { backgroundColor: '#ede9fe' }]}>
+                  <MaterialIcons name="forum" size={24} color="#7c3aed" />
+                </View>
+                <Text style={styles.actionLabel}>Discuss</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.actionCard}
+                onPress={() => navigation.navigate('AllUsers' as any)}
+              >
+                <View style={[styles.actionIcon, { backgroundColor: '#fef3c7' }]}>
+                  <MaterialIcons name="people" size={24} color="#d97706" />
+                </View>
+                <Text style={styles.actionLabel}>Connect</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Row 2 */}
+            <View style={styles.quickActionsRow}>
+              <TouchableOpacity
+                style={styles.actionCard}
+                onPress={() => navigation.navigate('CreateEvent' as any)}
+              >
+                <View style={[styles.actionIcon, { backgroundColor: '#fecaca' }]}>
+                  <MaterialIcons name="event" size={24} color="#dc2626" />
+                </View>
+                <Text style={styles.actionLabel}>+ Event</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.actionCard}
+                onPress={() => navigation.navigate('CreateProject' as any)}
+              >
+                <View style={[styles.actionIcon, { backgroundColor: '#c7f0d8' }]}>
+                  <MaterialIcons name="work-outline" size={24} color="#059669" />
+                </View>
+                <Text style={styles.actionLabel}>+ Project</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.actionCard}
+                onPress={() => navigation.navigate('EventDiscussion' as any)}
+              >
+                <View style={[styles.actionIcon, { backgroundColor: '#dbeafe' }]}>
+                  <MaterialIcons name="event-note" size={24} color="#0284c7" />
+                </View>
+                <Text style={styles.actionLabel}>Collab</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.actionCard}
+                onPress={() => navigation.navigate('AIInsights' as any)}
+              >
+                <View style={[styles.actionIcon, { backgroundColor: '#e9d5ff' }]}>
+                  <MaterialIcons name="insights" size={24} color="#a855f7" />
+                </View>
+                <Text style={styles.actionLabel}>AI Stats</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
 
@@ -409,7 +452,7 @@ const styles = StyleSheet.create({
   statsContainer: {
     flexDirection: 'row',
     paddingHorizontal: 20,
-    paddingTop: 20,
+    paddingVertical: 20,
     gap: 12,
   },
   statCard: {
@@ -438,6 +481,7 @@ const styles = StyleSheet.create({
   section: {
     paddingHorizontal: 20,
     marginTop: 24,
+    marginBottom: 8,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -449,16 +493,25 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '700',
     color: '#111818',
-    marginBottom: 12,
+    marginBottom: 14,
   },
   quickActions: {
     flexDirection: 'row',
     gap: 12,
   },
+  quickActionsGrid: {
+    gap: 14,
+  },
+  quickActionsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+  },
   actionCard: {
     flex: 1,
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'flex-start',
+    gap: 6,
   },
   actionIcon: {
     width: 56,
@@ -477,6 +530,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#374151',
     textAlign: 'center',
+    lineHeight: 14,
   },
   aiSuggestion: {
     flexDirection: 'row',
