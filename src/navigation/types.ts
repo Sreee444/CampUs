@@ -31,10 +31,21 @@ export type RootStackParamList = {
   CreateProject: undefined;
   CreateEvent: undefined;
   EventDetails: { eventId: string };
+  EventDiscussion: { eventId: string };
+  Calendar: undefined;
+  TeamFormation: undefined;
   AIChatAssistant: undefined;
   PublicProfile: { userId: string };
   AllUsers: undefined;
   Discussions: undefined;
+  AdminDashboard: undefined;
+  AdminUsers: undefined;
+  AdminModeration: undefined;
+  AdminReports: undefined;
+  AdminBroadcast: undefined;
+  AdminAnalytics: undefined;
+  AdminDiscussions: undefined;
+  AIInsights: undefined;
 };
 
 declare global {

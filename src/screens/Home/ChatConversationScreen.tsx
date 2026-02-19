@@ -18,7 +18,7 @@ import { RootStackParamList } from '../../navigation/types';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { getMessages, sendMessage, subscribeToMessages, chatWithAI, deleteMessage } from '../../api/chat';
+import { getMessages, sendMessage, subscribeToMessages, chatWithAI, deleteMessage, canFacultySupervise, getConversationSupervisor, addConversationSupervisor, removeConversationSupervisor, getConversationSupervisionStats } from '../../api/chat';
 import Toast from 'react-native-toast-message';
 import ConfirmDialog from '../../components/ConfirmDialog';
 
@@ -29,7 +29,7 @@ export default function ChatConversationScreen() {
   const navigation = useNavigation<ChatConversationScreenNavigationProp>();
   const route = useRoute<ChatConversationScreenRouteProp>();
   const { isDark } = useTheme();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const Colors = getColors(isDark);
   const styles = createStyles(Colors);
   
@@ -37,6 +37,9 @@ export default function ChatConversationScreen() {
   const [messages, setMessages] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
+  const [canSupervise, setCanSupervise] = useState(false);
+  const [isSupervisor, setIsSupervisor] = useState(false);
+  const [supervisionStats, setSupervisionStats] = useState<any>(null);
   const scrollViewRef = useRef<ScrollView>(null);
   const [confirmDialog, setConfirmDialog] = useState<{
     visible: boolean;
@@ -60,6 +63,7 @@ export default function ChatConversationScreen() {
     }
 
     loadMessages();
+    checkSupervisionCapability();
 
     const channel = subscribeToMessages(conversationId, (newMessage) => {
       setMessages((prev) => [...prev, newMessage]);
@@ -68,6 +72,33 @@ export default function ChatConversationScreen() {
 
     return () => channel?.unsubscribe?.();
   }, [conversationId, user?.id, isAIChat]);
+
+  const checkSupervisionCapability = async () => {
+    if (!conversationId || isAIChat || !user?.id || !isGroup) {
+      return;
+    }
+
+    try {
+      const canSuperviseThisChat = await canFacultySupervise(
+        conversationId,
+        user.id,
+        profile?.role || 'student'
+      );
+      setCanSupervise(canSuperviseThisChat);
+
+      if (canSuperviseThisChat) {
+        const supervisor = await getConversationSupervisor(conversationId);
+        setIsSupervisor(supervisor?.supervisor?.id === user.id);
+
+        if (supervisor?.supervisor?.id === user.id) {
+          const stats = await getConversationSupervisionStats(conversationId);
+          setSupervisionStats(stats);
+        }
+      }
+    } catch (error) {
+      console.error('Error checking supervision:', error);
+    }
+  };
 
   const loadMessages = async () => {
     if (!conversationId || !user?.id) return;
@@ -147,6 +178,33 @@ export default function ChatConversationScreen() {
     }
   };
 
+  const handleAddSupervision = async () => {
+    if (!canSupervise || !conversationId || !user?.id) return;
+
+    try {
+      await addConversationSupervisor(conversationId, user.id);
+      setIsSupervisor(true);
+      const stats = await getConversationSupervisionStats(conversationId);
+      setSupervisionStats(stats);
+      Toast.show({ type: 'success', text1: 'Now supervising this group' });
+    } catch (error) {
+      Toast.show({ type: 'error', text1: 'Failed to add supervision' });
+    }
+  };
+
+  const handleRemoveSupervision = async () => {
+    if (!isSupervisor || !conversationId) return;
+
+    try {
+      await removeConversationSupervisor(conversationId);
+      setIsSupervisor(false);
+      setSupervisionStats(null);
+      Toast.show({ type: 'success', text1: 'Supervision removed' });
+    } catch (error) {
+      Toast.show({ type: 'error', text1: 'Failed to remove supervision' });
+    }
+  };
+
   const getInitials = (displayName: string) => {
     const parts = displayName.trim().split(' ');
     const first = parts[0]?.[0] || '';
@@ -184,6 +242,49 @@ export default function ChatConversationScreen() {
           <MaterialIcons name="more-vert" size={24} color={Colors.text} />
         </TouchableOpacity>
       </View>
+
+      {/* Faculty Supervision Controls */}
+      {canSupervise && !isAIChat && (
+        <View style={[styles.supervisionBanner, !isSupervisor && { backgroundColor: Colors.primary + '20' }]}>
+          {isSupervisor ? (
+            <>
+              <View style={styles.supervisionContent}>
+                <MaterialIcons name="supervised-user-circle" size={20} color={Colors.primary} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.supervisionTitle}>You are supervising this group</Text>
+                  {supervisionStats && (
+                    <Text style={styles.supervisionSubtitle}>
+                      {supervisionStats.totalMessages} messages • {supervisionStats.participantCount} members
+                    </Text>
+                  )}
+                </View>
+              </View>
+              <TouchableOpacity
+                style={[styles.supervisionButton, { backgroundColor: '#ef4444' }]}
+                onPress={handleRemoveSupervision}
+              >
+                <MaterialIcons name="close" size={16} color="#fff" />
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <View style={styles.supervisionContent}>
+                <MaterialIcons name="verified" size={20} color={Colors.primary} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.supervisionTitle}>Available to supervise</Text>
+                  <Text style={styles.supervisionSubtitle}>You can monitor and manage this group</Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                style={[styles.supervisionButton, { backgroundColor: Colors.primary }]}
+                onPress={handleAddSupervision}
+              >
+                <MaterialIcons name="add" size={16} color="#fff" />
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+      )}
 
       {/* Messages */}
       {isLoading ? (
@@ -479,5 +580,38 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   emptySubtext: {
     fontSize: FontSizes.md,
     color: Colors.textSecondary,
+  },
+  supervisionBanner: {
+    backgroundColor: Colors.primary + '15',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  supervisionContent: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+  },
+  supervisionTitle: {
+    fontSize: FontSizes.sm,
+    fontWeight: FontWeights.semibold,
+    color: Colors.text,
+  },
+  supervisionSubtitle: {
+    fontSize: FontSizes.xs,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
+  supervisionButton: {
+    width: 32,
+    height: 32,
+    borderRadius: BorderRadius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

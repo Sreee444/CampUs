@@ -194,8 +194,15 @@ export type Conversation = {
   created_at: string;
   updated_at: string;
 
+  // Faculty Supervision
+  supervisor_id?: string;
+  supervision_started_at?: string;
+  supervision_ended_at?: string;
+  is_locked?: boolean;
+
   // Joined
   participants?: Profile[];
+  supervisor?: Profile;
   last_message?: Message;
   unread_count?: number;
 };

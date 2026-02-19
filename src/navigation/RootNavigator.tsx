@@ -24,6 +24,9 @@ import ProjectDetailsScreen from '../screens/Projects/ProjectDetailsScreen';
 import CreateProjectScreen from '../screens/Projects/CreateProjectScreen';
 import CreateEventScreen from '../screens/Home/CreateEventScreen';
 import EventDetailsScreen from '../screens/Home/EventDetailsScreen';
+import EventDiscussionScreen from '../screens/Home/EventDiscussionScreen';
+import CalendarScreen from '../screens/Home/CalendarScreen';
+import TeamFormationScreen from '../screens/Home/TeamFormationScreen';
 import ChatConversationScreen from '../screens/Home/ChatConversationScreen';
 import DiscussionTopicScreen from '../screens/Home/DiscussionTopicScreen';
 import CreateTopicScreen from '../screens/Home/CreateTopicScreen';
@@ -31,6 +34,14 @@ import PublicProfileScreen from '../screens/Home/PublicProfileScreen';
 import AllUsersScreen from '../screens/Home/AllUsersScreen';
 import DiscussionsScreen from '../screens/Home/DiscussionsScreen';
 import NotificationsScreen from '../screens/Notifications/NotificationsScreen';
+import AdminDashboardScreen from '../screens/Admin/AdminDashboardScreen';
+import AdminUsersScreen from '../screens/Admin/AdminUsersScreen';
+import AdminModerationScreen from '../screens/Admin/AdminModerationScreen';
+import AdminReportsScreen from '../screens/Admin/AdminReportsScreen';
+import AdminBroadcastScreen from '../screens/Admin/AdminBroadcastScreen';
+import AdminAnalyticsScreen from '../screens/Admin/AdminAnalyticsScreen';
+import AdminDiscussionsScreen from '../screens/Admin/AdminDiscussionsScreen';
+import AIInsightsScreen from '../screens/Admin/AIInsightsScreen';
 import { MainTabNavigator } from './MainTabNavigator';
 
 const Stack = createStackNavigator<RootStackParamList>();
@@ -214,6 +225,21 @@ export default function RootNavigator() {
               options={{ animationEnabled: true }}
             />
             <Stack.Screen
+              name="EventDiscussion"
+              component={EventDiscussionScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="Calendar"
+              component={CalendarScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="TeamFormation"
+              component={TeamFormationScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
               name="PublicProfile"
               component={PublicProfileScreen}
               options={{ animationEnabled: true }}
@@ -226,6 +252,46 @@ export default function RootNavigator() {
             <Stack.Screen
               name="Discussions"
               component={DiscussionsScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="AdminDashboard"
+              component={AdminDashboardScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="AdminUsers"
+              component={AdminUsersScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="AdminModeration"
+              component={AdminModerationScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="AdminReports"
+              component={AdminReportsScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="AdminBroadcast"
+              component={AdminBroadcastScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="AdminAnalytics"
+              component={AdminAnalyticsScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="AdminDiscussions"
+              component={AdminDiscussionsScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="AIInsights"
+              component={AIInsightsScreen}
               options={{ animationEnabled: true }}
             />
           </>

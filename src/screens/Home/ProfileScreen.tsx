@@ -241,6 +241,23 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
 
+        {profile?.role === 'admin' && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Admin Tools</Text>
+
+            <TouchableOpacity style={styles.actionItem} onPress={() => navigation.navigate('AdminDashboard')}>
+              <View style={[styles.actionIcon, { backgroundColor: '#dbeafe' }]}>
+                <MaterialIcons name="admin-panel-settings" size={20} color="#1e40af" />
+              </View>
+              <View style={styles.actionInfo}>
+                <Text style={styles.actionTitle}>Admin Dashboard</Text>
+                <Text style={styles.actionSubtitle}>Access admin panel</Text>
+              </View>
+              <MaterialIcons name="arrow-forward-ios" size={16} color="#94a3b8" />
+            </TouchableOpacity>
+          </View>
+        )}
+
         <View style={{ height: 32 }} />
       </ScrollView>
 

@@ -19,6 +19,7 @@ import { RootStackParamList } from '../../navigation/types';
 import { useTheme } from '../../contexts/ThemeContext';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
+import { addEventDiscussion, deleteEventDiscussionThread, getEvent } from '../../api/events';
 import {
   getDiscussionTopic,
   getTopicReplies,
@@ -29,6 +30,7 @@ import {
   deleteReply,
 } from '../../api/discussions';
 import { DiscussionTopic, DiscussionReply } from '../../types/database';
+import { getCleanDiscussionTitle, getEventIdFromTitle, isPreEventDiscussion } from '../../utils/discussionHelpers';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import ConfirmDialog from '../../components/ConfirmDialog';
@@ -59,6 +61,9 @@ export default function DiscussionTopicScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [replyContent, setReplyContent] = useState('');
   const [isPosting, setIsPosting] = useState(false);
+  const [relatedEvent, setRelatedEvent] = useState<any>(null);
+  const [isEventTimingOpen, setIsEventTimingOpen] = useState(true);
+  const [replyDisabledReason, setReplyDisabledReason] = useState<string>('');
   const [confirmDialog, setConfirmDialog] = useState<{
     visible: boolean;
     title: string;
@@ -82,6 +87,50 @@ export default function DiscussionTopicScreen() {
       ]);
       setTopic(topicData);
       setReplies(repliesData);
+
+      // Check if this is an event discussion by looking for event ID in title
+      // Title format: "[Pre-Event] [event-123] Topic Title" or "[Post-Event] [event-456] Topic"
+      const eventIdMatch = topicData?.title?.match(/\[event-([^\]]+)\]/);
+      
+      if (eventIdMatch && eventIdMatch[1]) {
+        const eventId = eventIdMatch[1];
+        try {
+          const eventData = await getEvent(eventId, user?.id);
+          setRelatedEvent(eventData);
+
+          // Check timing based on discussion type
+          const now = new Date();
+          const eventStart = new Date(eventData.start_date);
+          const eventEnd = new Date(eventData.end_date);
+
+          // Determine if this is pre or post event discussion based on title prefix
+          const isPreEvent = topicData.title?.includes('[Pre-Event]');
+          
+          let timingOpen = true;
+          let disabledReason = '';
+
+          if (isPreEvent) {
+            // Pre-event: only open before event starts
+            if (now >= eventStart) {
+              timingOpen = false;
+              disabledReason = '🔒 Pre-event discussion closed. Event has started.';
+            }
+          } else {
+            // Post-event: only open after event ends
+            if (now < eventEnd) {
+              timingOpen = false;
+              disabledReason = '⏳ Post-event discussion opens after the event ends.';
+            }
+          }
+
+          setIsEventTimingOpen(timingOpen);
+          setReplyDisabledReason(disabledReason);
+        } catch (eventError) {
+          console.warn('Could not load event details:', eventError);
+          // Allow replies if event not found
+          setIsEventTimingOpen(true);
+        }
+      }
     } catch (error) {
       console.error('Failed to load topic:', error);
       Toast.show({ type: 'error', text1: 'Failed to load discussion' });
@@ -96,11 +145,23 @@ export default function DiscussionTopicScreen() {
       return;
     }
 
+    if (!isEventTimingOpen) {
+      Toast.show({ type: 'error', text1: replyDisabledReason });
+      return;
+    }
+
     if (!user?.id) return;
 
     try {
       setIsPosting(true);
       await postReply(topicId, user.id, replyContent.trim());
+
+      // Mirror into event_discussions if this is an event-linked topic
+      const eventId = getEventIdFromTitle(topic?.title);
+      if (eventId) {
+        await addEventDiscussion(eventId, user.id, replyContent.trim(), isPreEventDiscussion(topic?.title));
+      }
+
       setReplyContent('');
       await loadTopic();
       Toast.show({ type: 'success', text1: 'Reply posted!' });
@@ -152,6 +213,12 @@ export default function DiscussionTopicScreen() {
     try {
       console.log('Deleting topic:', topicId);
       await deleteDiscussionTopic(topicId);
+
+      const eventId = getEventIdFromTitle(topic?.title);
+      if (eventId) {
+        await deleteEventDiscussionThread(eventId, isPreEventDiscussion(topic?.title));
+      }
+
       Toast.show({ type: 'success', text1: 'Discussion deleted' });
       navigation.goBack();
     } catch (error) {
@@ -259,7 +326,7 @@ export default function DiscussionTopicScreen() {
               </Text>
             </View>
 
-            <Text style={styles.title}>{topic.title}</Text>
+            <Text style={styles.title}>{getCleanDiscussionTitle(topic.title)}</Text>
 
             <View style={styles.topicMeta}>
               <MaterialIcons name="person-outline" size={16} color={Colors.textSecondary} />
@@ -365,26 +432,33 @@ export default function DiscussionTopicScreen() {
         </ScrollView>
 
         {/* Reply Input */}
-        {!topic.is_locked && (
-          <View style={styles.replyInputContainer}>
-            <TextInput
-              style={styles.replyInput}
-              placeholder="Write a reply..."
-              placeholderTextColor={Colors.textSecondary}
-              value={replyContent}
-              onChangeText={setReplyContent}
-              multiline
-              maxLength={500}
-            />
-            <TouchableOpacity
-              style={[styles.sendButton, isPosting && styles.sendButtonDisabled]}
-              onPress={handlePostReply}
-              disabled={isPosting}
-            >
-              <MaterialIcons name="send" size={22} color="#fff" />
-            </TouchableOpacity>
-          </View>
-        )}
+        {!topic.is_locked ? (
+          isEventTimingOpen ? (
+            <View style={styles.replyInputContainer}>
+              <TextInput
+                style={styles.replyInput}
+                placeholder="Write a reply..."
+                placeholderTextColor={Colors.textSecondary}
+                value={replyContent}
+                onChangeText={setReplyContent}
+                multiline
+                maxLength={500}
+              />
+              <TouchableOpacity
+                style={[styles.sendButton, isPosting && styles.sendButtonDisabled]}
+                onPress={handlePostReply}
+                disabled={isPosting}
+              >
+                <MaterialIcons name="send" size={22} color="#fff" />
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={[styles.disabledDiscussionNotice, { backgroundColor: Colors.surface, borderColor: Colors.border }]}>
+              <MaterialIcons name="lock" size={18} color="#dc2626" />
+              <Text style={[styles.disabledNoticeText, { color: '#dc2626' }]}>{replyDisabledReason}</Text>
+            </View>
+          )
+        ) : null}
       </KeyboardAvoidingView>
 
       <ConfirmDialog
@@ -593,6 +667,20 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     },
     sendButtonDisabled: {
       opacity: 0.6,
+    },
+    disabledDiscussionNotice: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: Spacing.md,
+      paddingVertical: Spacing.md,
+      backgroundColor: 'transparent',
+      borderTopWidth: 1,
+      gap: Spacing.md,
+    },
+    disabledNoticeText: {
+      flex: 1,
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.semibold,
     },
     loadingContainer: {
       flex: 1,

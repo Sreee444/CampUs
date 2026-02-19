@@ -20,9 +20,8 @@ export const sendConnectionRequest = async (
   const { data, error } = await supabase
     .from("connections")
     .insert({
-      user_id: userId,
-      connected_user_id: targetUserId,
-      requested_by: userId,
+      requester_id: userId,
+      recipient_id: targetUserId,
       status: "pending",
     } as any)
     .select()
@@ -69,9 +68,10 @@ export const getConnections = async (
     .from("connections")
     .select(`
       *,
-      connected_user:profiles!connections_connected_user_id_fkey(*)
+      requester:profiles!connections_requester_id_fkey(*),
+      recipient:profiles!connections_recipient_id_fkey(*)
     `)
-    .eq("user_id", userId)
+    .or(`requester_id.eq.${userId},recipient_id.eq.${userId}`)
     .eq("status", status);
 
   if (error) throw error;
@@ -84,9 +84,9 @@ export const getPendingRequests = async (userId: string) => {
     .from("connections")
     .select(`
       *,
-      connected_user:profiles!connections_user_id_fkey(*)
+      requester:profiles!connections_requester_id_fkey(*)
     `)
-    .eq("connected_user_id", userId)
+    .eq("recipient_id", userId)
     .eq("status", "pending");
 
   if (error) throw error;
@@ -174,11 +174,19 @@ export const createDirectConversation = async (
   user1Id: string,
   user2Id: string
 ) => {
+  // Ensure user1Id is set to current user for RLS compliance
+  const { data: sessionData } = await supabase.auth.getSession();
+  const currentUserId = user1Id || sessionData?.session?.user?.id;
+
+  if (!currentUserId) {
+    throw new Error('User must be authenticated to create conversations');
+  }
+
   // Check if conversation already exists
   const { data: existingParticipants } = await supabase
     .from("conversation_participants")
     .select("conversation_id")
-    .in("user_id", [user1Id, user2Id])
+    .in("user_id", [currentUserId, user2Id])
     .is("left_at", null);
 
   if (existingParticipants) {
@@ -210,23 +218,29 @@ export const createDirectConversation = async (
     .from("conversations")
     .insert({
       is_group: false,
-      created_by: user1Id,
+      created_by: currentUserId,
     } as any)
     .select()
     .single();
 
-  if (convError) throw convError;
+  if (convError) {
+    console.error('Error creating conversation:', convError);
+    throw convError;
+  }
 
   // Add both participants
   // @ts-ignore - Supabase type inference issue
   const { error: participantsError } = await supabase
     .from("conversation_participants")
     .insert([
-      { conversation_id: conversation!.id, user_id: user1Id },
+      { conversation_id: conversation!.id, user_id: currentUserId },
       { conversation_id: conversation!.id, user_id: user2Id },
     ] as any);
 
-  if (participantsError) throw participantsError;
+  if (participantsError) {
+    console.error('Error adding participants:', participantsError);
+    throw participantsError;
+  }
 
   return conversation as Conversation;
 };
@@ -317,12 +331,19 @@ export const sendMessage = async (
   messageType: MessageType = "text",
   attachmentUrl?: string
 ) => {
-  // @ts-ignore - Supabase type inference issue
+  // Ensure sender_id is set to current user for RLS compliance
+  const { data: sessionData } = await supabase.auth.getSession();
+  const currentUserId = senderId || sessionData?.session?.user?.id;
+
+  if (!currentUserId) {
+    throw new Error('User must be authenticated to send messages');
+  }
+
   const { data, error } = await supabase
     .from("messages")
     .insert({
       conversation_id: conversationId,
-      sender_id: senderId,
+      sender_id: currentUserId,
       content,
       message_type: messageType,
       attachment_url: attachmentUrl,
@@ -333,7 +354,10 @@ export const sendMessage = async (
     `)
     .single();
 
-  if (error) throw error;
+  if (error) {
+    console.error('Error sending message:', error);
+    throw error;
+  }
 
   // Update conversation timestamp
   // @ts-ignore - Supabase type inference issue
@@ -553,3 +577,182 @@ export const chatWithAI = async (userId: string, prompt: string) => {
 
   return `Thanks for asking! Here is a quick tip: review the Feed or Events tab for more context, and feel free to ask follow-up questions.`;
 };
+
+// ===== FACULTY SUPERVISION =====
+
+// Add faculty supervisor to a conversation
+export const addConversationSupervisor = async (
+  conversationId: string,
+  facultyId: string,
+  conversationData?: any
+) => {
+  // Verify it's a group conversation and faculty is a member
+  const { data: conversation } = await supabase
+    .from("conversations")
+    .select("*")
+    .eq("id", conversationId)
+    .single();
+
+  if (!conversation || !conversation.is_group) {
+    throw new Error('Can only supervise group conversations');
+  }
+
+  // Check if faculty is a member
+  const { data: isMember } = await supabase
+    .from("conversation_participants")
+    .select("id")
+    .eq("conversation_id", conversationId)
+    .eq("user_id", facultyId)
+    .is("left_at", null)
+    .single();
+
+  if (!isMember) {
+    throw new Error('Faculty must be a member of the group to supervise');
+  }
+
+  // Update conversation with supervisor
+  const { data, error } = await supabase
+    .from("conversations")
+    .update({ 
+      supervisor_id: facultyId,
+      supervision_started_at: new Date().toISOString()
+    } as any)
+    .eq("id", conversationId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+};
+
+// Remove faculty supervisor from a conversation
+export const removeConversationSupervisor = async (conversationId: string) => {
+  const { data, error } = await supabase
+    .from("conversations")
+    .update({ 
+      supervisor_id: null,
+      supervision_ended_at: new Date().toISOString()
+    } as any)
+    .eq("id", conversationId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+};
+
+// Get supervisor for a conversation
+export const getConversationSupervisor = async (conversationId: string) => {
+  const { data: conversation } = await supabase
+    .from("conversations")
+    .select("supervisor_id, supervision_started_at, supervision_ended_at")
+    .eq("id", conversationId)
+    .single();
+
+  if (!conversation || !conversation.supervisor_id) return null;
+
+  const { data: supervisor } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("id", conversation.supervisor_id)
+    .single();
+
+  return {
+    supervisor,
+    startedAt: conversation.supervision_started_at,
+    endedAt: conversation.supervision_ended_at,
+  };
+};
+
+// Check if faculty can supervise a conversation
+export const canFacultySupervise = async (
+  conversationId: string,
+  facultyId: string,
+  facultyRole: string
+): Promise<boolean> => {
+  if (facultyRole !== 'faculty' && facultyRole !== 'admin') {
+    return false;
+  }
+
+  const { data: conversation } = await supabase
+    .from("conversations")
+    .select("is_group, created_by")
+    .eq("id", conversationId)
+    .single();
+
+  if (!conversation) return false;
+
+  // Admin can supervise any group conversation
+  if (facultyRole === 'admin') {
+    return conversation.is_group;
+  }
+
+  // Faculty can only supervise group conversations they're members of
+  if (!conversation.is_group) return false;
+
+  const { data: isMember } = await supabase
+    .from("conversation_participants")
+    .select("id")
+    .eq("conversation_id", conversationId)
+    .eq("user_id", facultyId)
+    .is("left_at", null)
+    .single();
+
+  return !!isMember;
+};
+
+// Get all conversations supervised by faculty
+export const getFacultySupervisedConversations = async (facultyId: string) => {
+  const { data, error } = await supabase
+    .from("conversations")
+    .select(`
+      *,
+      supervisor:profiles!conversations_supervisor_id_fkey(*),
+      participants:conversation_participants(
+        *,
+        user:profiles(*)
+      )
+    `)
+    .eq("supervisor_id", facultyId)
+    .eq("is_group", true);
+
+  if (error) throw error;
+  return data;
+};
+
+// Get supervision statistics for a conversation
+export const getConversationSupervisionStats = async (conversationId: string) => {
+  // Get total messages
+  const { count: totalMessages } = await supabase
+    .from("messages")
+    .select("*", { count: "exact", head: true })
+    .eq("conversation_id", conversationId)
+    .eq("is_deleted", false);
+
+  // Get participant count
+  const { count: participantCount } = await supabase
+    .from("conversation_participants")
+    .select("*", { count: "exact", head: true })
+    .eq("conversation_id", conversationId)
+    .is("left_at", null);
+
+  // Get message count by participant
+  const { data: messagesByUser } = await supabase
+    .from("messages")
+    .select("sender_id")
+    .eq("conversation_id", conversationId)
+    .eq("is_deleted", false);
+
+  const userMessageCounts = (messagesByUser || []).reduce((acc: any, msg: any) => {
+    acc[msg.sender_id] = (acc[msg.sender_id] || 0) + 1;
+    return acc;
+  }, {});
+
+  return {
+    totalMessages: totalMessages || 0,
+    participantCount: participantCount || 0,
+    messagesByUser: userMessageCounts,
+    averageMessagesPerParticipant: (totalMessages || 0) / (participantCount || 1),
+  };
+};
+

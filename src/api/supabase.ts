@@ -1,8 +1,15 @@
 import { createClient } from "@supabase/supabase-js";
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ENV } from '../config/env';
 
-const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
+const supabaseUrl = ENV.supabaseUrl;
+const supabaseAnonKey = ENV.supabaseAnonKey;
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error(
+    'Missing Supabase configuration. Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY in your .env file.'
+  );
+}
 
 // Define a basic Database type to fix TypeScript errors
 // This will be replaced when you generate types from your database

@@ -187,6 +187,9 @@ export default function ChatScreen() {
           const name = getConversationName(conversation, user.id);
           const initials = getInitials(name);
           const color = getColorFromString(name);
+          const otherUser = !conversation.is_group
+            ? conversation.participants?.find((p: any) => p.id !== user.id)
+            : null;
           const lastMessageTime = conversation.last_message
             ? new Date(conversation.last_message.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
             : '';
@@ -203,7 +206,7 @@ export default function ChatScreen() {
             >
               <View style={styles.avatarWrapper}>
                 <UserAvatar
-                  uri={conversation.other_user?.avatar_url}
+                  uri={otherUser?.avatar_url}
                   name={name}
                   size={48}
                   showRing={false}
