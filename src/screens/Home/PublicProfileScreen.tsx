@@ -1,8 +1,8 @@
 // ================================================
-// PHASE 3: PUBLIC PROFILE SCREEN
+// PUBLIC PROFILE SCREEN - REDESIGNED
 // ================================================
 // View other users' profiles with connection management
-// Features: Connection status tracking, animated buttons, premium UI
+// Features: Hero card, stat row, skills chips, project cards, connection actions
 // ================================================
 
 import React, { useState, useEffect } from 'react';
@@ -28,10 +28,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Toast from 'react-native-toast-message';
 import Animated, {
   useAnimatedStyle,
-  withTiming,
   useSharedValue,
   withSpring,
-  interpolateColor
 } from 'react-native-reanimated';
 import { supabase } from '../../api/supabase';
 import { Profile } from '../../types/database';
@@ -49,6 +47,13 @@ type PublicProfileScreenRouteProp = RouteProp<RootStackParamList, 'PublicProfile
 
 const { width } = Dimensions.get('window');
 
+const ROLE_CONFIG: Record<string, { color: string; icon: string; label: string; gradient: [string, string] }> = {
+  student:  { color: '#3b82f6', icon: 'school',        label: 'Student', gradient: ['#3b82f6', '#6366f1'] },
+  faculty:  { color: '#f59e0b', icon: 'person',         label: 'Faculty', gradient: ['#f59e0b', '#ef4444'] },
+  alumni:   { color: '#10b981', icon: 'workspace-premium', label: 'Alumni', gradient: ['#10b981', '#0891b2'] },
+  admin:    { color: '#ef4444', icon: 'shield',          label: 'Admin',  gradient: ['#ef4444', '#7c3aed'] },
+};
+
 export default function PublicProfileScreen() {
   const navigation = useNavigation<PublicProfileScreenNavigationProp>();
   const route = useRoute<PublicProfileScreenRouteProp>();
@@ -58,21 +63,20 @@ export default function PublicProfileScreen() {
   const Colors = getColors(isDark);
   const styles = createStyles(Colors, isDark);
 
-  // State
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatusResult>({ status: 'none' });
   const [actionLoading, setActionLoading] = useState(false);
   const [userProjects, setUserProjects] = useState<any[]>([]);
+  const [connectionsCount, setConnectionsCount] = useState(0);
 
-  // Animation values
   const buttonScale = useSharedValue(1);
-  const buttonColorProgress = useSharedValue(0);
 
   useEffect(() => {
     loadProfile();
     loadConnectionStatus();
     loadUserProjects();
+    loadConnectionsCount();
   }, [userId]);
 
   // =====================================
@@ -135,6 +139,17 @@ export default function PublicProfileScreen() {
     }
   };
 
+  const loadConnectionsCount = async () => {
+    try {
+      const { count } = await supabase
+        .from('connections')
+        .select('id', { count: 'exact', head: true })
+        .or(`requester_id.eq.${userId},recipient_id.eq.${userId}`)
+        .eq('status', 'accepted');
+      setConnectionsCount(count || 0);
+    } catch (_) {}
+  };
+
   // =====================================
   // CONNECTION ACTIONS
   // =====================================
@@ -143,29 +158,15 @@ export default function PublicProfileScreen() {
     try {
       setActionLoading(true);
       animateButton();
-
       const result = await sendConnectionRequest(userId);
-
       if (result.success) {
-        Toast.show({
-          type: 'success',
-          text1: 'Connection Request Sent',
-          text2: `Request sent to ${profile?.full_name || 'user'}`,
-        });
+        Toast.show({ type: 'success', text1: 'Request Sent', text2: `Request sent to ${profile?.full_name || 'user'}` });
         loadConnectionStatus();
       } else {
-        Toast.show({
-          type: 'error',
-          text1: 'Failed',
-          text2: result.error || 'Could not send request',
-        });
+        Toast.show({ type: 'error', text1: 'Failed', text2: result.error || 'Could not send request' });
       }
-    } catch (error) {
-      Toast.show({
-        type: 'error',
-        text1: 'Error',
-        text2: 'An error occurred',
-      });
+    } catch {
+      Toast.show({ type: 'error', text1: 'Error', text2: 'An error occurred' });
     } finally {
       setActionLoading(false);
     }
@@ -175,28 +176,15 @@ export default function PublicProfileScreen() {
     try {
       setActionLoading(true);
       animateButton();
-
       const result = await cancelConnectionRequest(userId);
-
       if (result.success) {
-        Toast.show({
-          type: 'success',
-          text1: 'Request Cancelled',
-        });
+        Toast.show({ type: 'success', text1: 'Request Cancelled' });
         loadConnectionStatus();
       } else {
-        Toast.show({
-          type: 'error',
-          text1: 'Failed',
-          text2: result.error || 'Could not cancel request',
-        });
+        Toast.show({ type: 'error', text1: 'Failed', text2: result.error || 'Could not cancel' });
       }
-    } catch (error) {
-      Toast.show({
-        type: 'error',
-        text1: 'Error',
-        text2: 'An error occurred',
-      });
+    } catch {
+      Toast.show({ type: 'error', text1: 'Error', text2: 'An error occurred' });
     } finally {
       setActionLoading(false);
     }
@@ -204,33 +192,19 @@ export default function PublicProfileScreen() {
 
   const handleAccept = async () => {
     if (!connectionStatus.connectionId) return;
-
     try {
       setActionLoading(true);
       animateButton();
-
       const result = await acceptConnectionRequest(connectionStatus.connectionId);
-
       if (result.success) {
-        Toast.show({
-          type: 'success',
-          text1: 'Connection Accepted',
-          text2: `You are now connected with ${profile?.full_name || 'this user'}`,
-        });
+        Toast.show({ type: 'success', text1: 'Connected!', text2: `You are now connected with ${profile?.full_name || 'this user'}` });
         loadConnectionStatus();
+        loadConnectionsCount();
       } else {
-        Toast.show({
-          type: 'error',
-          text1: 'Failed',
-          text2: result.error || 'Could not accept request',
-        });
+        Toast.show({ type: 'error', text1: 'Failed', text2: result.error || 'Could not accept' });
       }
-    } catch (error) {
-      Toast.show({
-        type: 'error',
-        text1: 'Error',
-        text2: 'An error occurred',
-      });
+    } catch {
+      Toast.show({ type: 'error', text1: 'Error', text2: 'An error occurred' });
     } finally {
       setActionLoading(false);
     }
@@ -238,44 +212,24 @@ export default function PublicProfileScreen() {
 
   const handleReject = async () => {
     if (!connectionStatus.connectionId) return;
-
     try {
       setActionLoading(true);
-
       const result = await rejectConnectionRequest(connectionStatus.connectionId);
-
       if (result.success) {
-        Toast.show({
-          type: 'success',
-          text1: 'Request Rejected',
-        });
+        Toast.show({ type: 'success', text1: 'Request Rejected' });
         loadConnectionStatus();
       } else {
-        Toast.show({
-          type: 'error',
-          text1: 'Failed',
-          text2: result.error || 'Could not reject request',
-        });
+        Toast.show({ type: 'error', text1: 'Failed', text2: result.error || 'Could not reject' });
       }
-    } catch (error) {
-      Toast.show({
-        type: 'error',
-        text1: 'Error',
-        text2: 'An error occurred',
-      });
+    } catch {
+      Toast.show({ type: 'error', text1: 'Error', text2: 'An error occurred' });
     } finally {
       setActionLoading(false);
     }
   };
 
   const handleMessage = () => {
-    // Navigate to chat conversation
-    // Will be implemented in Phase 6
-    Toast.show({
-      type: 'info',
-      text1: 'Coming Soon',
-      text2: 'Direct messaging will be available soon',
-    });
+    Toast.show({ type: 'info', text1: 'Coming Soon', text2: 'Direct messaging will be available soon' });
   };
 
   // =====================================
@@ -288,79 +242,69 @@ export default function PublicProfileScreen() {
     });
   };
 
-  const buttonAnimatedStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ scale: buttonScale.value }],
-    };
-  });
+  const buttonAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: buttonScale.value }],
+  }));
 
   // =====================================
-  // RENDER HELPERS
+  // HELPERS
   // =====================================
 
   const getInitials = () => {
     if (!profile?.full_name) return 'U';
     const parts = profile.full_name.trim().split(' ');
-    const first = parts[0]?.[0] || '';
-    const second = parts[1]?.[0] || '';
-    return (first + second).toUpperCase();
+    return ((parts[0]?.[0] || '') + (parts[1]?.[0] || '')).toUpperCase();
   };
 
-  const getRoleBadgeColor = () => {
-    switch (profile?.role) {
-      case 'student': return Colors.info;
-      case 'faculty': return Colors.warning;
-      case 'alumni': return Colors.success;
-      case 'admin': return Colors.error;
-      default: return Colors.textSecondary;
+  const getRoleConfig = () => {
+    return ROLE_CONFIG[profile?.role || ''] || {
+      color: '#8b5cf6', icon: 'person', label: profile?.role || 'User',
+      gradient: ['#8b5cf6', '#6366f1'] as [string, string],
+    };
+  };
+
+  const getProjectStatusColor = (status: string) => {
+    switch (status) {
+      case 'active': return '#10b981';
+      case 'completed': return '#3b82f6';
+      case 'on_hold': return '#f59e0b';
+      default: return '#6b7280';
     }
   };
+
+  // =====================================
+  // RENDER: CONNECTION BUTTON
+  // =====================================
 
   const renderConnectionButton = () => {
-    // Don't show if viewing own profile
     if (user?.id === userId) return null;
-
     const { status } = connectionStatus;
 
-    // No connection - show Connect button
     if (status === 'none' || status === 'rejected') {
       return (
-        <Animated.View style={buttonAnimatedStyle}>
-          <TouchableOpacity
-            style={[styles.actionButton, styles.primaryButton]}
-            onPress={handleConnect}
-            disabled={actionLoading}
-          >
-            {actionLoading ? (
-              <ActivityIndicator color="#ffffff" size="small" />
-            ) : (
-              <>
-                <MaterialIcons name="person-add" size={20} color="#ffffff" />
-                <Text style={styles.actionButtonText}>Connect</Text>
-              </>
-            )}
+        <Animated.View style={[buttonAnimatedStyle, styles.connectBtnWrap]}>
+          <TouchableOpacity style={styles.connectBtn} onPress={handleConnect} disabled={actionLoading} activeOpacity={0.85}>
+            <LinearGradient colors={['#fb7185', '#f43f5e']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.connectBtnGradient}>
+              {actionLoading ? <ActivityIndicator color="#fff" size="small" /> : (
+                <>
+                  <MaterialIcons name="person-add" size={18} color="#fff" />
+                  <Text style={styles.connectBtnText}>Connect</Text>
+                </>
+              )}
+            </LinearGradient>
           </TouchableOpacity>
         </Animated.View>
       );
     }
 
-    // Pending request sent - show Cancel button
     if (status === 'pending_sent') {
       return (
-        <Animated.View style={buttonAnimatedStyle}>
-          <TouchableOpacity
-            style={[styles.actionButton, styles.secondaryButton]}
-            onPress={handleCancelRequest}
-            disabled={actionLoading}
-          >
-            {actionLoading ? (
-              <ActivityIndicator color={Colors.text} size="small" />
-            ) : (
+        <Animated.View style={[buttonAnimatedStyle, styles.connectBtnWrap]}>
+          <TouchableOpacity style={[styles.connectBtn, styles.connectBtnOutline]} onPress={handleCancelRequest} disabled={actionLoading} activeOpacity={0.85}>
+            {actionLoading ? <ActivityIndicator color={Colors.textSecondary} size="small" /> : (
               <>
-                <MaterialIcons name="cancel" size={20} color={Colors.text} />
-                <Text style={[styles.actionButtonText, { color: Colors.text }]}>
-                  Cancel Request
-                </Text>
+                <MaterialIcons name="schedule" size={18} color={Colors.textSecondary} />
+                <Text style={[styles.connectBtnText, { color: Colors.textSecondary }]}>Pending · Cancel</Text>
               </>
             )}
           </TouchableOpacity>
@@ -368,51 +312,39 @@ export default function PublicProfileScreen() {
       );
     }
 
-    // Pending request received - show Accept/Reject buttons
     if (status === 'pending_received') {
       return (
-        <View style={styles.doubleButtonContainer}>
-          <Animated.View style={[buttonAnimatedStyle, { flex: 1, marginRight: Spacing.sm }]}>
-            <TouchableOpacity
-              style={[styles.actionButton, styles.successButton]}
-              onPress={handleAccept}
-              disabled={actionLoading}
-            >
-              {actionLoading ? (
-                <ActivityIndicator color="#ffffff" size="small" />
-              ) : (
+        <View style={styles.dualBtnRow}>
+          <Animated.View style={[buttonAnimatedStyle, { flex: 1 }]}>
+            <TouchableOpacity style={styles.acceptBtn} onPress={handleAccept} disabled={actionLoading} activeOpacity={0.85}>
+              {actionLoading ? <ActivityIndicator color="#fff" size="small" /> : (
                 <>
-                  <MaterialIcons name="check" size={20} color="#ffffff" />
-                  <Text style={styles.actionButtonText}>Accept</Text>
+                  <MaterialIcons name="check" size={18} color="#fff" />
+                  <Text style={styles.connectBtnText}>Accept</Text>
                 </>
               )}
             </TouchableOpacity>
           </Animated.View>
-
-          <TouchableOpacity
-            style={[styles.actionButton, styles.dangerButton]}
-            onPress={handleReject}
-            disabled={actionLoading}
-          >
-            <MaterialIcons name="close" size={20} color="#ffffff" />
-            <Text style={styles.actionButtonText}>Reject</Text>
+          <TouchableOpacity style={styles.rejectBtn} onPress={handleReject} disabled={actionLoading} activeOpacity={0.85}>
+            <MaterialIcons name="close" size={18} color="#ef4444" />
+            <Text style={[styles.connectBtnText, { color: '#ef4444' }]}>Decline</Text>
           </TouchableOpacity>
         </View>
       );
     }
 
-    // Accepted connection - show Message button
     if (status === 'accepted') {
       return (
-        <Animated.View style={buttonAnimatedStyle}>
-          <TouchableOpacity
-            style={[styles.actionButton, styles.primaryButton]}
-            onPress={handleMessage}
-          >
-            <MaterialIcons name="message" size={20} color="#ffffff" />
-            <Text style={styles.actionButtonText}>Message</Text>
+        <View style={styles.dualBtnRow}>
+          <View style={[styles.connectBtn, styles.connectedBtn]}>
+            <MaterialIcons name="check-circle" size={18} color="#10b981" />
+            <Text style={[styles.connectBtnText, { color: '#10b981' }]}>Connected</Text>
+          </View>
+          <TouchableOpacity style={[styles.connectBtn, styles.messageBtnFill]} onPress={handleMessage} activeOpacity={0.85}>
+            <MaterialIcons name="chat-bubble-outline" size={18} color="#fff" />
+            <Text style={styles.connectBtnText}>Message</Text>
           </TouchableOpacity>
-        </Animated.View>
+        </View>
       );
     }
 
@@ -420,12 +352,12 @@ export default function PublicProfileScreen() {
   };
 
   // =====================================
-  // RENDER
+  // LOADING / ERROR
   // =====================================
 
   if (isLoading) {
     return (
-      <View style={[styles.container, styles.centerContent]}>
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
         <ActivityIndicator size="large" color={Colors.primary} />
       </View>
     );
@@ -433,162 +365,228 @@ export default function PublicProfileScreen() {
 
   if (!profile) {
     return (
-      <View style={[styles.container, styles.centerContent]}>
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
         <MaterialIcons name="person-off" size={64} color={Colors.textSecondary} />
-        <Text style={styles.errorText}>User not found</Text>
+        <Text style={{ fontSize: FontSizes.lg, color: Colors.textSecondary, marginTop: Spacing.md }}>
+          User not found
+        </Text>
       </View>
     );
   }
+
+  const roleConfig = getRoleConfig();
+
+  // =====================================
+  // RENDER
+  // =====================================
 
   return (
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <MaterialIcons name="arrow-back" size={24} color={Colors.text} />
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+          <MaterialIcons name="arrow-back" size={22} color={Colors.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Profile</Text>
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView
-        style={styles.scrollView}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-      >
-        {/* Gradient Header Background */}
-        <LinearGradient
-          colors={Colors.gradients.mesh as any}
-          style={styles.gradientHeader}
-        />
+      <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
 
-        {/* Avatar Section */}
-        <View style={styles.avatarSection}>
-          <View style={styles.avatarContainer}>
-            {profile.avatar_url ? (
-              <Image source={{ uri: profile.avatar_url }} style={styles.avatar} />
-            ) : (
-              <LinearGradient
-                colors={Colors.gradients.meshLight as any}
-                style={styles.avatarGradient}
-              >
-                <Text style={styles.avatarText}>{getInitials()}</Text>
-              </LinearGradient>
+        {/* ── HERO CARD ── */}
+        <View style={styles.heroCard}>
+          {/* Gradient banner */}
+          <LinearGradient
+            colors={roleConfig.gradient as any}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.heroBanner}
+          >
+            <View style={styles.decCircle1} />
+            <View style={styles.decCircle2} />
+          </LinearGradient>
+
+          {/* Avatar ring */}
+          <View style={styles.avatarRingOuter}>
+            <LinearGradient colors={roleConfig.gradient as any} style={styles.avatarRing}>
+              <View style={styles.avatarInner}>
+                {profile.avatar_url ? (
+                  <Image source={{ uri: profile.avatar_url }} style={styles.avatarImage} />
+                ) : (
+                  <LinearGradient colors={roleConfig.gradient as any} style={styles.avatarFallback}>
+                    <Text style={styles.avatarInitials}>{getInitials()}</Text>
+                  </LinearGradient>
+                )}
+              </View>
+            </LinearGradient>
+            {connectionStatus.status === 'accepted' && (
+              <View style={styles.connectedDot}>
+                <MaterialIcons name="check" size={10} color="#fff" />
+              </View>
             )}
           </View>
 
-          {/* Connection Status Indicator */}
-          {connectionStatus.status === 'accepted' && (
-            <View style={styles.connectionBadge}>
-              <MaterialIcons name="check-circle" size={16} color={Colors.success} />
+          {/* Name */}
+          <Text style={styles.heroName}>{profile.full_name || 'Unknown User'}</Text>
+
+          {/* Role pill */}
+          <View style={[styles.rolePill, { backgroundColor: roleConfig.color + '22', borderColor: roleConfig.color + '44' }]}>
+            <MaterialIcons name={roleConfig.icon as any} size={12} color={roleConfig.color} />
+            <Text style={[styles.rolePillText, { color: roleConfig.color }]}>{roleConfig.label.toUpperCase()}</Text>
+          </View>
+
+          {/* Special badges */}
+          {(profile.is_club_coordinator || profile.is_volunteer) && (
+            <View style={styles.badgeRow}>
+              {profile.is_club_coordinator && (
+                <View style={[styles.specialBadge, { backgroundColor: '#7c3aed22', borderColor: '#7c3aed44' }]}>
+                  <MaterialIcons name="groups" size={12} color="#7c3aed" />
+                  <Text style={[styles.specialBadgeText, { color: '#7c3aed' }]}>Club Coordinator</Text>
+                </View>
+              )}
+              {profile.is_volunteer && (
+                <View style={[styles.specialBadge, { backgroundColor: '#0891b222', borderColor: '#0891b244' }]}>
+                  <MaterialIcons name="volunteer-activism" size={12} color="#0891b2" />
+                  <Text style={[styles.specialBadgeText, { color: '#0891b2' }]}>Volunteer</Text>
+                </View>
+              )}
             </View>
           )}
-        </View>
 
-        {/* Name and Role */}
-        <View style={styles.nameSection}>
-          <Text style={styles.name}>{profile.full_name || 'Unknown User'}</Text>
-          <View style={[styles.roleBadge, { backgroundColor: getRoleBadgeColor() + '20' }]}>
-            <Text style={[styles.roleText, { color: getRoleBadgeColor() }]}>
-              {profile.role?.toUpperCase()}
-            </Text>
+          {/* Bio */}
+          {profile.bio ? (
+            <Text style={styles.heroBio} numberOfLines={3}>{profile.bio}</Text>
+          ) : null}
+
+          {/* Stats row */}
+          <View style={styles.statsRow}>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{connectionsCount}</Text>
+              <Text style={styles.statLabel}>Connections</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{userProjects.length}</Text>
+              <Text style={styles.statLabel}>Projects</Text>
+            </View>
+            {profile.year ? (
+              <>
+                <View style={styles.statDivider} />
+                <View style={styles.statItem}>
+                  <Text style={styles.statValue}>Y{profile.year}</Text>
+                  <Text style={styles.statLabel}>Year</Text>
+                </View>
+              </>
+            ) : null}
+          </View>
+
+          {/* Connection actions */}
+          <View style={styles.actionArea}>
+            {renderConnectionButton()}
           </View>
         </View>
 
-        {/* Bio */}
-        {profile.bio && (
-          <View style={styles.bioSection}>
-            <Text style={styles.bioText}>{profile.bio}</Text>
+        {/* ── ACADEMIC INFO CARD ── */}
+        {(profile.department || profile.enrollment_number || profile.year) && (
+          <View style={styles.infoCard}>
+            <View style={styles.cardHeader}>
+              <View style={[styles.cardIconWrap, { backgroundColor: '#3b82f615' }]}>
+                <MaterialIcons name="school" size={18} color="#3b82f6" />
+              </View>
+              <Text style={styles.cardTitle}>Academic Info</Text>
+            </View>
+            <View style={styles.infoGrid}>
+              {profile.department ? (
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoKey}>Department</Text>
+                  <Text style={styles.infoVal}>{profile.department}</Text>
+                </View>
+              ) : null}
+              {profile.year ? (
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoKey}>Year</Text>
+                  <Text style={styles.infoVal}>Year {profile.year}</Text>
+                </View>
+              ) : null}
+              {profile.enrollment_number ? (
+                <View style={[styles.infoRow, { borderBottomWidth: 0 }]}>
+                  <Text style={styles.infoKey}>Enrollment</Text>
+                  <Text style={styles.infoVal}>{profile.enrollment_number}</Text>
+                </View>
+              ) : null}
+            </View>
           </View>
         )}
 
-        {/* Action Buttons */}
-        <View style={styles.actionButtonContainer}>
-          {renderConnectionButton()}
-        </View>
-
-        {/* Info Cards */}
-        <View style={styles.infoContainer}>
-          {/* Academic Info */}
-          {(profile.department || profile.year) && (
-            <View style={styles.infoCard}>
-              <View style={styles.infoIcon}>
-                <MaterialIcons name="school" size={24} color={Colors.primary} />
+        {/* ── SKILLS CARD ── */}
+        {profile.skills && profile.skills.length > 0 && (
+          <View style={styles.infoCard}>
+            <View style={styles.cardHeader}>
+              <View style={[styles.cardIconWrap, { backgroundColor: '#fb718515' }]}>
+                <MaterialIcons name="code" size={18} color="#fb7185" />
               </View>
-              <View style={styles.infoContent}>
-                <Text style={styles.infoLabel}>Academic</Text>
-                {profile.department && (
-                  <Text style={styles.infoText}>{profile.department}</Text>
-                )}
-                {profile.year && (
-                  <Text style={styles.infoText}>Year {profile.year}</Text>
-                )}
-              </View>
+              <Text style={styles.cardTitle}>Skills</Text>
             </View>
-          )}
-
-          {/* Skills */}
-          {profile.skills && profile.skills.length > 0 && (
-            <View style={styles.infoCard}>
-              <View style={styles.infoIcon}>
-                <MaterialIcons name="code" size={24} color={Colors.primary} />
-              </View>
-              <View style={styles.infoContent}>
-                <Text style={styles.infoLabel}>Skills</Text>
-                <View style={styles.tagsContainer}>
-                  {profile.skills.map((skill, index) => (
-                    <View key={index} style={styles.tag}>
-                      <Text style={styles.tagText}>{skill}</Text>
-                    </View>
-                  ))}
+            <View style={styles.chipWrap}>
+              {profile.skills.map((skill, i) => (
+                <View key={i} style={[styles.chip, styles.skillChip]}>
+                  <Text style={[styles.chipText, { color: '#fb7185' }]}>{skill}</Text>
                 </View>
-              </View>
+              ))}
             </View>
-          )}
+          </View>
+        )}
 
-          {/* Interests */}
-          {profile.interests && profile.interests.length > 0 && (
-            <View style={styles.infoCard}>
-              <View style={styles.infoIcon}>
-                <MaterialIcons name="favorite" size={24} color={Colors.primary} />
+        {/* ── INTERESTS CARD ── */}
+        {profile.interests && profile.interests.length > 0 && (
+          <View style={styles.infoCard}>
+            <View style={styles.cardHeader}>
+              <View style={[styles.cardIconWrap, { backgroundColor: '#10b98115' }]}>
+                <MaterialIcons name="favorite" size={18} color="#10b981" />
               </View>
-              <View style={styles.infoContent}>
-                <Text style={styles.infoLabel}>Interests</Text>
-                <View style={styles.tagsContainer}>
-                  {profile.interests.map((interest, index) => (
-                    <View key={index} style={styles.tag}>
-                      <Text style={styles.tagText}>{interest}</Text>
-                    </View>
-                  ))}
+              <Text style={styles.cardTitle}>Interests</Text>
+            </View>
+            <View style={styles.chipWrap}>
+              {profile.interests.map((interest, i) => (
+                <View key={i} style={[styles.chip, styles.interestChip]}>
+                  <Text style={[styles.chipText, { color: '#10b981' }]}>{interest}</Text>
                 </View>
-              </View>
+              ))}
             </View>
-          )}
+          </View>
+        )}
 
-          {/* Projects */}
-          {userProjects.length > 0 && (
-            <View style={styles.infoCard}>
-              <View style={styles.infoIcon}>
-                <MaterialIcons name="work" size={24} color={Colors.primary} />
+        {/* ── PROJECTS CARD ── */}
+        {userProjects.length > 0 && (
+          <View style={styles.infoCard}>
+            <View style={styles.cardHeader}>
+              <View style={[styles.cardIconWrap, { backgroundColor: '#6366f115' }]}>
+                <MaterialIcons name="work" size={18} color="#6366f1" />
               </View>
-              <View style={styles.infoContent}>
-                <Text style={styles.infoLabel}>Projects ({userProjects.length})</Text>
-                {userProjects.map((project: any, index) => (
-                  <View key={index} style={styles.projectItem}>
-                    <MaterialIcons name="folder" size={16} color={Colors.textSecondary} />
-                    <Text style={styles.projectName} numberOfLines={1}>
-                      {project.team?.name}
-                    </Text>
-                    <Text style={styles.projectRole}>{project.role}</Text>
+              <Text style={styles.cardTitle}>Projects</Text>
+              <Text style={styles.cardCount}>{userProjects.length}</Text>
+            </View>
+            {userProjects.map((p: any, i) => {
+              const st = p.team?.status || 'active';
+              const stColor = getProjectStatusColor(st);
+              return (
+                <View key={i} style={[styles.projectRow, i === userProjects.length - 1 && { borderBottomWidth: 0 }]}>
+                  <View style={[styles.projectDot, { backgroundColor: stColor }]} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.projectName} numberOfLines={1}>{p.team?.name || 'Unnamed Project'}</Text>
+                    {p.team?.description ? (
+                      <Text style={styles.projectDesc} numberOfLines={1}>{p.team.description}</Text>
+                    ) : null}
                   </View>
-                ))}
-              </View>
-            </View>
-          )}
-        </View>
+                  <View style={[styles.projectRolePill, { backgroundColor: stColor + '20', borderColor: stColor + '40' }]}>
+                    <Text style={[styles.projectRoleText, { color: stColor }]}>{p.role || 'Member'}</Text>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        )}
 
-        {/* Bottom Spacing */}
-        <View style={{ height: Spacing.xl }} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -602,23 +600,21 @@ const createStyles = (Colors: any, isDark: boolean) =>
   StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: Colors.background,
+      backgroundColor: isDark ? '#0f0f13' : '#f3f4f6',
     },
-    centerContent: {
-      justifyContent: 'center',
-      alignItems: 'center',
-    },
+
+    // Header
     header: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
       paddingHorizontal: Spacing.md,
-      paddingVertical: Spacing.md,
+      paddingVertical: 12,
       backgroundColor: Colors.surface,
       borderBottomWidth: 1,
       borderBottomColor: Colors.border,
     },
-    backButton: {
+    backBtn: {
       width: 40,
       height: 40,
       borderRadius: BorderRadius.md,
@@ -631,198 +627,373 @@ const createStyles = (Colors: any, isDark: boolean) =>
       fontWeight: FontWeights.semibold,
       color: Colors.text,
     },
-    scrollView: {
-      flex: 1,
-    },
-    scrollContent: {
-      paddingBottom: Spacing.xl,
-    },
-    gradientHeader: {
-      height: 120,
-      width: '100%',
-    },
-    avatarSection: {
+
+    // Hero card
+    heroCard: {
+      margin: 16,
+      backgroundColor: Colors.surface,
+      borderRadius: 24,
+      overflow: 'hidden',
       alignItems: 'center',
-      marginTop: -60,
-      marginBottom: Spacing.md,
+      paddingBottom: 24,
+      ...Shadows.md,
     },
-    avatarContainer: {
+    heroBanner: {
+      width: '100%',
+      height: 110,
+    },
+    decCircle1: {
+      position: 'absolute',
+      width: 140,
+      height: 140,
+      borderRadius: 70,
+      backgroundColor: 'rgba(255,255,255,0.12)',
+      top: -40,
+      right: -20,
+    },
+    decCircle2: {
+      position: 'absolute',
+      width: 80,
+      height: 80,
+      borderRadius: 40,
+      backgroundColor: 'rgba(255,255,255,0.10)',
+      bottom: -20,
+      left: 30,
+    },
+
+    // Avatar
+    avatarRingOuter: {
+      marginTop: -52,
+      marginBottom: 14,
       position: 'relative',
     },
-    avatar: {
-      width: 120,
-      height: 120,
-      borderRadius: BorderRadius.full,
-      borderWidth: 4,
-      borderColor: Colors.surface,
-    },
-    avatarGradient: {
-      width: 120,
-      height: 120,
-      borderRadius: BorderRadius.full,
+    avatarRing: {
+      width: 104,
+      height: 104,
+      borderRadius: 52,
+      padding: 3,
       justifyContent: 'center',
       alignItems: 'center',
-      borderWidth: 4,
+    },
+    avatarInner: {
+      width: 98,
+      height: 98,
+      borderRadius: 49,
+      overflow: 'hidden',
+      backgroundColor: Colors.surface,
+      borderWidth: 2,
       borderColor: Colors.surface,
     },
-    avatarText: {
-      fontSize: FontSizes.xxxl,
-      fontWeight: FontWeights.bold,
-      color: '#ffffff',
+    avatarImage: {
+      width: '100%',
+      height: '100%',
     },
-    connectionBadge: {
-      position: 'absolute',
-      bottom: 5,
-      right: 5,
-      backgroundColor: Colors.surface,
-      borderRadius: BorderRadius.full,
-      padding: 4,
-    },
-    nameSection: {
+    avatarFallback: {
+      width: '100%',
+      height: '100%',
+      justifyContent: 'center',
       alignItems: 'center',
-      marginBottom: Spacing.sm,
     },
-    name: {
-      fontSize: FontSizes.xxl,
+    avatarInitials: {
+      fontSize: 36,
+      fontWeight: FontWeights.bold,
+      color: '#fff',
+    },
+    connectedDot: {
+      position: 'absolute',
+      bottom: 4,
+      right: 4,
+      width: 22,
+      height: 22,
+      borderRadius: 11,
+      backgroundColor: '#10b981',
+      justifyContent: 'center',
+      alignItems: 'center',
+      borderWidth: 2,
+      borderColor: Colors.surface,
+    },
+
+    // Hero text
+    heroName: {
+      fontSize: 22,
       fontWeight: FontWeights.bold,
       color: Colors.text,
-      marginBottom: Spacing.xs,
+      marginBottom: 8,
+      textAlign: 'center',
+      paddingHorizontal: 16,
     },
-    roleBadge: {
-      paddingHorizontal: Spacing.md,
-      paddingVertical: Spacing.xs,
-      borderRadius: BorderRadius.md,
+    rolePill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      paddingHorizontal: 12,
+      paddingVertical: 5,
+      borderRadius: 20,
+      borderWidth: 1,
+      marginBottom: 10,
     },
-    roleText: {
-      fontSize: FontSizes.xs,
-      fontWeight: FontWeights.semibold,
+    rolePillText: {
+      fontSize: 10,
+      fontWeight: FontWeights.bold,
       letterSpacing: 1,
     },
-    bioSection: {
-      paddingHorizontal: Spacing.lg,
-      marginBottom: Spacing.md,
+    badgeRow: {
+      flexDirection: 'row',
+      gap: 8,
+      marginBottom: 10,
+      flexWrap: 'wrap',
+      justifyContent: 'center',
+      paddingHorizontal: 16,
     },
-    bioText: {
-      fontSize: FontSizes.md,
+    specialBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: 12,
+      borderWidth: 1,
+    },
+    specialBadgeText: {
+      fontSize: 11,
+      fontWeight: FontWeights.medium,
+    },
+    heroBio: {
+      fontSize: FontSizes.sm,
       color: Colors.textSecondary,
       textAlign: 'center',
-      lineHeight: 22,
+      lineHeight: 20,
+      paddingHorizontal: 24,
+      marginBottom: 16,
     },
-    actionButtonContainer: {
-      paddingHorizontal: Spacing.lg,
-      marginBottom: Spacing.lg,
-    },
-    doubleButtonContainer: {
+
+    // Stats
+    statsRow: {
       flexDirection: 'row',
       alignItems: 'center',
+      backgroundColor: isDark ? Colors.backgroundAlt : '#f9fafb',
+      borderRadius: 16,
+      marginHorizontal: 20,
+      paddingVertical: 14,
+      paddingHorizontal: 8,
+      marginBottom: 20,
+      width: width - 32 - 40,
     },
-    actionButton: {
+    statItem: {
+      flex: 1,
+      alignItems: 'center',
+    },
+    statValue: {
+      fontSize: 20,
+      fontWeight: FontWeights.bold,
+      color: Colors.text,
+    },
+    statLabel: {
+      fontSize: 11,
+      color: Colors.textSecondary,
+      marginTop: 2,
+    },
+    statDivider: {
+      width: 1,
+      height: 32,
+      backgroundColor: Colors.border,
+    },
+
+    // Action buttons
+    actionArea: {
+      width: '100%',
+      paddingHorizontal: 20,
+    },
+    connectBtnWrap: {
+      width: '100%',
+    },
+    connectBtn: {
+      borderRadius: 14,
+      overflow: 'hidden',
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      paddingVertical: Spacing.md,
-      paddingHorizontal: Spacing.lg,
-      borderRadius: BorderRadius.md,
-      gap: Spacing.sm,
+      height: 48,
+      gap: 8,
     },
-    primaryButton: {
-      backgroundColor: Colors.primary,
-    },
-    secondaryButton: {
-      backgroundColor: Colors.surface,
-      borderWidth: 1,
-      borderColor: Colors.border,
-    },
-    successButton: {
-      backgroundColor: Colors.success,
-    },
-    dangerButton: {
-      backgroundColor: Colors.error,
+    connectBtnGradient: {
       flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      height: 48,
+      gap: 8,
+      paddingHorizontal: 20,
     },
-    actionButtonText: {
+    connectBtnText: {
       fontSize: FontSizes.md,
       fontWeight: FontWeights.semibold,
-      color: '#ffffff',
+      color: '#fff',
     },
-    infoContainer: {
-      paddingHorizontal: Spacing.md,
-      gap: Spacing.md,
+    connectBtnOutline: {
+      backgroundColor: 'transparent',
+      borderWidth: 1.5,
+      borderColor: Colors.border,
     },
-    infoCard: {
+    dualBtnRow: {
       flexDirection: 'row',
+      gap: 10,
+      width: '100%',
+    },
+    acceptBtn: {
+      flex: 1,
+      height: 48,
+      borderRadius: 14,
+      backgroundColor: '#10b981',
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+    },
+    rejectBtn: {
+      flex: 1,
+      height: 48,
+      borderRadius: 14,
+      backgroundColor: '#ef444415',
+      borderWidth: 1.5,
+      borderColor: '#ef444440',
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+    },
+    connectedBtn: {
+      flex: 1,
+      backgroundColor: '#10b98115',
+      borderWidth: 1.5,
+      borderColor: '#10b98140',
+    },
+    messageBtnFill: {
+      flex: 1,
+      backgroundColor: '#fb7185',
+    },
+
+    // Info cards
+    infoCard: {
+      marginHorizontal: 16,
+      marginBottom: 12,
       backgroundColor: Colors.surface,
-      borderRadius: BorderRadius.lg,
-      padding: Spacing.md,
+      borderRadius: 20,
+      padding: 18,
       ...Shadows.sm,
     },
-    infoIcon: {
-      width: 48,
-      height: 48,
-      borderRadius: BorderRadius.md,
-      backgroundColor: Colors.primary + '15',
+    cardHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 14,
+      gap: 10,
+    },
+    cardIconWrap: {
+      width: 34,
+      height: 34,
+      borderRadius: 10,
       justifyContent: 'center',
       alignItems: 'center',
-      marginRight: Spacing.md,
     },
-    infoContent: {
+    cardTitle: {
       flex: 1,
-    },
-    infoLabel: {
-      fontSize: FontSizes.sm,
-      fontWeight: FontWeights.semibold,
-      color: Colors.textSecondary,
-      marginBottom: Spacing.xs,
-      textTransform: 'uppercase',
-      letterSpacing: 0.5,
-    },
-    infoText: {
       fontSize: FontSizes.md,
+      fontWeight: FontWeights.semibold,
       color: Colors.text,
-      marginBottom: 2,
     },
-    tagsContainer: {
+    cardCount: {
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.bold,
+      color: Colors.textSecondary,
+      backgroundColor: Colors.backgroundAlt,
+      paddingHorizontal: 10,
+      paddingVertical: 3,
+      borderRadius: 12,
+    },
+
+    // Academic info grid
+    infoGrid: {
+      gap: 0,
+    },
+    infoRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingVertical: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: Colors.border + '60',
+    },
+    infoKey: {
+      fontSize: FontSizes.sm,
+      color: Colors.textSecondary,
+      fontWeight: FontWeights.medium,
+    },
+    infoVal: {
+      fontSize: FontSizes.sm,
+      color: Colors.text,
+      fontWeight: FontWeights.semibold,
+      maxWidth: '60%',
+      textAlign: 'right',
+    },
+
+    // Chips
+    chipWrap: {
       flexDirection: 'row',
       flexWrap: 'wrap',
-      gap: Spacing.xs,
-      marginTop: Spacing.xs,
+      gap: 8,
     },
-    tag: {
-      backgroundColor: Colors.backgroundAlt,
-      paddingHorizontal: Spacing.sm,
-      paddingVertical: 4,
-      borderRadius: BorderRadius.sm,
+    chip: {
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 20,
       borderWidth: 1,
-      borderColor: Colors.border,
     },
-    tagText: {
-      fontSize: FontSizes.xs,
-      color: Colors.text,
+    skillChip: {
+      backgroundColor: '#fb718510',
+      borderColor: '#fb718530',
+    },
+    interestChip: {
+      backgroundColor: '#10b98110',
+      borderColor: '#10b98130',
+    },
+    chipText: {
+      fontSize: 13,
       fontWeight: FontWeights.medium,
     },
-    projectItem: {
+
+    // Projects
+    projectRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingVertical: Spacing.xs,
-      gap: Spacing.xs,
+      paddingVertical: 10,
+      gap: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: Colors.border + '60',
+    },
+    projectDot: {
+      width: 10,
+      height: 10,
+      borderRadius: 5,
+      flexShrink: 0,
     },
     projectName: {
-      flex: 1,
-      fontSize: FontSizes.md,
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.semibold,
       color: Colors.text,
-      fontWeight: FontWeights.medium,
     },
-    projectRole: {
-      fontSize: FontSizes.xs,
+    projectDesc: {
+      fontSize: 12,
       color: Colors.textSecondary,
-      backgroundColor: Colors.backgroundAlt,
-      paddingHorizontal: Spacing.sm,
-      paddingVertical: 2,
-      borderRadius: BorderRadius.sm,
+      marginTop: 2,
     },
-    errorText: {
-      fontSize: FontSizes.lg,
-      color: Colors.textSecondary,
-      marginTop: Spacing.md,
+    projectRolePill: {
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: 10,
+      borderWidth: 1,
+    },
+    projectRoleText: {
+      fontSize: 11,
+      fontWeight: FontWeights.semibold,
     },
   });

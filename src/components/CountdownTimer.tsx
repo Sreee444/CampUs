@@ -148,8 +148,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     paddingHorizontal: 16,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: '#f9fafb',
     borderRadius: 12,
+    borderWidth: 0.5,
+    borderColor: '#e5e7eb',
     gap: 12,
   },
   containerCompact: {
@@ -157,7 +159,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 4,
     paddingHorizontal: 8,
-    backgroundColor: '#e0e7ff',
+    backgroundColor: '#d1fae5',
     borderRadius: 6,
   },
   timeUnit: {
@@ -178,17 +180,17 @@ const styles = StyleSheet.create({
   compactTimer: {
     fontSize: 12,
     fontWeight: 'bold',
-    color: '#6366f1',
+    color: '#10b981',
   },
   expiredText: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#ef4444',
+    color: '#dc2626',
   },
   expiredTextCompact: {
     fontSize: 12,
     fontWeight: 'bold',
-    color: '#ef4444',
+    color: '#dc2626',
   },
   statusContainer: {
     alignItems: 'center',
@@ -197,8 +199,8 @@ const styles = StyleSheet.create({
   statusUpcoming: {
     fontSize: 12,
     fontWeight: 'bold',
-    color: '#3b82f6',
-    backgroundColor: '#dbeafe',
+    color: '#10b981',
+    backgroundColor: '#d1fae5',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
@@ -206,7 +208,7 @@ const styles = StyleSheet.create({
   statusLive: {
     fontSize: 12,
     fontWeight: 'bold',
-    color: '#ef4444',
+    color: '#dc2626',
     backgroundColor: '#fee2e2',
     paddingHorizontal: 8,
     paddingVertical: 4,
@@ -215,7 +217,7 @@ const styles = StyleSheet.create({
   statusEnded: {
     fontSize: 12,
     fontWeight: 'bold',
-    color: '#6b7280',
+    color: '#9ca3af',
     backgroundColor: '#f3f4f6',
     paddingHorizontal: 8,
     paddingVertical: 4,

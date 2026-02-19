@@ -335,7 +335,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     backgroundColor: Colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 4,
+    borderWidth: 2,
     borderColor: Colors.card,
     ...Shadows.md,
   },
@@ -354,7 +354,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     backgroundColor: Colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 3,
+    borderWidth: 2,
     borderColor: Colors.card,
   },
   profileName: {

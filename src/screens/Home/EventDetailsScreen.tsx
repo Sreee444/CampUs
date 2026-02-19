@@ -21,6 +21,8 @@ import { CountdownTimer, EventStatus } from '../../components/CountdownTimer';
 import { scheduleEventReminder, createEventReminder } from '../../api/eventReminders';
 import Toast from 'react-native-toast-message';
 import { LinearGradient } from 'expo-linear-gradient';
+import { ConfirmBottomSheet } from '../../components/ConfirmBottomSheet';
+import { createNotification } from '../../api/notifications';
 
 type EventDetailsScreenNavigationProp = StackNavigationProp<RootStackParamList, 'EventDetails'>;
 type EventDetailsScreenRouteProp = RouteProp<RootStackParamList, 'EventDetails'>;
@@ -53,10 +55,12 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 export default function EventDetailsScreen() {
   const navigation = useNavigation<EventDetailsScreenNavigationProp>();
   const route = useRoute<EventDetailsScreenRouteProp>();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [event, setEvent] = useState<EventDetails | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRegistering, setIsRegistering] = useState(false);
+  const [showRegisterConfirmation, setShowRegisterConfirmation] = useState(false);
+  const [showUnregisterConfirmation, setShowUnregisterConfirmation] = useState(false);
 
   const { eventId } = route.params;
 
@@ -124,6 +128,32 @@ export default function EventDetailsScreen() {
     loadEventDetails();
   }, [loadEventDetails]);
 
+  // Notify all admin users
+  const notifyAdmins = async (title: string, body: string) => {
+    try {
+      const { data: admins } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('role', 'admin');
+
+      if (admins) {
+        await Promise.all(
+          admins.map((admin: { id: string }) =>
+            createNotification({
+              user_id: admin.id,
+              title,
+              body,
+              type: 'admin_alert',
+              related_id: eventId,
+            })
+          )
+        );
+      }
+    } catch (error) {
+      console.error('Failed to notify admins:', error);
+    }
+  };
+
   const handleRegistration = async () => {
     if (!user?.id || !event) return;
 
@@ -132,6 +162,7 @@ export default function EventDetailsScreen() {
 
       if (event.is_registered) {
         // Unregister
+        setShowUnregisterConfirmation(false);
         console.log('Attempting to unregister:', { eventId, userId: user.id });
 
         const { error, count } = await supabase
@@ -147,6 +178,23 @@ export default function EventDetailsScreen() {
           throw error;
         }
 
+        // Notify event creator
+        if (event.created_by) {
+          await createNotification({
+            user_id: event.created_by,
+            title: 'Event Unregistration',
+            body: `${profile?.full_name || user.email || 'Someone'} unregistered from ${event.title}`,
+            type: 'event_update',
+            related_id: eventId,
+          });
+        }
+
+        // Notify admins
+        await notifyAdmins(
+          'Event Unregistration',
+          `${profile?.full_name || user.email || 'A user'} unregistered from ${event.title}`
+        );
+
         // Optimistically update UI immediately
         setEvent({
           ...event,
@@ -160,6 +208,8 @@ export default function EventDetailsScreen() {
         });
       } else {
         // Register
+        setShowRegisterConfirmation(false);
+        
         const { error } = await supabase
           .from('event_registrations')
           .insert({
@@ -169,6 +219,23 @@ export default function EventDetailsScreen() {
           } as any);
 
         if (error) throw error;
+
+        // Notify event creator
+        if (event.created_by) {
+          await createNotification({
+            user_id: event.created_by,
+            title: 'New Event Registration',
+            body: `${profile?.full_name || user.email || 'Someone'} registered for ${event.title}`,
+            type: 'event_registration',
+            related_id: eventId,
+          });
+        }
+
+        // Notify admins
+        await notifyAdmins(
+          'Event Registration',
+          `${profile?.full_name || user.email || 'A user'} registered for ${event.title}`
+        );
 
         // Optimistically update UI immediately
         setEvent({
@@ -278,6 +345,9 @@ export default function EventDetailsScreen() {
   const isLive = eventStart <= now && eventEnd >= now;
   const isEnded = eventEnd < now;
   const canRegister = isUpcoming && new Date(event.registration_deadline) > now;
+  const isCreator = user?.id === event.created_by;
+  const isAdmin = profile?.role === 'admin';
+  const canManageEvent = isCreator || isAdmin;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -385,6 +455,20 @@ export default function EventDetailsScreen() {
                 {event.registrations_count} / {event.max_participants || '∞'} registered
               </Text>
             </View>
+            {canManageEvent && event.registrations_count > 0 && (
+              <TouchableOpacity
+                style={styles.viewUsersButton}
+                onPress={() =>
+                  navigation.navigate('EventRegisteredUsers', {
+                    eventId,
+                    eventTitle: event.title,
+                  })
+                }
+              >
+                <Text style={styles.viewUsersText}>View All</Text>
+                <MaterialIcons name="arrow-forward" size={16} color="#fb7185" />
+              </TouchableOpacity>
+            )}
           </View>
 
           <TouchableOpacity 
@@ -477,7 +561,7 @@ export default function EventDetailsScreen() {
                   styles.unregisterButton,
                   isRegistering && styles.registerButtonDisabled,
                 ]}
-                onPress={handleRegistration}
+                onPress={() => setShowUnregisterConfirmation(true)}
                 disabled={isRegistering}
               >
                 <MaterialIcons name="cancel" size={20} color="#ef4444" />
@@ -492,7 +576,7 @@ export default function EventDetailsScreen() {
                   styles.registerButton,
                   isRegistering && styles.registerButtonDisabled,
                 ]}
-                onPress={handleRegistration}
+                onPress={() => setShowRegisterConfirmation(true)}
                 disabled={isRegistering}
               >
                 <MaterialIcons name="event-available" size={20} color="#fff" />
@@ -533,6 +617,32 @@ export default function EventDetailsScreen() {
 
         <View style={{ height: 100 }} />
       </ScrollView>
+
+      {/* Register Confirmation */}
+      <ConfirmBottomSheet
+        visible={showRegisterConfirmation}
+        onClose={() => setShowRegisterConfirmation(false)}
+        onConfirm={handleRegistration}
+        title="Confirm Registration"
+        message={`Are you sure you want to register for ${event.title}? You will receive a reminder 1 hour before the event.`}
+        confirmText={isRegistering ? 'Registering...' : 'Register'}
+        cancelText="Cancel"
+        confirmColor="#fb7185"
+        icon="event-available"
+      />
+
+      {/* Unregister Confirmation */}
+      <ConfirmBottomSheet
+        visible={showUnregisterConfirmation}
+        onClose={() => setShowUnregisterConfirmation(false)}
+        onConfirm={handleRegistration}
+        title="Unregister from Event?"
+        message={`Are you sure you want to unregister from ${event.title}? Your spot will be made available to others.`}
+        confirmText={isRegistering ? 'Unregistering...' : 'Unregister'}
+        cancelText="Keep Registration"
+        confirmColor="#ef4444"
+        icon="cancel"
+      />
     </SafeAreaView>
   );
 }
@@ -547,8 +657,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 60,
-    paddingBottom: 20,
+    paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
   },
@@ -861,5 +970,19 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#6b7280',
     marginTop: 2,
+  },
+  viewUsersButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#fff1f2',
+  },
+  viewUsersText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#fb7185',
   },
 });

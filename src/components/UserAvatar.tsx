@@ -1,12 +1,12 @@
 import React from 'react';
 import { View, Text, Image, StyleSheet } from 'react-native';
 
-// Role ring colors
+// Role ring colors - softer, more refined
 const ROLE_COLORS: Record<string, string> = {
-    student: '#13ecec',
-    faculty: '#9333ea',
+    student: '#14b8a6',
+    faculty: '#8b5cf6',
     alumni: '#f59e0b',
-    admin: '#ef4444',
+    admin: '#dc2626',
 };
 
 const ROLE_BG: Record<string, string> = {
@@ -32,10 +32,11 @@ export function UserAvatar({
     showRing = false,
 }: UserAvatarProps) {
     const initials = getInitials(name);
-    const ringColor = role ? (ROLE_COLORS[role.toLowerCase()] ?? '#13ecec') : '#13ecec';
+    const ringColor = role ? (ROLE_COLORS[role.toLowerCase()] ?? '#14b8a6') : '#14b8a6';
     const bgColor = role ? (ROLE_BG[role.toLowerCase()] ?? '#e0f7fa') : '#e0f7fa';
-    const ringWidth = showRing ? 3 : 0;
-    const totalSize = size + ringWidth * 2 + (showRing ? 4 : 0);
+    const ringWidth = showRing ? 2 : 0;
+    const spacing = showRing ? 3 : 0;
+    const totalSize = size + (ringWidth + spacing) * 2;
 
     return (
         <View
@@ -45,10 +46,11 @@ export function UserAvatar({
                     width: totalSize,
                     height: totalSize,
                     borderRadius: totalSize / 2,
-                    borderWidth: showRing ? ringWidth : 0,
-                    borderColor: showRing ? ringColor : 'transparent',
-                    padding: showRing ? 2 : 0,
+                    borderWidth: ringWidth,
+                    borderColor: showRing ? `${ringColor}E6` : 'transparent', // 90% opacity
+                    padding: spacing,
                 },
+                showRing && styles.shadow,
             ]}
         >
             {uri ? (
@@ -102,6 +104,13 @@ const styles = StyleSheet.create({
     ring: {
         alignItems: 'center',
         justifyContent: 'center',
+    },
+    shadow: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 4,
+        elevation: 3,
     },
     initialsCircle: {
         alignItems: 'center',

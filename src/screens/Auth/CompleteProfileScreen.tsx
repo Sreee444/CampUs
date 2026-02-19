@@ -449,7 +449,7 @@ const styles = StyleSheet.create({
     width: 128,
     height: 128,
     borderRadius: 64,
-    borderWidth: 4,
+    borderWidth: 2,
     borderColor: '#ffffff',
     backgroundColor: '#e2e8f0',
     ...Shadows.xl,

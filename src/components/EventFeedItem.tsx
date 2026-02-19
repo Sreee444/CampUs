@@ -29,18 +29,18 @@ export function EventFeedItem({ event, onPress, onRegister }: EventFeedItemProps
 
   const getStatusInfo = () => {
     if (isLive) {
-      return { text: '🔴 Live Now', color: '#ef4444', bg: '#fee2e2' };
+      return { text: '🔴 Live Now', color: '#dc2626', bg: '#fee2e2', borderColor: '#ef4444' };
     } else if (isUpcoming) {
-      return { text: '📅 Upcoming', color: '#3b82f6', bg: '#dbeafe' };
+      return { text: '📅 Upcoming', color: '#10b981', bg: '#d1fae5', borderColor: '#10b981' };
     } else {
-      return { text: '⏰ Ended', color: '#6b7280', bg: '#f3f4f6' };
+      return { text: '⏰ Ended', color: '#9ca3af', bg: '#f3f4f6', borderColor: '#d1d5db' };
     }
   };
 
   const status = getStatusInfo();
 
   return (
-    <TouchableOpacity style={styles.container} onPress={onPress}>
+    <TouchableOpacity style={[styles.container, { borderLeftColor: status.borderColor, borderLeftWidth: 4 }]} onPress={onPress}>
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.typeContainer}>
@@ -212,7 +212,7 @@ const styles = StyleSheet.create({
     color: '#dc2626',
   },
   registerButton: {
-    backgroundColor: '#6366f1',
+    backgroundColor: '#10b981',
     paddingVertical: 10,
     paddingHorizontal: 16,
     borderRadius: 8,
@@ -220,8 +220,8 @@ const styles = StyleSheet.create({
   },
   registeredButton: {
     backgroundColor: '#f3f4f6',
-    borderWidth: 1,
-    borderColor: '#6366f1',
+    borderWidth: 0.5,
+    borderColor: '#10b981',
   },
   registerButtonText: {
     fontSize: 14,
@@ -229,6 +229,6 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
   registeredButtonText: {
-    color: '#6366f1',
+    color: '#10b981',
   },
 });

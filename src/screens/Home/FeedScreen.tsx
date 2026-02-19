@@ -26,6 +26,14 @@ import Toast from 'react-native-toast-message';
 import { getNotifications } from '../../api/notifications';
 import { getPendingReceivedRequests } from '../../api/connections';
 
+function getGreeting() {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good Morning";
+  if (hour < 17) return "Good Afternoon";
+  if (hour < 21) return "Good Evening";
+  return "Good Night";
+}
+
 export default function FeedScreen() {
   const navigation = useNavigation();
   const { isDark } = useTheme();
@@ -80,16 +88,22 @@ export default function FeedScreen() {
             .select('id', { count: 'exact', head: true })
             .gte('start_date', now);
 
-          const { count: connectionsCount } = await supabase
+          const { data: connectionsData, error: connectionsError } = await supabase
             .from('connections')
-            .select('id', { count: 'exact', head: true })
-            .eq('user_id', user.id)
-            .eq('status', 'accepted');
+            .select('id')
+            .eq('status', 'accepted')
+            .or(`requester_id.eq.${user.id},recipient_id.eq.${user.id}`);
+
+          const connectionsCount = connectionsData?.length || 0;
+          
+          if (connectionsError) {
+            console.error('Connections count error:', connectionsError);
+          }
 
           setStats({
             projects: projectsCount || 0,
             events: eventsCount || 0,
-            connections: connectionsCount || 0,
+            connections: connectionsCount,
           });
 
           const [notifications, requests] = await Promise.all([
@@ -177,7 +191,7 @@ export default function FeedScreen() {
               showRing={true}
             />
             <View style={{ marginLeft: 12 }}>
-              <Text style={styles.greeting}>Good morning 👋</Text>
+              <Text style={styles.greeting}>{getGreeting()} 👋</Text>
               <Text style={styles.userName}>{firstName}</Text>
             </View>
           </View>

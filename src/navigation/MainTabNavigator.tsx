@@ -8,6 +8,7 @@ import {
   Platform,
   LogBox,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { MainTabParamList } from './types';
 
@@ -28,8 +29,10 @@ if (Platform.OS === 'web') {
 }
 
 function CustomTabBar({ state, descriptors, navigation }: any) {
+  const insets = useSafeAreaInsets();
+  
   return (
-    <View style={styles.tabBar}>
+    <View style={[styles.tabBar, { paddingBottom: insets.bottom + 8 }]}>
       {state.routes.map((route: any, index: number) => {
         const { options } = descriptors[route.key];
         const label = options.tabBarLabel ?? route.name;
@@ -140,7 +143,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.95)',
     borderTopWidth: 1,
     borderTopColor: 'rgba(255,255,255,0.5)',
-    paddingBottom: Platform.OS === 'ios' ? 20 : 8,
     paddingTop: 8,
     paddingHorizontal: 8,
     shadowColor: '#000',

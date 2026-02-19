@@ -25,6 +25,7 @@ import CreateProjectScreen from '../screens/Projects/CreateProjectScreen';
 import CreateEventScreen from '../screens/Home/CreateEventScreen';
 import EventDetailsScreen from '../screens/Home/EventDetailsScreen';
 import EventDiscussionScreen from '../screens/Home/EventDiscussionScreen';
+import EventRegisteredUsersScreen from '../screens/Home/EventRegisteredUsersScreen';
 import CalendarScreen from '../screens/Home/CalendarScreen';
 import TeamFormationScreen from '../screens/Home/TeamFormationScreen';
 import ChatConversationScreen from '../screens/Home/ChatConversationScreen';
@@ -227,6 +228,11 @@ export default function RootNavigator() {
             <Stack.Screen
               name="EventDiscussion"
               component={EventDiscussionScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="EventRegisteredUsers"
+              component={EventRegisteredUsersScreen}
               options={{ animationEnabled: true }}
             />
             <Stack.Screen

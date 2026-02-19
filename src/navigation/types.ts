@@ -31,6 +31,7 @@ export type RootStackParamList = {
   CreateProject: undefined;
   CreateEvent: undefined;
   EventDetails: { eventId: string };
+  EventRegisteredUsers: { eventId: string; eventTitle: string };
   EventDiscussion: { eventId: string };
   Calendar: undefined;
   TeamFormation: undefined;

@@ -289,7 +289,7 @@ export const removeMentor = async (teamId: string, mentorId: string) => {
 // Update project status (Students can update, Faculty can override)
 export const updateProjectStatus = async (
   teamId: string,
-  status: 'planning' | 'in-progress' | 'completed' | 'on-hold',
+  status: 'planning' | 'recruiting' | 'in-progress' | 'completed' | 'on-hold' | 'cancelled',
   completion_percentage?: number
 ) => {
   const updates: any = { status };
@@ -396,4 +396,151 @@ export const getMentoredProjects = async (mentorId: string) => {
   );
 
   return teamsWithData as ProjectTeam[];
+};
+
+// Send join request
+export const sendJoinRequest = async (teamId: string, userId: string, message?: string) => {
+  // Check if already a member
+  const { data: existingMember } = await supabase
+    .from("project_team_members")
+    .select("id")
+    .eq("team_id", teamId)
+    .eq("user_id", userId)
+    .single();
+
+  if (existingMember) {
+    throw new Error("Already a member");
+  }
+
+  // Check if already has pending request
+  const { data: existingRequest } = await supabase
+    .from("project_team_join_requests")
+    .select("id")
+    .eq("team_id", teamId)
+    .eq("user_id", userId)
+    .eq("status", "pending")
+    .single();
+
+  if (existingRequest) {
+    throw new Error("Request already sent");
+  }
+
+  // Create join request
+  const { data, error } = await supabase
+    .from("project_team_join_requests")
+    .insert({
+      team_id: teamId,
+      user_id: userId,
+      message: message || null,
+      status: "pending",
+    })
+    .select(`
+      *,
+      user:profiles!project_team_join_requests_user_id_fkey(*)
+    `)
+    .single();
+
+  if (error) throw error;
+  return data;
+};
+
+// Get pending join requests for a team
+export const getTeamJoinRequests = async (teamId: string) => {
+  const { data, error } = await supabase
+    .from("project_team_join_requests")
+    .select(`
+      *,
+      user:profiles!project_team_join_requests_user_id_fkey(*)
+    `)
+    .eq("team_id", teamId)
+    .eq("status", "pending")
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+};
+
+// Accept join request
+// Uses a SECURITY DEFINER RPC to bypass the RLS policy that prevents
+// the current user from inserting a row on behalf of another user.
+export const acceptJoinRequest = async (requestId: string, teamId: string, userId: string) => {
+  const { data, error } = await supabase.rpc("accept_team_join_request", {
+    p_request_id: requestId,
+    p_team_id: teamId,
+    p_user_id: userId,
+  });
+
+  if (error) throw error;
+
+  if (data && !data.success) {
+    throw new Error(data.error || "Failed to accept request");
+  }
+
+  return true;
+};
+
+// Reject join request
+export const rejectJoinRequest = async (requestId: string) => {
+  const { error } = await supabase
+    .from("project_team_join_requests")
+    .update({ status: "rejected" })
+    .eq("id", requestId);
+
+  if (error) throw error;
+  return true;
+};
+
+// Remove team member (for creator/leader only)
+export const removeTeamMember = async (teamId: string, userId: string) => {
+  // Don't allow removing the creator
+  const { data: team } = await supabase
+    .from("project_teams")
+    .select("created_by")
+    .eq("id", teamId)
+    .single();
+
+  if (team?.created_by === userId) {
+    throw new Error("Cannot remove team creator");
+  }
+
+  const { error } = await supabase
+    .from("project_team_members")
+    .delete()
+    .eq("team_id", teamId)
+    .eq("user_id", userId);
+
+  if (error) throw error;
+
+  // Reopen recruiting if team has space
+  const { count } = await supabase
+    .from("project_team_members")
+    .select("id", { count: "exact", head: true })
+    .eq("team_id", teamId);
+
+  const { data: teamData } = await supabase
+    .from("project_teams")
+    .select("max_members")
+    .eq("id", teamId)
+    .single();
+
+  if (teamData?.max_members && count && count < teamData.max_members) {
+    await updateProjectTeam(teamId, { is_recruiting: true });
+  }
+
+  return true;
+};
+
+// Check user's join request status for a team
+export const getUserJoinRequestStatus = async (teamId: string, userId: string) => {
+  const { data, error } = await supabase
+    .from("project_team_join_requests")
+    .select("*")
+    .eq("team_id", teamId)
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .single();
+
+  if (error && error.code !== 'PGRST116') throw error; // PGRST116 is "not found"
+  return data;
 };

@@ -24,19 +24,20 @@ import { getProjectTeams, getProjectsByRole, getMentoredProjects } from '../../a
 import { ProjectTeam } from '../../types/database';
 import { UserAvatar } from '../../components/UserAvatar';
 
+import {
+  SEMANTIC_COLORS,
+  getTeamFillColor,
+  getProjectStatusColor,
+} from '../../utils/semanticColors';
+import { supabase } from '../../api/supabase';
+import Toast from 'react-native-toast-message';
+
 type ProjectsScreenNavigationProp = CompositeNavigationProp<
   BottomTabNavigationProp<MainTabParamList, 'Projects'>,
   StackNavigationProp<RootStackParamList>
 >;
 
 const categories = ['All', 'Web', 'Mobile', 'AI/ML', 'IoT', 'Other'];
-
-const statusColors = {
-  planning: '#3b82f6',
-  'in-progress': '#f59e0b',
-  completed: '#10b981',
-  'on-hold': '#ef4444',
-};
 
 export default function ProjectsScreen() {
   const navigation = useNavigation<ProjectsScreenNavigationProp>();
@@ -56,6 +57,7 @@ export default function ProjectsScreen() {
   const isStudent = profile?.role === 'student';
 
   const [refreshing, setRefreshing] = useState(false);
+
 
   const loadProjects = useCallback(async (showLoading = true) => {
     if (!user?.id || !profile?.role) return;
@@ -251,13 +253,17 @@ export default function ProjectsScreen() {
               const progressPercent = project.max_members
                 ? Math.min(100, Math.round(((project.members_count || 0) / project.max_members) * 100))
                 : 0;
-              const statusColor = statusColors[project.status || 'planning'];
+              const teamFillColor = getTeamFillColor(progressPercent);
+              const projectStatus = getProjectStatusColor(project.status || 'planning');
               const isTeamFull = project.max_members ? (project.members_count || 0) >= project.max_members : false;
 
               return (
                 <TouchableOpacity
                   key={project.id}
-                  style={styles.projectCard}
+                  style={[
+                    styles.projectCard,
+                    { borderLeftColor: projectStatus.color }
+                  ]}
                   onPress={() => navigation.navigate('ProjectDetails', { teamId: project.id })}
                 >
                   {/* Featured Badge */}
@@ -276,52 +282,28 @@ export default function ProjectsScreen() {
                     <View
                       style={[
                         styles.statusBadge,
-                        isTeamFull
-                          ? styles.statusFull
-                          : project.is_recruiting
-                            ? styles.statusRecruiting
-                            : styles.statusClosed,
+                        { backgroundColor: projectStatus.bg }
                       ]}
                     >
                       <View
                         style={[
                           styles.statusDot,
-                          isTeamFull
-                            ? styles.statusDotFull
-                            : project.is_recruiting
-                              ? styles.statusDotActive
-                              : styles.statusDotClosed,
+                          { backgroundColor: projectStatus.color }
                         ]}
                       />
                       <Text
                         style={[
                           styles.statusText,
-                          isTeamFull
-                            ? styles.statusTextFull
-                            : project.is_recruiting
-                              ? styles.statusTextActive
-                              : styles.statusTextClosed,
+                          { color: projectStatus.color }
                         ]}
                       >
-                        {isTeamFull ? 'Team Full' : project.is_recruiting ? 'Recruiting' : 'Closed'}
+                        {project.status ? project.status.charAt(0).toUpperCase() + project.status.slice(1).replace(/-/g, ' ') : 'Planning'}
+                        {project.completion_percentage !== undefined && project.completion_percentage > 0
+                          ? ` · ${project.completion_percentage}%`
+                          : ''}
                       </Text>
                     </View>
                   </View>
-
-                  {/* Project Status */}
-                  {project.status && (
-                    <View style={[styles.projectStatusBadge, { backgroundColor: statusColor + '15' }]}>
-                      <View style={[styles.projectStatusDot, { backgroundColor: statusColor }]} />
-                      <Text style={[styles.projectStatusText, { color: statusColor }]}>
-                        {project.status.charAt(0).toUpperCase() + project.status.slice(1).replace('-', ' ')}
-                      </Text>
-                      {project.completion_percentage !== undefined && project.completion_percentage > 0 && (
-                        <Text style={[styles.projectStatusText, { color: statusColor }]}>
-                          {' • '}{project.completion_percentage}%
-                        </Text>
-                      )}
-                    </View>
-                  )}
 
                   <Text style={styles.projectDescription}>
                     {project.description || 'Team description is coming soon.'}
@@ -358,10 +340,20 @@ export default function ProjectsScreen() {
                   <View style={styles.progressSection}>
                     <View style={styles.progressHeader}>
                       <Text style={styles.progressLabel}>Team fill</Text>
-                      <Text style={styles.progressPercent}>{progressPercent}%</Text>
+                      <Text style={[styles.progressPercent, { color: teamFillColor }]}>
+                        {progressPercent}%
+                      </Text>
                     </View>
                     <View style={styles.progressBar}>
-                      <View style={[styles.progressFill, { width: `${progressPercent}%` }]} />
+                      <View
+                        style={[
+                          styles.progressFill,
+                          {
+                            width: `${progressPercent}%`,
+                            backgroundColor: teamFillColor
+                          }
+                        ]}
+                      />
                     </View>
                   </View>
 
@@ -404,7 +396,7 @@ export default function ProjectsScreen() {
                       onPress={() => navigation.navigate('ProjectDetails', { teamId: project.id })}
                     >
                       <Text style={styles.viewButtonText}>View Details</Text>
-                      <MaterialIcons name="arrow-forward-ios" size={12} color={Colors.primary} />
+                      <MaterialIcons name="arrow-forward-ios" size={12} color="#a855f7" />
                     </TouchableOpacity>
                   </View>
                 </TouchableOpacity>
@@ -415,6 +407,7 @@ export default function ProjectsScreen() {
           <View style={{ height: 32 }} />
         </ScrollView>
       )}
+
     </SafeAreaView>
   );
 }
@@ -444,10 +437,14 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: Colors.primary,
+    backgroundColor: '#fb7185',
     alignItems: 'center',
     justifyContent: 'center',
-    ...Shadows.sm,
+    shadowColor: '#fb7185',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
   },
   tabsContainer: {
     flexDirection: 'row',
@@ -464,7 +461,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     borderBottomColor: 'transparent',
   },
   tabActive: {
-    borderBottomColor: Colors.primary,
+    borderBottomColor: '#fb7185',
   },
   tabText: {
     fontSize: FontSizes.sm,
@@ -472,7 +469,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     color: Colors.textSecondary,
   },
   tabTextActive: {
-    color: Colors.primary,
+    color: '#fb7185',
     fontWeight: FontWeights.semibold,
   },
   searchSection: {
@@ -516,16 +513,16 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     borderColor: 'rgba(255,255,255,0.8)',
   },
   categoryChipActive: {
-    backgroundColor: '#13ecec',
-    borderColor: '#13ecec',
+    backgroundColor: '#fb7185',
+    borderColor: '#fb7185',
   },
   categoryText: {
     fontSize: FontSizes.sm,
     fontWeight: FontWeights.medium,
-    color: Colors.textSecondary,
+    color: SEMANTIC_COLORS.textSecondary,
   },
   categoryTextActive: {
-    color: '#111818',
+    color: '#ffffff',
     fontWeight: '700',
   },
   scrollView: {
@@ -545,11 +542,14 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     padding: Spacing.md,
     marginBottom: 12,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 1,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
     position: 'relative',
+    borderLeftWidth: 4,
+    borderLeftColor: '#fda4af',
+    overflow: 'hidden',
   },
   featuredBadge: {
     position: 'absolute',
@@ -623,6 +623,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   statusText: {
     fontSize: 11,
     fontWeight: FontWeights.medium,
+    textTransform: 'capitalize',
   },
   statusTextActive: {
     color: '#047857',
@@ -642,14 +643,25 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     marginBottom: 12,
     gap: 6,
   },
-  projectStatusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
   projectStatusText: {
     fontSize: 12,
     fontWeight: FontWeights.medium,
+  },
+  changeStatusButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#ffe4e6',
+    borderRadius: BorderRadius.md,
+    marginBottom: 12,
+    alignSelf: 'flex-start',
+  },
+  changeStatusText: {
+    fontSize: FontSizes.sm,
+    fontWeight: FontWeights.semibold,
+    color: '#fb7185',
   },
   projectDescription: {
     fontSize: FontSizes.sm,
@@ -683,17 +695,15 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   progressPercent: {
     fontSize: 12,
     fontWeight: FontWeights.semibold,
-    color: Colors.primary,
   },
   progressBar: {
     height: 6,
-    backgroundColor: Colors.border,
+    backgroundColor: SEMANTIC_COLORS.neutralLight,
     borderRadius: 3,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    backgroundColor: Colors.primary,
     borderRadius: 3,
   },
   skillList: {
@@ -706,11 +716,11 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: BorderRadius.full,
-    backgroundColor: '#eef2ff',
+    backgroundColor: '#f1f5f9',
   },
   skillChipText: {
     fontSize: FontSizes.xs,
-    color: Colors.primary,
+    color: '#64748b',
   },
   projectFooter: {
     flexDirection: 'row',
@@ -759,7 +769,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   viewButtonText: {
     fontSize: FontSizes.sm,
     fontWeight: FontWeights.medium,
-    color: Colors.primary,
+    color: '#fb7185',
   },
   loadingWrapper: {
     flex: 1,

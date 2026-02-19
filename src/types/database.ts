@@ -295,7 +295,7 @@ export type ProjectTeam = {
   updated_at: string;
 
   // New role-based fields
-  status?: 'planning' | 'in-progress' | 'completed' | 'on-hold';
+  status?: 'planning' | 'recruiting' | 'in-progress' | 'completed' | 'on-hold' | 'cancelleeted' | 'on-hold' | 'cancelled';
   mentor_id?: string;
   is_featured?: boolean;
   completion_percentage?: number;

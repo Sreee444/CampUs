@@ -23,6 +23,12 @@ import { useAuth } from '../../contexts/AuthContext';
 import { getEvents, registerForEvent, unregisterFromEvent } from '../../api/events';
 import { CountdownTimer, EventStatus } from '../../components/CountdownTimer';
 import Toast from 'react-native-toast-message';
+import {
+  SEMANTIC_COLORS,
+  getRegistrationColor,
+  getEventStatusColor,
+  getRegistrationButtonState,
+} from '../../utils/semanticColors';
 
 type EventsScreenNavigationProp = CompositeNavigationProp<
   BottomTabNavigationProp<MainTabParamList, 'Events'>,
@@ -136,7 +142,7 @@ export default function EventsScreen() {
             style={styles.calendarButton}
             onPress={() => { }}
           >
-            <MaterialIcons name="calendar-today" size={20} color={Colors.primary} />
+            <MaterialIcons name="calendar-today" size={20} color="#a855f7" />
           </TouchableOpacity>
           {canCreateEvent && (
             <TouchableOpacity
@@ -219,7 +225,7 @@ export default function EventsScreen() {
           <RefreshControl
             refreshing={isRefreshing}
             onRefresh={() => loadEvents(true)}
-            tintColor={Colors.primary}
+            tintColor="#a855f7"
           />
         }
       >
@@ -282,7 +288,7 @@ export default function EventsScreen() {
               {/* Event Details */}
               <View style={styles.eventDetails}>
                 <View style={styles.eventDetailRow}>
-                  <MaterialIcons name="schedule" size={16} color="#6b7280" />
+                  <MaterialIcons name="schedule" size={16} color={SEMANTIC_COLORS.textSecondary} />
                   <Text style={styles.eventDetailText}>
                     {formatEventDate(event.start_date)}
                   </Text>
@@ -291,7 +297,7 @@ export default function EventsScreen() {
                   <MaterialIcons
                     name={event.is_online ? "laptop" : "location-on"}
                     size={16}
-                    color="#6b7280"
+                    color={SEMANTIC_COLORS.textSecondary}
                   />
                   <Text style={styles.eventDetailText}>
                     {event.is_online ? "Online Event" : event.venue}
@@ -301,60 +307,77 @@ export default function EventsScreen() {
                   {(() => {
                     const count = event.registrations_count || 0;
                     const max = event.max_participants;
-                    const isFull = max && count >= max;
-                    const color = isFull ? '#ef4444' : count > 0 ? '#10b981' : '#94a3b8';
+                    const regInfo = getRegistrationColor(count, max);
                     return (
-                      <>
-                        <MaterialIcons name="people" size={16} color={color} />
-                        <Text style={[styles.eventDetailText, { color, fontWeight: '600' }]}>
-                          {count} / {max || '∞'} {isFull ? 'Full' : 'registered'}
+                      <View style={[styles.registrationBadge, { backgroundColor: regInfo.bg }]}>
+                        <MaterialIcons name="people" size={14} color={regInfo.color} />
+                        <Text style={[styles.registrationText, { color: regInfo.color }]}>
+                          {count}/{max || '∞'}
                         </Text>
-                      </>
+                        <Text style={[styles.registrationLabel, { color: regInfo.color }]}>
+                          {regInfo.label}
+                        </Text>
+                      </View>
                     );
                   })()}
                 </View>
               </View>
 
-              {/* Countdown Timer for Upcoming Events */}
-              {activeTab === 'upcoming' && (
-                <View style={styles.timerContainer}>
-                  <MaterialIcons name="timer" size={14} color="#92400e" style={{ marginRight: 6 }} />
-                  <CountdownTimer
-                    targetDate={event.start_date}
-                    compact={true}
-                    onExpire={() => loadEvents(true)}
-                  />
-                </View>
-              )}
+              {/* Premium Countdown Timer for Upcoming Events */}
+              {activeTab === 'upcoming' && (() => {
+                const now = new Date();
+                const regDeadline = new Date(event.registration_deadline || event.start_date);
+                const eventStart = new Date(event.start_date);
+                const isRegClosed = regDeadline < now;
+                const timerLabel = isRegClosed ? 'Event starts in' : 'Registration closes in';
+                const targetDate = isRegClosed ? event.start_date : (event.registration_deadline || event.start_date);
+                
+                return (
+                  <View style={styles.premiumTimerContainer}>
+                    <View style={styles.timerLabel}>
+                      <MaterialIcons name="timer" size={14} color={SEMANTIC_COLORS.warning} />
+                      <Text style={styles.timerLabelText}>{timerLabel}</Text>
+                    </View>
+                    <CountdownTimer
+                      targetDate={targetDate}
+                      compact={true}
+                    />
+                  </View>
+                );
+              })()}
 
-              {/* Registration Button */}
-              {activeTab === 'upcoming' && new Date(event.registration_deadline) > new Date() && (
-                <TouchableOpacity
-                  style={[
-                    styles.registerButton,
-                    event.is_registered && styles.unregisterButton
-                  ]}
-                  onPress={() => handleRegister(event)}
-                >
-                  <MaterialIcons
-                    name={event.is_registered ? 'person-remove' : 'how-to-reg'}
-                    size={16}
-                    color="#ffffff"
-                    style={{ marginRight: 6 }}
-                  />
-                  <Text style={styles.registerButtonText}>
-                    {event.is_registered ? 'Unregister' : 'Register Now'}
-                  </Text>
-                </TouchableOpacity>
-              )}
-
-              {/* Registration Closed */}
-              {activeTab === 'upcoming' && new Date(event.registration_deadline) <= new Date() && (
-                <View style={styles.closedButton}>
-                  <MaterialIcons name="block" size={14} color="#ffffff" style={{ marginRight: 4 }} />
-                  <Text style={styles.closedButtonText}>Registration Closed</Text>
-                </View>
-              )}
+              {/* Dynamic Registration Button */}
+              {activeTab === 'upcoming' && (() => {
+                const count = event.registrations_count || 0;
+                const max = event.max_participants;
+                const isFull = max && count >= max;
+                const buttonState = getRegistrationButtonState(
+                  event.registration_deadline || event.start_date,
+                  event.is_registered,
+                  isFull
+                );
+                return (
+                  <TouchableOpacity
+                    style={[
+                      styles.registerButton,
+                      { backgroundColor: buttonState.bg },
+                      buttonState.disabled && styles.disabledButton
+                    ]}
+                    onPress={() => !buttonState.disabled && handleRegister(event)}
+                    disabled={buttonState.disabled}
+                  >
+                    <MaterialIcons
+                      name={buttonState.icon as any}
+                      size={16}
+                      color={buttonState.color}
+                      style={{ marginRight: 6 }}
+                    />
+                    <Text style={[styles.registerButtonText, { color: buttonState.color }]}>
+                      {buttonState.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })()}
             </TouchableOpacity>
           ))
         )}
@@ -387,12 +410,17 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     gap: 8,
   },
   addButton: {
-    backgroundColor: Colors.primary,
+    backgroundColor: '#fb7185',
     borderRadius: BorderRadius.md,
     paddingVertical: 8,
     paddingHorizontal: 16,
     alignItems: 'center',
     marginLeft: 8,
+    shadowColor: '#fb7185',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
   },
   eventsContainer: {
     flex: 1,
@@ -503,16 +531,16 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     borderColor: 'rgba(255,255,255,0.8)',
   },
   categoryChipActive: {
-    backgroundColor: '#13ecec',
-    borderColor: '#13ecec',
+    backgroundColor: '#fb7185',
+    borderColor: '#fb7185',
   },
   categoryText: {
     fontSize: FontSizes.sm,
     fontWeight: FontWeights.medium,
-    color: '#64748b',
+    color: SEMANTIC_COLORS.textSecondary,
   },
   categoryTextActive: {
-    color: '#111818',
+    color: '#ffffff',
     fontWeight: '700',
   },
   tabsContainer: {
@@ -528,7 +556,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   tabActive: {
     borderBottomWidth: 2,
-    borderBottomColor: Colors.primary,
+    borderBottomColor: '#fb7185',
   },
   tabText: {
     fontSize: FontSizes.sm,
@@ -536,7 +564,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     color: '#64748b',
   },
   tabTextActive: {
-    color: Colors.primary,
+    color: '#fb7185',
     fontWeight: FontWeights.semibold,
   },
   scrollView: {
@@ -568,10 +596,13 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     padding: Spacing.md,
     marginBottom: 12,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 1,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
+    borderLeftWidth: 4,
+    borderLeftColor: '#fda4af',
+    overflow: 'hidden',
   },
   eventHeader: {
     flexDirection: 'row',
@@ -656,52 +687,66 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     fontWeight: FontWeights.medium,
     color: '#334155',
   },
-  timerContainer: {
+  premiumTimerContainer: {
+    backgroundColor: SEMANTIC_COLORS.warningLight,
+    borderRadius: BorderRadius.md,
+    padding: 10,
+    marginTop: 12,
+    marginBottom: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: SEMANTIC_COLORS.warning,
+  },
+  timerLabel: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fef8e7',
-    padding: 8,
-    borderRadius: 8,
-    marginTop: 8,
-    borderLeftWidth: 3,
-    borderLeftColor: '#f59e0b',
+    gap: 4,
+    marginBottom: 6,
   },
-  timerText: {
-    fontSize: 12,
+  timerLabelText: {
+    fontSize: 11,
     fontWeight: FontWeights.medium,
     color: '#92400e',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  registrationBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: BorderRadius.full,
+    alignSelf: 'flex-start',
+  },
+  registrationText: {
+    fontSize: 12,
+    fontWeight: FontWeights.bold,
+  },
+  registrationLabel: {
+    fontSize: 11,
+    fontWeight: FontWeights.medium,
   },
   registerButton: {
-    backgroundColor: '#10b981',
     borderRadius: BorderRadius.md,
-    paddingVertical: 10,
+    paddingVertical: 12,
     paddingHorizontal: 20,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  disabledButton: {
+    opacity: 0.6,
+    shadowOpacity: 0,
+    elevation: 0,
   },
   registerButtonText: {
     fontSize: FontSizes.sm,
     fontWeight: FontWeights.semibold,
-    color: '#ffffff',
-  },
-  unregisterButton: {
-    backgroundColor: '#ef4444',
-  },
-  closedButton: {
-    backgroundColor: '#ef4444',
-    borderRadius: BorderRadius.md,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 12,
-  },
-  closedButtonText: {
-    fontSize: FontSizes.sm,
-    fontWeight: FontWeights.medium,
-    color: '#6b7280',
   },
 });
