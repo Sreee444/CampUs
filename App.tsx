@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import Toast from 'react-native-toast-message';
 import RootNavigator from './src/navigation/RootNavigator';
 import { ThemeProvider, useTheme } from './src/contexts/ThemeContext';
@@ -19,7 +19,9 @@ function AppContent() {
 
   return (
     <>
-      <RootNavigator />
+      <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+        <RootNavigator />
+      </SafeAreaView>
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <Toast />
     </>
@@ -42,6 +44,9 @@ export default function App() {
 
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
+  },
+  safeArea: {
     flex: 1,
   },
 });
