@@ -61,6 +61,8 @@ export default function EventDetailsScreen() {
   const [isRegistering, setIsRegistering] = useState(false);
   const [showRegisterConfirmation, setShowRegisterConfirmation] = useState(false);
   const [showUnregisterConfirmation, setShowUnregisterConfirmation] = useState(false);
+  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const { eventId } = route.params;
 
@@ -129,7 +131,7 @@ export default function EventDetailsScreen() {
   }, [loadEventDetails]);
 
   // Notify all admin users
-  const notifyAdmins = async (title: string, body: string) => {
+  const notifyAdmins = async (title: string, message: string) => {
     try {
       const { data: admins } = await supabase
         .from('profiles')
@@ -137,17 +139,22 @@ export default function EventDetailsScreen() {
         .eq('role', 'admin');
 
       if (admins) {
-        await Promise.all(
-          admins.map((admin: { id: string }) =>
-            createNotification({
-              user_id: admin.id,
-              title,
-              body,
-              type: 'admin_alert',
-              related_id: eventId,
-            })
-          )
-        );
+        // Insert notifications directly to avoid type mismatch
+        const notifications = admins.map((admin: { id: string }) => ({
+          user_id: admin.id,
+          title,
+          message,
+          type: 'event',
+          related_id: eventId,
+          is_read: false,
+          created_at: new Date().toISOString(),
+        }));
+
+        const { error } = await supabase
+          .from('notifications')
+          .insert(notifications as any);
+
+        if (error) throw error;
       }
     } catch (error) {
       console.error('Failed to notify admins:', error);
@@ -297,6 +304,65 @@ export default function EventDetailsScreen() {
     }
   };
 
+  const handleDeleteEvent = async () => {
+    if (!event || !user?.id) return;
+
+    try {
+      setIsDeleting(true);
+      setShowDeleteConfirmation(false);
+
+      // Delete all event registrations first
+      const { error: registrationsError } = await supabase
+        .from('event_registrations')
+        .delete()
+        .eq('event_id', eventId);
+
+      if (registrationsError) throw registrationsError;
+
+      // Delete event reminders
+      const { error: remindersError } = await supabase
+        .from('event_reminders')
+        .delete()
+        .eq('event_id', eventId);
+
+      if (remindersError) console.error('Error deleting reminders:', remindersError);
+
+      // Delete the event
+      const { error: eventError } = await supabase
+        .from('events')
+        .delete()
+        .eq('id', eventId);
+
+      if (eventError) throw eventError;
+
+      // Notify admins if creator is deleting
+      if (user.id === event.created_by && profile?.role !== 'admin') {
+        await notifyAdmins(
+          'Event Deleted',
+          `${profile?.full_name || user.email || 'A user'} deleted the event "${event.title}"`
+        );
+      }
+
+      Toast.show({
+        type: 'success',
+        text1: 'Event deleted successfully',
+        text2: 'All registrations have been cancelled',
+      });
+
+      // Navigate back to events list
+      navigation.goBack();
+    } catch (error: any) {
+      console.error('Error deleting event:', error);
+      Toast.show({
+        type: 'error',
+        text1: 'Failed to delete event',
+        text2: error.message || 'Please try again',
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const formatEventDate = (dateString: string) => {
     const date = new Date(dateString);
     return date.toLocaleDateString('en-US', {
@@ -357,9 +423,19 @@ export default function EventDetailsScreen() {
           <MaterialIcons name="arrow-back" size={24} color="#000" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Event Details</Text>
-        <TouchableOpacity>
-          <MaterialIcons name="share" size={24} color="#000" />
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity style={styles.headerButton}>
+            <MaterialIcons name="share" size={24} color="#000" />
+          </TouchableOpacity>
+          {canManageEvent && (
+            <TouchableOpacity 
+              style={[styles.headerButton, styles.deleteButton]}
+              onPress={() => setShowDeleteConfirmation(true)}
+            >
+              <MaterialIcons name="delete-outline" size={24} color="#ef4444" />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
@@ -643,6 +719,19 @@ export default function EventDetailsScreen() {
         confirmColor="#ef4444"
         icon="cancel"
       />
+
+      {/* Delete Event Confirmation */}
+      <ConfirmBottomSheet
+        visible={showDeleteConfirmation}
+        onClose={() => setShowDeleteConfirmation(false)}
+        onConfirm={handleDeleteEvent}
+        title="Delete Event?"
+        message={`Are you sure you want to delete "${event.title}"? This action cannot be undone and all ${event.registrations_count} registration(s) will be cancelled.`}
+        confirmText={isDeleting ? 'Deleting...' : 'Delete Event'}
+        cancelText="Cancel"
+        confirmColor="#ef4444"
+        icon="delete-forever"
+      />
     </SafeAreaView>
   );
 }
@@ -665,6 +754,19 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: '#000',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  headerButton: {
+    padding: 4,
+  },
+  deleteButton: {
+    backgroundColor: '#fef2f2',
+    borderRadius: 8,
+    padding: 8,
   },
   content: {
     flex: 1,

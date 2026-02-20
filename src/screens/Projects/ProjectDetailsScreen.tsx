@@ -177,6 +177,20 @@ export default function ProjectDetailsScreen() {
   const handleSendJoinRequest = async () => {
     if (!user?.id || !team) return;
 
+    // Prevent joining closed projects
+    const projectStatus = team.status || 'planning';
+    const closedStatuses = ['cancelled', 'completed', 'on-hold'];
+    
+    if (closedStatuses.includes(projectStatus)) {
+      Toast.show({
+        type: 'error',
+        text1: 'Cannot Join',
+        text2: `This project is ${projectStatus}`,
+      });
+      setShowJoinConfirmation(false);
+      return;
+    }
+
     try {
       setIsSendingRequest(true);
       setShowJoinConfirmation(false);
@@ -420,6 +434,23 @@ export default function ProjectDetailsScreen() {
     }
     
     if (isMember) return null;
+    
+    // Check if project status allows joining
+    const projectStatus = team?.status || 'planning';
+    const closedStatuses = ['cancelled', 'completed', 'on-hold'];
+    
+    if (closedStatuses.includes(projectStatus)) {
+      return (
+        <View style={styles.closedBadge}>
+          <MaterialIcons name="block" size={16} color="#ef4444" />
+          <Text style={styles.closedText}>
+            {projectStatus === 'cancelled' ? 'Project Cancelled' :
+             projectStatus === 'completed' ? 'Project Completed' :
+             'Project On Hold'}
+          </Text>
+        </View>
+      );
+    }
     
     if (joinRequestStatus?.status === 'pending') {
       return (
@@ -1020,6 +1051,21 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       fontSize: FontSizes.sm,
       fontWeight: FontWeights.semibold,
       color: Colors.textSecondary,
+    },
+    closedBadge: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      paddingVertical: 10,
+      borderRadius: BorderRadius.lg,
+      backgroundColor: '#fee2e2',
+    },
+    closedText: {
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.semibold,
+      color: '#ef4444',
     },
     leaveButton: {
       flex: 1,
