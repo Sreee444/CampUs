@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -19,7 +19,6 @@ import { getColors, Spacing, BorderRadius, FontSizes, FontWeights } from '../../
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { getEvents } from '../../api/events';
-import { getEventReminders } from '../../api/eventReminders';
 import Toast from 'react-native-toast-message';
 
 interface Event {
@@ -62,6 +61,16 @@ export default function CalendarScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [viewType, setViewType] = useState<'month' | 'list'>('month');
 
+  const pad2 = (value: number) => String(value).padStart(2, '0');
+  const getDateKey = (date: Date) =>
+    `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+  const getDateKeyFromString = (value?: string) => {
+    if (!value) return '';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return '';
+    return getDateKey(parsed);
+  };
+
   useEffect(() => {
     loadEventsAndCalendar();
   }, [currentDate]);
@@ -97,8 +106,8 @@ export default function CalendarScreen() {
     const days: CalendarDay[] = [];
 
     // Previous month's days
-    for (let i = firstDay - 1; i >= 0; i--) {
-      const day = daysInPrevMonth - i;
+    for (let i = firstDay; i > 0; i--) {
+      const day = daysInPrevMonth - i + 1;
       days.push({
         date: new Date(year, month - 1, day),
         day,
@@ -112,12 +121,12 @@ export default function CalendarScreen() {
     // Current month's days
     for (let day = 1; day <= daysInMonth; day++) {
       const dateObj = new Date(year, month, day);
-      const dateStr = dateObj.toISOString().split('T')[0];
+      const dateStr = getDateKey(dateObj);
       
       // Match events: include both start_date and registration_deadline
       const dayEvents = eventList.filter((e) => {
-        const eventDateStr = e.start_date.split('T')[0];
-        const deadlineStr = e.registration_deadline?.split('T')[0];
+        const eventDateStr = getDateKeyFromString(e.start_date);
+        const deadlineStr = getDateKeyFromString(e.registration_deadline);
         return eventDateStr === dateStr || deadlineStr === dateStr;
       });
 
@@ -132,8 +141,8 @@ export default function CalendarScreen() {
     }
 
     // Next month's days
-    const totalCells = Math.ceil((days.length + firstDay) / 7);
-    const remainingDays = totalCells * 7 - days.length;
+    const totalCells = Math.ceil(days.length / 7) * 7;
+    const remainingDays = totalCells - days.length;
     for (let day = 1; day <= remainingDays; day++) {
       days.push({
         date: new Date(year, month + 1, day),
@@ -156,11 +165,11 @@ export default function CalendarScreen() {
   };
 
   const goToPreviousMonth = () => {
-    setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1));
+    setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
   };
 
   const goToNextMonth = () => {
-    setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1));
+    setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
   };
 
   const goToToday = () => {
@@ -239,7 +248,7 @@ export default function CalendarScreen() {
               </View>
             ) : (
               <FlatList
-                data={events.sort((a, b) => 
+                data={[...events].sort((a, b) => 
                   new Date(a.start_date).getTime() -
                   new Date(b.start_date).getTime()
                 )}
@@ -612,10 +621,10 @@ const createStyles = (Colors: any, isDark: boolean) =>
       flexWrap: 'wrap',
       paddingHorizontal: Spacing.lg,
       paddingVertical: Spacing.md,
-      gap: 8,
+      justifyContent: 'space-between',
     },
     dayCell: {
-      width: '14.2%',
+      width: '13.6%',
       aspectRatio: 1,
       borderRadius: BorderRadius.lg,
       borderWidth: 1,
@@ -623,6 +632,8 @@ const createStyles = (Colors: any, isDark: boolean) =>
       alignItems: 'center',
       justifyContent: 'center',
       paddingVertical: 4,
+      marginBottom: 10,
+      backgroundColor: Colors.surface,
     },
     dayCellDisabled: {
       backgroundColor: Colors.background,
@@ -633,7 +644,7 @@ const createStyles = (Colors: any, isDark: boolean) =>
     },
     dayCellSelected: {
       borderWidth: 2,
-      backgroundColor: Colors.primary + '10',
+      backgroundColor: Colors.primary + '12',
     },
     dayNumber: {
       fontSize: FontSizes.sm,
@@ -648,13 +659,13 @@ const createStyles = (Colors: any, isDark: boolean) =>
     },
     eventDots: {
       flexDirection: 'row',
-      gap: 2,
+      gap: 3,
       marginTop: 2,
       alignItems: 'center',
     },
     eventDot: {
-      width: 4,
-      height: 4,
+      width: 5,
+      height: 5,
       borderRadius: BorderRadius.full,
     },
     moreDots: {
