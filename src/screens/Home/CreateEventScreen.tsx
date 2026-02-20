@@ -13,6 +13,7 @@ import {
   Image,
   Modal,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -63,7 +64,11 @@ export default function CreateEventScreen() {
     registration_deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 1 week later
     banner_image: '',
   });
-  const [showPicker, setShowPicker] = useState<{ field: keyof EventFormData | null; show: boolean }>({ field: null, show: false });
+  const [showPicker, setShowPicker] = useState<{
+    field: keyof EventFormData | null;
+    mode: 'date' | 'time';
+    show: boolean;
+  }>({ field: null, mode: 'date', show: false });
 
   // Poster/Notice upload state and logic
   const [uploading, setUploading] = useState(false);
@@ -147,50 +152,40 @@ export default function CreateEventScreen() {
   );
 
   const handleDateChange = (event: any, selectedDate?: Date) => {
-    console.log('Date picker event:', event.type, 'Selected date:', selectedDate);
-
-    const isAndroid = Platform.OS === 'android';
-    const wasDismissed = event.type === 'dismissed' || event.type === 'neutral';
-
-    // Always close picker on Android (it doesn't auto-close)
-    if (isAndroid) {
-      setShowPicker({ field: null, show: false });
+    if (Platform.OS === 'android') {
+      closeDatePicker();
     }
 
-    // Update date only if user actually selected one (not cancelled/dismissed)
-    if (!wasDismissed && selectedDate && showPicker.field) {
-      console.log('Updating field:', showPicker.field, 'with date:', selectedDate);
+    if (selectedDate && showPicker.field) {
       setFormData(prev => ({
         ...prev,
         [showPicker.field as string]: selectedDate,
       }));
-    }
 
-    // On iOS, manually close when user taps "Done" or "Cancel"
-    if (!isAndroid && wasDismissed) {
-      setShowPicker({ field: null, show: false });
+      // On iOS, automatically switch from date to time picker
+      if (Platform.OS === 'ios' && showPicker.mode === 'date') {
+        setTimeout(() => {
+          setShowPicker({ field: showPicker.field, mode: 'time', show: true });
+        }, 300);
+      }
     }
   };
 
-  const showDatePicker = (field: keyof EventFormData) => {
-    setShowPicker({ field, show: true });
+  const showDatePicker = (field: keyof EventFormData, mode: 'date' | 'time' = 'date') => {
+    setShowPicker({ field, mode, show: true });
   };
 
   const closeDatePicker = () => {
-    setShowPicker({ field: null, show: false });
+    setShowPicker({ field: null, mode: 'date', show: false });
   };
 
-  const handleQuickDate = (field: keyof EventFormData, hoursToAdd: number) => {
-    const newDate = new Date(Date.now() + hoursToAdd * 60 * 60 * 1000);
+  const handleQuickDate = (field: keyof EventFormData, hoursFromNow: number) => {
+    const newDate = new Date(Date.now() + hoursFromNow * 60 * 60 * 1000);
     setFormData(prev => ({
       ...prev,
       [field]: newDate,
     }));
     closeDatePicker();
-    Toast.show({
-      type: 'success',
-      text1: `Date set to ${newDate.toLocaleString()}`
-    });
   };
 
   const validateForm = (): boolean => {
@@ -305,27 +300,6 @@ export default function CreateEventScreen() {
     );
   }
 
-  const handleManualDateTime = (dateStr: string, timeStr: string) => {
-    if (!showPicker.field) return;
-
-    // specific format checks could be added here
-    const [year, month, day] = dateStr.split('-').map(Number);
-    const [hours, minutes] = timeStr.split(':').map(Number);
-
-    if (
-      !isNaN(year) && !isNaN(month) && !isNaN(day) &&
-      !isNaN(hours) && !isNaN(minutes) &&
-      year > 2000 && month >= 1 && month <= 12 && day >= 1 && day <= 31 &&
-      hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59
-    ) {
-      const newDate = new Date(year, month - 1, day, hours, minutes);
-      setFormData(prev => ({
-        ...prev,
-        [showPicker.field as string]: newDate,
-      }));
-    }
-  };
-
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -393,26 +367,92 @@ export default function CreateEventScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Schedule</Text>
 
-          <Text style={styles.label}>Start Date *</Text>
-          <TouchableOpacity style={styles.dateButton} onPress={() => showDatePicker('start_date')}>
-            <MaterialIcons name="event" size={20} color="#6b7280" />
-            <Text style={styles.dateText}>{formData.start_date.toLocaleString()}</Text>
-          </TouchableOpacity>
+          <Text style={styles.label}>Start Date & Time *</Text>
+          <View style={styles.dateTimeRow}>
+            <TouchableOpacity 
+              style={[styles.dateButton, { flex: 1 }]} 
+              onPress={() => showDatePicker('start_date', 'date')}
+            >
+              <MaterialIcons name="event" size={20} color="#a855f7" />
+              <Text style={styles.dateText}>
+                {formData.start_date.toLocaleDateString('en-US', { 
+                  month: 'short', 
+                  day: 'numeric',
+                  year: 'numeric' 
+                })}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.dateButton, { flex: 1 }]} 
+              onPress={() => showDatePicker('start_date', 'time')}
+            >
+              <MaterialIcons name="access-time" size={20} color="#10b981" />
+              <Text style={styles.dateText}>
+                {formData.start_date.toLocaleTimeString('en-US', { 
+                  hour: '2-digit', 
+                  minute: '2-digit' 
+                })}
+              </Text>
+            </TouchableOpacity>
+          </View>
 
-          <Text style={styles.label}>End Date *</Text>
-          <TouchableOpacity style={styles.dateButton} onPress={() => showDatePicker('end_date')}>
-            <MaterialIcons name="event" size={20} color="#6b7280" />
-            <Text style={styles.dateText}>{formData.end_date.toLocaleString()}</Text>
-          </TouchableOpacity>
+          <Text style={styles.label}>End Date & Time *</Text>
+          <View style={styles.dateTimeRow}>
+            <TouchableOpacity 
+              style={[styles.dateButton, { flex: 1 }]} 
+              onPress={() => showDatePicker('end_date', 'date')}
+            >
+              <MaterialIcons name="event" size={20} color="#a855f7" />
+              <Text style={styles.dateText}>
+                {formData.end_date.toLocaleDateString('en-US', { 
+                  month: 'short', 
+                  day: 'numeric',
+                  year: 'numeric' 
+                })}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.dateButton, { flex: 1 }]} 
+              onPress={() => showDatePicker('end_date', 'time')}
+            >
+              <MaterialIcons name="access-time" size={20} color="#10b981" />
+              <Text style={styles.dateText}>
+                {formData.end_date.toLocaleTimeString('en-US', { 
+                  hour: '2-digit', 
+                  minute: '2-digit' 
+                })}
+              </Text>
+            </TouchableOpacity>
+          </View>
 
           <Text style={styles.label}>Registration Deadline *</Text>
-          <TouchableOpacity
-            style={styles.dateButton}
-            onPress={() => showDatePicker('registration_deadline')}
-          >
-            <MaterialIcons name="event" size={20} color="#6b7280" />
-            <Text style={styles.dateText}>{formData.registration_deadline.toLocaleString()}</Text>
-          </TouchableOpacity>
+          <View style={styles.dateTimeRow}>
+            <TouchableOpacity
+              style={[styles.dateButton, { flex: 1 }]}
+              onPress={() => showDatePicker('registration_deadline', 'date')}
+            >
+              <MaterialIcons name="event" size={20} color="#a855f7" />
+              <Text style={styles.dateText}>
+                {formData.registration_deadline.toLocaleDateString('en-US', { 
+                  month: 'short', 
+                  day: 'numeric',
+                  year: 'numeric' 
+                })}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.dateButton, { flex: 1 }]}
+              onPress={() => showDatePicker('registration_deadline', 'time')}
+            >
+              <MaterialIcons name="access-time" size={20} color="#10b981" />
+              <Text style={styles.dateText}>
+                {formData.registration_deadline.toLocaleTimeString('en-US', { 
+                  hour: '2-digit', 
+                  minute: '2-digit' 
+                })}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         <View style={styles.section}>
@@ -514,127 +554,94 @@ export default function CreateEventScreen() {
         <View style={{ height: 32 }} />
       </ScrollView>
 
-      {/* Custom Date Time Picker Modal (Expo Go Compatible) */}
-      <Modal
-        visible={showPicker.show}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={closeDatePicker}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
-                Select {showPicker.field?.replace('_', ' ').toUpperCase()}
-              </Text>
-              <TouchableOpacity onPress={closeDatePicker}>
-                <MaterialIcons name="close" size={24} color="#000" />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView style={styles.quickOptions}>
-              {/* Manual Date/Time Input */}
-              <View style={styles.manualInputSection}>
-                <Text style={styles.sectionLabel}>Enter Date & Time:</Text>
-
-                <View style={styles.dateTimeInputs}>
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Date</Text>
-                    <TextInput
-                      style={styles.dateTimeInput}
-                      placeholder="YYYY-MM-DD"
-                      placeholderTextColor="#9ca3af"
-                      defaultValue={showPicker.field && formData[showPicker.field] instanceof Date ?
-                        (formData[showPicker.field] as Date).toISOString().split('T')[0] :
-                        new Date().toISOString().split('T')[0]
-                      }
-                      onChangeText={(text) => {
-                        if (showPicker.field && formData[showPicker.field] instanceof Date) {
-                          const currentTime = (formData[showPicker.field] as Date).toTimeString().slice(0, 5);
-                          handleManualDateTime(text, currentTime);
-                        }
-                      }}
-                    />
-                  </View>
-
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Time</Text>
-                    <TextInput
-                      style={styles.dateTimeInput}
-                      placeholder="HH:MM"
-                      placeholderTextColor="#9ca3af"
-                      defaultValue={showPicker.field && formData[showPicker.field] instanceof Date ?
-                        (formData[showPicker.field] as Date).toTimeString().slice(0, 5) :
-                        '12:00'
-                      }
-                      onChangeText={(text) => {
-                        if (showPicker.field && formData[showPicker.field] instanceof Date) {
-                          const currentDate = (formData[showPicker.field] as Date).toISOString().split('T')[0];
-                          handleManualDateTime(currentDate, text);
-                        }
-                      }}
-                    />
-                  </View>
+      {/* Native Date Time Picker */}
+      {showPicker.show && showPicker.field && (
+        Platform.OS === 'ios' ? (
+          <Modal
+            visible={showPicker.show}
+            transparent={true}
+            animationType="slide"
+            onRequestClose={closeDatePicker}
+          >
+            <View style={styles.modalOverlay}>
+              <View style={styles.iosPickerContainer}>
+                <View style={styles.iosPickerHeader}>
+                  <TouchableOpacity onPress={closeDatePicker}>
+                    <Text style={styles.iosPickerButton}>Cancel</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.iosPickerTitle}>
+                    {showPicker.mode === 'date' ? 'Select Date' : 'Select Time'}
+                  </Text>
+                  <TouchableOpacity onPress={closeDatePicker}>
+                    <Text style={[styles.iosPickerButton, { color: '#a855f7', fontWeight: 'bold' }]}>Done</Text>
+                  </TouchableOpacity>
+                </View>
+                <DateTimePicker
+                  value={formData[showPicker.field] as Date}
+                  mode={showPicker.mode}
+                  display="spinner"
+                  onChange={handleDateChange}
+                  textColor="#000"
+                  style={styles.iosPicker}
+                />
+                
+                {/* Quick Select Buttons */}
+                <View style={styles.quickSelectContainer}>
+                  <Text style={styles.quickSelectTitle}>Quick Select</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickScrollView}>
+                    {showPicker.field === 'start_date' && (
+                      <>
+                        <TouchableOpacity style={styles.quickChip} onPress={() => handleQuickDate('start_date', 1)}>
+                          <Text style={styles.quickChipText}>⏰ 1 hour</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.quickChip} onPress={() => handleQuickDate('start_date', 24)}>
+                          <Text style={styles.quickChipText}>📅 Tomorrow</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.quickChip} onPress={() => handleQuickDate('start_date', 24 * 7)}>
+                          <Text style={styles.quickChipText}>📅 Next week</Text>
+                        </TouchableOpacity>
+                      </>
+                    )}
+                    {showPicker.field === 'end_date' && (
+                      <>
+                        <TouchableOpacity style={styles.quickChip} onPress={() => handleQuickDate('end_date', 2)}>
+                          <Text style={styles.quickChipText}>⏰ 2 hours</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.quickChip} onPress={() => handleQuickDate('end_date', 4)}>
+                          <Text style={styles.quickChipText}>⏰ 4 hours</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.quickChip} onPress={() => handleQuickDate('end_date', 24)}>
+                          <Text style={styles.quickChipText}>📅 1 day</Text>
+                        </TouchableOpacity>
+                      </>
+                    )}
+                    {showPicker.field === 'registration_deadline' && (
+                      <>
+                        <TouchableOpacity style={styles.quickChip} onPress={() => handleQuickDate('registration_deadline', 24)}>
+                          <Text style={styles.quickChipText}>📅 Tomorrow</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.quickChip} onPress={() => handleQuickDate('registration_deadline', 24 * 3)}>
+                          <Text style={styles.quickChipText}>📅 3 days</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.quickChip} onPress={() => handleQuickDate('registration_deadline', 24 * 7)}>
+                          <Text style={styles.quickChipText}>📅 1 week</Text>
+                        </TouchableOpacity>
+                      </>
+                    )}
+                  </ScrollView>
                 </View>
               </View>
-
-              <View style={styles.divider}>
-                <View style={styles.dividerLine} />
-                <Text style={styles.dividerText}>OR</Text>
-                <View style={styles.dividerLine} />
-              </View>
-
-              <Text style={styles.sectionLabel}>Quick Select:</Text>
-
-              {showPicker.field === 'start_date' && (
-                <>
-                  <TouchableOpacity style={styles.quickButton} onPress={() => handleQuickDate('start_date', 1)}>
-                    <Text style={styles.quickButtonText}>📅 In 1 hour</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.quickButton} onPress={() => handleQuickDate('start_date', 24)}>
-                    <Text style={styles.quickButtonText}>📅 Tomorrow</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.quickButton} onPress={() => handleQuickDate('start_date', 24 * 7)}>
-                    <Text style={styles.quickButtonText}>📅 Next week</Text>
-                  </TouchableOpacity>
-                </>
-              )}
-
-              {showPicker.field === 'end_date' && (
-                <>
-                  <TouchableOpacity style={styles.quickButton} onPress={() => handleQuickDate('end_date', 2)}>
-                    <Text style={styles.quickButtonText}>⏰ In 2 hours</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.quickButton} onPress={() => handleQuickDate('end_date', 4)}>
-                    <Text style={styles.quickButtonText}>⏰ In 4 hours</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.quickButton} onPress={() => handleQuickDate('end_date', 24)}>
-                    <Text style={styles.quickButtonText}>⏰ In 1 day</Text>
-                  </TouchableOpacity>
-                </>
-              )}
-
-              {showPicker.field === 'registration_deadline' && (
-                <>
-                  <TouchableOpacity style={styles.quickButton} onPress={() => handleQuickDate('registration_deadline', 24)}>
-                    <Text style={styles.quickButtonText}>⏳ Tomorrow</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.quickButton} onPress={() => handleQuickDate('registration_deadline', 24 * 3)}>
-                    <Text style={styles.quickButtonText}>⏳ In 3 days</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.quickButton} onPress={() => handleQuickDate('registration_deadline', 24 * 7)}>
-                    <Text style={styles.quickButtonText}>⏳ In 1 week</Text>
-                  </TouchableOpacity>
-                </>
-              )}
-            </ScrollView>
-
-            <TouchableOpacity style={styles.closeButton} onPress={closeDatePicker}>
-              <Text style={styles.closeButtonText}>Close</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+            </View>
+          </Modal>
+        ) : (
+          <DateTimePicker
+            value={formData[showPicker.field] as Date}
+            mode={showPicker.mode}
+            display="default"
+            onChange={handleDateChange}
+          />
+        )
+      )}
     </View>
   );
 }
@@ -752,20 +759,31 @@ const styles = StyleSheet.create({
   typeTextSelected: {
     color: '#fff',
   },
+  dateTimeRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
   dateButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderWidth: 1,
-    borderColor: '#d1d5db',
-    borderRadius: 8,
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 14,
+    borderWidth: 2,
+    borderColor: '#e2e8f0',
+    borderRadius: 12,
     backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
   dateText: {
-    fontSize: 16,
+    fontSize: 14,
+    fontWeight: '600',
     color: '#374151',
+    flex: 1,
   },
   toggleContainer: {
     flexDirection: 'row',
@@ -843,103 +861,66 @@ const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
+    justifyContent: 'flex-end',
     alignItems: 'center',
   },
-  modalContent: {
+  // iOS Picker Styles
+  iosPickerContainer: {
     backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 20,
-    width: '85%',
-    maxHeight: '70%',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 20,
+    width: '100%',
   },
-  modalHeader: {
+  iosPickerHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
-    paddingBottom: 15,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
+    borderBottomColor: '#f0f0f0',
   },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+  iosPickerTitle: {
+    fontSize: 16,
+    fontWeight: '600',
     color: '#111827',
   },
-  quickOptions: {
-    maxHeight: 300,
+  iosPickerButton: {
+    fontSize: 16,
+    color: '#6b7280',
   },
-  sectionLabel: {
-    fontSize: 14,
+  iosPicker: {
+    height: 200,
+    backgroundColor: '#fff',
+  },
+  quickSelectContainer: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+  },
+  quickSelectTitle: {
+    fontSize: 13,
     fontWeight: '600',
     color: '#6b7280',
     marginBottom: 12,
   },
-  quickButton: {
+  quickScrollView: {
+    flexDirection: 'row',
+  },
+  quickChip: {
     backgroundColor: '#f3f4f6',
-    padding: 16,
-    borderRadius: 8,
-    marginBottom: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    marginRight: 8,
     borderWidth: 1,
     borderColor: '#e5e7eb',
   },
-  quickButtonText: {
-    fontSize: 16,
-    color: '#111827',
-    fontWeight: '500',
-  },
-  closeButton: {
-    backgroundColor: '#6366f1',
-    padding: 14,
-    borderRadius: 8,
-    marginTop: 15,
-    alignItems: 'center',
-  },
-  closeButtonText: {
-    color: '#fff',
-    fontSize: 16,
+  quickChipText: {
+    fontSize: 13,
     fontWeight: '600',
-  },
-  manualInputSection: {
-    marginBottom: 20,
-  },
-  dateTimeInputs: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  inputGroup: {
-    flex: 1,
-  },
-  inputLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#6b7280',
-    marginBottom: 6,
-  },
-  dateTimeInput: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#d1d5db',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    color: '#111827',
-  },
-  divider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 16,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: '#e5e7eb',
-  },
-  dividerText: {
-    marginHorizontal: 12,
-    fontSize: 12,
-    color: '#9ca3af',
-    fontWeight: '600',
+    color: '#374151',
   },
 });

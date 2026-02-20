@@ -10,6 +10,7 @@ import {
   RefreshControl,
   Image,
   Platform,
+  Modal,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -22,6 +23,8 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { getEvents, registerForEvent, unregisterFromEvent } from '../../api/events';
 import { CountdownTimer, EventStatus } from '../../components/CountdownTimer';
+import { ConfirmBottomSheet } from '../../components/ConfirmBottomSheet';
+import { supabase } from '../../api/supabase';
 import Toast from 'react-native-toast-message';
 import {
   SEMANTIC_COLORS,
@@ -49,6 +52,9 @@ export default function EventsScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<'upcoming' | 'live' | 'past'>('upcoming');
+  const [eventToDelete, setEventToDelete] = useState<any>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Check if user can create events
   // TEMP: Allow all authenticated users for debugging
@@ -118,6 +124,63 @@ export default function EventsScreen() {
     } catch (error) {
       console.error('Registration error:', error);
       Toast.show({ type: 'error', text1: 'Registration failed', text2: 'Please try again' });
+    }
+  };
+
+  const canDeleteEvent = (event: any) => {
+    if (!user?.id) return false;
+    return user.id === event.created_by || profile?.role === 'admin';
+  };
+
+  const handleDeleteEvent = async () => {
+    if (!eventToDelete || !user?.id) return;
+
+    try {
+      setIsDeleting(true);
+
+      // Delete all event registrations first
+      const { error: registrationsError } = await supabase
+        .from('event_registrations')
+        .delete()
+        .eq('event_id', eventToDelete.id);
+
+      if (registrationsError) throw registrationsError;
+
+      // Delete event reminders
+      const { error: remindersError } = await supabase
+        .from('event_reminders')
+        .delete()
+        .eq('event_id', eventToDelete.id);
+
+      if (remindersError) console.error('Error deleting reminders:', remindersError);
+
+      // Delete the event
+      const { error: eventError } = await supabase
+        .from('events')
+        .delete()
+        .eq('id', eventToDelete.id);
+
+      if (eventError) throw eventError;
+
+      Toast.show({
+        type: 'success',
+        text1: 'Event deleted successfully',
+        text2: 'All registrations have been cancelled',
+      });
+
+      // Close modal and refresh list
+      setShowDeleteConfirm(false);
+      setEventToDelete(null);
+      await loadEvents(true);
+    } catch (error: any) {
+      console.error('Error deleting event:', error);
+      Toast.show({
+        type: 'error',
+        text1: 'Failed to delete event',
+        text2: error.message || 'Please try again',
+      });
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -273,10 +336,24 @@ export default function EventsScreen() {
                     {event.event_type.toUpperCase()}
                   </Text>
                 </View>
-                <EventStatus
-                  startDate={event.start_date}
-                  endDate={event.end_date}
-                />
+                <View style={styles.eventHeaderRight}>
+                  <EventStatus
+                    startDate={event.start_date}
+                    endDate={event.end_date}
+                  />
+                  {canDeleteEvent(event) && (
+                    <TouchableOpacity
+                      style={styles.menuButton}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        setEventToDelete(event);
+                        setShowDeleteConfirm(true);
+                      }}
+                    >
+                      <MaterialIcons name="delete-outline" size={20} color="#ef4444" />
+                    </TouchableOpacity>
+                  )}
+                </View>
               </View>
 
               {/* Event Title & Description */}
@@ -384,6 +461,22 @@ export default function EventsScreen() {
 
         <View style={{ height: 100 }} />
       </ScrollView>
+
+      {/* Delete Confirmation */}
+      <ConfirmBottomSheet
+        visible={showDeleteConfirm}
+        onClose={() => {
+          setShowDeleteConfirm(false);
+          setEventToDelete(null);
+        }}
+        onConfirm={handleDeleteEvent}
+        title="Delete Event?"
+        message={`Are you sure you want to delete "${eventToDelete?.title}"? This action cannot be undone and all registration(s) will be cancelled.`}
+        confirmText={isDeleting ? 'Deleting...' : 'Delete Event'}
+        cancelText="Cancel"
+        confirmColor="#ef4444"
+        icon="delete-forever"
+      />
     </SafeAreaView>
   );
 }
@@ -608,6 +701,16 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     flexDirection: 'row',
     gap: 12,
     marginBottom: 12,
+  },
+  eventHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  menuButton: {
+    padding: 6,
+    borderRadius: BorderRadius.sm,
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
   },
   dateBox: {
     width: 60,
