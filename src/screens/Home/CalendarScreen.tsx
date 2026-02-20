@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,10 @@ import {
   Modal,
   Share,
   Linking,
+  TextInput,
+  Animated,
+  Dimensions,
+  PanResponder,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -20,6 +24,8 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { getEvents } from '../../api/events';
 import Toast from 'react-native-toast-message';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 interface Event {
   id: string;
@@ -55,11 +61,39 @@ export default function CalendarScreen() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [calendarDays, setCalendarDays] = useState<CalendarDay[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
+  const [filteredEvents, setFilteredEvents] = useState<Event[]>([]);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedDayEvents, setSelectedDayEvents] = useState<Event[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
-  const [viewType, setViewType] = useState<'month' | 'list'>('month');
+  const [viewType, setViewType] = useState<'month' | 'week' | 'agenda'>('month');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedEventTypes, setSelectedEventTypes] = useState<string[]>([]);
+  const [showFilters, setShowFilters] = useState(false);
+  const [weekDays, setWeekDays] = useState<CalendarDay[]>([]);
+  
+  // Animation values
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(0)).current;
+
+  // Pan responder for swipe gestures
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        return Math.abs(gestureState.dx) > 20;
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dx > 50) {
+          // Swipe right - previous month
+          goToPreviousMonth();
+        } else if (gestureState.dx < -50) {
+          // Swipe left - next month
+          goToNextMonth();
+        }
+      },
+    })
+  ).current;
 
   const pad2 = (value: number) => String(value).padStart(2, '0');
   const getDateKey = (date: Date) =>
@@ -75,6 +109,45 @@ export default function CalendarScreen() {
     loadEventsAndCalendar();
   }, [currentDate]);
 
+  useEffect(() => {
+    // Animate in
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.spring(slideAnim, {
+        toValue: 1,
+        tension: 50,
+        friction: 7,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
+
+  useEffect(() => {
+    // Filter events based on search and event type
+    let filtered = events;
+
+    if (searchQuery.trim()) {
+      filtered = filtered.filter(
+        (event) =>
+          event.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          event.description?.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+    }
+
+    if (selectedEventTypes.length > 0) {
+      filtered = filtered.filter((event) =>
+        selectedEventTypes.includes(event.event_type)
+      );
+    }
+
+    setFilteredEvents(filtered);
+    generateCalendarDays(currentDate, filtered);
+  }, [searchQuery, selectedEventTypes, events, currentDate]);
+
   const loadEventsAndCalendar = async () => {
     if (!user?.id) return;
     try {
@@ -83,15 +156,46 @@ export default function CalendarScreen() {
       // Load events with user ID for personalized results
       const eventData = await getEvents(user.id, undefined, false);
       setEvents(eventData || []);
+      setFilteredEvents(eventData || []);
       
-      // Build calendar
+      // Build calendar and week view
       generateCalendarDays(currentDate, eventData || []);
+      generateWeekDays(currentDate, eventData || []);
     } catch (error) {
       console.error('Error loading events:', error);
       Toast.show({ type: 'error', text1: 'Failed to load calendar' });
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const generateWeekDays = (date: Date, eventList: Event[]) => {
+    const startOfWeek = new Date(date);
+    startOfWeek.setDate(date.getDate() - date.getDay()); // Start from Sunday
+
+    const days: CalendarDay[] = [];
+    for (let i = 0; i < 7; i++) {
+      const dateObj = new Date(startOfWeek);
+      dateObj.setDate(startOfWeek.getDate() + i);
+      const dateStr = getDateKey(dateObj);
+
+      const dayEvents = eventList.filter((e) => {
+        const eventDateStr = getDateKeyFromString(e.start_date);
+        const deadlineStr = getDateKeyFromString(e.registration_deadline);
+        return eventDateStr === dateStr || deadlineStr === dateStr;
+      });
+
+      days.push({
+        date: dateObj,
+        day: dateObj.getDate(),
+        month: dateObj.getMonth(),
+        year: dateObj.getFullYear(),
+        isCurrentMonth: dateObj.getMonth() === date.getMonth(),
+        events: dayEvents,
+      });
+    }
+
+    setWeekDays(days);
   };
 
   const generateCalendarDays = (date: Date, eventList: Event[]) => {
@@ -165,15 +269,58 @@ export default function CalendarScreen() {
   };
 
   const goToPreviousMonth = () => {
-    setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
+    const newDate = new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1);
+    setCurrentDate(newDate);
+    generateWeekDays(newDate, filteredEvents);
   };
 
   const goToNextMonth = () => {
-    setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
+    const newDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1);
+    setCurrentDate(newDate);
+    generateWeekDays(newDate, filteredEvents);
   };
 
   const goToToday = () => {
-    setCurrentDate(new Date());
+    const today = new Date();
+    setCurrentDate(today);
+    generateWeekDays(today, filteredEvents);
+  };
+
+  const goToPreviousWeek = () => {
+    const newDate = new Date(currentDate);
+    newDate.setDate(currentDate.getDate() - 7);
+    setCurrentDate(newDate);
+    generateWeekDays(newDate, filteredEvents);
+  };
+
+  const goToNextWeek = () => {
+    const newDate = new Date(currentDate);
+    newDate.setDate(currentDate.getDate() + 7);
+    setCurrentDate(newDate);
+    generateWeekDays(newDate, filteredEvents);
+  };
+
+  const toggleEventType = (type: string) => {
+    setSelectedEventTypes((prev) => 
+      prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type]
+    );
+  };
+
+  const getEventStats = () => {
+    const total = filteredEvents.length;
+    const registered = filteredEvents.filter((e) => e.is_registered).length;
+    const upcoming = filteredEvents.filter(
+      (e) => new Date(e.start_date) > new Date()
+    ).length;
+    const thisMonth = filteredEvents.filter((e) => {
+      const eventDate = new Date(e.start_date);
+      return (
+        eventDate.getMonth() === currentDate.getMonth() &&
+        eventDate.getFullYear() === currentDate.getFullYear()
+      );
+    }).length;
+
+    return { total, registered, upcoming, thisMonth };
   };
 
   const handleAddToCalendar = async (event: Event) => {
@@ -211,44 +358,358 @@ export default function CalendarScreen() {
   };
 
   const monthName = currentDate.toLocaleString('default', { month: 'long', year: 'numeric' });
-  const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const weekDayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const eventTypes = Array.from(new Set(events.map((e) => e.event_type)));
+  const stats = getEventStats();
+
+  // Render header with search and view controls
+  const renderHeader = () => (
+    <Animated.View
+      style={[
+        styles.header,
+        {
+          opacity: fadeAnim,
+          transform: [
+            {
+              translateY: slideAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [-50, 0],
+              }),
+            },
+          ],
+        },
+      ]}
+    >
+      <View style={styles.headerTop}>
+        <Text style={styles.headerTitle}>Calendar</Text>
+        <TouchableOpacity
+          style={styles.filterButton}
+          onPress={() => setShowFilters(!showFilters)}
+        >
+          <MaterialIcons
+            name="filter-list"
+            size={24}
+            color={showFilters ? Colors.primary : Colors.text}
+          />
+        </TouchableOpacity>
+      </View>
+
+      {/* Search Bar */}
+      <View style={[styles.searchContainer, { backgroundColor: Colors.background }]}>
+        <MaterialIcons name="search" size={20} color={Colors.textSecondary} />
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search events..."
+          placeholderTextColor={Colors.textSecondary}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+        />
+        {searchQuery.length > 0 && (
+          <TouchableOpacity onPress={() => setSearchQuery('')}>
+            <MaterialIcons name="close" size={20} color={Colors.textSecondary} />
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {/* Event Stats */}
+      <Animated.View 
+        style={[
+          styles.statsRow,
+          {
+            opacity: fadeAnim,
+            transform: [{
+              scale: slideAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0.8, 1],
+              }),
+            }],
+          },
+        ]}
+      >
+        <View style={[styles.statCard, styles.statCardPurple]}>
+          <View style={styles.statIconContainer}>
+            <MaterialIcons name="calendar-month" size={24} color="#a855f7" />
+          </View>
+          <Text style={[styles.statNumber, { color: '#a855f7' }]}>{stats.thisMonth}</Text>
+          <Text style={styles.statLabel}>This Month</Text>
+        </View>
+        <View style={[styles.statCard, styles.statCardEmerald]}>
+          <View style={styles.statIconContainer}>
+            <MaterialIcons name="event-available" size={24} color="#10b981" />
+          </View>
+          <Text style={[styles.statNumber, { color: '#10b981' }]}>{stats.upcoming}</Text>
+          <Text style={styles.statLabel}>Upcoming</Text>
+        </View>
+        <View style={[styles.statCard, styles.statCardAmber]}>
+          <View style={styles.statIconContainer}>
+            <MaterialIcons name="check-circle" size={24} color="#f59e0b" />
+          </View>
+          <Text style={[styles.statNumber, { color: '#f59e0b' }]}>{stats.registered}</Text>
+          <Text style={styles.statLabel}>Registered</Text>
+        </View>
+      </Animated.View>
+
+      {/* Filters */}
+      {showFilters && (
+        <Animated.View style={styles.filtersContainer}>
+          <Text style={styles.filterTitle}>Event Types</Text>
+          <View style={styles.filterChips}>
+            {eventTypes.map((type) => (
+              <TouchableOpacity
+                key={type}
+                style={[
+                  styles.filterChip,
+                  selectedEventTypes.includes(type) && {
+                    backgroundColor: getEventTypeColor(type),
+                  },
+                ]}
+                onPress={() => toggleEventType(type)}
+              >
+                <MaterialIcons
+                  name={getEventTypeIcon(type)}
+                  size={16}
+                  color={selectedEventTypes.includes(type) ? '#fff' : Colors.text}
+                />
+                <Text
+                  style={[
+                    styles.filterChipText,
+                    selectedEventTypes.includes(type) && { color: '#fff' },
+                  ]}
+                >
+                  {type}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </Animated.View>
+      )}
+
+      {/* View Type Switcher */}
+      <View style={styles.viewSwitcher}>
+        <TouchableOpacity
+          style={[
+            styles.viewButton,
+            viewType === 'month' && { backgroundColor: Colors.primary },
+          ]}
+          onPress={() => setViewType('month')}
+        >
+          <MaterialIcons
+            name="calendar-month"
+            size={20}
+            color={viewType === 'month' ? '#fff' : Colors.text}
+          />
+          <Text
+            style={[
+              styles.viewButtonText,
+              viewType === 'month' && { color: '#fff' },
+            ]}
+          >
+            Month
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.viewButton,
+            viewType === 'week' && { backgroundColor: Colors.primary },
+          ]}
+          onPress={() => setViewType('week')}
+        >
+          <MaterialIcons
+            name="view-week"
+            size={20}
+            color={viewType === 'week' ? '#fff' : Colors.text}
+          />
+          <Text
+            style={[
+              styles.viewButtonText,
+              viewType === 'week' && { color: '#fff' },
+            ]}
+          >
+            Week
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.viewButton,
+            viewType === 'agenda' && { backgroundColor: Colors.primary },
+          ]}
+          onPress={() => setViewType('agenda')}
+        >
+          <MaterialIcons
+            name="list"
+            size={20}
+            color={viewType === 'agenda' ? '#fff' : Colors.text}
+          />
+          <Text
+            style={[
+              styles.viewButtonText,
+              viewType === 'agenda' && { color: '#fff' },
+            ]}
+          >
+            Agenda
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </Animated.View>
+  );
 
   if (isLoading) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: Colors.background }]}>
-        <ActivityIndicator size="large" color={Colors.primary} />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={Colors.primary} />
+          <Text style={styles.loadingText}>Loading calendar...</Text>
+        </View>
       </SafeAreaView>
     );
   }
 
-  if (viewType === 'list') {
+  // Week View
+  if (viewType === 'week') {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: Colors.background }]}>
+        <ScrollView showsVerticalScrollIndicator={false}>
+          {renderHeader()}
+
+          {/* Week Navigation */}
+          <View style={styles.monthNavigation}>
+            <TouchableOpacity onPress={goToPreviousWeek} style={styles.navButton}>
+              <MaterialIcons name="chevron-left" size={28} color={Colors.primary} />
+            </TouchableOpacity>
+            <View style={styles.monthNameContainer}>
+              <Text style={styles.monthName}>{monthName}</Text>
+              <TouchableOpacity onPress={goToToday} style={[styles.todayButton, { borderColor: '#ec4899' }]}>
+                <MaterialIcons name="today" size={14} color="#ec4899" />
+                <Text style={[styles.todayButtonText, { color: '#ec4899' }]}>Today</Text>
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity onPress={goToNextWeek} style={styles.navButton}>
+              <MaterialIcons name="chevron-right" size={28} color={Colors.primary} />
+            </TouchableOpacity>
+          </View>
+
+          {/* Week Grid */}
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: Spacing.md }}
+          >
+            <View style={styles.weekGrid}>
+              {weekDays.map((day) => {
+                const isToday = day.date.toDateString() === new Date().toDateString();
+                const dateKey = `${day.date.getFullYear()}-${day.date.getMonth()}-${day.date.getDate()}`;
+                return (
+                  <TouchableOpacity
+                    key={dateKey}
+                    style={[
+                      styles.weekDayCard,
+                      isToday && { 
+                        backgroundColor: '#a855f7',
+                        borderColor: '#9333ea',
+                        borderWidth: 3,
+                      },
+                    ]}
+                    onPress={() => {
+                      setSelectedDate(day.date);
+                      setSelectedDayEvents(day.events);
+                      setModalVisible(true);
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.weekDayName,
+                        isToday && { color: '#fff' },
+                      ]}
+                    >
+                      {weekDayNames[day.date.getDay()]}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.weekDayNumber,
+                        isToday && { color: '#fff' },
+                      ]}
+                    >
+                      {day.day}
+                    </Text>
+                    {day.events.length > 0 && (
+                      <View style={[styles.weekEventBadge, { backgroundColor: getEventTypeColor(day.events[0].event_type) }]}>
+                        <Text style={styles.weekEventCount}>{day.events.length}</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </ScrollView>
+
+          {/* Week Events List */}
+          <View style={styles.section}>
+            <View style={styles.sectionTitleContainer}>
+              <MaterialIcons name="event-note" size={24} color="#a855f7" />
+              <Text style={styles.sectionTitle}>This Week's Events</Text>
+            </View>
+            {weekDays.some((d) => d.events.length > 0) ? (
+              weekDays.map((day) =>
+                day.events.length > 0 ? (
+                  <View key={day.date.toISOString()} style={{ marginBottom: Spacing.sm }}>
+                    <Text style={styles.dayHeader}>
+                      {day.date.toLocaleDateString(undefined, {
+                        weekday: 'long',
+                        month: 'short',
+                        day: 'numeric',
+                      })}
+                    </Text>
+                    {day.events.map((event) => renderEventCard(event))}
+                  </View>
+                ) : null
+              )
+            ) : (
+              <View style={styles.emptyState}>
+                <MaterialIcons name="event-busy" size={48} color={Colors.textSecondary} />
+                <Text style={styles.emptyText}>No events this week</Text>
+              </View>
+            )}
+          </View>
+        </ScrollView>
+
+        {renderQuickAddButton()}
+        {renderDayModal()}
+      </SafeAreaView>
+    );
+  }
+
+  // Agenda View
+  if (viewType === 'agenda') {
     // List View
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: Colors.background }]}>
         <ScrollView showsVerticalScrollIndicator={false}>
-          {/* Header with Controls */}
-          <View style={styles.header}>
-            <View style={styles.headerTop}>
-              <Text style={styles.title}>Calendar</Text>
-              <TouchableOpacity onPress={() => setViewType('month')}>
-                <MaterialIcons name="calendar-month" size={24} color={Colors.primary} />
-              </TouchableOpacity>
-            </View>
-            <Text style={styles.subtitle}>{monthName}</Text>
-          </View>
+          {renderHeader()}
 
           {/* Upcoming Events - Sorted by date */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Upcoming Events</Text>
+            <View style={styles.sectionTitleContainer}>
+              <MaterialIcons name="event-available" size={24} color="#10b981" />
+              <Text style={styles.sectionTitle}>
+                Upcoming Events ({filteredEvents.length})
+              </Text>
+            </View>
 
-            {events.length === 0 ? (
+            {filteredEvents.length === 0 ? (
               <View style={styles.emptyState}>
                 <MaterialIcons name="event-note" size={48} color={Colors.textSecondary} />
-                <Text style={styles.emptyText}>No events scheduled</Text>
+                <Text style={styles.emptyText}>No events found</Text>
+                <Text style={styles.emptySubtext}>
+                  {searchQuery || selectedEventTypes.length > 0
+                    ? 'Try adjusting your filters'
+                    : 'Check back later for new events'}
+                </Text>
               </View>
             ) : (
               <FlatList
-                data={[...events].sort((a, b) => 
+                data={[...filteredEvents].sort((a, b) => 
                   new Date(a.start_date).getTime() -
                   new Date(b.start_date).getTime()
                 )}
@@ -262,6 +723,8 @@ export default function CalendarScreen() {
 
           <View style={{ height: Spacing.lg }} />
         </ScrollView>
+
+        {renderQuickAddButton()}
       </SafeAreaView>
     );
   }
@@ -270,37 +733,27 @@ export default function CalendarScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors.background }]}>
       <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Header with Controls */}
-        <View style={styles.header}>
-          <View style={styles.headerTop}>
-            <TouchableOpacity onPress={goToPreviousMonth}>
-              <MaterialIcons name="chevron-left" size={28} color={Colors.primary} />
-            </TouchableOpacity>
-            <Text style={styles.title}>{monthName}</Text>
-            <TouchableOpacity onPress={goToNextMonth}>
-              <MaterialIcons name="chevron-right" size={28} color={Colors.primary} />
-            </TouchableOpacity>
-          </View>
+        {renderHeader()}
 
-          <View style={styles.controls}>
-            <TouchableOpacity
-              style={[styles.controlButton, { borderColor: Colors.border }]}
-              onPress={goToToday}
-            >
-              <Text style={styles.controlButtonText}>Today</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.controlButton, { backgroundColor: Colors.primary }]}
-              onPress={() => setViewType('list')}
-            >
-              <MaterialIcons name="list" size={18} color="#fff" />
+        {/* Month Navigation */}
+        <View style={styles.monthNavigation}>
+          <TouchableOpacity onPress={goToPreviousMonth} style={styles.navButton}>
+            <MaterialIcons name="chevron-left" size={28} color={Colors.primary} />
+          </TouchableOpacity>
+          <View style={styles.monthNameContainer}>
+            <Text style={styles.monthName}>{monthName}</Text>
+            <TouchableOpacity onPress={goToToday} style={styles.todayButton}>
+              <Text style={styles.todayButtonText}>Today</Text>
             </TouchableOpacity>
           </View>
+          <TouchableOpacity onPress={goToNextMonth} style={styles.navButton}>
+            <MaterialIcons name="chevron-right" size={28} color={Colors.primary} />
+          </TouchableOpacity>
         </View>
 
         {/* Week Day Headers */}
         <View style={styles.weekDaysContainer}>
-          {weekDays.map((day) => (
+          {weekDayNames.map((day) => (
             <View key={day} style={styles.weekDayCell}>
               <Text style={styles.weekDayText}>{day}</Text>
             </View>
@@ -308,21 +761,25 @@ export default function CalendarScreen() {
         </View>
 
         {/* Calendar Grid */}
-        <View style={styles.calendarGrid}>
-          {calendarDays.map((calendarDay, index) => {
+        <View style={styles.calendarGrid} {...panResponder.panHandlers}>
+          {calendarDays.map((calendarDay) => {
             const isToday =
               calendarDay.isCurrentMonth &&
               calendarDay.date.toDateString() === new Date().toDateString();
             const isSelected =
               selectedDate && calendarDay.date.toDateString() === selectedDate.toDateString();
+            const dateKey = `${calendarDay.year}-${calendarDay.month}-${calendarDay.day}`;
 
             return (
               <TouchableOpacity
-                key={index}
+                key={dateKey}
                 style={[
                   styles.dayCell,
                   !calendarDay.isCurrentMonth && styles.dayCellDisabled,
-                  isToday && [styles.dayCellToday, { backgroundColor: Colors.primary }],
+                  isToday && [styles.dayCellToday, { 
+                    backgroundColor: '#a855f7',
+                    borderColor: '#9333ea',
+                  }],
                   isSelected && [styles.dayCellSelected, { borderColor: Colors.primary }],
                 ]}
                 onPress={() => handleDayPress(calendarDay)}
@@ -338,25 +795,25 @@ export default function CalendarScreen() {
                   {calendarDay.day}
                 </Text>
 
-                {calendarDay.events.length > 0 && (
+                  {calendarDay.events.length > 0 && (
                   <View style={styles.eventDots}>
-                    {calendarDay.events.slice(0, 3).map((_, idx) => (
+                    {calendarDay.events.slice(0, 2).map((event, idx) => (
                       <View
                         key={idx}
                         style={[
                           styles.eventDot,
-                          { backgroundColor: isToday ? '#fff' : Colors.primary },
+                          { backgroundColor: isToday ? '#fff' : getEventTypeColor(event.event_type) },
                         ]}
                       />
                     ))}
-                    {calendarDay.events.length > 3 && (
+                    {calendarDay.events.length > 2 && (
                       <Text
                         style={[
                           styles.moreDots,
-                          { color: isToday ? '#fff' : Colors.primary },
+                          { color: isToday ? '#fff' : '#a855f7' },
                         ]}
                       >
-                        +{calendarDay.events.length - 3}
+                        +{calendarDay.events.length - 2}
                       </Text>
                     )}
                   </View>
@@ -366,10 +823,42 @@ export default function CalendarScreen() {
           })}
         </View>
 
-        <View style={{ height: Spacing.lg }} />
+        <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* Day Details Modal */}
+      {renderQuickAddButton()}
+      {renderDayModal()}
+    </SafeAreaView>
+  );
+
+  // Helper function: Quick Add Button
+  function renderQuickAddButton() {
+    return (
+      <Animated.View
+        style={{
+          opacity: fadeAnim,
+          transform: [{
+            scale: fadeAnim.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0, 1],
+            }),
+          }],
+        }}
+      >
+        <TouchableOpacity
+          style={[styles.fabButton, { backgroundColor: '#a855f7' }]}
+          onPress={() => navigation.navigate('CreateEvent')}
+          activeOpacity={0.8}
+        >
+          <MaterialIcons name="add" size={32} color="#fff" />
+        </TouchableOpacity>
+      </Animated.View>
+    );
+  }
+
+  // Helper function: Day Details Modal
+  function renderDayModal() {
+    return (
       <Modal visible={modalVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: Colors.surface }]}>
@@ -405,9 +894,10 @@ export default function CalendarScreen() {
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
-  );
+    );
+  }
 
+  // Helper function: Render Event Card
   function renderEventCard(event: Event, isDetailed = false) {
     // Format time from ISO datetime
     const startDate = new Date(event.start_date);
@@ -535,16 +1025,30 @@ const getEventTypeIcon = (type: string) => {
 
 const getEventTypeColor = (type: string) => {
   const colors: { [key: string]: string } = {
-    workshop: '#3b82f6',
-    seminar: '#8b5cf6',
-    conference: '#ec4899',
-    hackathon: '#f59e0b',
-    meetup: '#10b981',
-    webinar: '#06b6d4',
-    exam: '#ef4444',
-    default: '#6b7280',
+    workshop: '#a855f7',     // Purple
+    seminar: '#ec4899',      // Pink
+    conference: '#f97316',   // Orange
+    hackathon: '#eab308',    // Yellow
+    meetup: '#10b981',       // Emerald
+    webinar: '#14b8a6',      // Teal
+    exam: '#ef4444',         // Red
+    default: '#6b7280',      // Gray
   };
   return colors[type] || colors.default;
+};
+
+const getEventTypeGradient = (type: string) => {
+  const gradients: { [key: string]: string[] } = {
+    workshop: ['#a855f7', '#9333ea'],     // Purple gradient
+    seminar: ['#ec4899', '#db2777'],      // Pink gradient
+    conference: ['#f97316', '#ea580c'],   // Orange gradient
+    hackathon: ['#eab308', '#ca8a04'],    // Yellow gradient
+    meetup: ['#10b981', '#059669'],       // Emerald gradient
+    webinar: ['#14b8a6', '#0d9488'],      // Teal gradient
+    exam: ['#ef4444', '#dc2626'],         // Red gradient
+    default: ['#6b7280', '#4b5563'],      // Gray gradient
+  };
+  return gradients[type] || gradients.default;
 };
 
 const createStyles = (Colors: any, isDark: boolean) =>
@@ -557,9 +1061,13 @@ const createStyles = (Colors: any, isDark: boolean) =>
     header: {
       paddingHorizontal: Spacing.lg,
       paddingVertical: Spacing.lg,
-      backgroundColor: Colors.surface,
-      borderBottomWidth: 1,
-      borderBottomColor: Colors.border,
+      backgroundColor: isDark ? '#1e293b' : '#ffffff',
+      borderBottomWidth: 0,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.08,
+      shadowRadius: 12,
+      elevation: 4,
     },
     headerTop: {
       flexDirection: 'row',
@@ -626,25 +1134,37 @@ const createStyles = (Colors: any, isDark: boolean) =>
     dayCell: {
       width: '13.6%',
       aspectRatio: 1,
-      borderRadius: BorderRadius.lg,
-      borderWidth: 1,
-      borderColor: Colors.border,
+      borderRadius: BorderRadius.xl,
+      borderWidth: 2,
+      borderColor: isDark ? '#334155' : '#e2e8f0',
       alignItems: 'center',
       justifyContent: 'center',
       paddingVertical: 4,
       marginBottom: 10,
       backgroundColor: Colors.surface,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.05,
+      shadowRadius: 2,
+      elevation: 1,
     },
     dayCellDisabled: {
       backgroundColor: Colors.background,
       opacity: 0.5,
     },
     dayCellToday: {
-      borderColor: Colors.primary,
+      borderWidth: 0,
+      shadowColor: '#a855f7',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.3,
+      shadowRadius: 8,
+      elevation: 6,
     },
     dayCellSelected: {
-      borderWidth: 2,
-      backgroundColor: Colors.primary + '12',
+      borderWidth: 3,
+      borderColor: '#ec4899',
+      backgroundColor: '#fdf2f8',
+      transform: [{ scale: 1.05 }],
     },
     dayNumber: {
       fontSize: FontSizes.sm,
@@ -664,9 +1184,14 @@ const createStyles = (Colors: any, isDark: boolean) =>
       alignItems: 'center',
     },
     eventDot: {
-      width: 5,
-      height: 5,
+      width: 6,
+      height: 6,
       borderRadius: BorderRadius.full,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.2,
+      shadowRadius: 2,
+      elevation: 1,
     },
     moreDots: {
       fontSize: FontSizes.xs,
@@ -676,21 +1201,32 @@ const createStyles = (Colors: any, isDark: boolean) =>
     section: {
       paddingHorizontal: Spacing.lg,
       paddingVertical: Spacing.md,
+      marginTop: Spacing.sm,
+    },
+    sectionTitleContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.sm,
+      marginBottom: Spacing.md,
     },
     sectionTitle: {
       fontSize: FontSizes.lg,
       fontWeight: FontWeights.bold,
       color: Colors.text,
-      marginBottom: Spacing.md,
     },
     eventsList: {
       gap: Spacing.md,
     },
     eventCard: {
-      borderRadius: BorderRadius.lg,
-      borderWidth: 1,
-      padding: Spacing.md,
+      borderRadius: BorderRadius.xl,
+      borderWidth: 0,
+      padding: Spacing.lg,
       marginBottom: Spacing.md,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.1,
+      shadowRadius: 8,
+      elevation: 3,
     },
     eventCardHeader: {
       flexDirection: 'row',
@@ -705,11 +1241,16 @@ const createStyles = (Colors: any, isDark: boolean) =>
       alignItems: 'flex-start',
     },
     eventTypeIcon: {
-      width: 40,
-      height: 40,
-      borderRadius: BorderRadius.lg,
+      width: 48,
+      height: 48,
+      borderRadius: BorderRadius.xl,
       alignItems: 'center',
       justifyContent: 'center',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      elevation: 2,
     },
     eventTitle: {
       fontSize: FontSizes.md,
@@ -799,5 +1340,293 @@ const createStyles = (Colors: any, isDark: boolean) =>
     modalBody: {
       padding: Spacing.md,
       maxHeight: 'auto',
+    },
+    // New styles for enhanced UI
+    loadingContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      gap: Spacing.md,
+    },
+    loadingText: {
+      fontSize: FontSizes.md,
+      color: Colors.textSecondary,
+    },
+    headerTitle: {
+      fontSize: FontSizes.xxl,
+      fontWeight: FontWeights.bold,
+      color: Colors.text,
+    },
+    filterButton: {
+      padding: Spacing.sm,
+    },
+    searchContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.sm,
+      paddingHorizontal: Spacing.md,
+      paddingVertical: Spacing.md,
+      borderRadius: BorderRadius.xl,
+      marginTop: Spacing.md,
+      backgroundColor: isDark ? '#1e293b' : '#f8fafc',
+      borderWidth: 2,
+      borderColor: isDark ? '#334155' : '#e2e8f0',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.05,
+      shadowRadius: 4,
+      elevation: 1,
+    },
+    searchInput: {
+      flex: 1,
+      fontSize: FontSizes.md,
+      color: Colors.text,
+      paddingVertical: 4,
+    },
+    statsRow: {
+      flexDirection: 'row',
+      gap: Spacing.sm,
+      marginTop: Spacing.md,
+    },
+    statCard: {
+      flex: 1,
+      padding: Spacing.md,
+      borderRadius: BorderRadius.xl,
+      alignItems: 'center',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.1,
+      shadowRadius: 8,
+      elevation: 3,
+    },
+    statCardPurple: {
+      backgroundColor: '#faf5ff',
+      borderWidth: 2,
+      borderColor: '#e9d5ff',
+    },
+    statCardEmerald: {
+      backgroundColor: '#f0fdf4',
+      borderWidth: 2,
+      borderColor: '#d1fae5',
+    },
+    statCardAmber: {
+      backgroundColor: '#fffbeb',
+      borderWidth: 2,
+      borderColor: '#fde68a',
+    },
+    statIconContainer: {
+      marginBottom: Spacing.xs,
+    },
+    statNumber: {
+      fontSize: FontSizes.xxl,
+      fontWeight: FontWeights.bold,
+      marginTop: 4,
+    },
+    statLabel: {
+      fontSize: FontSizes.xs,
+      color: Colors.textSecondary,
+      marginTop: 4,
+      fontWeight: FontWeights.semibold,
+    },
+    filtersContainer: {
+      marginTop: Spacing.md,
+    },
+    filterTitle: {
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.semibold,
+      color: Colors.text,
+      marginBottom: Spacing.sm,
+    },
+    filterChips: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: Spacing.sm,
+    },
+    filterChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingHorizontal: Spacing.md,
+      paddingVertical: Spacing.sm,
+      borderRadius: BorderRadius.full,
+      backgroundColor: Colors.surface,
+      borderWidth: 2,
+      borderColor: Colors.border,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.05,
+      shadowRadius: 2,
+      elevation: 1,
+    },
+    filterChipText: {
+      fontSize: FontSizes.xs,
+      fontWeight: FontWeights.semibold,
+      color: Colors.text,
+    },
+    viewSwitcher: {
+      flexDirection: 'row',
+      gap: Spacing.xs,
+      marginTop: Spacing.md,
+      backgroundColor: isDark ? '#1e293b' : '#f1f5f9',
+      borderRadius: BorderRadius.xl,
+      padding: 6,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      elevation: 2,
+    },
+    viewButton: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      paddingVertical: Spacing.md,
+      borderRadius: BorderRadius.lg,
+      backgroundColor: 'transparent',
+    },
+    viewButtonText: {
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.bold,
+      color: Colors.text,
+    },
+    monthNavigation: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: Spacing.lg,
+      paddingVertical: Spacing.lg,
+      backgroundColor: isDark ? '#1e293b' : '#ffffff',
+      marginBottom: Spacing.sm,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.05,
+      shadowRadius: 4,
+      elevation: 2,
+    },
+    navButton: {
+      padding: Spacing.sm,
+    },
+    monthNameContainer: {
+      flex: 1,
+      alignItems: 'center',
+      flexDirection: 'row',
+      justifyContent: 'center',
+      gap: Spacing.md,
+    },
+    monthName: {
+      fontSize: FontSizes.lg,
+      fontWeight: FontWeights.bold,
+      color: Colors.text,
+    },
+    todayButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingHorizontal: Spacing.md,
+      paddingVertical: Spacing.xs,
+      borderRadius: BorderRadius.full,
+      backgroundColor: '#fdf2f8',
+      borderWidth: 2,
+      shadowColor: '#ec4899',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.2,
+      shadowRadius: 4,
+      elevation: 2,
+    },
+    todayButtonText: {
+      fontSize: FontSizes.xs,
+      fontWeight: FontWeights.bold,
+    },
+    weekGrid: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      paddingVertical: Spacing.md,
+      gap: 8,
+      minWidth: '100%',
+    },
+    weekDayCard: {
+      width: 48,
+      aspectRatio: 0.85,
+      borderRadius: BorderRadius.lg,
+      backgroundColor: Colors.surface,
+      borderWidth: 2,
+      borderColor: isDark ? '#334155' : '#e2e8f0',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: Spacing.sm,
+      paddingHorizontal: 2,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.08,
+      shadowRadius: 4,
+      elevation: 2,
+    },
+    weekDayName: {
+      fontSize: 10,
+      color: Colors.textSecondary,
+      fontWeight: FontWeights.bold,
+      marginBottom: 4,
+      textTransform: 'uppercase',
+    },
+    weekDayNumber: {
+      fontSize: FontSizes.xl,
+      fontWeight: FontWeights.bold,
+      color: Colors.text,
+    },
+    weekEventBadge: {
+      position: 'absolute',
+      top: 2,
+      right: 2,
+      borderRadius: BorderRadius.full,
+      minWidth: 18,
+      height: 18,
+      paddingHorizontal: 4,
+      alignItems: 'center',
+      justifyContent: 'center',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.3,
+      shadowRadius: 2,
+      elevation: 3,
+    },
+    weekEventCount: {
+      fontSize: 10,
+      color: '#fff',
+      fontWeight: FontWeights.bold,
+    },
+    dayHeader: {
+      fontSize: FontSizes.md,
+      fontWeight: FontWeights.bold,
+      color: Colors.text,
+      marginTop: Spacing.md,
+      marginBottom: Spacing.sm,
+      paddingHorizontal: Spacing.md,
+      paddingVertical: Spacing.sm,
+      backgroundColor: isDark ? '#1e293b' : '#f8fafc',
+      borderRadius: BorderRadius.lg,
+      borderLeftWidth: 4,
+      borderLeftColor: '#a855f7',
+    },
+    emptySubtext: {
+      fontSize: FontSizes.sm,
+      color: Colors.textSecondary,
+      textAlign: 'center',
+    },
+    fabButton: {
+      position: 'absolute',
+      bottom: 20,
+      right: 20,
+      width: 64,
+      height: 64,
+      borderRadius: 32,
+      alignItems: 'center',
+      justifyContent: 'center',
+      elevation: 12,
+      shadowColor: '#a855f7',
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.4,
+      shadowRadius: 12,
     },
   });
