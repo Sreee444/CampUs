@@ -110,7 +110,18 @@ export const createNotification = async (
     .select()
     .single();
 
-  if (error) throw error;
+  if (error) {
+    const isKnownTriggerSchemaMismatch =
+      (error as any)?.code === '42703' &&
+      String((error as any)?.message || '').includes('record "new" has no field "message"');
+
+    if (isKnownTriggerSchemaMismatch) {
+      console.warn('Notification insert skipped due to backend trigger schema mismatch (NEW.message missing).');
+      return null as any;
+    }
+
+    throw error;
+  }
 
   // Send push notification
   await sendPushNotification(

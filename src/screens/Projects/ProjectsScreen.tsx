@@ -250,12 +250,17 @@ export default function ProjectsScreen() {
             </View>
           ) : (
             filteredProjects.map((project) => {
+              const hasMembersData = Array.isArray(project.members);
+              const members = hasMembersData ? project.members : [];
+              const creatorId = project.creator?.id || project.created_by;
+              const hasCreatorInMembers = !!creatorId && members.some((member) => member.id === creatorId);
+              const effectiveMembersCount = Math.max(project.members_count || 0, members.length) + (hasMembersData && creatorId && !hasCreatorInMembers ? 1 : 0);
+              const displayMembers = hasMembersData && (hasCreatorInMembers || !project.creator) ? members : (hasMembersData ? [project.creator, ...members] : []);
               const progressPercent = project.max_members
-                ? Math.min(100, Math.round(((project.members_count || 0) / project.max_members) * 100))
+                ? Math.min(100, Math.round((effectiveMembersCount / project.max_members) * 100))
                 : 0;
               const teamFillColor = getTeamFillColor(progressPercent);
               const projectStatus = getProjectStatusColor(project.status || 'planning');
-              const isTeamFull = project.max_members ? (project.members_count || 0) >= project.max_members : false;
 
               return (
                 <TouchableOpacity
@@ -370,7 +375,7 @@ export default function ProjectsScreen() {
                   <View style={styles.projectFooter}>
                     <View style={styles.teamInfo}>
                       <View style={styles.avatarStack}>
-                        {Array.isArray(project.members) && project.members.slice(0, 3).map((member, index) => (
+                        {displayMembers.slice(0, 3).map((member, index) => (
                           <View key={member.id || index} style={[styles.stackedAvatar, { marginLeft: index > 0 ? -12 : 0, zIndex: 3 - index }]}>
                             <UserAvatar
                               uri={member.avatar_url}
@@ -381,14 +386,14 @@ export default function ProjectsScreen() {
                             />
                           </View>
                         ))}
-                        {(project.members_count || 0) > 3 && (
+                        {effectiveMembersCount > 3 && (
                           <View style={[styles.moreMembersBadge, { marginLeft: -12, zIndex: 0 }]}>
-                            <Text style={styles.moreMembersText}>+{(project.members_count || 0) - 3}</Text>
+                            <Text style={styles.moreMembersText}>+{effectiveMembersCount - 3}</Text>
                           </View>
                         )}
                       </View>
                       <Text style={styles.teamText}>
-                        {project.members_count || 0}/{project.max_members || 0} members
+                        {effectiveMembersCount}/{project.max_members || 0} members
                       </Text>
                     </View>
                     <TouchableOpacity
