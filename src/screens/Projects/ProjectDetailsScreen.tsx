@@ -434,6 +434,7 @@ export default function ProjectDetailsScreen() {
     }
     
     if (isMember) return null;
+    if (isCreator) return null;
     
     // Check if project status allows joining
     const projectStatus = team?.status || 'planning';
