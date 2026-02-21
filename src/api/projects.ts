@@ -349,17 +349,36 @@ export const getProjectsByRole = async (
   const { data, error } = await query;
   if (error) throw error;
 
-  // Get members count for each team (same as getProjectTeams)
+  // Get members data for each team (same pattern as getProjectTeams)
   const teamsWithData = await Promise.all(
     (data || []).map(async (team: any) => {
-      const membersCount = await supabase
-        .from("project_team_members")
-        .select("id", { count: "exact", head: true })
-        .eq("team_id", team.id);
+      const [membersCount, members, isMember] = await Promise.all([
+        supabase
+          .from("project_team_members")
+          .select("id", { count: "exact", head: true })
+          .eq("team_id", team.id),
+        supabase
+          .from("project_team_members")
+          .select(`
+            *,
+            user:profiles!project_team_members_user_id_fkey(*)
+          `)
+          .eq("team_id", team.id),
+        userId
+          ? supabase
+            .from("project_team_members")
+            .select("id")
+            .eq("team_id", team.id)
+            .eq("user_id", userId)
+            .single()
+          : Promise.resolve({ data: null }),
+      ]);
 
       return {
         ...team,
         members_count: membersCount.count || 0,
+        members: members.data?.map((m: any) => m.user) || [],
+        is_member: !!isMember.data,
       };
     })
   );
@@ -380,17 +399,27 @@ export const getMentoredProjects = async (mentorId: string) => {
 
   if (error) throw error;
 
-  // Get members count for each team (same as getProjectTeams)
+  // Get members data for each team (same pattern as getProjectTeams)
   const teamsWithData = await Promise.all(
     (data || []).map(async (team: any) => {
-      const membersCount = await supabase
-        .from("project_team_members")
-        .select("id", { count: "exact", head: true })
-        .eq("team_id", team.id);
+      const [membersCount, members] = await Promise.all([
+        supabase
+          .from("project_team_members")
+          .select("id", { count: "exact", head: true })
+          .eq("team_id", team.id),
+        supabase
+          .from("project_team_members")
+          .select(`
+            *,
+            user:profiles!project_team_members_user_id_fkey(*)
+          `)
+          .eq("team_id", team.id),
+      ]);
 
       return {
         ...team,
         members_count: membersCount.count || 0,
+        members: members.data?.map((m: any) => m.user) || [],
       };
     })
   );
@@ -490,17 +519,80 @@ export const rejectJoinRequest = async (requestId: string) => {
   return true;
 };
 
-// Remove team member (for creator/leader only)
-export const removeTeamMember = async (teamId: string, userId: string) => {
-  // Don't allow removing the creator
-  const { data: team } = await supabase
+// Remove team member
+// - Creator/Admin can remove any non-creator, non-admin member
+// - A user can remove themselves (leave team), except if they are the creator
+export const removeTeamMember = async (
+  teamId: string,
+  userId: string,
+  actorId?: string
+) => {
+  // Fetch creator for permission checks
+  const { data: team, error: teamError } = await supabase
     .from("project_teams")
     .select("created_by")
     .eq("id", teamId)
     .single();
 
-  if (team?.created_by === userId) {
-    throw new Error("Cannot remove team creator");
+  if (teamError) throw teamError;
+
+  const creatorId = team?.created_by;
+
+  // Never allow removing the creator from team members
+  if (creatorId === userId) {
+    throw new Error("Project creator cannot be removed from the team");
+  }
+
+  let isSelfRemoval = false;
+  let isCreatorAction = false;
+  let isAdminAction = false;
+
+  if (actorId) {
+    isSelfRemoval = actorId === userId;
+    isCreatorAction = actorId === creatorId;
+
+    if (!isSelfRemoval && !isCreatorAction) {
+      const { data: actorProfile, error: actorProfileError } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", actorId)
+        .single();
+
+      if (actorProfileError) throw actorProfileError;
+
+      isAdminAction = actorProfile?.role === 'admin';
+    }
+
+    if (!isSelfRemoval && !isCreatorAction && !isAdminAction) {
+      throw new Error("Only the project creator or an admin can remove other members");
+    }
+
+    if (!isSelfRemoval) {
+      const { data: targetProfile, error: targetProfileError } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", userId)
+        .single();
+
+      if (targetProfileError) throw targetProfileError;
+
+      if (targetProfile?.role === 'admin') {
+        throw new Error("Admin members cannot be removed from the team");
+      }
+    }
+  }
+
+  const { data: existingMembership, error: membershipError } = await supabase
+    .from("project_team_members")
+    .select("id")
+    .eq("team_id", teamId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (membershipError) throw membershipError;
+
+  if (!existingMembership) {
+    throw new Error("Member is not part of this team");
   }
 
   const { error } = await supabase
@@ -510,6 +602,70 @@ export const removeTeamMember = async (teamId: string, userId: string) => {
     .eq("user_id", userId);
 
   if (error) throw error;
+
+  const { data: membershipAfterDelete, error: afterDeleteCheckError } = await supabase
+    .from("project_team_members")
+    .select("id")
+    .eq("team_id", teamId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (afterDeleteCheckError) throw afterDeleteCheckError;
+
+  if (membershipAfterDelete) {
+    // Fallback: use SECURITY DEFINER RPC for creator/admin actions when RLS blocks direct delete
+    if (actorId && !isSelfRemoval && (isCreatorAction || isAdminAction)) {
+      const { data: rpcData, error: rpcError } = await supabase.rpc("remove_team_member_secure", {
+        p_team_id: teamId,
+        p_user_id: userId,
+        p_actor_id: actorId,
+      });
+
+      if (!rpcError) {
+        if (rpcData && typeof rpcData === 'object' && 'success' in rpcData && (rpcData as any).success === false) {
+          throw new Error((rpcData as any).error || "Unable to remove member");
+        }
+
+        const { data: membershipAfterRpc, error: afterRpcCheckError } = await supabase
+          .from("project_team_members")
+          .select("id")
+          .eq("team_id", teamId)
+          .eq("user_id", userId)
+          .maybeSingle();
+
+        if (afterRpcCheckError) throw afterRpcCheckError;
+
+        if (!membershipAfterRpc) {
+          // Reopen recruiting if team has space
+          const { count } = await supabase
+            .from("project_team_members")
+            .select("id", { count: "exact", head: true })
+            .eq("team_id", teamId);
+
+          const { data: teamData } = await supabase
+            .from("project_teams")
+            .select("max_members")
+            .eq("id", teamId)
+            .single();
+
+          if (teamData?.max_members && count && count < teamData.max_members) {
+            await updateProjectTeam(teamId, { is_recruiting: true });
+          }
+
+          return true;
+        }
+      } else {
+        const rpcMessage = String((rpcError as any)?.message || '');
+        const rpcCode = String((rpcError as any)?.code || '');
+        const rpcMissing = rpcCode === 'PGRST202' || rpcCode === '42883' || /remove_team_member_secure/i.test(rpcMessage);
+        if (rpcMissing) {
+          throw new Error('Admin removal requires backend RPC remove_team_member_secure (SECURITY DEFINER).');
+        }
+      }
+    }
+
+    throw new Error("You do not have permission to remove this member");
+  }
 
   // Reopen recruiting if team has space
   const { count } = await supabase

@@ -22,6 +22,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import Toast from 'react-native-toast-message';
 import {
   getProjectTeam,
+  updateProjectTeam,
+  deleteProjectTeam,
   updateProjectStatus,
   sendJoinRequest,
   getUserJoinRequestStatus,
@@ -75,6 +77,14 @@ export default function ProjectDetailsScreen() {
   // Status modal
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+
+  // Edit project modal
+  const [showEditProjectModal, setShowEditProjectModal] = useState(false);
+  const [isSavingProject, setIsSavingProject] = useState(false);
+  const [editProjectName, setEditProjectName] = useState('');
+  const [editProjectDescription, setEditProjectDescription] = useState('');
+  const [editProjectCategory, setEditProjectCategory] = useState('');
+  const [editMaxMembers, setEditMaxMembers] = useState('');
   
   // Join request modal
   const [showJoinRequestModal, setShowJoinRequestModal] = useState(false);
@@ -91,13 +101,24 @@ export default function ProjectDetailsScreen() {
   
   // Join request confirmation
   const [showJoinConfirmation, setShowJoinConfirmation] = useState(false);
+  const [showDeleteProjectConfirmation, setShowDeleteProjectConfirmation] = useState(false);
 
   const creatorId = team?.creator?.id ?? team?.created_by;
   const isCreator = user?.id === creatorId;
   const isAdmin = profile?.role === 'admin';
   const canManageTeam = isCreator || isAdmin;
-  const isMember = !!team?.members?.some((member) => member.id === user?.id);
-  const isTeamFull = team?.max_members ? (team.members_count || 0) >= team.max_members : false;
+  const canManageMembers = canManageTeam;
+  const teamMembers = team?.members || [];
+  const hasCreatorInMembers = !!creatorId && teamMembers.some((member) => member.id === creatorId);
+  const effectiveMembersCount = Math.max(team?.members_count || 0, teamMembers.length) + (creatorId && !hasCreatorInMembers ? 1 : 0);
+  const safeMembersCount = Math.max(0, effectiveMembersCount);
+  const safeMaxMembers = Math.max(0, Number(team?.max_members) || 0);
+  const teamProgressPercent = safeMaxMembers > 0
+    ? Math.min(100, Math.round((safeMembersCount / safeMaxMembers) * 100))
+    : 0;
+  const displayMembers = hasCreatorInMembers || !team?.creator ? teamMembers : [team.creator, ...teamMembers];
+  const isMember = !!user?.id && (isCreator || teamMembers.some((member) => member.id === user?.id));
+  const isTeamFull = safeMaxMembers > 0 ? safeMembersCount >= safeMaxMembers : false;
 
   useEffect(() => {
     if (!teamId) {
@@ -117,12 +138,18 @@ export default function ProjectDetailsScreen() {
       setError('');
 
       // Check join request status if not a member
-      if (user?.id && !data.members?.some((m) => m.id === user.id)) {
+      if (user?.id) {
+        const userIsMember =
+          user.id === (data.created_by || data.creator?.id) ||
+          !!data.members?.some((m) => m.id === user.id);
+
+        if (!userIsMember) {
         try {
           const requestStatus = await getUserJoinRequestStatus(teamId, user.id);
           setJoinRequestStatus(requestStatus);
         } catch (err) {
           // No request found, that's okay
+        }
         }
       }
 
@@ -165,6 +192,94 @@ export default function ProjectDetailsScreen() {
       });
     } finally {
       setIsUpdatingStatus(false);
+    }
+  };
+
+  const handleOpenEditProject = () => {
+    if (!team || !canManageTeam) return;
+
+    setEditProjectName(team.name || '');
+    setEditProjectDescription(team.description || '');
+    setEditProjectCategory(team.category || '');
+    setEditMaxMembers(String(Math.max(safeMaxMembers, safeMembersCount, 2)));
+    setShowEditProjectModal(true);
+  };
+
+  const handleSaveProjectEdits = async () => {
+    if (!team || !canManageTeam) return;
+
+    const nextName = editProjectName.trim();
+    const nextDescription = editProjectDescription.trim();
+    const nextCategory = editProjectCategory.trim();
+    const parsedMaxMembers = Number.parseInt(editMaxMembers, 10);
+
+    if (!nextName) {
+      Toast.show({ type: 'error', text1: 'Validation Error', text2: 'Project name is required' });
+      return;
+    }
+
+    if (!nextDescription) {
+      Toast.show({ type: 'error', text1: 'Validation Error', text2: 'Project description is required' });
+      return;
+    }
+
+    if (!Number.isFinite(parsedMaxMembers) || parsedMaxMembers < safeMembersCount) {
+      Toast.show({
+        type: 'error',
+        text1: 'Validation Error',
+        text2: `Maximum members must be at least ${safeMembersCount}`,
+      });
+      return;
+    }
+
+    try {
+      setIsSavingProject(true);
+      await updateProjectTeam(teamId, {
+        name: nextName,
+        description: nextDescription,
+        category: nextCategory || null,
+        max_members: parsedMaxMembers,
+      } as any);
+
+      Toast.show({
+        type: 'success',
+        text1: 'Project Updated',
+        text2: 'Project details were updated successfully',
+      });
+
+      setShowEditProjectModal(false);
+      await loadTeamData();
+    } catch (err: any) {
+      console.error('Failed to update project', err);
+      Toast.show({
+        type: 'error',
+        text1: 'Update Failed',
+        text2: err?.message || 'Unable to update project details',
+      });
+    } finally {
+      setIsSavingProject(false);
+    }
+  };
+
+  const handleDeleteProject = async () => {
+    if (!team || !canManageTeam) return;
+
+    try {
+      await deleteProjectTeam(teamId);
+      setShowDeleteProjectConfirmation(false);
+      Toast.show({
+        type: 'success',
+        text1: 'Project Deleted',
+        text2: `${team.name} has been deleted`,
+      });
+      navigation.goBack();
+    } catch (err: any) {
+      console.error('Failed to delete project', err);
+      Toast.show({
+        type: 'error',
+        text1: 'Delete Failed',
+        text2: err?.message || 'Unable to delete project',
+      });
     }
   };
 
@@ -238,6 +353,8 @@ export default function ProjectDetailsScreen() {
   };
 
   const handleAcceptRequest = async (request: JoinRequest) => {
+    if (!isCreator) return;
+
     try {
       await acceptJoinRequest(request.id, teamId, request.user_id);
       
@@ -278,6 +395,8 @@ export default function ProjectDetailsScreen() {
   };
 
   const handleRejectRequest = async (request: JoinRequest) => {
+    if (!isCreator) return;
+
     try {
       await rejectJoinRequest(request.id);
       Toast.show({
@@ -297,11 +416,29 @@ export default function ProjectDetailsScreen() {
   };
 
   const handleRemoveMember = async () => {
-    if (!memberToRemove || !canManageTeam) return;
+    if (!memberToRemove || !canManageMembers || !user?.id) return;
+
+    if (memberToRemove.id === creatorId) {
+      Toast.show({
+        type: 'error',
+        text1: 'Remove Failed',
+        text2: 'Project creator cannot be removed from the team',
+      });
+      return;
+    }
+
+    if (memberToRemove.role === 'admin') {
+      Toast.show({
+        type: 'error',
+        text1: 'Remove Failed',
+        text2: 'Admin members cannot be removed from the team',
+      });
+      return;
+    }
 
     try {
       setIsRemovingMember(true);
-      await removeTeamMember(teamId, memberToRemove.id);
+      await removeTeamMember(teamId, memberToRemove.id, user.id);
       
       // Try to send notifications (don't fail if this fails)
       try {
@@ -349,7 +486,7 @@ export default function ProjectDetailsScreen() {
       setIsLeavingTeam(true);
       setShowLeaveConfirmation(false);
       
-      await removeTeamMember(teamId, user.id);
+      await removeTeamMember(teamId, user.id, user.id);
       
       // Try to send notifications (don't fail if this fails)
       try {
@@ -545,6 +682,24 @@ export default function ProjectDetailsScreen() {
                   <Text style={styles.changeStatusText}>Change Status</Text>
                 </TouchableOpacity>
               )}
+              {canManageTeam && (
+                <TouchableOpacity
+                  style={styles.editProjectButton}
+                  onPress={handleOpenEditProject}
+                >
+                  <MaterialIcons name="edit" size={18} color="#fb7185" />
+                  <Text style={styles.editProjectText}>Edit Project</Text>
+                </TouchableOpacity>
+              )}
+              {canManageTeam && (
+                <TouchableOpacity
+                  style={styles.deleteProjectButton}
+                  onPress={() => setShowDeleteProjectConfirmation(true)}
+                >
+                  <MaterialIcons name="delete-outline" size={18} color="#ef4444" />
+                  <Text style={styles.deleteProjectText}>Delete Project</Text>
+                </TouchableOpacity>
+              )}
               {renderJoinButton()}
             </View>
           </View>
@@ -553,12 +708,12 @@ export default function ProjectDetailsScreen() {
           <View style={styles.statsContainer}>
             <View style={styles.statCard}>
               <MaterialIcons name="group" size={24} color="#fb7185" />
-              <Text style={styles.statValue}>{team?.members_count || 0}</Text>
+              <Text style={styles.statValue}>{safeMembersCount}</Text>
               <Text style={styles.statLabel}>Members</Text>
             </View>
             <View style={styles.statCard}>
               <MaterialIcons name="person-add" size={24} color="#10b981" />
-              <Text style={styles.statValue}>{team?.max_members || 0}</Text>
+              <Text style={styles.statValue}>{safeMaxMembers}</Text>
               <Text style={styles.statLabel}>Capacity</Text>
             </View>
             {typeof team?.match_score === 'number' && (
@@ -571,20 +726,18 @@ export default function ProjectDetailsScreen() {
           </View>
 
           {/* Progress Bar */}
-          {team?.max_members && (
+          {safeMaxMembers > 0 && (
             <View style={styles.progressSection}>
               <View style={styles.progressHeader}>
                 <Text style={styles.progressLabel}>Team Progress</Text>
-                <Text style={styles.progressValue}>
-                  {Math.round(((team.members_count || 0) / team.max_members) * 100)}%
-                </Text>
+                <Text style={styles.progressValue}>{teamProgressPercent}%</Text>
               </View>
               <View style={styles.progressBar}>
                 <View
                   style={[
                     styles.progressFill,
                     {
-                      width: `${Math.min(100, ((team.members_count || 0) / team.max_members) * 100)}%`,
+                      width: `${teamProgressPercent}%`,
                     },
                   ]}
                 />
@@ -607,7 +760,7 @@ export default function ProjectDetailsScreen() {
           )}
 
           {/* Pending Join Requests (Creator Only) */}
-          {canManageTeam && pendingJoinRequests.length > 0 && (
+          {isCreator && pendingJoinRequests.length > 0 && (
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>Join Requests</Text>
@@ -688,10 +841,11 @@ export default function ProjectDetailsScreen() {
 
           {/* Team Members */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Team Members ({team?.members_count || 0})</Text>
+            <Text style={styles.sectionTitle}>Team Members ({safeMembersCount})</Text>
             <View style={styles.teamList}>
-              {(team?.members || []).map((member) => {
+              {displayMembers.map((member) => {
                 const isLeader = member.id === creatorId;
+                const isAdminMember = member.role === 'admin';
                 return (
                   <View key={member.id} style={styles.memberCard}>
                     <TouchableOpacity
@@ -719,7 +873,7 @@ export default function ProjectDetailsScreen() {
                         <Text style={styles.memberDept}>{member.department || member.role || 'Member'}</Text>
                       </View>
                     </TouchableOpacity>
-                    {canManageTeam && !isLeader && (
+                    {canManageMembers && !isLeader && !isAdminMember && (
                       <TouchableOpacity
                         style={styles.removeMemberButton}
                         onPress={() => setMemberToRemove(member)}
@@ -822,6 +976,75 @@ export default function ProjectDetailsScreen() {
         </TouchableOpacity>
       </Modal>
 
+      {/* Edit Project Modal */}
+      <Modal
+        visible={showEditProjectModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowEditProjectModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowEditProjectModal(false)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.joinModal}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>Edit Project</Text>
+            <Text style={styles.modalSubtitle}>Update basic project details</Text>
+            <Text style={styles.editFieldLabel}>Project Name</Text>
+            <TextInput
+              style={styles.joinInput}
+              placeholder="Project name"
+              placeholderTextColor={Colors.textSecondary}
+              value={editProjectName}
+              onChangeText={setEditProjectName}
+            />
+            <Text style={styles.editFieldLabel}>Description</Text>
+            <TextInput
+              style={[styles.joinInput, { minHeight: 96 }]}
+              placeholder="Project description"
+              placeholderTextColor={Colors.textSecondary}
+              multiline
+              value={editProjectDescription}
+              onChangeText={setEditProjectDescription}
+            />
+            <Text style={styles.editFieldLabel}>Category</Text>
+            <TextInput
+              style={styles.joinInput}
+              placeholder="Category"
+              placeholderTextColor={Colors.textSecondary}
+              value={editProjectCategory}
+              onChangeText={setEditProjectCategory}
+            />
+            <Text style={styles.editFieldLabel}>Max Members</Text>
+            <TextInput
+              style={styles.joinInput}
+              placeholder="Max members"
+              placeholderTextColor={Colors.textSecondary}
+              keyboardType="number-pad"
+              value={editMaxMembers}
+              onChangeText={setEditMaxMembers}
+            />
+            <View style={styles.joinModalActions}>
+              <TouchableOpacity
+                style={styles.joinModalCancel}
+                onPress={() => setShowEditProjectModal(false)}
+              >
+                <Text style={styles.joinModalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.joinModalSend}
+                onPress={handleSaveProjectEdits}
+                disabled={isSavingProject}
+              >
+                <Text style={styles.joinModalSendText}>{isSavingProject ? 'Saving...' : 'Save'}</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       {/* Remove Member Confirmation */}
       <ConfirmBottomSheet
         visible={!!memberToRemove}
@@ -862,6 +1085,19 @@ export default function ProjectDetailsScreen() {
         cancelText="Go Back"
         confirmColor="#fb7185"
         icon="send"
+      />
+
+      {/* Delete Project Confirmation */}
+      <ConfirmBottomSheet
+        visible={showDeleteProjectConfirmation}
+        onClose={() => setShowDeleteProjectConfirmation(false)}
+        onConfirm={handleDeleteProject}
+        title="Delete Project?"
+        message={`Are you sure you want to delete ${team?.name}? This action cannot be undone.`}
+        confirmText="Delete"
+        cancelText="Cancel"
+        confirmColor="#ef4444"
+        icon="delete-outline"
       />
     </SafeAreaView>
   );
@@ -991,6 +1227,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     },
     actionButtons: {
       flexDirection: 'row',
+      flexWrap: 'wrap',
       gap: Spacing.sm,
       marginTop: Spacing.sm,
     },
@@ -1009,6 +1246,38 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       fontSize: FontSizes.sm,
       fontWeight: FontWeights.semibold,
       color: '#fb7185',
+    },
+    editProjectButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderRadius: BorderRadius.lg,
+      borderWidth: 1.5,
+      borderColor: '#fb7185',
+      backgroundColor: 'transparent',
+    },
+    editProjectText: {
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.semibold,
+      color: '#fb7185',
+    },
+    deleteProjectButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderRadius: BorderRadius.lg,
+      borderWidth: 1.5,
+      borderColor: '#ef4444',
+      backgroundColor: 'transparent',
+    },
+    deleteProjectText: {
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.semibold,
+      color: '#ef4444',
     },
     joinButton: {
       flex: 1,
@@ -1374,6 +1643,13 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       color: Colors.textSecondary,
       marginBottom: Spacing.md,
       lineHeight: 20,
+    },
+    editFieldLabel: {
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.semibold,
+      color: Colors.text,
+      marginBottom: 6,
+      marginTop: 2,
     },
     statusOption: {
       flexDirection: 'row',
