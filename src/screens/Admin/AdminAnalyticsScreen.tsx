@@ -8,7 +8,6 @@ import {
   ScrollView,
   Platform,
   ActivityIndicator,
-  LineChart,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -242,7 +241,7 @@ const createStyles = (Colors: any, isDark: boolean) =>
       marginBottom: Spacing.sm,
     },
     metricValue: {
-      fontSize: FontSizes.XXL,
+      fontSize: FontSizes.xxl,
       fontWeight: FontWeights.bold,
       color: Colors.text,
     },

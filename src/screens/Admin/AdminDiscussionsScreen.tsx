@@ -140,13 +140,13 @@ export default function AdminDiscussionsScreen() {
           </Text>
           <View style={styles.badges}>
             {item.is_pinned && (
-              <View style={[styles.badge, { backgroundColor: '#f59e0b20' }]}>
+              <View style={[styles.topicBadge, { backgroundColor: '#f59e0b20' }]}>
                 <MaterialIcons name="push-pin" size={12} color="#f59e0b" />
                 <Text style={[styles.badgeText, { color: '#f59e0b' }]}>Pinned</Text>
               </View>
             )}
             {item.is_locked && (
-              <View style={[styles.badge, { backgroundColor: '#ef444420' }]}>
+              <View style={[styles.topicBadge, { backgroundColor: '#ef444420' }]}>
                 <MaterialIcons name="lock" size={12} color="#ef4444" />
                 <Text style={[styles.badgeText, { color: '#ef4444' }]}>Locked</Text>
               </View>
@@ -398,7 +398,7 @@ const createStyles = (Colors: any, isDark: boolean) =>
       gap: Spacing.sm,
       flexWrap: 'wrap',
     },
-    badge: {
+    topicBadge: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 4,

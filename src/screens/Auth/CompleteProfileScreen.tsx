@@ -395,7 +395,7 @@ export default function CompleteProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.creamSoft,
+    backgroundColor: Colors.softCream,
     ...(Platform.OS === 'web' && ({ height: '100vh', width: '100vw' } as any)),
   },
   gradient: {

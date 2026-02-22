@@ -226,8 +226,6 @@ export default function MentorHubScreen() {
                       role={mentor.role}
                       size={44}
                       showRing
-                      isClubCoordinator={mentor.is_club_coordinator}
-                      isVolunteer={mentor.is_volunteer}
                     />
                     <View style={{ flex: 1 }}>
                       <Text style={styles.cardTitle}>{mentor.full_name}</Text>
@@ -263,8 +261,6 @@ export default function MentorHubScreen() {
                           name={req.mentee?.full_name}
                           role={req.mentee?.role}
                           size={40}
-                          isClubCoordinator={req.mentee?.is_club_coordinator}
-                          isVolunteer={req.mentee?.is_volunteer}
                         />
                         <View style={{ flex: 1 }}>
                           <Text style={styles.cardTitle}>{req.mentee?.full_name}</Text>
@@ -303,8 +299,6 @@ export default function MentorHubScreen() {
                       name={req.mentor?.full_name}
                       role={req.mentor?.role}
                       size={40}
-                      isClubCoordinator={req.mentor?.is_club_coordinator}
-                      isVolunteer={req.mentor?.is_volunteer}
                     />
                     <View style={{ flex: 1 }}>
                       <Text style={styles.cardTitle}>{req.mentor?.full_name}</Text>
@@ -343,8 +337,6 @@ export default function MentorHubScreen() {
                       name={session.mentor?.full_name}
                       role={session.mentor?.role}
                       size={40}
-                      isClubCoordinator={session.mentor?.is_club_coordinator}
-                      isVolunteer={session.mentor?.is_volunteer}
                     />
                     <View style={{ flex: 1 }}>
                       <Text style={styles.cardTitle}>
