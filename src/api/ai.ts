@@ -212,6 +212,12 @@ export const predictEngagementRisk = async () => {
  */
 export const scoreDiscussionQuality = async (discussionId: string) => {
   try {
+    type DiscussionReplyRow = {
+      id: string;
+      content: string | null;
+      created_at: string;
+    };
+
     const { data: replies, error: repliesErr } = await supabase
       .from("discussion_replies")
       .select("id, content, created_at")
@@ -222,7 +228,9 @@ export const scoreDiscussionQuality = async (discussionId: string) => {
       return null;
     }
 
-    if (!replies || replies.length === 0) {
+    const typedReplies: DiscussionReplyRow[] = (replies || []) as DiscussionReplyRow[];
+
+    if (typedReplies.length === 0) {
       return {
         discussionId,
         qualityScore: 0,
@@ -234,21 +242,18 @@ export const scoreDiscussionQuality = async (discussionId: string) => {
     }
 
     // Calculate metrics
-    const replyCount = replies?.length || 0;
-    if (replyCount === 0) return null; // Defensive check
-
-    const totalEngagement = replyCount; // Use reply count as engagement metric
-    const avgEngagement = totalEngagement / replyCount;
-    const avgReplyLength = (replies as any[]).reduce((sum, r) => sum + (r.content?.length || 0), 0) / replyCount;
+    const totalEngagement = typedReplies.length; // Use reply count as engagement metric
+    const avgEngagement = totalEngagement / typedReplies.length;
+    const avgReplyLength = typedReplies.reduce((sum, r) => sum + (r.content?.length || 0), 0) / typedReplies.length;
 
     // Quality heuristics
     let qualityScore = 0;
     const recommendations: string[] = [];
 
     // More replies = better discussion
-    if (replies.length >= 10) qualityScore += 30;
-    else if (replies.length >= 5) qualityScore += 20;
-    else if (replies.length >= 3) qualityScore += 10;
+    if (typedReplies.length >= 10) qualityScore += 30;
+    else if (typedReplies.length >= 5) qualityScore += 20;
+    else if (typedReplies.length >= 3) qualityScore += 10;
 
     // Longer, more thoughtful replies
     if (avgReplyLength >= 150) qualityScore += 25;
@@ -264,11 +269,9 @@ export const scoreDiscussionQuality = async (discussionId: string) => {
     }
 
     // Activity recency
-    const newestReply = (replies as any[])[0]?.created_at;
-    const daysSinceActive = newestReply
-      ? (Date.now() - new Date(newestReply).getTime()) / (1000 * 60 * 60 * 24)
-      : 0;
-
+    const newestReply = new Date(typedReplies[0].created_at);
+    const daysSinceActive = (Date.now() - newestReply.getTime()) / (1000 * 60 * 60 * 24);
+    
     if (daysSinceActive <= 1) qualityScore += 15;
     else if (daysSinceActive <= 7) qualityScore += 10;
     else {
@@ -281,7 +284,7 @@ export const scoreDiscussionQuality = async (discussionId: string) => {
     const positiveWords = ['great', 'excellent', 'good', 'helpful', 'amazing', 'love', 'perfect'];
     const negativeWords = ['bad', 'poor', 'terrible', 'hate', 'awful', 'waste', 'disappointed'];
 
-    (replies as any[]).forEach((reply) => {
+    typedReplies.forEach((reply) => {
       const content = (reply.content || '').toLowerCase();
       positiveWords.forEach(word => {
         if (content.includes(word)) positiveCount++;
@@ -306,7 +309,7 @@ export const scoreDiscussionQuality = async (discussionId: string) => {
     return {
       discussionId,
       qualityScore: Math.min(qualityScore, 100),
-      replyCount: replies.length,
+      replyCount: typedReplies.length,
       avgEngagement: Math.round(avgEngagement * 10) / 10,
       avgReplyLength: Math.round(avgReplyLength),
       sentiment,
@@ -324,11 +327,13 @@ export const scoreDiscussionQuality = async (discussionId: string) => {
  * Suggests moderation actions based on content analysis
  */
 export const getContentModerationSuggestion = async (content: string) => {
+  type SeverityLevel = 'low' | 'medium' | 'high';
+
   // Flagged words/patterns that might need review
-  const flaggedPatterns = [
-    { pattern: /hate|violence|kill/gi, severity: 'high' as const, reason: 'Violent content' },
-    { pattern: /spam|follow my|click here|buy now/gi, severity: 'medium' as const, reason: 'Possible spam' },
-    { pattern: /contact me privately|dm for/gi, severity: 'medium' as const, reason: 'Potential phishing/recruitment' },
+  const flaggedPatterns: Array<{ pattern: RegExp; severity: SeverityLevel; reason: string }> = [
+    { pattern: /hate|violence|kill/gi, severity: 'high', reason: 'Violent content' },
+    { pattern: /spam|follow my|click here|buy now/gi, severity: 'medium', reason: 'Possible spam' },
+    { pattern: /contact me privately|dm for/gi, severity: 'medium', reason: 'Potential phishing/recruitment' },
   ];
 
   let suggestions: {
@@ -337,8 +342,8 @@ export const getContentModerationSuggestion = async (content: string) => {
     reasons: string[];
   } = {
     approve: true,
-    severity: 'low',
-    reasons: [],
+    severity: 'low' as SeverityLevel,
+    reasons: [] as string[],
   };
 
   for (const { pattern, severity, reason } of flaggedPatterns) {

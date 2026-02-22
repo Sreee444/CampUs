@@ -32,7 +32,7 @@ const commonExpertise = [
   'DevOps',
 ];
 
-type MentorProfileScreenNavigationProp = StackNavigationProp<RootStackParamList, 'MentorProfile'>;
+type MentorProfileScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Settings'>;
 
 export default function MentorProfileScreen() {
   const navigation = useNavigation<MentorProfileScreenNavigationProp>();

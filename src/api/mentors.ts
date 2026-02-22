@@ -81,16 +81,18 @@ export const updateMentorRequestStatus = async (
   requestId: string,
   status: 'accepted' | 'rejected' | 'completed'
 ) => {
-  const { data, error } = await supabase
-    .from('mentor_requests')
-    .update({ status } as any)
+  const mentorRequestsQuery = supabase.from('mentor_requests') as any;
+
+  const { data, error } = await mentorRequestsQuery
+    .update({ status })
     .eq('id', requestId)
     .select()
     .single();
 
   if (error) throw error;
+  if (!data) throw new Error('Mentor request not found after update.');
 
-  if (data?.mentee_id && status !== 'completed') {
+  if (data.mentee_id && status !== 'completed') {
     await createNotification({
       user_id: data.mentee_id,
       type: 'mentor_request',
@@ -159,13 +161,15 @@ export const updateMentorshipSessionStatus = async (
   sessionId: string,
   status: 'scheduled' | 'completed' | 'cancelled'
 ) => {
-  const { data, error } = await supabase
-    .from('mentorship_sessions')
-    .update({ status } as any)
+  const mentorshipSessionsQuery = supabase.from('mentorship_sessions') as any;
+
+  const { data, error } = await mentorshipSessionsQuery
+    .update({ status })
     .eq('id', sessionId)
     .select()
     .single();
 
   if (error) throw error;
+  if (!data) throw new Error('Mentorship session not found after update.');
   return data as MentorshipSession;
 };

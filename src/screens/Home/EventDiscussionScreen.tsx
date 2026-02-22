@@ -31,7 +31,7 @@ export default function EventDiscussionScreen() {
   const navigation = useNavigation<EventDiscussionScreenNavigationProp>();
   const route = useRoute<EventDiscussionScreenRouteProp>();
   const { isDark } = useTheme();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const Colors = getColors(isDark);
   const styles = createStyles(Colors, isDark);
 
@@ -151,7 +151,7 @@ export default function EventDiscussionScreen() {
     if (!user?.id || !event) return;
 
     // Check if user has permission to delete
-    const isAdmin = user.role === 'admin';
+    const isAdmin = profile?.role === 'admin';
     const isEventCreator = event.created_by === user.id;
 
     if (!isAdmin && !isEventCreator) {
@@ -313,9 +313,9 @@ export default function EventDiscussionScreen() {
                   </Text>
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  {(user?.role === 'admin' || event?.created_by === user?.id) && (
+                  {(profile?.role === 'admin' || event?.created_by === user?.id) && (
                     <TouchableOpacity onPress={() => handleDeleteDiscussion(preEventDiscussion.id, 'pre')}>
-                      <MaterialIcons name="delete" size={20} color={Colors.danger || '#ef4444'} />
+                      <MaterialIcons name="delete" size={20} color={Colors.error || '#ef4444'} />
                     </TouchableOpacity>
                   )}
                   <MaterialIcons name="chevron-right" size={24} color={Colors.textSecondary} />
@@ -381,9 +381,9 @@ export default function EventDiscussionScreen() {
                   </Text>
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  {(user?.role === 'admin' || event?.created_by === user?.id) && (
+                  {(profile?.role === 'admin' || event?.created_by === user?.id) && (
                     <TouchableOpacity onPress={() => handleDeleteDiscussion(postEventDiscussion.id, 'post')}>
-                      <MaterialIcons name="delete" size={20} color={Colors.danger || '#ef4444'} />
+                      <MaterialIcons name="delete" size={20} color={Colors.error || '#ef4444'} />
                     </TouchableOpacity>
                   )}
                   <MaterialIcons name="chevron-right" size={24} color={Colors.textSecondary} />
@@ -639,7 +639,7 @@ const createStyles = (Colors: any, isDark: boolean) =>
     helperText: {
       fontSize: FontSizes.xs,
       color: Colors.textSecondary,
-      margintop: Spacing.sm,
+      marginTop: Spacing.sm,
       fontStyle: 'italic',
     },
     modalOverlay: {
