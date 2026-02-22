@@ -63,14 +63,16 @@ export default function ChatConversationScreen() {
     }
 
     loadMessages();
-    checkSupervisionCapability();
+    checkSupervisionCapability().catch(err => console.error('Error in supervision check:', err));
 
     const channel = subscribeToMessages(conversationId, (newMessage) => {
       setMessages((prev) => [...prev, newMessage]);
       setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100);
     });
 
-    return () => channel?.unsubscribe?.();
+    return () => {
+      channel?.unsubscribe?.();
+    };
   }, [conversationId, user?.id, isAIChat]);
 
   const checkSupervisionCapability = async () => {
@@ -87,12 +89,13 @@ export default function ChatConversationScreen() {
       setCanSupervise(canSuperviseThisChat);
 
       if (canSuperviseThisChat) {
-        const supervisor = await getConversationSupervisor(conversationId);
-        setIsSupervisor(supervisor?.supervisor?.id === user.id);
-
-        if (supervisor?.supervisor?.id === user.id) {
-          const stats = await getConversationSupervisionStats(conversationId);
-          setSupervisionStats(stats);
+        const result = await getConversationSupervisor(conversationId);
+        if (result && result.supervisor) {
+          setIsSupervisor((result.supervisor as any)?.id === user.id);
+          if ((result.supervisor as any)?.id === user.id) {
+            const stats = await getConversationSupervisionStats(conversationId);
+            setSupervisionStats(stats);
+          }
         }
       }
     } catch (error) {
