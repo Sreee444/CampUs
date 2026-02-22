@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
   Text,
@@ -9,6 +10,8 @@ import {
   Alert,
   Image,
   Dimensions,
+  Switch,
+  ActivityIndicator,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -23,6 +26,9 @@ import Toast from 'react-native-toast-message';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ConfirmBottomSheet } from '../../components/ConfirmBottomSheet';
 import { createNotification } from '../../api/notifications';
+import StatusBadge from '../../components/StatusBadge';
+import { computeTeamStatus } from '../../utils/teamUtils';
+import { loadMyTeamState, cancelJoinRequest } from '../../utils/teamActions';
 
 type EventDetailsScreenNavigationProp = StackNavigationProp<RootStackParamList, 'EventDetails'>;
 type EventDetailsScreenRouteProp = RouteProp<RootStackParamList, 'EventDetails'>;
@@ -48,6 +54,13 @@ interface EventDetails {
     full_name: string;
     avatar_url?: string;
   };
+  // Team fields
+  participation_type?: 'individual' | 'team';
+  max_team_size?: number;
+  min_team_size?: number;
+  eligible_departments?: string[];
+  eligible_years?: number[];
+  eligibility_type?: string;
 }
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -63,6 +76,10 @@ export default function EventDetailsScreen() {
   const [showUnregisterConfirmation, setShowUnregisterConfirmation] = useState(false);
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  // Team zone state
+  // Centralized team state
+  const [teamState, setTeamState] = useState<any>(null);
+  const [isCheckingTeam, setIsCheckingTeam] = useState(true);
 
   const { eventId } = route.params;
 
@@ -92,7 +109,7 @@ export default function EventDetailsScreen() {
           .select('id')
           .eq('event_id', eventId)
           .eq('user_id', user.id)
-          .eq('status', 'registered')
+          .neq('status', 'cancelled')
           .maybeSingle();
 
         if (!regError && registrationData) {
@@ -100,12 +117,11 @@ export default function EventDetailsScreen() {
         }
       }
 
-      // Get participant count
+      // Get participant count — no status filter for accurate total
       const { count: participantCount } = await supabase
         .from('event_registrations')
-        .select('id', { count: 'exact', head: true })
-        .eq('event_id', eventId)
-        .eq('status', 'registered');
+        .select('*', { count: 'exact', head: true })
+        .eq('event_id', eventId);
 
       console.log('Event registration check:', { isRegistered, userId: user?.id, eventId });
 
@@ -126,9 +142,37 @@ export default function EventDetailsScreen() {
     }
   }, [eventId, user?.id]);
 
+  // Load team status — ONLY from event_registrations with status='registered'
+  // This is the single source of truth. Always called via useFocusEffect.
+  // Centralized loader for team state
+  const loadTeamStatus = useCallback(async () => {
+    if (!user?.id) return;
+    try {
+      setIsCheckingTeam(true);
+      const state = await loadMyTeamState(eventId, user.id);
+      setTeamState(state);
+    } catch (err) {
+      console.error('Team status error:', err);
+      setTeamState(null);
+    } finally {
+      setIsCheckingTeam(false);
+    }
+  }, [eventId, user?.id]);
+
+  // Initial event load (once)
   useEffect(() => {
     loadEventDetails();
   }, [loadEventDetails]);
+
+  // useFocusEffect is the SOLE trigger for team status:
+  // runs on mount AND every time the user navigates back to this screen.
+  useFocusEffect(
+    useCallback(() => {
+      if (user?.id) {
+        loadTeamStatus();
+      }
+    }, [eventId, user?.id, loadTeamStatus])
+  );
 
   // Notify all admin users
   const notifyAdmins = async (title: string, message: string) => {
@@ -168,20 +212,21 @@ export default function EventDetailsScreen() {
       setIsRegistering(true);
 
       if (event.is_registered) {
-        // Unregister
+        // UNREGISTER — UPDATE status to 'cancelled', never DELETE the row
         setShowUnregisterConfirmation(false);
-        console.log('Attempting to unregister:', { eventId, userId: user.id });
 
-        const { error, count } = await supabase
+        const { error } = await (supabase as any)
           .from('event_registrations')
-          .delete()
+          .update({
+            status: 'cancelled',
+            team_id: null,
+            looking_for_team: false,
+          })
           .eq('event_id', eventId)
           .eq('user_id', user.id);
 
-        console.log('Delete result:', { error, count });
-
         if (error) {
-          console.error('Delete error:', error);
+          console.error('Unregister error:', error);
           throw error;
         }
 
@@ -209,21 +254,26 @@ export default function EventDetailsScreen() {
           registrations_count: Math.max(0, (event.registrations_count || 1) - 1),
         });
 
+        // Refetch team state so UI reflects the cleared team association
+        loadTeamStatus();
+
         Toast.show({
           type: 'success',
           text1: 'Unregistered successfully',
         });
       } else {
-        // Register
+        // REGISTER — always include status='registered'
         setShowRegisterConfirmation(false);
-        
-        const { error } = await supabase
+
+        const { error } = await (supabase as any)
           .from('event_registrations')
-          .insert({
+          .upsert({
             event_id: eventId,
             user_id: user.id,
             status: 'registered',
-          } as any);
+            team_id: null,
+            looking_for_team: false,
+          }, { onConflict: 'event_id,user_id' });
 
         if (error) throw error;
 
@@ -251,9 +301,12 @@ export default function EventDetailsScreen() {
           registrations_count: (event.registrations_count || 0) + 1,
         });
 
+        // Reload team status after registering
+        await loadTeamStatus();
+
         // Schedule reminder notification
         try {
-          const notificationId = await scheduleEventReminder(
+          await scheduleEventReminder(
             eventId,
             event.title,
             event.start_date,
@@ -287,6 +340,22 @@ export default function EventDetailsScreen() {
       await loadEventDetails();
     } finally {
       setIsRegistering(false);
+    }
+  };
+
+  // For team events: just navigate to the target screen
+  const handleRegisterAndNavigate = (
+    destination: 'CreateTeam' | 'JoinTeam'
+  ) => {
+    if (!event) return;
+
+    if (destination === 'CreateTeam') {
+      navigation.navigate('CreateTeam', {
+        eventId,
+        maxTeamSize: (event as any)?.max_team_size ?? 5,
+      });
+    } else {
+      navigation.navigate('JoinTeam', { eventId });
     }
   };
 
@@ -428,7 +497,7 @@ export default function EventDetailsScreen() {
             <MaterialIcons name="share" size={24} color="#000" />
           </TouchableOpacity>
           {canManageEvent && (
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[styles.headerButton, styles.deleteButton]}
               onPress={() => setShowDeleteConfirmation(true)}
             >
@@ -547,7 +616,7 @@ export default function EventDetailsScreen() {
             )}
           </View>
 
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.detailRow}
             onPress={() => {
               if (event.created_by) {
@@ -632,21 +701,53 @@ export default function EventDetailsScreen() {
           <View style={styles.registrationSection}>
             {event.is_registered ? (
               // Already Registered - Show Unregister Button
-              <TouchableOpacity
-                style={[
-                  styles.unregisterButton,
-                  isRegistering && styles.registerButtonDisabled,
-                ]}
-                onPress={() => setShowUnregisterConfirmation(true)}
-                disabled={isRegistering}
-              >
-                <MaterialIcons name="cancel" size={20} color="#ef4444" />
-                <Text style={styles.unregisterButtonText}>
-                  {isRegistering ? 'Unregistering...' : 'Unregister'}
-                </Text>
-              </TouchableOpacity>
+              <View>
+                {(event as any)?.participation_type !== 'team' && (
+                  <View style={styles.individualNotice}>
+                    <MaterialIcons name="person" size={16} color="#6b7280" />
+                    <Text style={styles.individualNoticeText}>This is an individual event.</Text>
+                  </View>
+                )}
+                <TouchableOpacity
+                  style={[
+                    styles.unregisterButton,
+                    isRegistering && styles.registerButtonDisabled,
+                  ]}
+                  onPress={() => setShowUnregisterConfirmation(true)}
+                  disabled={isRegistering}
+                >
+                  <MaterialIcons name="cancel" size={20} color="#ef4444" />
+                  <Text style={styles.unregisterButtonText}>
+                    {isRegistering ? 'Unregistering...' : 'Unregister'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : (event as any)?.participation_type === 'team' ? (
+              // Team Event — user NOT registered yet: show Register button only
+              // Create/Join team buttons are inside the Team Participation Zone (below), shown only after registration
+              <View style={styles.teamRegisterContainer}>
+                <View style={styles.teamRegisterInfoBanner}>
+                  <MaterialIcons name="info-outline" size={16} color="#6366f1" />
+                  <Text style={styles.teamRegisterInfoText}>
+                    Register first to access team features (create or join a team).
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={[
+                    styles.registerButton,
+                    isRegistering && styles.registerButtonDisabled,
+                  ]}
+                  onPress={() => setShowRegisterConfirmation(true)}
+                  disabled={isRegistering}
+                >
+                  <MaterialIcons name="event-available" size={20} color="#fff" />
+                  <Text style={styles.registerButtonText}>
+                    {isRegistering ? 'Registering...' : 'Register for Event'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             ) : (
-              // Not Registered - Show Register Button
+              // Individual Event - Show Register Button
               <TouchableOpacity
                 style={[
                   styles.registerButton,
@@ -673,6 +774,116 @@ export default function EventDetailsScreen() {
             <Text style={styles.closedText}>Registration Closed</Text>
           </View>
         )}
+
+        {/* Team Participation Zone — only when registered + team event */}
+        {(event as any)?.participation_type === 'team' && event.is_registered && (() => {
+          const deadlinePassed = new Date(event.registration_deadline) <= now;
+          const isInTeam = !!teamState?.isInTeam;
+          const hasSentJoinRequest = !!teamState?.hasSentJoinRequest;
+          const hasReceivedInvite = !!teamState?.hasReceivedInvite;
+
+          // Only show loader if checking
+          if (isCheckingTeam) {
+            return (
+              <View style={{ alignItems: 'center', paddingVertical: 16 }}>
+                <ActivityIndicator size="small" color="#6366f1" />
+              </View>
+            );
+          }
+
+          return (
+            <View style={styles.teamZoneContainer}>
+              {/* PRIMARY ACTION: Based on current state */}
+              {isInTeam ? (
+                <TouchableOpacity
+                  style={styles.teamZoneActionButton}
+                  onPress={() => navigation.navigate('TeamDetails', { teamId: teamState?.teamId, eventId })}
+                >
+                  <MaterialIcons name="group" size={18} color="#6366f1" />
+                  <Text style={styles.teamZoneActionText}>View My Team</Text>
+                  <MaterialIcons name="chevron-right" size={18} color="#6366f1" />
+                </TouchableOpacity>
+              ) : hasSentJoinRequest ? (
+                <View style={styles.teamZoneActions}>
+                  <TouchableOpacity
+                    style={[styles.teamZonePrimaryButton, { backgroundColor: '#fef3c7' }]}
+                    onPress={async () => {
+                      if (teamState?.sentJoinRequest?.team_id) {
+                        try {
+                          await cancelJoinRequest({ teamId: teamState.sentJoinRequest.team_id, requesterId: user.id, eventId });
+                          Toast.show({ type: 'info', text1: 'Request cancelled' });
+                          await loadTeamStatus();
+                        } catch (err: any) {
+                          Toast.show({ type: 'error', text1: 'Failed to cancel', text2: err.message });
+                        }
+                      }
+                    }}
+                  >
+                    <MaterialIcons name="hourglass-empty" size={18} color="#f59e0b" />
+                    <Text style={[styles.teamZonePrimaryText, { color: '#d97706' }]}>Cancel Request</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : !deadlinePassed ? (
+                <View style={styles.teamZoneActions}>
+                  <TouchableOpacity
+                    style={[styles.teamZonePrimaryButton]}
+                    onPress={() => navigation.navigate('CreateTeam', { eventId, maxTeamSize: (event as any)?.max_team_size ?? 5 })}
+                  >
+                    <MaterialIcons name="add" size={18} color="#fff" />
+                    <Text style={styles.teamZonePrimaryText}>Create Team</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+
+              {/* SECONDARY ACTIONS: Always show if deadline not passed (or already in team/have requests) */}
+              {!deadlinePassed && (
+                <View style={[styles.teamZoneSecondaryActions, { marginTop: 8 }]}>
+                  {hasReceivedInvite && (
+                    <TouchableOpacity
+                      style={[styles.teamZoneSecondaryButton, { backgroundColor: '#eef2ff', borderColor: '#6366f1' }]}
+                      onPress={() => navigation.navigate('TeamInvitations')}
+                    >
+                      <MaterialIcons name="mail" size={18} color="#6366f1" />
+                      <Text style={[styles.teamZoneSecondaryText, { color: '#6366f1', fontWeight: 'bold' }]}>View Invites!</Text>
+                    </TouchableOpacity>
+                  )}
+                  <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                    <TouchableOpacity
+                      style={styles.teamZoneSecondaryButton}
+                      onPress={() => navigation.navigate('BrowseTeams', { eventId })}
+                    >
+                      <MaterialIcons name="search" size={18} color="#6b7280" />
+                      <Text style={styles.teamZoneSecondaryText}>Browse Teams</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.teamZoneSecondaryButton}
+                      onPress={() => navigation.navigate('TeamConnect', { eventId, requiredRoles: (event as any)?.required_roles ?? [] })}
+                    >
+                      <MaterialIcons name="person-search" size={18} color="#6b7280" />
+                      <Text style={styles.teamZoneSecondaryText}>Find Teammates</Text>
+                    </TouchableOpacity>
+                    {!isInTeam && !hasSentJoinRequest && (
+                      <TouchableOpacity
+                        style={styles.teamZoneSecondaryButton}
+                        onPress={() => navigation.navigate('JoinTeam', { eventId })}
+                      >
+                        <MaterialIcons name="login" size={18} color="#6b7280" />
+                        <Text style={styles.teamZoneSecondaryText}>Join via Code</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+              )}
+
+              {deadlinePassed && !isInTeam && !hasSentJoinRequest && (
+                <View style={styles.deadlineBanner}>
+                  <MaterialIcons name="lock" size={14} color="#ef4444" />
+                  <Text style={styles.deadlineBannerText}>Registration deadline passed — team changes locked</Text>
+                </View>
+              )}
+            </View>
+          );
+        })()}
 
         {/* Event Collaboration/Discussion Section */}
         <View style={styles.collaborationSection}>
@@ -1086,5 +1297,127 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: '#fb7185',
+  },
+  // Team zone styles
+  individualNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#f3f4f6',
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 10,
+  },
+  individualNoticeText: {
+    fontSize: 14,
+    color: '#4b5563',
+    fontWeight: '500',
+  },
+  teamRegisterContainer: {
+    gap: 10,
+  },
+  teamRegisterInfoBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#eef2ff',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: '#c7d2fe',
+  },
+  teamRegisterInfoText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#4f46e5',
+    fontWeight: '500',
+  },
+  teamZoneContainer: {
+    marginVertical: 16,
+    padding: 16,
+    backgroundColor: '#f9fafb',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#f0f0f0',
+  },
+  teamZoneActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  teamZoneSecondaryActions: {
+    gap: 8,
+  },
+  teamZonePrimaryButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#6366f1',
+    paddingVertical: 12,
+    borderRadius: 12,
+    gap: 8,
+    elevation: 2,
+    shadowColor: '#6366f1',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+  },
+  teamZonePrimaryText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 15,
+  },
+  teamZoneSecondaryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    gap: 6,
+  },
+  teamZoneSecondaryText: {
+    color: '#374151',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  teamZoneActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#6366f1',
+    marginBottom: 12,
+  },
+  teamZoneActionText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#6366f1',
+    flex: 1,
+    marginLeft: 12,
+  },
+  deadlineBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#fef2f2',
+    borderWidth: 1,
+    borderColor: '#fecaca',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 12,
+  },
+  deadlineBannerText: {
+    fontSize: 13,
+    color: '#dc2626',
+    fontWeight: '500',
+    flex: 1,
   },
 });

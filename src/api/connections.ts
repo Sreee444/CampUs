@@ -116,14 +116,14 @@ export const sendConnectionRequest = async (
     if (existingConnection) {
       // Determine the relationship direction
       const isSender = existingConnection.requester_id === currentUserId;
-      const statusMessage = 
+      const statusMessage =
         existingConnection.status === 'pending'
-          ? isSender 
+          ? isSender
             ? 'You already have a pending request to this user'
             : 'This user has already sent you a connection request'
           : existingConnection.status === 'accepted'
-          ? 'You are already connected with this user'
-          : 'A connection request was previously rejected';
+            ? 'You are already connected with this user'
+            : 'A connection request was previously rejected';
 
       return {
         success: false,
@@ -155,13 +155,13 @@ export const sendConnectionRequest = async (
         .single();
 
       const senderName = (senderProfile as any)?.full_name || 'Someone';
-      
-      // @ts-ignore - Notification type extension
+
       await createNotification({
         user_id: userId,
         type: 'connection_request',
         title: 'New Connection Request',
         body: `${senderName} sent you a connection request`,
+        is_read: false,
       });
     } catch (notifError) {
       console.error('Failed to create notification:', notifError);
@@ -257,13 +257,13 @@ export const acceptConnectionRequest = async (
 
       const acceptorName = (acceptorProfile as any)?.full_name || 'Someone';
       const connection = data as Connection;
-      
-      // @ts-ignore - Notification type extension
+
       await createNotification({
         user_id: connection.requester_id,
-        type: 'connection_accepted',
+        type: 'connection_request',
         title: 'Connection Request Accepted',
         body: `${acceptorName} accepted your connection request`,
+        is_read: false,
       });
     } catch (notifError) {
       console.error('Failed to create notification:', notifError);

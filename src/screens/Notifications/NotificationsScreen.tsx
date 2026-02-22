@@ -30,6 +30,8 @@ import {
     rejectConnectionRequest
 } from '../../api/connections';
 import { Notification, ConnectionWithProfile } from '../../types/database';
+import { supabase } from '../../api/supabase';
+import { acceptInvite, rejectInvite, markNotifRead } from '../../utils/teamActions';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 
@@ -49,6 +51,7 @@ export default function NotificationsScreen() {
     const [requests, setRequests] = useState<ConnectionWithProfile[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const [processingInviteId, setProcessingInviteId] = useState<string | null>(null);
     const [toast, setToast] = useState<{ visible: boolean; message: string; type: 'success' | 'info' | 'warning' | 'error' }>({ visible: false, message: '', type: 'success' });
 
     const loadData = async () => {
@@ -106,7 +109,6 @@ export default function NotificationsScreen() {
                 }
                 break;
             case 'message':
-                // Navigate to chat (needs conversation ID logic)
                 navigation.navigate('MainTabs', { screen: 'Chat' });
                 break;
             case 'team':
@@ -114,8 +116,60 @@ export default function NotificationsScreen() {
                     navigation.navigate('ProjectDetails', { teamId: notification.related_id });
                 }
                 break;
+            case 'team_invite':
+                // Navigate to the dedciated invitations screen
+                navigation.navigate('TeamInvitations');
+                break;
             default:
                 break;
+        }
+    };
+
+    // ── Inline team invite actions ──────────────────────────────────────────
+    const handleAcceptInvite = async (notif: Notification) => {
+        if (!user?.id) return;
+        try {
+            setProcessingInviteId(notif.id);
+            const meta = (notif as any).metadata ?? {};
+            const requestId = meta.team_request_id;
+            const teamId = meta.team_id ?? notif.related_id;
+            const eventId = meta.event_id;
+
+            if (!requestId || !teamId || !eventId) {
+                // Fallback: just navigate to the invitations screen
+                navigation.navigate('TeamInvitations');
+                return;
+            }
+
+            await acceptInvite({ requestId, teamId, eventId, userId: user.id });
+            await markNotifRead(notif.id);
+
+            // Remove from list + show success
+            setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
+            setToast({ visible: true, message: '🎉 You joined the team!', type: 'success' });
+        } catch (err: any) {
+            setToast({ visible: true, message: err.message ?? 'Failed to accept', type: 'error' });
+        } finally {
+            setProcessingInviteId(null);
+        }
+    };
+
+    const handleDeclineInvite = async (notif: Notification) => {
+        try {
+            setProcessingInviteId(notif.id);
+            const meta = (notif as any).metadata ?? {};
+            const requestId = meta.team_request_id;
+
+            if (requestId) {
+                await rejectInvite(requestId);
+            }
+            await markNotifRead(notif.id);
+            setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
+            setToast({ visible: true, message: 'Invitation declined', type: 'info' });
+        } catch (err: any) {
+            setToast({ visible: true, message: err.message ?? 'Failed to decline', type: 'error' });
+        } finally {
+            setProcessingInviteId(null);
         }
     };
 
@@ -162,39 +216,91 @@ export default function NotificationsScreen() {
         }
     };
 
-    const renderNotificationItem = (item: Notification) => (
-        <TouchableOpacity
-            key={item.id}
-            style={[styles.notificationItem, !item.is_read && styles.unreadItem]}
-            onPress={() => handleNotificationPress(item)}
-        >
-            <View style={styles.iconContainer}>
-                {item.type === 'event' && <MaterialIcons name="event" size={24} color="#e11d48" />}
-                {item.type === 'message' && <MaterialIcons name="chat-bubble" size={24} color="#3b82f6" />}
-                {item.type === 'connection_request' && <MaterialIcons name="person-add" size={24} color="#f59e0b" />}
-                {item.type === 'connection_accepted' && <MaterialIcons name="person" size={24} color="#10b981" />}
-                {item.type === 'team' && <MaterialIcons name="group" size={24} color="#8b5cf6" />}
-                {!['event', 'message', 'connection_request', 'connection_accepted', 'team'].includes(item.type) && (
-                    <MaterialIcons name="notifications" size={24} color={Colors.primary} />
-                )}
-            </View>
-            <View style={styles.contentContainer}>
-                <Text style={[styles.notificationTitle, !item.is_read && styles.unreadText]}>
-                    {item.title}
-                </Text>
-                <Text style={styles.notificationBody} numberOfLines={2}>
-                    {item.body}
-                </Text>
-                <Text style={styles.timeText}>{dayjs(item.created_at).fromNow()}</Text>
-            </View>
+    const renderNotificationItem = (item: Notification) => {
+        const isTeamInvite = item.type === 'team_invite';
+        const isProcessing = processingInviteId === item.id;
+
+        return (
             <TouchableOpacity
-                style={styles.deleteButton}
-                onPress={() => handleDeleteNotification(item.id)}
+                key={item.id}
+                style={[
+                    styles.notificationItem,
+                    !item.is_read && styles.unreadItem,
+                    isTeamInvite && styles.teamInviteItem,
+                ]}
+                onPress={() => handleNotificationPress(item)}
+                activeOpacity={isTeamInvite ? 1 : 0.7}
             >
-                <MaterialIcons name="close" size={16} color={Colors.textSecondary} />
+                {/* Icon */}
+                <View style={[styles.iconContainer, isTeamInvite && styles.teamInviteIcon]}>
+                    {item.type === 'event' && <MaterialIcons name="event" size={24} color="#e11d48" />}
+                    {item.type === 'message' && <MaterialIcons name="chat-bubble" size={24} color="#3b82f6" />}
+                    {item.type === 'connection_request' && <MaterialIcons name="person-add" size={24} color="#f59e0b" />}
+                    {item.type === 'connection_accepted' && <MaterialIcons name="person" size={24} color="#10b981" />}
+                    {item.type === 'team' && <MaterialIcons name="group" size={24} color="#8b5cf6" />}
+                    {item.type === 'team_invite' && <MaterialIcons name="mail" size={24} color="#6366f1" />}
+                    {!['event', 'message', 'connection_request', 'connection_accepted', 'team', 'team_invite'].includes(item.type) && (
+                        <MaterialIcons name="notifications" size={24} color={Colors.primary} />
+                    )}
+                </View>
+
+                {/* Content */}
+                <View style={styles.contentContainer}>
+                    <Text style={[styles.notificationTitle, !item.is_read && styles.unreadText]}>
+                        {item.title}
+                    </Text>
+                    <Text style={styles.notificationBody} numberOfLines={2}>
+                        {(item as any).body}
+                    </Text>
+                    <Text style={styles.timeText}>{dayjs(item.created_at).fromNow()}</Text>
+
+                    {/* ── Inline Accept / Decline for team invites ── */}
+                    {isTeamInvite && (
+                        <View style={styles.inviteActions}>
+                            <TouchableOpacity
+                                style={[styles.inviteAcceptBtn, isProcessing && styles.inviteBtnDisabled]}
+                                onPress={() => handleAcceptInvite(item)}
+                                disabled={isProcessing}
+                            >
+                                {isProcessing ? (
+                                    <ActivityIndicator size="small" color="#fff" />
+                                ) : (
+                                    <>
+                                        <MaterialIcons name="check" size={14} color="#fff" />
+                                        <Text style={styles.inviteAcceptText}>Accept</Text>
+                                    </>
+                                )}
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.inviteDeclineBtn, isProcessing && styles.inviteBtnDisabled]}
+                                onPress={() => handleDeclineInvite(item)}
+                                disabled={isProcessing}
+                            >
+                                {isProcessing ? (
+                                    <ActivityIndicator size="small" color="#9ca3af" />
+                                ) : (
+                                    <>
+                                        <MaterialIcons name="close" size={14} color="#ef4444" />
+                                        <Text style={styles.inviteDeclineText}>Decline</Text>
+                                    </>
+                                )}
+                            </TouchableOpacity>
+                        </View>
+                    )}
+                </View>
+
+                {/* Delete (hidden for team_invite — handled by decline) */}
+                {!isTeamInvite && (
+                    <TouchableOpacity
+                        style={styles.deleteButton}
+                        onPress={() => handleDeleteNotification(item.id)}
+                    >
+                        <MaterialIcons name="close" size={16} color={Colors.textSecondary} />
+                    </TouchableOpacity>
+                )}
             </TouchableOpacity>
-        </TouchableOpacity>
-    );
+        );
+    };
 
     const renderRequestItem = (item: ConnectionWithProfile) => (
         <View key={item.id} style={styles.requestItem}>
@@ -253,15 +359,15 @@ export default function NotificationsScreen() {
         <SafeAreaView style={styles.container}>
             {/* Header */}
             <View style={styles.header}>
-                <TouchableOpacity 
-                    onPress={() => navigation.goBack()} 
+                <TouchableOpacity
+                    onPress={() => navigation.goBack()}
                     style={styles.backButton}
                     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 >
                     <MaterialIcons name="arrow-back-ios" size={20} color={Colors.text} />
                 </TouchableOpacity>
                 <Text style={styles.headerTitle}>Notifications</Text>
-                <TouchableOpacity 
+                <TouchableOpacity
                     onPress={() => navigation.navigate('NotificationSettings')}
                     style={styles.settingsButton}
                     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
@@ -576,5 +682,53 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
         fontSize: FontSizes.md,
         color: Colors.textSecondary,
         fontWeight: FontWeights.medium,
+    },
+    // ── Team invite inline actions ─────────────────────────────────────────
+    teamInviteItem: {
+        borderLeftWidth: 3,
+        borderLeftColor: '#6366f1',
+    },
+    teamInviteIcon: {
+        backgroundColor: '#eef2ff',
+    },
+    inviteActions: {
+        flexDirection: 'row',
+        gap: 8,
+        marginTop: 10,
+    },
+    inviteAcceptBtn: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 5,
+        backgroundColor: '#6366f1',
+        paddingVertical: 8,
+        borderRadius: BorderRadius.md,
+    },
+    inviteAcceptText: {
+        color: '#fff',
+        fontSize: FontSizes.sm,
+        fontWeight: FontWeights.semibold,
+    },
+    inviteDeclineBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 5,
+        paddingVertical: 8,
+        paddingHorizontal: 14,
+        borderRadius: BorderRadius.md,
+        borderWidth: 1,
+        borderColor: '#fca5a5',
+        backgroundColor: '#fee2e2',
+    },
+    inviteDeclineText: {
+        color: '#ef4444',
+        fontSize: FontSizes.sm,
+        fontWeight: FontWeights.semibold,
+    },
+    inviteBtnDisabled: {
+        opacity: 0.6,
     },
 });

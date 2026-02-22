@@ -102,6 +102,14 @@ export type Event = {
   created_at: string;
   updated_at: string;
 
+  // Team participation fields
+  participation_type?: 'individual' | 'team';
+  min_team_size?: number;
+  max_team_size?: number;
+  eligibility_type?: string;
+  eligible_departments?: string[];
+  eligible_years?: number[];
+
   // Joined
   creator?: Profile;
   registrations_count?: number;
@@ -114,6 +122,8 @@ export type EventRegistration = {
   user_id: string;
   registered_at: string;
   status: 'registered' | 'attended' | 'cancelled';
+  team_id?: string | null;
+  looking_for_team?: boolean;
 };
 
 export type EventDiscussion = {
@@ -320,6 +330,54 @@ export type ProjectTeamMember = {
 
   // Joined
   user?: Profile;
+};
+
+// Event Team Types (for team-based event participation)
+export type EventTeam = {
+  id: string;
+  name: string;
+  event_id: string;
+  team_code: string;
+  leader_id?: string;
+  required_roles?: string[];
+  max_members: number;
+  status?: 'forming' | 'complete' | 'locked';
+  is_looking_for_members?: boolean;
+  is_recruiting?: boolean;
+  created_by?: string;
+  created_at?: string;
+  updated_at?: string;
+
+  // Joined
+  members?: Profile[];
+  members_count?: number;
+  leader?: Profile;
+};
+
+export type EventTeamMember = {
+  id: string;
+  team_id: string;
+  user_id: string;
+  role: 'leader' | 'member';
+  joined_at?: string;
+
+  // Joined
+  user?: Profile;
+};
+
+export type TeamJoinRequest = {
+  id: string;
+  team_id: string;
+  event_id: string;
+  user_id: string;
+  status: 'pending' | 'accepted' | 'rejected';
+  request_count?: number;
+  created_at?: string;
+  updated_at?: string;
+
+  // Joined
+  user?: Profile;
+  team?: EventTeam;
 };
 
 export type SuggestionType = 'collaborator' | 'mentor' | 'team' | 'event';

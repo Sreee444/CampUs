@@ -6,16 +6,40 @@ import Toast from 'react-native-toast-message';
 import RootNavigator from './src/navigation/RootNavigator';
 import { ThemeProvider, useTheme } from './src/contexts/ThemeContext';
 import { AuthProvider } from './src/contexts/AuthContext';
+import { useAuth } from './src/contexts/AuthContext';
 import { StyleSheet } from 'react-native';
-import { registerForPushNotifications } from './src/api/notifications';
+import { registerForPushNotifications, subscribeToNotifications } from './src/api/notifications';
 
 function AppContent() {
   const { isDark } = useTheme();
+  const { user } = useAuth();
 
   useEffect(() => {
     // Register for push notifications
     registerForPushNotifications().catch(console.error);
   }, []);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    // Global listener for new notifications
+    const channel = subscribeToNotifications(user.id, (notification: any) => {
+      console.log('Real-time notification received:', notification);
+      Toast.show({
+        type: 'info',
+        text1: notification.title || 'New Notification',
+        text2: notification.body || notification.message || 'Tap to view',
+        onPress: () => {
+          // Navigation logic could go here if needed
+          Toast.hide();
+        }
+      });
+    });
+
+    return () => {
+      channel.unsubscribe();
+    };
+  }, [user?.id]);
 
   return (
     <>

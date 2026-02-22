@@ -99,36 +99,45 @@ export const getNotifications = async (
   return data as Notification[];
 };
 
-// Create notification
-export const createNotification = async (
-  notificationData: Partial<Notification>
-) => {
-  // @ts-ignore - Supabase type inference issue
+// Create notification — uses ONLY actual table columns.
+// No "message" column exists; use title + body.
+export const createNotification = async (notificationData: {
+  user_id: string;
+  title: string;
+  body: string;
+  type: string;
+  related_id?: string | null;
+  related_type?: string | null;
+  action_url?: string | null;
+  image_url?: string | null;
+  is_read?: boolean;
+}) => {
   const { data, error } = await supabase
     .from("notifications")
-    .insert(notificationData as any)
+    .insert({
+      user_id: notificationData.user_id,
+      title: notificationData.title,
+      body: notificationData.body,
+      type: notificationData.type,
+      related_id: notificationData.related_id ?? null,
+      related_type: notificationData.related_type ?? null,
+      action_url: notificationData.action_url ?? null,
+      image_url: notificationData.image_url ?? null,
+      is_read: notificationData.is_read ?? false,
+    } as any)
     .select()
     .single();
 
-  if (error) {
-    const isKnownTriggerSchemaMismatch =
-      (error as any)?.code === '42703' &&
-      String((error as any)?.message || '').includes('record "new" has no field "message"');
+  if (error) throw error;
 
-    if (isKnownTriggerSchemaMismatch) {
-      console.warn('Notification insert skipped due to backend trigger schema mismatch (NEW.message missing).');
-      return null as any;
-    }
-
-    throw error;
+  // ALWAYS attempt to send push notification if we have the necessary data
+  if (notificationData.user_id && notificationData.title && notificationData.body) {
+    await sendPushNotification(
+      notificationData.user_id,
+      notificationData.title,
+      notificationData.body
+    );
   }
-
-  // Send push notification
-  await sendPushNotification(
-    notificationData.user_id!,
-    notificationData.title!,
-    notificationData.body!
-  );
 
   return data as Notification;
 };
@@ -206,14 +215,12 @@ export const subscribeToNotifications = (
     .subscribe();
 };
 
-// Send push notification (would need backend function in production)
+// Send push notification (local for now; use backend in production)
 const sendPushNotification = async (
   userId: string,
   title: string,
   body: string
 ) => {
-  // This would typically be handled by a backend service
-  // For now, we just send local notifications
   try {
     await ExpoNotifications.scheduleNotificationAsync({
       content: {
@@ -228,7 +235,11 @@ const sendPushNotification = async (
   }
 };
 
-// Notification helpers for different events
+// ── Notification helpers ────────────────────────────────────────────────────
+// Canonical type values:
+//   team_invite | team_join_request | team_join_accepted | team_join_rejected
+//   event_registration | project_request | mentor_request | connection_request
+
 export const sendEventNotification = async (
   userId: string,
   eventTitle: string,
@@ -236,11 +247,12 @@ export const sendEventNotification = async (
 ) => {
   return createNotification({
     user_id: userId,
-    type: "event",
-    title: "New Event",
-    body: `Check out: ${eventTitle}`,
+    type: "event_registration",
+    title: "Event Registration Confirmed",
+    body: `You are registered for ${eventTitle}`,
     related_id: eventId,
     related_type: "event",
+    is_read: false,
   });
 };
 
@@ -251,11 +263,12 @@ export const sendMessageNotification = async (
 ) => {
   return createNotification({
     user_id: userId,
-    type: "message",
+    type: "connection_request",
     title: `New message from ${senderName}`,
     body: "Tap to view",
     related_id: conversationId,
     related_type: "conversation",
+    is_read: false,
   });
 };
 
@@ -266,26 +279,77 @@ export const sendConnectionRequestNotification = async (
 ) => {
   return createNotification({
     user_id: userId,
-    type: "connection",
+    type: "connection_request",
     title: "New Connection Request",
     body: `${requesterName} wants to connect with you`,
     related_id: requesterId,
     related_type: "connection",
+    is_read: false,
   });
 };
 
 export const sendTeamInviteNotification = async (
+  userId: string,
+  leaderName: string,
+  teamName: string,
+  teamId: string
+) => {
+  return createNotification({
+    user_id: userId,
+    type: "team_invite",
+    title: "Team Invitation",
+    body: `${leaderName} invited you to join ${teamName}`,
+    related_id: teamId,
+    related_type: "team",
+    is_read: false,
+  });
+};
+
+export const sendTeamJoinRequestNotification = async (
+  userId: string,
+  requesterName: string,
+  teamId: string
+) => {
+  return createNotification({
+    user_id: userId,
+    type: "team_join_request",
+    title: "New Join Request",
+    body: `${requesterName} requested to join your team`,
+    related_id: teamId,
+    related_type: "team",
+    is_read: false,
+  });
+};
+
+export const sendTeamJoinAcceptedNotification = async (
   userId: string,
   teamName: string,
   teamId: string
 ) => {
   return createNotification({
     user_id: userId,
-    type: "team",
-    title: "Team Invitation",
-    body: `You've been invited to join ${teamName}`,
+    type: "team_join_accepted",
+    title: "Join Request Accepted",
+    body: `You are now part of ${teamName}`,
     related_id: teamId,
     related_type: "team",
+    is_read: false,
+  });
+};
+
+export const sendTeamJoinRejectedNotification = async (
+  userId: string,
+  teamName: string,
+  teamId: string
+) => {
+  return createNotification({
+    user_id: userId,
+    type: "team_join_rejected",
+    title: "Join Request Rejected",
+    body: `Your request to join ${teamName} was declined`,
+    related_id: teamId,
+    related_type: "team",
+    is_read: false,
   });
 };
 
@@ -295,6 +359,6 @@ export const scheduleLocalNotification = async (
 ) => {
   await ExpoNotifications.scheduleNotificationAsync({
     content: { title, body },
-      trigger: { seconds: 3, type: ExpoNotifications.SchedulableTriggerInputTypes.TIME_INTERVAL },
+    trigger: { seconds: 3, type: ExpoNotifications.SchedulableTriggerInputTypes.TIME_INTERVAL },
   });
 };

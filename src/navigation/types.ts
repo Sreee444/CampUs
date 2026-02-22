@@ -39,6 +39,11 @@ export type RootStackParamList = {
   PublicProfile: { userId: string };
   AllUsers: undefined;
   Discussions: undefined;
+  CreateTeam: { eventId: string; maxTeamSize: number };
+  TeamDetails: { teamId: string; eventId: string };
+  JoinTeam: { eventId: string };
+  TeamConnect: { eventId: string; requiredRoles: string[]; teamId?: string };
+  BrowseTeams: { eventId: string };
   AdminDashboard: undefined;
   AdminUsers: undefined;
   AdminModeration: undefined;

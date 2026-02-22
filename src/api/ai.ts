@@ -119,13 +119,13 @@ export const moderateText = async (text: string) => {
 export const getCollaboratorSuggestions = async (userId: string) => {
   try {
     const recommendations = await recommendTeams(userId);
-    
+
     if (recommendations.length === 0) {
       return [];
     }
 
     const userIds = recommendations.map(r => r.userId);
-    
+
     const { data: users, error } = await supabase
       .from("profiles")
       .select("id, full_name, department, skills, interests, avatar_url, role")
@@ -234,9 +234,12 @@ export const scoreDiscussionQuality = async (discussionId: string) => {
     }
 
     // Calculate metrics
-    const totalEngagement = replies.length; // Use reply count as engagement metric
-    const avgEngagement = totalEngagement / replies.length;
-    const avgReplyLength = replies.reduce((sum, r) => sum + (r.content?.length || 0), 0) / replies.length;
+    const replyCount = replies?.length || 0;
+    if (replyCount === 0) return null; // Defensive check
+
+    const totalEngagement = replyCount; // Use reply count as engagement metric
+    const avgEngagement = totalEngagement / replyCount;
+    const avgReplyLength = (replies as any[]).reduce((sum, r) => sum + (r.content?.length || 0), 0) / replyCount;
 
     // Quality heuristics
     let qualityScore = 0;
@@ -261,9 +264,11 @@ export const scoreDiscussionQuality = async (discussionId: string) => {
     }
 
     // Activity recency
-    const newestReply = new Date(replies[0].created_at);
-    const daysSinceActive = (Date.now() - newestReply.getTime()) / (1000 * 60 * 60 * 24);
-    
+    const newestReply = (replies as any[])[0]?.created_at;
+    const daysSinceActive = newestReply
+      ? (Date.now() - new Date(newestReply).getTime()) / (1000 * 60 * 60 * 24)
+      : 0;
+
     if (daysSinceActive <= 1) qualityScore += 15;
     else if (daysSinceActive <= 7) qualityScore += 10;
     else {
@@ -276,7 +281,7 @@ export const scoreDiscussionQuality = async (discussionId: string) => {
     const positiveWords = ['great', 'excellent', 'good', 'helpful', 'amazing', 'love', 'perfect'];
     const negativeWords = ['bad', 'poor', 'terrible', 'hate', 'awful', 'waste', 'disappointed'];
 
-    replies.forEach((reply) => {
+    (replies as any[]).forEach((reply) => {
       const content = (reply.content || '').toLowerCase();
       positiveWords.forEach(word => {
         if (content.includes(word)) positiveCount++;
@@ -321,15 +326,19 @@ export const scoreDiscussionQuality = async (discussionId: string) => {
 export const getContentModerationSuggestion = async (content: string) => {
   // Flagged words/patterns that might need review
   const flaggedPatterns = [
-    { pattern: /hate|violence|kill/gi, severity: 'high', reason: 'Violent content' },
-    { pattern: /spam|follow my|click here|buy now/gi, severity: 'medium', reason: 'Possible spam' },
-    { pattern: /contact me privately|dm for/gi, severity: 'medium', reason: 'Potential phishing/recruitment' },
+    { pattern: /hate|violence|kill/gi, severity: 'high' as const, reason: 'Violent content' },
+    { pattern: /spam|follow my|click here|buy now/gi, severity: 'medium' as const, reason: 'Possible spam' },
+    { pattern: /contact me privately|dm for/gi, severity: 'medium' as const, reason: 'Potential phishing/recruitment' },
   ];
 
-  let suggestions = {
+  let suggestions: {
+    approve: boolean;
+    severity: 'low' | 'medium' | 'high';
+    reasons: string[];
+  } = {
     approve: true,
-    severity: 'low' as 'low' | 'medium' | 'high',
-    reasons: [] as string[],
+    severity: 'low',
+    reasons: [],
   };
 
   for (const { pattern, severity, reason } of flaggedPatterns) {

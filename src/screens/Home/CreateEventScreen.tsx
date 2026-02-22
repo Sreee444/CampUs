@@ -21,6 +21,7 @@ import Toast from 'react-native-toast-message';
 import { RootStackParamList } from '../../navigation/types';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../api/supabase';
+import { DEPARTMENTS, YEARS } from '../../utils/teamUtils';
 
 type CreateEventScreenNavigationProp = StackNavigationProp<RootStackParamList, 'CreateEvent'>;
 
@@ -36,6 +37,14 @@ interface EventFormData {
   max_participants: number;
   registration_deadline: Date;
   banner_image: string;
+  // Team fields
+  participation_type: 'individual' | 'team';
+  min_team_size: number;
+  max_team_size: number;
+  // Eligibility fields
+  eligibility_type: 'college' | 'department' | 'year' | 'department_year';
+  eligible_departments: string[];
+  eligible_years: number[];
 }
 
 const EVENT_TYPES = [
@@ -56,13 +65,19 @@ export default function CreateEventScreen() {
     description: '',
     event_type: '',
     start_date: new Date(),
-    end_date: new Date(Date.now() + 2 * 60 * 60 * 1000), // 2 hours later
+    end_date: new Date(Date.now() + 2 * 60 * 60 * 1000),
     venue: '',
     is_online: false,
     meeting_link: '',
     max_participants: 50,
-    registration_deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 1 week later
+    registration_deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     banner_image: '',
+    participation_type: 'individual',
+    min_team_size: 2,
+    max_team_size: 5,
+    eligibility_type: 'college',
+    eligible_departments: [],
+    eligible_years: [],
   });
   const [showPicker, setShowPicker] = useState<{
     field: keyof EventFormData | null;
@@ -253,8 +268,20 @@ export default function CreateEventScreen() {
           registration_deadline: formData.registration_deadline.toISOString(),
           banner_image: formData.banner_image.trim() || null,
           created_by: user.id,
-          organizers: [user.id], // User as main organizer
-        } as any) // Type assertion until database types are generated
+          organizers: [user.id],
+          // Team fields
+          participation_type: formData.participation_type,
+          min_team_size: formData.participation_type === 'team' ? formData.min_team_size : null,
+          max_team_size: formData.participation_type === 'team' ? formData.max_team_size : null,
+          // Eligibility fields
+          eligibility_type: formData.eligibility_type,
+          eligible_departments: ['department', 'department_year'].includes(formData.eligibility_type)
+            ? formData.eligible_departments
+            : null,
+          eligible_years: ['year', 'department_year'].includes(formData.eligibility_type)
+            ? formData.eligible_years
+            : null,
+        } as any)
         .select()
         .single();
 
@@ -364,33 +391,152 @@ export default function CreateEventScreen() {
           </View>
         </View>
 
+        {/* Participation Type */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Participation</Text>
+          <View style={styles.toggleContainer}>
+            <TouchableOpacity
+              style={[styles.toggleButton, formData.participation_type === 'individual' && styles.toggleButtonActive]}
+              onPress={() => setFormData(prev => ({ ...prev, participation_type: 'individual' }))}
+            >
+              <Text style={[styles.toggleText, formData.participation_type === 'individual' && styles.toggleTextActive]}>👤 Individual</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.toggleButton, formData.participation_type === 'team' && styles.toggleButtonActive]}
+              onPress={() => setFormData(prev => ({ ...prev, participation_type: 'team' }))}
+            >
+              <Text style={[styles.toggleText, formData.participation_type === 'team' && styles.toggleTextActive]}>👥 Team</Text>
+            </TouchableOpacity>
+          </View>
+
+          {formData.participation_type === 'team' && (
+            <View style={{ marginTop: 16, gap: 12 }}>
+              <Text style={styles.label}>Min Team Size</Text>
+              <View style={styles.participantsContainer}>
+                <TouchableOpacity style={styles.participantsButton} onPress={() => setFormData(prev => ({ ...prev, min_team_size: Math.max(2, prev.min_team_size - 1) }))}>
+                  <MaterialIcons name="remove" size={20} color="#374151" />
+                </TouchableOpacity>
+                <Text style={styles.participantsCount}>{formData.min_team_size}</Text>
+                <TouchableOpacity style={styles.participantsButton} onPress={() => setFormData(prev => ({ ...prev, min_team_size: Math.min(prev.max_team_size, prev.min_team_size + 1) }))}>
+                  <MaterialIcons name="add" size={20} color="#374151" />
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.label}>Max Team Size</Text>
+              <View style={styles.participantsContainer}>
+                <TouchableOpacity style={styles.participantsButton} onPress={() => setFormData(prev => ({ ...prev, max_team_size: Math.max(prev.min_team_size, prev.max_team_size - 1) }))}>
+                  <MaterialIcons name="remove" size={20} color="#374151" />
+                </TouchableOpacity>
+                <Text style={styles.participantsCount}>{formData.max_team_size}</Text>
+                <TouchableOpacity style={styles.participantsButton} onPress={() => setFormData(prev => ({ ...prev, max_team_size: prev.max_team_size + 1 }))}>
+                  <MaterialIcons name="add" size={20} color="#374151" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+        </View>
+
+        {/* Eligibility */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Eligibility</Text>
+          <Text style={styles.label}>Who can participate?</Text>
+          <View style={styles.typeContainer}>
+            {[
+              { id: 'college', label: '🏫 College-wide' },
+              { id: 'department', label: '🏛️ Department' },
+              { id: 'year', label: '📅 Year' },
+              { id: 'department_year', label: '🎯 Dept + Year' },
+            ].map((opt) => {
+              const isSel = formData.eligibility_type === opt.id;
+              return (
+                <TouchableOpacity
+                  key={opt.id}
+                  style={[styles.typeChip, isSel && styles.typeChipSelected]}
+                  onPress={() => setFormData(prev => ({ ...prev, eligibility_type: opt.id as any, eligible_departments: [], eligible_years: [] }))}
+                >
+                  <Text style={[styles.typeText, isSel && styles.typeTextSelected]}>{opt.label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {['department', 'department_year'].includes(formData.eligibility_type) && (
+            <>
+              <Text style={[styles.label, { marginTop: 14 }]}>Select Departments</Text>
+              <View style={styles.typeContainer}>
+                {DEPARTMENTS.map((dept) => {
+                  const isSel = formData.eligible_departments.includes(dept);
+                  return (
+                    <TouchableOpacity
+                      key={dept}
+                      style={[styles.typeChip, isSel && styles.typeChipSelected]}
+                      onPress={() => setFormData(prev => ({
+                        ...prev,
+                        eligible_departments: isSel
+                          ? prev.eligible_departments.filter(d => d !== dept)
+                          : [...prev.eligible_departments, dept],
+                      }))}
+                    >
+                      <Text style={[styles.typeText, isSel && styles.typeTextSelected]}>{dept}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </>
+          )}
+
+          {['year', 'department_year'].includes(formData.eligibility_type) && (
+            <>
+              <Text style={[styles.label, { marginTop: 14 }]}>Select Years</Text>
+              <View style={styles.typeContainer}>
+                {YEARS.map((yr) => {
+                  const isSel = formData.eligible_years.includes(yr);
+                  return (
+                    <TouchableOpacity
+                      key={yr}
+                      style={[styles.typeChip, isSel && styles.typeChipSelected]}
+                      onPress={() => setFormData(prev => ({
+                        ...prev,
+                        eligible_years: isSel
+                          ? prev.eligible_years.filter(y => y !== yr)
+                          : [...prev.eligible_years, yr],
+                      }))}
+                    >
+                      <Text style={[styles.typeText, isSel && styles.typeTextSelected]}>Year {yr}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </>
+          )}
+        </View>
+
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Schedule</Text>
 
           <Text style={styles.label}>Start Date & Time *</Text>
           <View style={styles.dateTimeRow}>
-            <TouchableOpacity 
-              style={[styles.dateButton, { flex: 1 }]} 
+            <TouchableOpacity
+              style={[styles.dateButton, { flex: 1 }]}
               onPress={() => showDatePicker('start_date', 'date')}
             >
               <MaterialIcons name="event" size={20} color="#a855f7" />
               <Text style={styles.dateText}>
-                {formData.start_date.toLocaleDateString('en-US', { 
-                  month: 'short', 
+                {formData.start_date.toLocaleDateString('en-US', {
+                  month: 'short',
                   day: 'numeric',
-                  year: 'numeric' 
+                  year: 'numeric'
                 })}
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.dateButton, { flex: 1 }]} 
+            <TouchableOpacity
+              style={[styles.dateButton, { flex: 1 }]}
               onPress={() => showDatePicker('start_date', 'time')}
             >
               <MaterialIcons name="access-time" size={20} color="#10b981" />
               <Text style={styles.dateText}>
-                {formData.start_date.toLocaleTimeString('en-US', { 
-                  hour: '2-digit', 
-                  minute: '2-digit' 
+                {formData.start_date.toLocaleTimeString('en-US', {
+                  hour: '2-digit',
+                  minute: '2-digit'
                 })}
               </Text>
             </TouchableOpacity>
@@ -398,28 +544,28 @@ export default function CreateEventScreen() {
 
           <Text style={styles.label}>End Date & Time *</Text>
           <View style={styles.dateTimeRow}>
-            <TouchableOpacity 
-              style={[styles.dateButton, { flex: 1 }]} 
+            <TouchableOpacity
+              style={[styles.dateButton, { flex: 1 }]}
               onPress={() => showDatePicker('end_date', 'date')}
             >
               <MaterialIcons name="event" size={20} color="#a855f7" />
               <Text style={styles.dateText}>
-                {formData.end_date.toLocaleDateString('en-US', { 
-                  month: 'short', 
+                {formData.end_date.toLocaleDateString('en-US', {
+                  month: 'short',
                   day: 'numeric',
-                  year: 'numeric' 
+                  year: 'numeric'
                 })}
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.dateButton, { flex: 1 }]} 
+            <TouchableOpacity
+              style={[styles.dateButton, { flex: 1 }]}
               onPress={() => showDatePicker('end_date', 'time')}
             >
               <MaterialIcons name="access-time" size={20} color="#10b981" />
               <Text style={styles.dateText}>
-                {formData.end_date.toLocaleTimeString('en-US', { 
-                  hour: '2-digit', 
-                  minute: '2-digit' 
+                {formData.end_date.toLocaleTimeString('en-US', {
+                  hour: '2-digit',
+                  minute: '2-digit'
                 })}
               </Text>
             </TouchableOpacity>
@@ -433,10 +579,10 @@ export default function CreateEventScreen() {
             >
               <MaterialIcons name="event" size={20} color="#a855f7" />
               <Text style={styles.dateText}>
-                {formData.registration_deadline.toLocaleDateString('en-US', { 
-                  month: 'short', 
+                {formData.registration_deadline.toLocaleDateString('en-US', {
+                  month: 'short',
                   day: 'numeric',
-                  year: 'numeric' 
+                  year: 'numeric'
                 })}
               </Text>
             </TouchableOpacity>
@@ -446,9 +592,9 @@ export default function CreateEventScreen() {
             >
               <MaterialIcons name="access-time" size={20} color="#10b981" />
               <Text style={styles.dateText}>
-                {formData.registration_deadline.toLocaleTimeString('en-US', { 
-                  hour: '2-digit', 
-                  minute: '2-digit' 
+                {formData.registration_deadline.toLocaleTimeString('en-US', {
+                  hour: '2-digit',
+                  minute: '2-digit'
                 })}
               </Text>
             </TouchableOpacity>
@@ -584,7 +730,7 @@ export default function CreateEventScreen() {
                   textColor="#000"
                   style={styles.iosPicker}
                 />
-                
+
                 {/* Quick Select Buttons */}
                 <View style={styles.quickSelectContainer}>
                   <Text style={styles.quickSelectTitle}>Quick Select</Text>

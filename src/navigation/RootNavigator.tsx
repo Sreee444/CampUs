@@ -34,6 +34,11 @@ import CreateTopicScreen from '../screens/Home/CreateTopicScreen';
 import PublicProfileScreen from '../screens/Home/PublicProfileScreen';
 import AllUsersScreen from '../screens/Home/AllUsersScreen';
 import DiscussionsScreen from '../screens/Home/DiscussionsScreen';
+import CreateTeamScreen from '../screens/Home/CreateTeamScreen';
+import TeamDetailsScreen from '../screens/Home/TeamDetailsScreen';
+import JoinTeamScreen from '../screens/Home/JoinTeamScreen';
+import TeamConnectScreen from '../screens/Home/TeamConnectScreen';
+import BrowseTeamsScreen from '../screens/Home/BrowseTeamsScreen';
 import NotificationsScreen from '../screens/Notifications/NotificationsScreen';
 import AdminDashboardScreen from '../screens/Admin/AdminDashboardScreen';
 import AdminUsersScreen from '../screens/Admin/AdminUsersScreen';
@@ -43,6 +48,8 @@ import AdminBroadcastScreen from '../screens/Admin/AdminBroadcastScreen';
 import AdminAnalyticsScreen from '../screens/Admin/AdminAnalyticsScreen';
 import AdminDiscussionsScreen from '../screens/Admin/AdminDiscussionsScreen';
 import AIInsightsScreen from '../screens/Admin/AIInsightsScreen';
+import AISuggestionsScreen from '../screens/Home/AISuggestionsScreen';
+import TeamInvitationsScreen from '../screens/Home/TeamInvitationsScreen';
 import { MainTabNavigator } from './MainTabNavigator';
 
 const Stack = createStackNavigator<RootStackParamList>();
@@ -261,6 +268,31 @@ export default function RootNavigator() {
               options={{ animationEnabled: true }}
             />
             <Stack.Screen
+              name="CreateTeam"
+              component={CreateTeamScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="TeamDetails"
+              component={TeamDetailsScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="JoinTeam"
+              component={JoinTeamScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="TeamConnect"
+              component={TeamConnectScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="BrowseTeams"
+              component={BrowseTeamsScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
               name="AdminDashboard"
               component={AdminDashboardScreen}
               options={{ animationEnabled: true }}
@@ -298,6 +330,16 @@ export default function RootNavigator() {
             <Stack.Screen
               name="AIInsights"
               component={AIInsightsScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="AISuggestions"
+              component={AISuggestionsScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="TeamInvitations"
+              component={TeamInvitationsScreen}
               options={{ animationEnabled: true }}
             />
           </>
