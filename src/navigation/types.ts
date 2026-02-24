@@ -37,7 +37,7 @@ export type RootStackParamList = {
   TeamFormation: undefined;
   AIChatAssistant: undefined;
   PublicProfile: { userId: string };
-  AllUsers: undefined;
+  AllUsers: { mode?: 'browse' | 'message' } | undefined;
   Discussions: undefined;
   CreateTeam: { eventId: string; maxTeamSize: number };
   TeamDetails: { teamId: string; eventId: string };

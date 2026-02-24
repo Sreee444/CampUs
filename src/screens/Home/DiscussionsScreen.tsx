@@ -53,6 +53,7 @@ export default function DiscussionsScreen() {
   const [topics, setTopics] = useState<DiscussionTopic[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState('All');
+  const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
 
   const isFacultyOrAdmin = profile?.role === 'faculty' || profile?.role === 'admin';
@@ -83,6 +84,10 @@ export default function DiscussionsScreen() {
     } catch (error) {
       console.error('Failed to pin topic:', error);
     }
+  };
+
+  const applySearch = () => {
+    setSearchQuery(searchInput.trim());
   };
 
   const filteredTopics = useMemo(() => {
@@ -122,9 +127,21 @@ export default function DiscussionsScreen() {
             style={styles.searchInput}
             placeholder="Search discussions..."
             placeholderTextColor="#94a3b8"
-            value={searchQuery}
-            onChangeText={setSearchQuery}
+            value={searchInput}
+            onChangeText={setSearchInput}
+            onSubmitEditing={applySearch}
+            returnKeyType="search"
           />
+          {!!searchInput && (
+            <TouchableOpacity
+              onPress={() => {
+                setSearchInput('');
+                setSearchQuery('');
+              }}
+            >
+              <MaterialIcons name="close" size={18} color="#94a3b8" />
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 

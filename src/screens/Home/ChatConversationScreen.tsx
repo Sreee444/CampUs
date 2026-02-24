@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   FlatList,
   Modal,
+  Image,
   ScrollView,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -22,22 +23,21 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   addConversationSupervisor,
-  addGroupParticipants,
   canFacultySupervise,
   chatWithAI,
   deleteMessage,
-  getConversationParticipants,
+  getConversationDetails,
   getConversationSupervisionStats,
   getConversationSupervisor,
   getMessages,
-  leaveGroupConversation,
   markConversationAsRead,
-  renameGroupConversation,
   removeConversationSupervisor,
+  removeParticipantFromGroup,
   sendMessage,
+  setGroupParticipantAdmin,
   subscribeToMessages,
+  updateGroupConversation,
 } from '../../api/chat';
-import { getMyConnections } from '../../api/connections';
 import Toast from 'react-native-toast-message';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import { UserAvatar } from '../../components/UserAvatar';
@@ -55,7 +55,8 @@ type ChatMessage = {
   };
 };
 
-type GroupMember = {
+type GroupParticipant = {
+  id: string;
   user_id: string;
   is_admin: boolean;
   user?: {
@@ -70,7 +71,6 @@ type GroupMember = {
 export default function ChatConversationScreen() {
   const navigation = useNavigation<ChatConversationScreenNavigationProp>();
   const route = useRoute<ChatConversationScreenRouteProp>();
-  const { conversationId = '', name = 'Chat', isGroup = false } = route.params || {};
   const { isDark } = useTheme();
   const { user, profile } = useAuth();
   const Colors = getColors(isDark);
@@ -85,20 +85,18 @@ export default function ChatConversationScreen() {
   const [supervisionStats, setSupervisionStats] = useState<any>(null);
   const [showChatOptions, setShowChatOptions] = useState(false);
   const [showMessageOptions, setShowMessageOptions] = useState(false);
+  const [showGroupMembers, setShowGroupMembers] = useState(false);
+  const [showGroupEdit, setShowGroupEdit] = useState(false);
   const [selectedMessage, setSelectedMessage] = useState<ChatMessage | null>(null);
+  const [selectedMember, setSelectedMember] = useState<GroupParticipant | null>(null);
   const [messageSearchQuery, setMessageSearchQuery] = useState('');
   const [showMessageSearch, setShowMessageSearch] = useState(false);
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
-  const [groupNameInput, setGroupNameInput] = useState('');
-  const [conversationName, setConversationName] = useState('Chat');
-  const [showMembersModal, setShowMembersModal] = useState(false);
-  const [showAddMembersModal, setShowAddMembersModal] = useState(false);
-  const [showRenameGroupModal, setShowRenameGroupModal] = useState(false);
-  const [groupMembers, setGroupMembers] = useState<GroupMember[]>([]);
-  const [membersLoading, setMembersLoading] = useState(false);
-  const [availableConnections, setAvailableConnections] = useState<any[]>([]);
-  const [addingMembers, setAddingMembers] = useState(false);
-  const [selectedNewMemberIds, setSelectedNewMemberIds] = useState<string[]>([]);
+  const [groupNameDraft, setGroupNameDraft] = useState('');
+  const [groupAvatarDraft, setGroupAvatarDraft] = useState('');
+  const [groupDetails, setGroupDetails] = useState<any>(null);
+  const [groupMembers, setGroupMembers] = useState<GroupParticipant[]>([]);
+  const [isSavingGroup, setIsSavingGroup] = useState(false);
   const listRef = useRef<FlatList>(null);
 
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -108,12 +106,8 @@ export default function ChatConversationScreen() {
     onConfirm: () => void;
   }>({ visible: false, title: '', message: '', onConfirm: () => {} });
 
+  const { conversationId = '', name = 'Chat', isGroup = false } = route.params || {};
   const isAIChat = conversationId === 'ai-assistant';
-
-  useEffect(() => {
-    setConversationName(name);
-    setGroupNameInput(name);
-  }, [name]);
 
   const upsertMessage = (nextMessage: ChatMessage) => {
     setMessages((prev) => {
@@ -128,6 +122,21 @@ export default function ChatConversationScreen() {
     });
   };
 
+  const loadGroupDetails = async () => {
+    if (!conversationId || !isGroup || !user?.id) return;
+
+    try {
+      const details = await getConversationDetails(conversationId);
+      setGroupDetails(details);
+      const participants = (details?.participants || []) as GroupParticipant[];
+      setGroupMembers(participants);
+      setGroupNameDraft(details?.group_name || '');
+      setGroupAvatarDraft(details?.group_avatar || '');
+    } catch (error) {
+      console.error('Failed to load group details:', error);
+    }
+  };
+
   useEffect(() => {
     if (!conversationId || isAIChat || !user?.id) {
       setIsLoading(false);
@@ -135,6 +144,9 @@ export default function ChatConversationScreen() {
     }
 
     loadMessages();
+    if (isGroup) {
+      loadGroupDetails();
+    }
     checkSupervisionCapability().catch((err) => console.error('Error in supervision check:', err));
 
     const channel = subscribeToMessages(conversationId, (event) => {
@@ -157,18 +169,13 @@ export default function ChatConversationScreen() {
     return () => {
       channel?.unsubscribe?.();
     };
-  }, [conversationId, user?.id, isAIChat]);
+  }, [conversationId, user?.id, isAIChat, isGroup]);
 
   useEffect(() => {
     if (!messages.length || showMessageSearch) return;
     const timeout = setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
     return () => clearTimeout(timeout);
   }, [messages.length, showMessageSearch]);
-
-  useEffect(() => {
-    if (!isGroup || isAIChat || !conversationId) return;
-    loadGroupMembers();
-  }, [isGroup, isAIChat, conversationId]);
 
   const checkSupervisionCapability = async () => {
     if (!conversationId || isAIChat || !user?.id || !isGroup) {
@@ -294,6 +301,59 @@ export default function ChatConversationScreen() {
     setShowMessageOptions(true);
   };
 
+  const handleSaveGroupProfile = async () => {
+    if (!conversationId || !user?.id) return;
+
+    try {
+      setIsSavingGroup(true);
+      await updateGroupConversation(conversationId, user.id, {
+        group_name: groupNameDraft,
+        group_avatar: groupAvatarDraft || null,
+      });
+      await loadGroupDetails();
+      setShowGroupEdit(false);
+      Toast.show({ type: 'success', text1: 'Group updated' });
+    } catch (error: any) {
+      Toast.show({ type: 'error', text1: 'Update failed', text2: error?.message || 'Try again' });
+    } finally {
+      setIsSavingGroup(false);
+    }
+  };
+
+  const handleKickMember = async (member: GroupParticipant) => {
+    if (!conversationId || !user?.id || !member?.user_id) return;
+
+    setConfirmDialog({
+      visible: true,
+      title: 'Remove Member',
+      message: `Remove ${member.user?.full_name || 'this member'} from the group?`,
+      onConfirm: async () => {
+        try {
+          await removeParticipantFromGroup(conversationId, user.id, member.user_id);
+          await loadGroupDetails();
+          Toast.show({ type: 'success', text1: 'Member removed' });
+        } catch (error: any) {
+          Toast.show({ type: 'error', text1: 'Failed', text2: error?.message || 'Try again' });
+        }
+      },
+    });
+  };
+
+  const handleToggleMemberAdmin = async (member: GroupParticipant) => {
+    if (!conversationId || !user?.id || !member?.user_id) return;
+
+    try {
+      await setGroupParticipantAdmin(conversationId, user.id, member.user_id, !member.is_admin);
+      await loadGroupDetails();
+      Toast.show({
+        type: 'success',
+        text1: member.is_admin ? 'Admin removed' : 'Member promoted to admin',
+      });
+    } catch (error: any) {
+      Toast.show({ type: 'error', text1: 'Failed', text2: error?.message || 'Try again' });
+    }
+  };
+
   const handleAddSupervision = async () => {
     if (!canSupervise || !conversationId || !user?.id) return;
 
@@ -354,99 +414,18 @@ export default function ChatConversationScreen() {
     return otherMessage?.sender_id || null;
   }, [isGroup, isAIChat, messages, user?.id]);
 
-  const loadGroupMembers = async () => {
-    if (!isGroup || !conversationId || isAIChat) return;
+  const currentUserParticipant = useMemo(
+    () => groupMembers.find((participant) => participant.user_id === user?.id),
+    [groupMembers, user?.id]
+  );
 
-    try {
-      setMembersLoading(true);
-      const members = await getConversationParticipants(conversationId);
-      setGroupMembers(members as GroupMember[]);
-    } catch (error) {
-      console.error('Failed to load members:', error);
-      Toast.show({ type: 'error', text1: 'Failed to load group members' });
-    } finally {
-      setMembersLoading(false);
-    }
-  };
+  const canManageGroup = useMemo(() => {
+    if (!isGroup || !user?.id) return false;
+    return groupDetails?.created_by === user.id || !!currentUserParticipant?.is_admin;
+  }, [groupDetails?.created_by, currentUserParticipant?.is_admin, isGroup, user?.id]);
 
-  const loadAvailableConnections = async () => {
-    try {
-      const connections = await getMyConnections('accepted');
-      const existingIds = new Set(groupMembers.map((member) => member.user_id));
-      const filtered = connections.filter((connection) => {
-        const id = connection.profile?.id;
-        return id && !existingIds.has(id);
-      });
-      setAvailableConnections(filtered);
-    } catch (error) {
-      console.error('Failed to load connections:', error);
-      Toast.show({ type: 'error', text1: 'Failed to load connections' });
-    }
-  };
-
-  const toggleMemberSelection = (memberId: string) => {
-    setSelectedNewMemberIds((prev) =>
-      prev.includes(memberId) ? prev.filter((id) => id !== memberId) : [...prev, memberId]
-    );
-  };
-
-  const handleAddMembers = async () => {
-    if (!selectedNewMemberIds.length || !conversationId) return;
-
-    try {
-      setAddingMembers(true);
-      await addGroupParticipants(conversationId, selectedNewMemberIds);
-      Toast.show({ type: 'success', text1: 'Members added' });
-      setSelectedNewMemberIds([]);
-      setShowAddMembersModal(false);
-      await loadGroupMembers();
-    } catch (error: any) {
-      Toast.show({
-        type: 'error',
-        text1: 'Could not add members',
-        text2: error?.message || 'You may need creator permissions for this group',
-      });
-    } finally {
-      setAddingMembers(false);
-    }
-  };
-
-  const handleRenameGroup = async () => {
-    if (!conversationId || !groupNameInput.trim()) return;
-
-    try {
-      const result: any = await renameGroupConversation(conversationId, groupNameInput.trim());
-      const nextName = result?.group_name ? result.group_name : groupNameInput.trim();
-      setConversationName(nextName);
-      setShowRenameGroupModal(false);
-      Toast.show({ type: 'success', text1: 'Group renamed' });
-    } catch (error: any) {
-      Toast.show({
-        type: 'error',
-        text1: 'Rename failed',
-        text2: error?.message || 'You may not have permission to rename this group',
-      });
-    }
-  };
-
-  const handleLeaveGroup = async () => {
-    if (!conversationId) return;
-
-    try {
-      await leaveGroupConversation(conversationId);
-      Toast.show({ type: 'success', text1: 'You left the group' });
-      navigation.goBack();
-    } catch (error: any) {
-      Toast.show({
-        type: 'error',
-        text1: 'Leave group failed',
-        text2: error?.message || 'Unable to leave group',
-      });
-    }
-  };
-
-  const initials = getInitials(conversationName);
-  const color = isAIChat ? Colors.primary : getAvatarColor(conversationName);
+  const initials = getInitials(groupDetails?.group_name || name);
+  const color = isAIChat ? Colors.primary : getAvatarColor(groupDetails?.group_name || name);
 
   const renderMessage = ({ item: message }: { item: ChatMessage }) => {
     const isMyMessage = message.sender_id === user?.id;
@@ -506,16 +485,46 @@ export default function ChatConversationScreen() {
           <MaterialIcons name="arrow-back" size={24} color={Colors.text} />
         </TouchableOpacity>
 
-        <View style={[styles.headerAvatar, { backgroundColor: color }]}>
-          <Text style={styles.headerAvatarText}>{initials}</Text>
-        </View>
+        <TouchableOpacity
+          style={styles.headerMainInfo}
+          onPress={() => {
+            if (isGroup && groupMembers.length > 0) {
+              setShowGroupMembers(true);
+            }
+          }}
+          activeOpacity={0.8}
+        >
+          {isGroup && groupDetails?.group_avatar ? (
+            <Image source={{ uri: groupDetails.group_avatar }} style={styles.headerAvatarImage} />
+          ) : (
+            <View style={[styles.headerAvatar, { backgroundColor: color }]}>
+              <Text style={styles.headerAvatarText}>{initials}</Text>
+            </View>
+          )}
 
-        <View style={styles.headerInfo}>
-          <Text style={styles.headerName}>{conversationName}</Text>
-          <Text style={styles.headerStatus}>
-            {isAIChat ? 'AI Assistant' : isGroup ? `${messages.length} messages` : 'Active chat'}
-          </Text>
-        </View>
+          <View style={styles.headerInfo}>
+            <Text style={styles.headerName}>{groupDetails?.group_name || name}</Text>
+            {isGroup ? (
+              <View style={styles.groupHeaderMeta}>
+                <Text style={styles.headerStatus}>{groupMembers.length} members</Text>
+                <View style={styles.groupPreviewRow}>
+                  {groupMembers.slice(0, 3).map((participant, index) => (
+                    <View key={participant.id} style={[styles.groupPreviewAvatar, { marginLeft: index === 0 ? 0 : -8 }]}>
+                      <UserAvatar
+                        uri={participant.user?.avatar_url}
+                        name={participant.user?.full_name || 'Member'}
+                        size={20}
+                        showRing={false}
+                      />
+                    </View>
+                  ))}
+                </View>
+              </View>
+            ) : (
+              <Text style={styles.headerStatus}>{isAIChat ? 'AI Assistant' : 'Active chat'}</Text>
+            )}
+          </View>
+        </TouchableOpacity>
 
         <TouchableOpacity style={styles.moreButton} onPress={() => setShowChatOptions(true)}>
           <MaterialIcons name="more-vert" size={24} color={Colors.text} />
@@ -701,16 +710,31 @@ export default function ChatConversationScreen() {
               <Text style={styles.optionText}>{showMessageSearch ? 'Hide Search' : 'Search Messages'}</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.optionRow}
-              onPress={async () => {
-                setShowChatOptions(false);
-                await loadMessages();
-              }}
-            >
-              <MaterialIcons name="refresh" size={20} color={Colors.text} />
-              <Text style={styles.optionText}>Refresh Conversation</Text>
-            </TouchableOpacity>
+            {isGroup && (
+              <TouchableOpacity
+                style={styles.optionRow}
+                onPress={() => {
+                  setShowChatOptions(false);
+                  setShowGroupMembers(true);
+                }}
+              >
+                <MaterialIcons name="groups" size={20} color={Colors.text} />
+                <Text style={styles.optionText}>View Group Members</Text>
+              </TouchableOpacity>
+            )}
+
+            {isGroup && canManageGroup && (
+              <TouchableOpacity
+                style={styles.optionRow}
+                onPress={() => {
+                  setShowChatOptions(false);
+                  setShowGroupEdit(true);
+                }}
+              >
+                <MaterialIcons name="edit" size={20} color={Colors.text} />
+                <Text style={styles.optionText}>Edit Group Profile</Text>
+              </TouchableOpacity>
+            )}
 
             {!isGroup && !isAIChat && (
               <TouchableOpacity
@@ -733,62 +757,16 @@ export default function ChatConversationScreen() {
               </TouchableOpacity>
             )}
 
-            {isGroup && (
-              <>
-                <TouchableOpacity
-                  style={styles.optionRow}
-                  onPress={async () => {
-                    setShowChatOptions(false);
-                    await loadGroupMembers();
-                    setShowMembersModal(true);
-                  }}
-                >
-                  <MaterialIcons name="groups" size={20} color={Colors.text} />
-                  <Text style={styles.optionText}>View Members</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.optionRow}
-                  onPress={async () => {
-                    setShowChatOptions(false);
-                    await loadGroupMembers();
-                    await loadAvailableConnections();
-                    setShowAddMembersModal(true);
-                  }}
-                >
-                  <MaterialIcons name="group-add" size={20} color={Colors.text} />
-                  <Text style={styles.optionText}>Add Members</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.optionRow}
-                  onPress={() => {
-                    setShowChatOptions(false);
-                    setGroupNameInput(conversationName);
-                    setShowRenameGroupModal(true);
-                  }}
-                >
-                  <MaterialIcons name="edit" size={20} color={Colors.text} />
-                  <Text style={styles.optionText}>Rename Group</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.optionRow}
-                  onPress={() => {
-                    setShowChatOptions(false);
-                    setConfirmDialog({
-                      visible: true,
-                      title: 'Leave Group',
-                      message: 'Are you sure you want to leave this group?',
-                      onConfirm: handleLeaveGroup,
-                    });
-                  }}
-                >
-                  <MaterialIcons name="logout" size={20} color={Colors.error} />
-                  <Text style={[styles.optionText, { color: Colors.error }]}>Leave Group</Text>
-                </TouchableOpacity>
-              </>
-            )}
+            <TouchableOpacity
+              style={styles.optionRow}
+              onPress={async () => {
+                setShowChatOptions(false);
+                await loadMessages();
+              }}
+            >
+              <MaterialIcons name="refresh" size={20} color={Colors.text} />
+              <Text style={styles.optionText}>Refresh Conversation</Text>
+            </TouchableOpacity>
 
             <TouchableOpacity
               style={styles.optionRow}
@@ -865,170 +843,173 @@ export default function ChatConversationScreen() {
       </Modal>
 
       <Modal
-        visible={showMembersModal}
+        visible={showGroupMembers}
         animationType="slide"
         transparent
-        onRequestClose={() => setShowMembersModal(false)}
+        onRequestClose={() => setShowGroupMembers(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.optionsSheet}>
-            <View style={styles.modalHeaderRow}>
-              <Text style={styles.optionsTitle}>Group Members</Text>
-              <TouchableOpacity onPress={() => setShowMembersModal(false)}>
-                <MaterialIcons name="close" size={20} color={Colors.textSecondary} />
+          <View style={styles.membersSheet}>
+            <View style={styles.membersHeader}>
+              <Text style={styles.optionsTitle}>Group members</Text>
+              <TouchableOpacity onPress={() => setShowGroupMembers(false)}>
+                <MaterialIcons name="close" size={22} color={Colors.textSecondary} />
               </TouchableOpacity>
             </View>
 
-            {membersLoading ? (
-              <View style={styles.modalLoaderWrap}>
-                <ActivityIndicator size="small" color={Colors.primary} />
-              </View>
-            ) : (
-              <ScrollView style={styles.membersList}>
-                {groupMembers.map((member) => (
-                  <TouchableOpacity
-                    key={member.user_id}
-                    style={styles.memberRow}
-                    onPress={() => {
-                      if (!member.user?.id || member.user.id === user?.id) return;
-                      setShowMembersModal(false);
-                      navigation.navigate('PublicProfile', { userId: member.user.id });
-                    }}
-                  >
-                    <UserAvatar
-                      uri={member.user?.avatar_url}
-                      name={member.user?.full_name || 'User'}
-                      size={38}
-                      showRing={false}
-                    />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.memberName}>{member.user?.full_name || 'User'}</Text>
-                      <Text style={styles.memberMeta}>
-                        {member.user?.role || 'member'}
-                        {member.user?.department ? ` • ${member.user.department}` : ''}
-                      </Text>
-                    </View>
-                    {member.is_admin && (
-                      <View style={styles.adminBadge}>
-                        <Text style={styles.adminBadgeText}>Admin</Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {groupMembers.map((member) => {
+                const isMainAdmin = member.user_id === groupDetails?.created_by;
+                const canManageThisMember =
+                  canManageGroup &&
+                  member.user_id !== user?.id &&
+                  member.user_id !== groupDetails?.created_by;
+
+                return (
+                  <View key={member.id} style={styles.memberItem}>
+                    <TouchableOpacity
+                      style={styles.memberMainInfo}
+                      onPress={() => navigation.navigate('PublicProfile', { userId: member.user_id })}
+                    >
+                      <UserAvatar
+                        uri={member.user?.avatar_url}
+                        name={member.user?.full_name || 'Member'}
+                        size={40}
+                        showRing={false}
+                        role={member.user?.role}
+                      />
+                      <View style={styles.memberTextWrap}>
+                        <Text style={styles.memberName}>{member.user?.full_name || 'Member'}</Text>
+                        <Text style={styles.memberMeta}>
+                          {isMainAdmin
+                            ? 'Main admin'
+                            : member.is_admin
+                            ? 'Group admin'
+                            : member.user?.role || 'Member'}
+                        </Text>
                       </View>
+                    </TouchableOpacity>
+
+                    {canManageThisMember && (
+                      <TouchableOpacity
+                        style={styles.memberActionButton}
+                        onPress={() => setSelectedMember(member)}
+                      >
+                        <MaterialIcons name="more-horiz" size={20} color={Colors.text} />
+                      </TouchableOpacity>
                     )}
-                    {member.user?.id !== user?.id && (
-                      <MaterialIcons name="chevron-right" size={18} color={Colors.textSecondary} />
-                    )}
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            )}
+                  </View>
+                );
+              })}
+            </ScrollView>
           </View>
         </View>
       </Modal>
 
       <Modal
-        visible={showAddMembersModal}
+        visible={showGroupEdit}
         animationType="slide"
         transparent
-        onRequestClose={() => setShowAddMembersModal(false)}
+        onRequestClose={() => setShowGroupEdit(false)}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.optionsSheet}>
-            <View style={styles.modalHeaderRow}>
-              <Text style={styles.optionsTitle}>Add Members</Text>
-              <TouchableOpacity onPress={() => setShowAddMembersModal(false)}>
-                <MaterialIcons name="close" size={20} color={Colors.textSecondary} />
-              </TouchableOpacity>
-            </View>
+            <Text style={styles.optionsTitle}>Edit group profile</Text>
 
-            <ScrollView style={styles.membersList}>
-              {availableConnections.length === 0 ? (
-                <View style={styles.modalLoaderWrap}>
-                  <Text style={styles.memberMeta}>No eligible connections to add</Text>
-                </View>
-              ) : (
-                availableConnections.map((connection) => {
-                  const profileData = connection.profile;
-                  if (!profileData?.id) return null;
-                  const selected = selectedNewMemberIds.includes(profileData.id);
+            <Text style={styles.inputLabel}>Group name</Text>
+            <TextInput
+              value={groupNameDraft}
+              onChangeText={setGroupNameDraft}
+              placeholder="Group name"
+              placeholderTextColor={Colors.textSecondary}
+              style={styles.groupInput}
+            />
 
-                  return (
-                    <TouchableOpacity
-                      key={connection.id}
-                      style={styles.memberRow}
-                      onPress={() => toggleMemberSelection(profileData.id)}
-                    >
-                      <UserAvatar
-                        uri={profileData.avatar_url}
-                        name={profileData.full_name || 'User'}
-                        size={38}
-                        showRing={false}
-                      />
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.memberName}>{profileData.full_name || 'User'}</Text>
-                        <Text style={styles.memberMeta}>
-                          {profileData.role || 'member'}
-                          {profileData.department ? ` • ${profileData.department}` : ''}
-                        </Text>
-                      </View>
-                      <View style={[styles.selectDot, selected && styles.selectDotActive]}>
-                        {selected && <MaterialIcons name="check" size={14} color={Colors.surface} />}
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })
-              )}
-            </ScrollView>
+            <Text style={styles.inputLabel}>Group avatar URL</Text>
+            <TextInput
+              value={groupAvatarDraft}
+              onChangeText={setGroupAvatarDraft}
+              placeholder="https://..."
+              placeholderTextColor={Colors.textSecondary}
+              style={styles.groupInput}
+              autoCapitalize="none"
+            />
 
             <TouchableOpacity
-              style={[
-                styles.primaryActionBtn,
-                (!selectedNewMemberIds.length || addingMembers) && styles.primaryActionBtnDisabled,
-              ]}
-              disabled={!selectedNewMemberIds.length || addingMembers}
-              onPress={handleAddMembers}
+              style={[styles.optionRow, styles.primaryOption]}
+              onPress={handleSaveGroupProfile}
+              disabled={isSavingGroup}
             >
-              {addingMembers ? (
+              {isSavingGroup ? (
                 <ActivityIndicator size="small" color={Colors.primaryContent} />
               ) : (
-                <Text style={styles.primaryActionBtnText}>
-                  Add Selected ({selectedNewMemberIds.length})
-                </Text>
+                <MaterialIcons name="save" size={20} color={Colors.primaryContent} />
               )}
+              <Text style={[styles.optionText, { color: Colors.primaryContent }]}>Save changes</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.optionRow, styles.optionCancel]}
+              onPress={() => setShowGroupEdit(false)}
+            >
+              <MaterialIcons name="close" size={20} color={Colors.textSecondary} />
+              <Text style={[styles.optionText, { color: Colors.textSecondary }]}>Cancel</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
       <Modal
-        visible={showRenameGroupModal}
+        visible={!!selectedMember}
         animationType="fade"
         transparent
-        onRequestClose={() => setShowRenameGroupModal(false)}
+        onRequestClose={() => setSelectedMember(null)}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.optionsSheet}>
-            <Text style={styles.optionsTitle}>Rename Group</Text>
-            <TextInput
-              value={groupNameInput}
-              onChangeText={setGroupNameInput}
-              placeholder="Enter group name"
-              placeholderTextColor={Colors.textSecondary}
-              style={styles.renameInput}
-            />
-            <View style={styles.renameActionRow}>
+            <Text style={styles.optionsTitle}>{selectedMember?.user?.full_name || 'Member'} options</Text>
+
+            {!!selectedMember && (
               <TouchableOpacity
-                style={[styles.secondaryActionBtn]}
-                onPress={() => setShowRenameGroupModal(false)}
+                style={styles.optionRow}
+                onPress={() => {
+                  const member = selectedMember;
+                  setSelectedMember(null);
+                  handleToggleMemberAdmin(member);
+                }}
               >
-                <Text style={styles.secondaryActionBtnText}>Cancel</Text>
+                <MaterialIcons
+                  name={selectedMember.is_admin ? 'person-remove' : 'admin-panel-settings'}
+                  size={20}
+                  color={Colors.text}
+                />
+                <Text style={styles.optionText}>
+                  {selectedMember.is_admin ? 'Remove admin access' : 'Make group admin'}
+                </Text>
               </TouchableOpacity>
+            )}
+
+            {!!selectedMember && (
               <TouchableOpacity
-                style={[styles.primaryActionBtn, !groupNameInput.trim() && styles.primaryActionBtnDisabled]}
-                disabled={!groupNameInput.trim()}
-                onPress={handleRenameGroup}
+                style={styles.optionRow}
+                onPress={() => {
+                  const member = selectedMember;
+                  setSelectedMember(null);
+                  handleKickMember(member);
+                }}
               >
-                <Text style={styles.primaryActionBtnText}>Save</Text>
+                <MaterialIcons name="person-off" size={20} color={Colors.error} />
+                <Text style={[styles.optionText, { color: Colors.error }]}>Remove from group</Text>
               </TouchableOpacity>
-            </View>
+            )}
+
+            <TouchableOpacity
+              style={[styles.optionRow, styles.optionCancel]}
+              onPress={() => setSelectedMember(null)}
+            >
+              <MaterialIcons name="close" size={20} color={Colors.textSecondary} />
+              <Text style={[styles.optionText, { color: Colors.textSecondary }]}>Cancel</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -1068,12 +1049,24 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     backButton: {
       padding: 4,
     },
+    headerMainInfo: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.sm,
+    },
     headerAvatar: {
       width: 40,
       height: 40,
       borderRadius: 20,
       alignItems: 'center',
       justifyContent: 'center',
+    },
+    headerAvatarImage: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: Colors.card,
     },
     headerAvatarText: {
       fontSize: 16,
@@ -1092,6 +1085,22 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       fontSize: 12,
       color: Colors.textSecondary,
       marginTop: 2,
+    },
+    groupHeaderMeta: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.sm,
+      marginTop: 2,
+    },
+    groupPreviewRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    groupPreviewAvatar: {
+      borderRadius: BorderRadius.full,
+      overflow: 'hidden',
+      borderWidth: 1,
+      borderColor: Colors.surface,
     },
     moreButton: {
       padding: 4,
@@ -1308,6 +1317,62 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       paddingBottom: Spacing.lg,
       gap: Spacing.xs,
     },
+    membersSheet: {
+      maxHeight: '75%',
+      backgroundColor: Colors.surface,
+      borderTopLeftRadius: BorderRadius.xl,
+      borderTopRightRadius: BorderRadius.xl,
+      paddingHorizontal: Spacing.md,
+      paddingTop: Spacing.md,
+      paddingBottom: Spacing.lg,
+    },
+    membersHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: Spacing.sm,
+    },
+    memberItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      borderWidth: 1,
+      borderColor: Colors.border,
+      borderRadius: BorderRadius.md,
+      backgroundColor: Colors.card,
+      paddingHorizontal: Spacing.sm,
+      paddingVertical: Spacing.sm,
+      marginBottom: Spacing.sm,
+    },
+    memberMainInfo: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flex: 1,
+      gap: Spacing.sm,
+    },
+    memberTextWrap: {
+      flex: 1,
+    },
+    memberName: {
+      fontSize: FontSizes.md,
+      color: Colors.text,
+      fontWeight: FontWeights.semibold,
+    },
+    memberMeta: {
+      fontSize: FontSizes.sm,
+      color: Colors.textSecondary,
+      marginTop: 2,
+    },
+    memberActionButton: {
+      width: 34,
+      height: 34,
+      borderRadius: 17,
+      borderWidth: 1,
+      borderColor: Colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: Colors.surface,
+    },
     optionsTitle: {
       fontSize: FontSizes.lg,
       fontWeight: FontWeights.semibold,
@@ -1330,114 +1395,29 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       color: Colors.text,
       fontWeight: FontWeights.medium,
     },
-    modalHeaderRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      marginBottom: Spacing.xs,
-    },
-    modalLoaderWrap: {
-      paddingVertical: Spacing.lg,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    membersList: {
-      maxHeight: 320,
-    },
-    memberRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: Spacing.sm,
-      borderWidth: 1,
-      borderColor: Colors.border,
-      borderRadius: BorderRadius.md,
-      paddingHorizontal: Spacing.sm,
-      paddingVertical: Spacing.sm,
-      marginBottom: Spacing.xs,
-      backgroundColor: Colors.card,
-    },
-    memberName: {
-      fontSize: FontSizes.md,
-      fontWeight: FontWeights.semibold,
-      color: Colors.text,
-    },
-    memberMeta: {
-      fontSize: FontSizes.sm,
-      color: Colors.textSecondary,
-      marginTop: 2,
-    },
-    adminBadge: {
-      borderRadius: BorderRadius.full,
-      backgroundColor: Colors.primarySoft,
-      paddingHorizontal: Spacing.sm,
-      paddingVertical: 2,
-    },
-    adminBadgeText: {
-      fontSize: FontSizes.xs,
-      color: Colors.primaryContent,
-      fontWeight: FontWeights.semibold,
-    },
-    selectDot: {
-      width: 20,
-      height: 20,
-      borderRadius: 10,
-      borderWidth: 1,
-      borderColor: Colors.border,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: Colors.surface,
-    },
-    selectDotActive: {
-      backgroundColor: Colors.primary,
-      borderColor: Colors.primary,
-    },
-    primaryActionBtn: {
-      borderRadius: BorderRadius.md,
-      backgroundColor: Colors.primary,
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingVertical: Spacing.md,
-      marginTop: Spacing.xs,
-    },
-    primaryActionBtnDisabled: {
-      opacity: 0.45,
-    },
-    primaryActionBtnText: {
-      fontSize: FontSizes.md,
-      fontWeight: FontWeights.semibold,
-      color: Colors.primaryContent,
-    },
-    renameInput: {
-      borderWidth: 1,
-      borderColor: Colors.border,
-      borderRadius: BorderRadius.md,
-      backgroundColor: Colors.card,
-      color: Colors.text,
-      fontSize: FontSizes.md,
-      paddingHorizontal: Spacing.md,
-      paddingVertical: Spacing.sm,
-      marginBottom: Spacing.sm,
-    },
-    renameActionRow: {
-      flexDirection: 'row',
-      gap: Spacing.sm,
-    },
-    secondaryActionBtn: {
-      flex: 1,
-      borderWidth: 1,
-      borderColor: Colors.border,
-      borderRadius: BorderRadius.md,
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingVertical: Spacing.md,
-      backgroundColor: Colors.card,
-    },
-    secondaryActionBtnText: {
-      fontSize: FontSizes.md,
-      color: Colors.textSecondary,
-      fontWeight: FontWeights.medium,
-    },
     optionCancel: {
       marginTop: Spacing.xs,
+    },
+    inputLabel: {
+      fontSize: FontSizes.sm,
+      color: Colors.textSecondary,
+      marginTop: Spacing.xs,
+      marginBottom: Spacing.xs,
+    },
+    groupInput: {
+      borderWidth: 1,
+      borderColor: Colors.border,
+      borderRadius: BorderRadius.md,
+      backgroundColor: Colors.background,
+      color: Colors.text,
+      paddingHorizontal: Spacing.md,
+      paddingVertical: Spacing.sm,
+      fontSize: FontSizes.md,
+      marginBottom: Spacing.sm,
+    },
+    primaryOption: {
+      backgroundColor: Colors.primary,
+      borderColor: Colors.primary,
+      justifyContent: 'center',
     },
   });

@@ -30,6 +30,7 @@ export default function AdminUsersScreen() {
   const [users, setUsers] = useState<Profile[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<Profile[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
   const [bannedIds, setBannedIds] = useState<string[]>([]);
@@ -77,6 +78,10 @@ export default function AdminUsersScreen() {
     }
 
     setFilteredUsers(filtered);
+  };
+
+  const applySearch = () => {
+    setSearchQuery(searchInput.trim());
   };
 
   const handleChangeRole = async (user: Profile, newRole: string) => {
@@ -171,9 +176,21 @@ export default function AdminUsersScreen() {
           style={styles.searchInput}
           placeholder="Search by name or email"
           placeholderTextColor={Colors.textSecondary}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
+          value={searchInput}
+          onChangeText={setSearchInput}
+          onSubmitEditing={applySearch}
+          returnKeyType="search"
         />
+        {!!searchInput && (
+          <TouchableOpacity
+            onPress={() => {
+              setSearchInput('');
+              setSearchQuery('');
+            }}
+          >
+            <MaterialIcons name="close" size={20} color={Colors.textSecondary} />
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Role Filters */}

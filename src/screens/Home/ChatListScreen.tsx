@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -23,7 +23,7 @@ import { RootStackParamList, MainTabParamList } from '../../navigation/types';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { getConversations, createDirectConversation, createGroupConversation } from '../../api/chat';
+import { getConversations, createGroupConversation } from '../../api/chat';
 import { getMyConnections, ConnectionWithProfile } from '../../api/connections';
 import { UserAvatar } from '../../components/UserAvatar';
 import Toast from 'react-native-toast-message';
@@ -33,6 +33,8 @@ type ChatScreenNavigationProp = CompositeNavigationProp<
   StackNavigationProp<RootStackParamList>
 >;
 
+const MIN_REALTIME_SEARCH_LENGTH = 2;
+
 export default function ChatScreen() {
   const navigation = useNavigation<ChatScreenNavigationProp>();
   const { isDark } = useTheme();
@@ -40,10 +42,14 @@ export default function ChatScreen() {
   const Colors = getColors(isDark);
   const styles = createStyles(Colors);
   const [conversations, setConversations] = useState<any[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [activeSearch, setActiveSearch] = useState('');
+  const [isRealtimeSearch, setIsRealtimeSearch] = useState(true);
   const [connectionSearchQuery, setConnectionSearchQuery] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [activeFilter, setActiveFilter] = useState<'all' | 'unread' | 'groups' | 'direct'>('all');
+  const [showComposeMenu, setShowComposeMenu] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // New Chat Modal state
   const [showNewChatModal, setShowNewChatModal] = useState(false);
@@ -80,6 +86,42 @@ export default function ChatScreen() {
     loadConversations();
   }, [user?.id]);
 
+  useEffect(() => {
+    if (!isRealtimeSearch) return;
+
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+
+    debounceRef.current = setTimeout(() => {
+      const trimmed = searchInput.trim();
+
+      if (!trimmed) {
+        setActiveSearch('');
+        return;
+      }
+
+      if (trimmed.length >= MIN_REALTIME_SEARCH_LENGTH) {
+        setActiveSearch(trimmed);
+      }
+    }, 300);
+
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+    };
+  }, [searchInput, isRealtimeSearch]);
+
+  const submitSearch = () => {
+    setActiveSearch(searchInput.trim());
+  };
+
+  const clearSearch = () => {
+    setSearchInput('');
+    setActiveSearch('');
+  };
+
   // Load connections when modal opens
   useEffect(() => {
     if (showNewChatModal) {
@@ -102,41 +144,6 @@ export default function ChatScreen() {
       });
     } finally {
       setLoadingConnections(false);
-    }
-  };
-
-  const handleStartChat = async (connection: ConnectionWithProfile) => {
-    try {
-      setCreatingChat(true);
-
-      // Get the other user's ID
-      const otherUserId = connection.profile?.id;
-      if (!otherUserId || !user?.id) return;
-
-      // Create or find existing conversation
-      const conversation = await createDirectConversation(user.id, otherUserId);
-
-      // Close modal
-      setShowNewChatModal(false);
-      setIsGroupMode(false);
-      setSelectedParticipantIds([]);
-      setGroupName('');
-
-      // Navigate to conversation
-      navigation.navigate('ChatConversation', {
-        conversationId: conversation.id,
-        name: connection.profile?.full_name || 'User',
-        isGroup: false,
-      });
-    } catch (error) {
-      console.error('Error creating chat:', error);
-      Toast.show({
-        type: 'error',
-        text1: 'Error',
-        text2: 'Failed to start chat',
-      });
-    } finally {
-      setCreatingChat(false);
     }
   };
 
@@ -242,14 +249,14 @@ export default function ChatScreen() {
       results = results.filter((conversation) => !conversation.is_group);
     }
 
-    if (!searchQuery.trim()) return results;
-    const query = searchQuery.trim().toLowerCase();
+    if (!activeSearch.trim()) return results;
+    const query = activeSearch.trim().toLowerCase();
     return results.filter((conversation) => {
       const name = getConversationName(conversation, user?.id || '');
       const lastMessage = (conversation.last_message?.content || '').toLowerCase();
       return name.toLowerCase().includes(query) || lastMessage.includes(query);
     });
-  }, [conversations, searchQuery, user?.id, activeFilter]);
+  }, [conversations, activeSearch, user?.id, activeFilter]);
 
   const filteredConnections = useMemo(() => {
     if (!connectionSearchQuery.trim()) {
@@ -283,6 +290,7 @@ export default function ChatScreen() {
     const otherUser = !conversation.is_group
       ? conversation.participants?.find((p: any) => p.id !== currentUserId)
       : null;
+    const avatarUri = conversation.is_group ? conversation.group_avatar : otherUser?.avatar_url;
     const lastMessageTime = conversation.last_message
       ? new Date(conversation.last_message.created_at).toLocaleTimeString('en-US', {
           hour: 'numeric',
@@ -301,7 +309,7 @@ export default function ChatScreen() {
       >
         <View style={styles.avatarWrapper}>
           <UserAvatar
-            uri={otherUser?.avatar_url}
+            uri={avatarUri}
             name={name}
             size={48}
             showRing={false}
@@ -354,23 +362,57 @@ export default function ChatScreen() {
     );
   };
 
-  const renderChatHeader = () => (
-    <>
+  return (
+    <SafeAreaView style={styles.container}>
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Messages</Text>
+        <TouchableOpacity
+          style={styles.composeButton}
+          onPress={() => setShowComposeMenu(true)}
+        >
+          <MaterialIcons name="edit" size={20} color={Colors.primary} />
+        </TouchableOpacity>
+      </View>
+
       <View style={styles.searchSection}>
         <View style={styles.searchBar}>
           <MaterialIcons name="search" size={20} color={Colors.textSecondary} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search chats or messages"
+            placeholder="Type chat name or message"
             placeholderTextColor={Colors.textSecondary}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
+            value={searchInput}
+            onChangeText={setSearchInput}
+            returnKeyType="search"
+            onSubmitEditing={submitSearch}
           />
-          {!!searchQuery && (
-            <TouchableOpacity onPress={() => setSearchQuery('')}>
+          {!!searchInput && (
+            <TouchableOpacity onPress={clearSearch}>
               <MaterialIcons name="close" size={18} color={Colors.textSecondary} />
             </TouchableOpacity>
           )}
+        </View>
+
+        <View style={styles.searchActionsRow}>
+          <TouchableOpacity
+            style={[styles.searchActionChip, isRealtimeSearch && styles.searchActionChipActive]}
+            onPress={() => setIsRealtimeSearch((prev) => !prev)}
+          >
+            <MaterialIcons
+              name={isRealtimeSearch ? 'flash-on' : 'flash-off'}
+              size={14}
+              color={isRealtimeSearch ? Colors.primaryContent : Colors.textSecondary}
+            />
+            <Text style={[styles.searchActionText, isRealtimeSearch && styles.searchActionTextActive]}>
+              Realtime
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.searchButton} onPress={submitSearch}>
+            <MaterialIcons name="search" size={16} color={Colors.primaryContent} />
+            <Text style={styles.searchButtonText}>Search</Text>
+          </TouchableOpacity>
         </View>
 
         <FlatList
@@ -398,41 +440,27 @@ export default function ChatScreen() {
             );
           }}
         />
-      </View>
 
-      {filteredConversations.length === 0 && (
-        <View style={styles.emptyStateContainer}>
-          <MaterialIcons name="chat-bubble-outline" size={44} color={Colors.textSecondary} />
-          <Text style={styles.emptyStateTitle}>No chats found</Text>
-          <Text style={styles.emptyStateSubtext}>
-            Start a new conversation from the compose button.
-          </Text>
-        </View>
-      )}
-    </>
-  );
-
-  return (
-    <SafeAreaView style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Messages</Text>
-        <TouchableOpacity
-          style={styles.composeButton}
-          onPress={() => setShowNewChatModal(true)}
-        >
-          <MaterialIcons name="edit" size={20} color={Colors.primary} />
-        </TouchableOpacity>
+        <Text style={styles.resultsCount}>
+          {activeSearch ? `${filteredConversations.length} results for "${activeSearch}"` : `${filteredConversations.length} chats`}
+        </Text>
       </View>
 
       <FlatList
         data={filteredConversations}
         keyExtractor={(item) => item.id}
         renderItem={renderConversationItem}
-        ListHeaderComponent={renderChatHeader}
         contentContainerStyle={styles.conversationsListContent}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
+        ListEmptyComponent={
+          <View style={styles.emptyStateContainer}>
+            <MaterialIcons name="chat-bubble-outline" size={44} color={Colors.textSecondary} />
+            <Text style={styles.emptyStateTitle}>No chats found</Text>
+            <Text style={styles.emptyStateSubtext}>Start a new conversation from the compose button.</Text>
+          </View>
+        }
       />
 
       {/* AI Chat Assistant FAB */}
@@ -446,6 +474,61 @@ export default function ChatScreen() {
       >
         <MaterialIcons name="auto-awesome" size={24} color="#fff" />
       </TouchableOpacity>
+
+      <Modal
+        visible={showComposeMenu}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowComposeMenu(false)}
+      >
+        <View style={styles.modalOverlayCenter}>
+          <View style={styles.composeMenuCard}>
+            <Text style={styles.composeMenuTitle}>New Message</Text>
+
+            <TouchableOpacity
+              style={styles.composeActionRow}
+              onPress={() => {
+                setShowComposeMenu(false);
+                navigation.navigate('AllUsers', { mode: 'message' });
+              }}
+            >
+              <MaterialIcons name="person-add-alt" size={20} color={Colors.text} />
+              <Text style={styles.composeActionText}>Message User</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.composeActionRow}
+              onPress={() => {
+                setShowComposeMenu(false);
+                setShowNewChatModal(true);
+                setIsGroupMode(true);
+              }}
+            >
+              <MaterialIcons name="groups" size={20} color={Colors.text} />
+              <Text style={styles.composeActionText}>Create Group</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.composeActionRow}
+              onPress={() => {
+                setShowComposeMenu(false);
+                navigation.navigate('AllUsers');
+              }}
+            >
+              <MaterialIcons name="explore" size={20} color={Colors.text} />
+              <Text style={styles.composeActionText}>Browse Users</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.composeActionRow, styles.composeCancelRow]}
+              onPress={() => setShowComposeMenu(false)}
+            >
+              <MaterialIcons name="close" size={20} color={Colors.textSecondary} />
+              <Text style={[styles.composeActionText, { color: Colors.textSecondary }]}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {/* New Chat Modal */}
       <Modal
@@ -569,7 +652,7 @@ export default function ChatScreen() {
                     style={styles.browseUsersButton}
                     onPress={() => {
                       setShowNewChatModal(false);
-                      navigation.navigate('AllUsers');
+                      navigation.navigate('AllUsers', { mode: 'browse' });
                     }}
                   >
                     <MaterialIcons name="explore" size={20} color="#ffffff" />
@@ -589,13 +672,9 @@ export default function ChatScreen() {
                       key={connection.id}
                       style={styles.connectionItem}
                       onPress={() => {
-                        if (isGroupMode) {
-                          if (profile.id) {
-                            toggleGroupParticipant(profile.id);
-                          }
-                          return;
+                        if (profile.id) {
+                          toggleGroupParticipant(profile.id);
                         }
-                        handleStartChat(connection);
                       }}
                       disabled={creatingChat}
                     >
@@ -628,7 +707,7 @@ export default function ChatScreen() {
                       {/* Chevron */}
                       {creatingChat ? (
                         <ActivityIndicator size="small" color={Colors.primary} />
-                      ) : isGroupMode && profile.id ? (
+                      ) : profile.id ? (
                         <View
                           style={[
                             styles.participantCheckbox,
@@ -707,9 +786,56 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     fontSize: FontSizes.md,
     color: Colors.text,
   },
+  searchActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  searchActionChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.card,
+  },
+  searchActionChipActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  searchActionText: {
+    fontSize: FontSizes.sm,
+    color: Colors.textSecondary,
+    fontWeight: FontWeights.medium,
+  },
+  searchActionTextActive: {
+    color: Colors.primaryContent,
+  },
+  searchButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.primary,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
+  },
+  searchButtonText: {
+    color: Colors.primaryContent,
+    fontWeight: FontWeights.semibold,
+    fontSize: FontSizes.sm,
+  },
   filterRow: {
     gap: Spacing.sm,
     paddingTop: Spacing.xs,
+  },
+  resultsCount: {
+    fontSize: FontSizes.sm,
+    color: Colors.textSecondary,
+    fontWeight: FontWeights.medium,
   },
   filterChip: {
     flexDirection: 'row',
@@ -901,6 +1027,47 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     alignItems: 'center',
     justifyContent: 'center',
     ...Shadows.lg,
+  },
+  modalOverlayCenter: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.lg,
+  },
+  composeMenuCard: {
+    width: '100%',
+    borderRadius: BorderRadius.xl,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: Spacing.md,
+    gap: Spacing.sm,
+  },
+  composeMenuTitle: {
+    fontSize: FontSizes.lg,
+    color: Colors.text,
+    fontWeight: FontWeights.semibold,
+    marginBottom: Spacing.xs,
+  },
+  composeActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.card,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
+  },
+  composeActionText: {
+    fontSize: FontSizes.md,
+    color: Colors.text,
+    fontWeight: FontWeights.medium,
+  },
+  composeCancelRow: {
+    marginTop: Spacing.xs,
   },
   emptyStateContainer: {
     alignItems: 'center',
