@@ -174,12 +174,24 @@ export const createDirectConversation = async (
   user1Id: string,
   user2Id: string
 ) => {
-  // Ensure user1Id is set to current user for RLS compliance
-  const { data: sessionData } = await supabase.auth.getSession();
-  const currentUserId = user1Id || sessionData?.session?.user?.id;
+  // Always use authenticated user for RLS compliance
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError) {
+    throw userError;
+  }
+
+  const currentUserId = user?.id;
 
   if (!currentUserId) {
     throw new Error('User must be authenticated to create conversations');
+  }
+
+  if (user1Id && user1Id !== currentUserId) {
+    console.warn('createDirectConversation called with mismatched user1Id; using authenticated user instead');
   }
 
   // Check if conversation already exists
@@ -251,13 +263,44 @@ export const createGroupConversation = async (
   groupName: string,
   participantIds: string[]
 ) => {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError) {
+    throw userError;
+  }
+
+  const currentUserId = user?.id;
+
+  if (!currentUserId) {
+    throw new Error('User must be authenticated to create conversations');
+  }
+
+  if (creatorId && creatorId !== currentUserId) {
+    console.warn('createGroupConversation called with mismatched creatorId; using authenticated user instead');
+  }
+
+  const uniqueParticipantIds = Array.from(
+    new Set(participantIds.filter((id) => id && id !== currentUserId))
+  );
+
+  if (!groupName?.trim()) {
+    throw new Error('Group name is required');
+  }
+
+  if (uniqueParticipantIds.length < 2) {
+    throw new Error('Group must include at least 2 additional members');
+  }
+
   // @ts-ignore - Supabase type inference issue
   const { data: conversation, error: convError } = await supabase
     .from("conversations")
     .insert({
       is_group: true,
-      group_name: groupName,
-      created_by: creatorId,
+      group_name: groupName.trim(),
+      created_by: currentUserId,
     } as any)
     .select()
     .single();
@@ -265,10 +308,10 @@ export const createGroupConversation = async (
   if (convError) throw convError;
 
   // Add all participants
-  const participants = [creatorId, ...participantIds].map((userId, index) => ({
+  const participants = [currentUserId, ...uniqueParticipantIds].map((userId) => ({
     conversation_id: conversation!.id,
     user_id: userId,
-    is_admin: userId === creatorId,
+    is_admin: userId === currentUserId,
   }));
 
   // @ts-ignore - Supabase type inference issue
@@ -331,12 +374,23 @@ export const sendMessage = async (
   messageType: MessageType = "text",
   attachmentUrl?: string
 ) => {
-  // Ensure sender_id is set to current user for RLS compliance
-  const { data: sessionData } = await supabase.auth.getSession();
-  const currentUserId = senderId || sessionData?.session?.user?.id;
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError) {
+    throw userError;
+  }
+
+  const currentUserId = user?.id;
 
   if (!currentUserId) {
     throw new Error('User must be authenticated to send messages');
+  }
+
+  if (senderId && senderId !== currentUserId) {
+    console.warn('sendMessage called with mismatched senderId; using authenticated user instead');
   }
 
   const { data, error } = await supabase
@@ -479,7 +533,11 @@ export const subscribeToTyping = (
 // Subscribe to new messages
 export const subscribeToMessages = (
   conversationId: string,
-  callback: (message: Message) => void
+  callback: (event: {
+    type: "insert" | "update" | "delete";
+    message?: Message;
+    messageId?: string;
+  }) => void
 ) => {
   return supabase
     .channel(`messages:${conversationId}`)
@@ -502,7 +560,65 @@ export const subscribeToMessages = (
           .eq("id", payload.new.id)
           .single();
 
-        if (data) callback(data as Message);
+        if (data) {
+          callback({
+            type: "insert",
+            message: data as Message,
+            messageId: payload.new.id,
+          });
+        }
+      }
+    )
+    .on(
+      "postgres_changes",
+      {
+        event: "UPDATE",
+        schema: "public",
+        table: "messages",
+        filter: `conversation_id=eq.${conversationId}`,
+      },
+      async (payload) => {
+        const updated = payload.new as any;
+
+        if (updated?.is_deleted) {
+          callback({
+            type: "delete",
+            messageId: updated.id,
+          });
+          return;
+        }
+
+        const { data } = await supabase
+          .from("messages")
+          .select(`
+            *,
+            sender:profiles!messages_sender_id_fkey(*)
+          `)
+          .eq("id", updated.id)
+          .single();
+
+        if (data) {
+          callback({
+            type: "update",
+            message: data as Message,
+            messageId: updated.id,
+          });
+        }
+      }
+    )
+    .on(
+      "postgres_changes",
+      {
+        event: "DELETE",
+        schema: "public",
+        table: "messages",
+        filter: `conversation_id=eq.${conversationId}`,
+      },
+      (payload) => {
+        callback({
+          type: "delete",
+          messageId: (payload.old as any)?.id,
+        });
       }
     )
     .subscribe();
