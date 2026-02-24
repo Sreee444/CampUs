@@ -6,6 +6,17 @@ import {
   Connection,
   ConversationParticipant,
   MessageType,
+  UserStatus,
+  ConversationParticipantRole,
+  GroupAnnouncement,
+  ScheduledMessage,
+  ContentFilter,
+  UserBlock,
+  GroupActivityLog,
+  ChatAnalytics,
+  UserEngagementMetrics,
+  UserVerification,
+  ConnectionSuggestion,
 } from "../types/database";
 import { moderateText } from "./ai";
 
@@ -997,5 +1008,837 @@ export const getConversationSupervisionStats = async (conversationId: string) =>
     messagesByUser: userMessageCounts,
     averageMessagesPerParticipant: (totalMessages || 0) / (participantCount || 1),
   };
+};
+
+// ===== NEW FEATURES =====
+
+// ===== 1. USER STATUS (Online/Offline/Away) =====
+export const updateUserStatus = async (userId: string, status: 'online' | 'away' | 'offline') => {
+  const { data, error } = await supabase
+    .from("profiles")
+    .update({
+      status,
+      status_updated_at: new Date().toISOString(),
+    } as any)
+    .eq("id", userId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+};
+
+export const getUserStatus = async (userId: string) => {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id, full_name, avatar_url, status, status_updated_at")
+    .eq("id", userId)
+    .single();
+
+  if (error) throw error;
+  return data;
+};
+
+// ===== 2. USER VERIFICATION BADGES =====
+export const addUserVerification = async (
+  userId: string,
+  verificationType: 'mentor' | 'admin' | 'faculty' | 'ambassador',
+  verifiedByAdminId: string,
+  expiresAt?: string
+) => {
+  const { data, error } = await supabase
+    .from("user_verifications")
+    .insert({
+      user_id: userId,
+      verified_by: verifiedByAdminId,
+      verification_type: verificationType,
+      is_active: true,
+      verified_at: new Date().toISOString(),
+      expires_at: expiresAt,
+    } as any)
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  // Update profile is_verified flag
+  await supabase
+    .from("profiles")
+    .update({ is_verified: true } as any)
+    .eq("id", userId);
+
+  return data;
+};
+
+export const removeUserVerification = async (userId: string, verificationType: string) => {
+  const { error } = await supabase
+    .from("user_verifications")
+    .update({ is_active: false } as any)
+    .eq("user_id", userId)
+    .eq("verification_type", verificationType);
+
+  if (error) throw error;
+
+  // Check if user has other active verifications
+  const { data } = await supabase
+    .from("user_verifications")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("is_active", true);
+
+  if (!data || data.length === 0) {
+    await supabase
+      .from("profiles")
+      .update({ is_verified: false } as any)
+      .eq("id", userId);
+  }
+};
+
+export const getUserVerifications = async (userId: string) => {
+  const { data, error } = await supabase
+    .from("user_verifications")
+    .select(`*,verified_by_user:profiles!verified_by(*)`)
+    .eq("user_id", userId)
+    .eq("is_active", true);
+
+  if (error) throw error;
+  return data;
+};
+
+// ===== 3. USER SUSPENSION =====
+export const suspendUser = async (userId: string, reason: string) => {
+  const { data, error } = await supabase
+    .from("profiles")
+    .update({ is_suspended: true } as any)
+    .eq("id", userId)
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  // Create a ban record
+  await supabase
+    .from("user_bans")
+    .insert({
+      user_id: userId,
+      banned_by: (await supabase.auth.getUser()).data.user?.id,
+      reason,
+      created_at: new Date().toISOString(),
+    } as any);
+
+  return data;
+};
+
+export const unsuspendUser = async (userId: string) => {
+  const { data, error } = await supabase
+    .from("profiles")
+    .update({ is_suspended: false } as any)
+    .eq("id", userId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+};
+
+// ===== 4. BLOCK/REPORT USERS =====
+export const blockUser = async (blockingUserId: string, blockedUserId: string, reason?: string) => {
+  const { data, error } = await supabase
+    .from("user_blocks")
+    .insert({
+      blocking_user_id: blockingUserId,
+      blocked_user_id: blockedUserId,
+      reason,
+      created_at: new Date().toISOString(),
+    } as any)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+};
+
+export const unblockUser = async (blockingUserId: string, blockedUserId: string) => {
+  const { error } = await supabase
+    .from("user_blocks")
+    .delete()
+    .eq("blocking_user_id", blockingUserId)
+    .eq("blocked_user_id", blockedUserId);
+
+  if (error) throw error;
+};
+
+export const getUserBlocks = async (userId: string) => {
+  const { data, error } = await supabase
+    .from("user_blocks")
+    .select(`*,blocked_user:profiles!blocked_user_id(*)`)
+    .eq("blocking_user_id", userId);
+
+  if (error) throw error;
+  return data;
+};
+
+export const isUserBlocked = async (blockingUserId: string, blockedUserId: string) => {
+  const { data, error } = await supabase
+    .from("user_blocks")
+    .select("id")
+    .eq("blocking_user_id", blockingUserId)
+    .eq("blocked_user_id", blockedUserId)
+    .single();
+
+  return !!data;
+};
+
+// ===== 5. GROUP ROLES (Admin/Moderator/Member/Viewer) =====
+export const updateGroupParticipantRole = async (
+  conversationId: string,
+  actorId: string,
+  targetUserId: string,
+  role: 'admin' | 'moderator' | 'member' | 'viewer'
+) => {
+  await ensureGroupAdminPermission(conversationId, actorId);
+
+  const { error } = await supabase
+    .from("conversation_participants")
+    .update({ role } as any)
+    .eq("conversation_id", conversationId)
+    .eq("user_id", targetUserId)
+    .is("left_at", null);
+
+  if (error) throw error;
+};
+
+export const getGroupParticipantRole = async (conversationId: string, userId: string) => {
+  const { data, error } = await supabase
+    .from("conversation_participants")
+    .select("role, is_admin")
+    .eq("conversation_id", conversationId)
+    .eq("user_id", userId)
+    .is("left_at", null)
+    .single();
+
+  if (error) throw error;
+  return data;
+};
+
+// ===== 6. QUOTED/REPLY MESSAGES =====
+export const sendReplyMessage = async (
+  conversationId: string,
+  senderId: string,
+  content: string,
+  replyToMessageId: string
+) => {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError) throw userError;
+  const currentUserId = user?.id;
+
+  const { data, error } = await supabase
+    .from("messages")
+    .insert({
+      conversation_id: conversationId,
+      sender_id: currentUserId,
+      content,
+      message_type: "text",
+      reply_to_message_id: replyToMessageId,
+    } as any)
+    .select(`
+      *,
+      sender:profiles!messages_sender_id_fkey(*),
+      reply_to_message:messages!reply_to_message_id(
+        *,
+        sender:profiles!messages_sender_id_fkey(*)
+      )
+    `)
+    .single();
+
+  if (error) throw error;
+
+  // Update conversation timestamp
+  await supabase
+    .from("conversations")
+    .update({ updated_at: new Date().toISOString() } as any)
+    .eq("id", conversationId);
+
+  return data;
+};
+
+// ===== 7. MESSAGE FORWARDING =====
+export const forwardMessage = async (
+  messageId: string,
+  fromConversationId: string,
+  toConversationId: string,
+  senderId: string
+) => {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError) throw userError;
+  const currentUserId = user?.id;
+
+  // Get original message
+  const { data: originalMessage } = await supabase
+    .from("messages")
+    .select("content, message_type, attachment_url")
+    .eq("id", messageId)
+    .single();
+
+  if (!originalMessage) throw new Error("Message not found");
+
+  const { data, error } = await supabase
+    .from("messages")
+    .insert({
+      conversation_id: toConversationId,
+      sender_id: currentUserId,
+      content: originalMessage.content,
+      message_type: originalMessage.message_type,
+      attachment_url: originalMessage.attachment_url,
+      forwarded_from_message_id: messageId,
+    } as any)
+    .select(`
+      *,
+      sender:profiles!messages_sender_id_fkey(*),
+      forwarded_from_message:messages!forwarded_from_message_id(
+        *,
+        sender:profiles!messages_sender_id_fkey(*)
+      )
+    `)
+    .single();
+
+  if (error) throw error;
+
+  // Update target conversation timestamp
+  await supabase
+    .from("conversations")
+    .update({ updated_at: new Date().toISOString() } as any)
+    .eq("id", toConversationId);
+
+  return data;
+};
+
+// ===== 8. MESSAGE SEARCH WITH FILTERS =====
+export const searchMessages = async (
+  conversationId: string,
+  query: string,
+  filters?: {
+    senderId?: string;
+    startDate?: string;
+    endDate?: string;
+    messageType?: string;
+  }
+) => {
+  let q = supabase
+    .from("messages")
+    .select(`
+      *,
+      sender:profiles!messages_sender_id_fkey(*)
+    `)
+    .eq("conversation_id", conversationId)
+    .eq("is_deleted", false)
+    .ilike("content", `%${query}%`);
+
+  if (filters?.senderId) {
+    q = q.eq("sender_id", filters.senderId);
+  }
+
+  if (filters?.messageType) {
+    q = q.eq("message_type", filters.messageType);
+  }
+
+  if (filters?.startDate) {
+    q = q.gte("created_at", filters.startDate);
+  }
+
+  if (filters?.endDate) {
+    q = q.lte("created_at", filters.endDate);
+  }
+
+  const { data, error } = await q.order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return data;
+};
+
+// ===== 9. PINNED MESSAGES & GROUP ANNOUNCEMENTS =====
+export const pinMessage = async (
+  messageId: string,
+  conversationId: string,
+  pinnedByUserId: string
+) => {
+  await ensureGroupAdminPermission(conversationId, pinnedByUserId);
+
+  const { error } = await supabase
+    .from("pinned_messages")
+    .insert({
+      message_id: messageId,
+      conversation_id: conversationId,
+      pinned_by: pinnedByUserId,
+    });
+
+  if (error) {
+    console.error("Pin message error:", error);
+    throw new Error(`Failed to pin message: ${error.message}`);
+  }
+
+  return true;
+};
+
+export const unpinMessage = async (messageId: string, conversationId: string) => {
+  const { error } = await supabase
+    .from("pinned_messages")
+    .delete()
+    .eq("message_id", messageId)
+    .eq("conversation_id", conversationId);
+
+  if (error) throw error;
+};
+
+export const getPinnedMessages = async (conversationId: string) => {
+  const { data, error } = await supabase
+    .from("pinned_messages")
+    .select("*, message:messages(id, content, sender_id, created_at)")
+    .eq("conversation_id", conversationId)
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+};
+
+export const createGroupAnnouncement = async (
+  conversationId: string,
+  createdByAdminId: string,
+  title: string,
+  content: string
+) => {
+  await ensureGroupAdminPermission(conversationId, createdByAdminId);
+
+  const { data, error } = await supabase
+    .from("group_announcements")
+    .insert({
+      conversation_id: conversationId,
+      created_by: createdByAdminId,
+      title,
+      content,
+      is_active: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    } as any)
+    .select(`*,creator:profiles!created_by(*)`)
+    .single();
+
+  if (error) throw error;
+  return data;
+};
+
+export const getGroupAnnouncements = async (conversationId: string) => {
+  const { data, error } = await supabase
+    .from("group_announcements")
+    .select(`*,creator:profiles!created_by(*)`)
+    .eq("conversation_id", conversationId)
+    .eq("is_active", true)
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return data;
+};
+
+export const deactivateGroupAnnouncement = async (announcementId: string) => {
+  const { data, error } = await supabase
+    .from("group_announcements")
+    .update({ is_active: false } as any)
+    .eq("id", announcementId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+};
+
+// ===== 10. GROUP ACTIVITY LOGS =====
+export const logGroupActivity = async (
+  conversationId: string,
+  actorId: string,
+  action: string,
+  targetUserId?: string,
+  details?: string
+) => {
+  const { data, error } = await supabase
+    .from("group_activity_logs")
+    .insert({
+      conversation_id: conversationId,
+      actor_id: actorId,
+      action,
+      target_user_id: targetUserId,
+      details,
+      created_at: new Date().toISOString(),
+    } as any)
+    .select(`
+      *,
+      actor:profiles!actor_id(*),
+      target_user:profiles!target_user_id(*)
+    `)
+    .single();
+
+  if (error) throw error;
+  return data;
+};
+
+export const getGroupActivityLogs = async (conversationId: string, adminOnly = false) => {
+  let q = supabase
+    .from("group_activity_logs")
+    .select(`
+      *,
+      actor:profiles!actor_id(*),
+      target_user:profiles!target_user_id(*)
+    `)
+    .eq("conversation_id", conversationId);
+
+  if (adminOnly) {
+    q = q.in("action", ["promoted", "demoted", "removed", "admin_changed"]);
+  }
+
+  const { data, error } = await q.order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return data;
+};
+
+// ===== 11. SCHEDULED MESSAGES =====
+export const scheduleMessage = async (
+  conversationId: string,
+  senderId: string,
+  content: string,
+  scheduledFor: string,
+  messageType: 'text' | 'image' | 'file' = 'text'
+) => {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError) throw userError;
+  const currentUserId = user?.id;
+
+  const scheduledDate = new Date(scheduledFor);
+  if (scheduledDate <= new Date()) {
+    throw new Error("Scheduled time must be in the future");
+  }
+
+  const { data, error } = await supabase
+    .from("scheduled_messages")
+    .insert({
+      conversation_id: conversationId,
+      sender_id: currentUserId,
+      content,
+      message_type: messageType,
+      scheduled_for: scheduledDate.toISOString(),
+      status: "pending",
+      created_at: new Date().toISOString(),
+    } as any)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+};
+
+export const getScheduledMessages = async (conversationId: string) => {
+  const { data, error } = await supabase
+    .from("scheduled_messages")
+    .select(`*,sender:profiles!sender_id(*)`)
+    .eq("conversation_id", conversationId)
+    .eq("status", "pending")
+    .order("scheduled_for", { ascending: true });
+
+  if (error) throw error;
+  return data;
+};
+
+export const cancelScheduledMessage = async (messageId: string) => {
+  const { error } = await supabase
+    .from("scheduled_messages")
+    .delete()
+    .eq("id", messageId)
+    .eq("status", "pending");
+
+  if (error) throw error;
+};
+
+// ===== 12. CONTENT FILTERS (Spam Detection) =====
+export const addContentFilter = async (keyword: string, action: 'block' | 'warn' | 'flag_for_review') => {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError) throw userError;
+
+  const { data, error } = await supabase
+    .from("content_filters")
+    .insert({
+      keyword: keyword.toLowerCase(),
+      action,
+      is_active: true,
+      created_by: user?.id,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    } as any)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+};
+
+export const checkContentFilters = async (text: string) => {
+  const { data: filters, error } = await supabase
+    .from("content_filters")
+    .select("*")
+    .eq("is_active", true);
+
+  if (error) throw error;
+
+  const lowerText = text.toLowerCase();
+  const flaggedFilters = filters?.filter((f: any) => lowerText.includes(f.keyword)) || [];
+
+  return {
+    isFlagged: flaggedFilters.length > 0,
+    flaggedKeywords: flaggedFilters.map((f: any) => ({ keyword: f.keyword, action: f.action })),
+  };
+};
+
+export const getContentFilters = async () => {
+  const { data, error } = await supabase
+    .from("content_filters")
+    .select("*")
+    .eq("is_active", true);
+
+  if (error) throw error;
+  return data;
+};
+
+// ===== 13. MUTUAL CONNECTIONS PREVIEW =====
+export const getMutualConnections = async (userId: string, targetUserId: string) => {
+  // Get user1's connections
+  const { data: user1Connections } = await supabase
+    .from("connections")
+    .select("requester_id, recipient_id")
+    .or(`requester_id.eq.${userId},recipient_id.eq.${userId}`)
+    .eq("status", "accepted");
+
+  // Get user2's connections
+  const { data: user2Connections } = await supabase
+    .from("connections")
+    .select("requester_id, recipient_id")
+    .or(`requester_id.eq.${targetUserId},recipient_id.eq.${targetUserId}`)
+    .eq("status", "accepted");
+
+  // Find mutual connections
+  const user1Ids = new Set(
+    (user1Connections || []).map((c: any) => 
+      c.requester_id === userId ? c.recipient_id : c.requester_id
+    )
+  );
+
+  const mutualIds = (user2Connections || [])
+    .map((c: any) => c.requester_id === targetUserId ? c.recipient_id : c.requester_id)
+    .filter((id: string) => user1Ids.has(id));
+
+  // Get mutual user profiles
+  const { data: mutualUsers } = await supabase
+    .from("profiles")
+    .select("*")
+    .in("id", mutualIds);
+
+  return {
+    mutual_count: mutualIds.length,
+    mutual_users: mutualUsers,
+  };
+};
+
+// ===== 14. CONNECTION SUGGESTIONS & DISCOVERY =====
+export const getConnectionSuggestions = async (userId: string) => {
+  const { data, error } = await supabase
+    .from("connection_suggestions")
+    .select(`*,suggested_user:profiles!suggested_user_id(*)`)
+    .eq("user_id", userId)
+    .eq("dismissed", false)
+    .order("match_score", { ascending: false })
+    .limit(10);
+
+  if (error) throw error;
+  return data;
+};
+
+export const dismissConnectionSuggestion = async (suggestionId: string) => {
+  const { error } = await supabase
+    .from("connection_suggestions")
+    .update({ dismissed: true } as any)
+    .eq("id", suggestionId);
+
+  if (error) throw error;
+};
+
+// ===== 15. CHAT ANALYTICS =====
+export const calculateChatAnalytics = async (conversationId: string) => {
+  const { count: totalMessages } = await supabase
+    .from("messages")
+    .select("*", { count: "exact", head: true })
+    .eq("conversation_id", conversationId)
+    .eq("is_deleted", false);
+
+  const { data: messagesByUser } = await supabase
+    .from("messages")
+    .select("sender_id")
+    .eq("conversation_id", conversationId)
+    .eq("is_deleted", false);
+
+  const senderCounts = (messagesByUser || []).reduce((acc: any, msg: any) => {
+    acc[msg.sender_id] = (acc[msg.sender_id] || 0) + 1;
+    return acc;
+  }, {});
+
+  const mostActiveSenderId = Object.entries(senderCounts).sort(
+    (a: any, b: any) => b[1] - a[1]
+  )[0]?.[0];
+
+  const { data, error } = await supabase
+    .from("chat_analytics")
+    .upsert({
+      conversation_id: conversationId,
+      total_messages: totalMessages || 0,
+      unique_senders: Object.keys(senderCounts).length,
+      most_active_member_id: mostActiveSenderId,
+      last_calculated_at: new Date().toISOString(),
+    } as any)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+};
+
+export const getChatAnalytics = async (conversationId: string) => {
+  const { data, error } = await supabase
+    .from("chat_analytics")
+    .select(`*,most_active_member:profiles!most_active_member_id(*)`)
+    .eq("conversation_id", conversationId)
+    .single();
+
+  if (error) throw error;
+  return data;
+};
+
+// ===== 16. USER ENGAGEMENT METRICS (Admin Dashboard) =====
+export const calculateUserEngagementMetrics = async (userId: string) => {
+  const { count: messagesSent } = await supabase
+    .from("messages")
+    .select("*", { count: "exact", head: true })
+    .eq("sender_id", userId)
+    .eq("is_deleted", false);
+
+  const { count: messagesReceived } = await supabase
+    .from("messages")
+    .select("*", { count: "exact", head: true })
+    .neq("sender_id", userId)
+    .eq("is_deleted", false);
+
+  const { data: conversations } = await supabase
+    .from("conversation_participants")
+    .select("conversation_id")
+    .eq("user_id", userId)
+    .is("left_at", null);
+
+  const { count: groupCount } = await supabase
+    .from("conversations")
+    .select("*", { count: "exact" })
+    .in("id", conversations?.map((c: any) => c.conversation_id) || [])
+    .eq("is_group", true);
+
+  const engagementScore = (messagesSent || 0) * 0.5 + (messagesReceived || 0) * 0.3 + (groupCount || 0) * 0.2;
+
+  const { data, error } = await supabase
+    .from("user_engagement_metrics")
+    .upsert({
+      user_id: userId,
+      messages_sent: messagesSent || 0,
+      conversations_participated: conversations?.length || 0,
+      messages_received: messagesReceived || 0,
+      active_groups: groupCount || 0,
+      engagement_score: Math.round(engagementScore),
+      last_activity: new Date().toISOString(),
+      calculated_at: new Date().toISOString(),
+    } as any)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+};
+
+export const getTopEngagedUsers = async (limit = 10) => {
+  const { data, error } = await supabase
+    .from("user_engagement_metrics")
+    .select(`*,user:profiles!user_id(*)`)
+    .order("engagement_score", { ascending: false })
+    .limit(limit);
+
+  if (error) throw error;
+  return data;
+};
+
+export const getUserEngagementMetrics = async (userId: string) => {
+  const { data, error } = await supabase
+    .from("user_engagement_metrics")
+    .select(`*,user:profiles!user_id(*)`)
+    .eq("user_id", userId)
+    .single();
+
+  if (error) throw error;
+  return data;
+};
+
+// ===== 17. UNREAD MESSAGE BADGES =====
+export const getUnreadConversations = async (userId: string) => {
+  const { data: conversations } = await supabase
+    .from("conversation_participants")
+    .select("conversation_id")
+    .eq("user_id", userId)
+    .is("left_at", null);
+
+  const convIds = conversations?.map((c: any) => c.conversation_id) || [];
+
+  const { data, error } = await supabase
+    .from("conversations")
+    .select(`
+      *,
+      unread_count:messages(count)
+    `)
+    .in("id", convIds)
+    .neq("unread_count", 0);
+
+  if (error) throw error;
+  return data;
+};
+
+export const getUnreadCount = async (userId: string) => {
+  const { data, error } = await supabase
+    .from("messages")
+    .select("conversation_id", { count: "exact" })
+    .neq("sender_id", userId)
+    .eq("is_deleted", false)
+    .not(
+      "id",
+      "in",
+      `(SELECT message_id FROM message_reads WHERE user_id = '${userId}')`
+    );
+
+  if (error) throw error;
+  return data?.length || 0;
 };
 

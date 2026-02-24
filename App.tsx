@@ -7,8 +7,9 @@ import RootNavigator from './src/navigation/RootNavigator';
 import { ThemeProvider, useTheme } from './src/contexts/ThemeContext';
 import { AuthProvider } from './src/contexts/AuthContext';
 import { useAuth } from './src/contexts/AuthContext';
-import { StyleSheet } from 'react-native';
+import { StyleSheet, AppState } from 'react-native';
 import { registerForPushNotifications, subscribeToNotifications } from './src/api/notifications';
+import { updateUserStatus } from './src/api/chat';
 
 function AppContent() {
   const { isDark } = useTheme();
@@ -18,6 +19,32 @@ function AppContent() {
     // Register for push notifications
     registerForPushNotifications().catch(console.error);
   }, []);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    // App state listener for user status
+    const subscription = AppState.addEventListener('change', async (nextAppState) => {
+      try {
+        if (nextAppState === 'active') {
+          // App came to foreground
+          await updateUserStatus(user.id, 'online');
+        } else if (nextAppState === 'background') {
+          // App went to background
+          await updateUserStatus(user.id, 'away');
+        }
+      } catch (error) {
+        console.error('Error updating user status:', error);
+      }
+    });
+
+    // Set initial status to online when component mounts
+    updateUserStatus(user.id, 'online').catch(console.error);
+
+    return () => {
+      subscription.remove();
+    };
+  }, [user?.id]);
 
   useEffect(() => {
     if (!user?.id) return;

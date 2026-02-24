@@ -45,6 +45,12 @@
 - **Direct Messaging** - 1-on-1 chats with connection requests
 - **Group Chats** - Project team communications
 - Real-time messaging with Supabase Realtime
+- ✨ **Phase 1 Features:**
+  - ✅ Typing indicators (see who's typing)
+  - ✅ Read receipts (single/double check marks)
+  - ✅ Message reactions (emoji reactions)
+  - ✅ Pin messages (groups only, admin feature)
+  - ✅ Copy/Forward message actions
 - Typing indicators
 - Read receipts
 - Message deletion
