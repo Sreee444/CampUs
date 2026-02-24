@@ -324,6 +324,104 @@ export const createGroupConversation = async (
   return conversation as Conversation;
 };
 
+export const getConversationParticipants = async (conversationId: string) => {
+  const { data, error } = await supabase
+    .from("conversation_participants")
+    .select(`
+      id,
+      conversation_id,
+      user_id,
+      is_admin,
+      joined_at,
+      left_at,
+      user:profiles!conversation_participants_user_id_fkey(
+        id,
+        full_name,
+        avatar_url,
+        role,
+        department,
+        bio
+      )
+    `)
+    .eq("conversation_id", conversationId)
+    .is("left_at", null)
+    .order("joined_at", { ascending: true });
+
+  if (error) throw error;
+  return data || [];
+};
+
+export const addGroupParticipants = async (
+  conversationId: string,
+  participantIds: string[]
+) => {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError) throw userError;
+  if (!user?.id) throw new Error("User must be authenticated");
+
+  const uniqueIds = Array.from(new Set(participantIds.filter(Boolean)));
+  if (uniqueIds.length === 0) return [];
+
+  const payload = uniqueIds.map((participantId) => ({
+    conversation_id: conversationId,
+    user_id: participantId,
+    is_admin: false,
+  }));
+
+  const { data, error } = await supabase
+    .from("conversation_participants")
+    .insert(payload as any)
+    .select("user_id");
+
+  if (error) throw error;
+  return data || [];
+};
+
+export const renameGroupConversation = async (
+  conversationId: string,
+  groupName: string
+) => {
+  const trimmed = groupName.trim();
+  if (!trimmed) {
+    throw new Error("Group name is required");
+  }
+
+  const { data, error } = await supabase
+    .from("conversations")
+    .update({ group_name: trimmed } as any)
+    .eq("id", conversationId)
+    .eq("is_group", true)
+    .select("id, group_name")
+    .single();
+
+  if (error) throw error;
+  return data;
+};
+
+export const leaveGroupConversation = async (conversationId: string) => {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError) throw userError;
+  if (!user?.id) throw new Error("User must be authenticated");
+
+  const { error } = await supabase
+    .from("conversation_participants")
+    .update({ left_at: new Date().toISOString() } as any)
+    .eq("conversation_id", conversationId)
+    .eq("user_id", user.id)
+    .is("left_at", null);
+
+  if (error) throw error;
+  return true;
+};
+
 // ===== MESSAGES =====
 
 // Get messages for a conversation
