@@ -13,7 +13,9 @@ import {
   Modal,
   Image,
   ScrollView,
+  Animated,
 } from 'react-native';
+import { useAnimatedStyle, useSharedValue, withRepeat, withTiming, Easing } from 'react-native-reanimated';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -37,10 +39,19 @@ import {
   setGroupParticipantAdmin,
   subscribeToMessages,
   updateGroupConversation,
+  pinMessage,
+  unpinMessage,
+  getPinnedMessages,
+  getGroupAnnouncements,
+  createGroupAnnouncement,
+  deactivateGroupAnnouncement,
+  forwardMessage,
+  updateUserStatus,
 } from '../../api/chat';
 import Toast from 'react-native-toast-message';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import { UserAvatar } from '../../components/UserAvatar';
+import PinnedMessagesModal from '../../components/PinnedMessagesModal';
 
 type ChatConversationScreenNavigationProp = StackNavigationProp<RootStackParamList, 'ChatConversation'>;
 type ChatConversationScreenRouteProp = RouteProp<RootStackParamList, 'ChatConversation'>;
@@ -51,7 +62,10 @@ type ChatMessage = {
   content?: string;
   created_at: string;
   sender?: {
+    id?: string;
     full_name?: string;
+    avatar_url?: string;
+    role?: string;
   };
 };
 
@@ -97,6 +111,22 @@ export default function ChatConversationScreen() {
   const [groupDetails, setGroupDetails] = useState<any>(null);
   const [groupMembers, setGroupMembers] = useState<GroupParticipant[]>([]);
   const [isSavingGroup, setIsSavingGroup] = useState(false);
+  const [showPinnedMessages, setShowPinnedMessages] = useState(false);
+  const [pinnedMessageCount, setPinnedMessageCount] = useState(0);
+  const [latestPinnedMessage, setLatestPinnedMessage] = useState<any>(null);
+  const [latestAnnouncement, setLatestAnnouncement] = useState<any>(null);
+  const [showPinnedBanner, setShowPinnedBanner] = useState(false);
+  const [showAnnouncementBanner, setShowAnnouncementBanner] = useState(false);
+  const [showPinnedActions, setShowPinnedActions] = useState(false);
+  const [showAnnouncementActions, setShowAnnouncementActions] = useState(false);
+  const [showCreateAnnouncement, setShowCreateAnnouncement] = useState(false);
+  const [announcementTitle, setAnnouncementTitle] = useState('');
+  const [announcementContent, setAnnouncementContent] = useState('');
+  const [isCreatingAnnouncement, setIsCreatingAnnouncement] = useState(false);
+  const announcementPulse = useSharedValue(1);
+  const announcementSlide = useSharedValue(-100);
+  const announcementScale = useSharedValue(0.95);
+  const announcementIconRotate = useSharedValue(0);
   const listRef = useRef<FlatList>(null);
 
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -105,6 +135,20 @@ export default function ChatConversationScreen() {
     message: string;
     onConfirm: () => void;
   }>({ visible: false, title: '', message: '', onConfirm: () => {} });
+
+  // Animated styles for announcement banner
+  const announcementAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      opacity: announcementScale.value,
+      marginTop: announcementSlide.value,
+    } as any;
+  });
+
+  const announcementIconAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ rotateZ: `${announcementIconRotate.value}deg` }] as any,
+    };
+  });
 
   const { conversationId = '', name = 'Chat', isGroup = false } = route.params || {};
   const isAIChat = conversationId === 'ai-assistant';
@@ -137,6 +181,77 @@ export default function ChatConversationScreen() {
     }
   };
 
+  const loadPinnedMessagesCount = async () => {
+    if (!conversationId) return;
+
+    try {
+      const pinnedMessages = await getPinnedMessages(conversationId);
+      setPinnedMessageCount(pinnedMessages?.length || 0);
+      // Show latest pinned message in banner
+      if (pinnedMessages && pinnedMessages.length > 0) {
+        const latest = pinnedMessages[0] as any;
+        // Extract content from the message relation
+        const messageContent = latest?.message?.content || latest?.content || 'Message pinned';
+        setLatestPinnedMessage({
+          ...latest,
+          content: messageContent,
+        });
+        setShowPinnedBanner(true);
+      } else {
+        // No more pinned messages - hide banner and clear latest
+        setLatestPinnedMessage(null);
+        setShowPinnedBanner(false);
+      }
+    } catch (error) {
+      console.error('Failed to load pinned messages count:', error);
+    }
+  };
+
+  const loadLatestAnnouncement = async () => {
+    if (!conversationId) return;
+
+    try {
+      const announcements = await getGroupAnnouncements(conversationId);
+      if (announcements && announcements.length > 0) {
+        setLatestAnnouncement(announcements[0]);
+        setShowAnnouncementBanner(true);
+        
+        // Reset animations
+        announcementSlide.value = -100;
+        announcementScale.value = 0.95;
+        announcementIconRotate.value = 0;
+        
+        // Slide in animation
+        announcementSlide.value = withTiming(0, { 
+          duration: 600, 
+          easing: Easing.out(Easing.cubic) 
+        });
+        
+        // Scale animation
+        announcementScale.value = withTiming(1, { 
+          duration: 600, 
+          easing: Easing.out(Easing.cubic) 
+        });
+        
+        // Icon rotation animation
+        announcementIconRotate.value = withRepeat(
+          withTiming(360, { duration: 3000, easing: Easing.linear }),
+          -1,
+          false
+        );
+        
+        // Pulse animation
+        announcementPulse.value = withRepeat(
+          withTiming(0.7, { duration: 1500 }),
+          -1,
+          true
+        );
+      }
+    } catch (error) {
+      console.error('Failed to load announcements:', error);
+    }
+  };
+
   useEffect(() => {
     if (!conversationId || isAIChat || !user?.id) {
       setIsLoading(false);
@@ -144,8 +259,10 @@ export default function ChatConversationScreen() {
     }
 
     loadMessages();
+    loadPinnedMessagesCount();
     if (isGroup) {
       loadGroupDetails();
+      loadLatestAnnouncement();
     }
     checkSupervisionCapability().catch((err) => console.error('Error in supervision check:', err));
 
@@ -381,6 +498,60 @@ export default function ChatConversationScreen() {
     }
   };
 
+  const handleCreateAnnouncement = async () => {
+    if (!conversationId || !user?.id || !announcementTitle.trim() || !announcementContent.trim()) {
+      Toast.show({ type: 'error', text1: 'Please fill in title and content' });
+      return;
+    }
+
+    try {
+      setIsCreatingAnnouncement(true);
+      await createGroupAnnouncement(
+        conversationId,
+        user.id,
+        announcementTitle.trim(),
+        announcementContent.trim()
+      );
+      setAnnouncementTitle('');
+      setAnnouncementContent('');
+      setShowCreateAnnouncement(false);
+      setShowMessageOptions(false);
+      await loadLatestAnnouncement();
+      Toast.show({ type: 'success', text1: 'Announcement created', text2: 'Posted to the group' });
+    } catch (error: any) {
+      Toast.show({ type: 'error', text1: 'Failed to create announcement', text2: error?.message || 'Try again' });
+    } finally {
+      setIsCreatingAnnouncement(false);
+    }
+  };
+
+  const handleUnpinMessage = async () => {
+    if (!latestPinnedMessage?.message_id || !conversationId) return;
+
+    try {
+      await unpinMessage(latestPinnedMessage.message_id, conversationId);
+      setShowPinnedActions(false);
+      await loadPinnedMessagesCount();
+      Toast.show({ type: 'success', text1: 'Message unpinned' });
+    } catch (error: any) {
+      Toast.show({ type: 'error', text1: 'Failed to unpin message', text2: error?.message || 'Try again' });
+    }
+  };
+
+  const handleDeleteAnnouncement = async () => {
+    if (!latestAnnouncement?.id) return;
+
+    try {
+      await deactivateGroupAnnouncement(latestAnnouncement.id);
+      setShowAnnouncementBanner(false);
+      setShowAnnouncementActions(false);
+      setLatestAnnouncement(null);
+      Toast.show({ type: 'success', text1: 'Announcement deleted' });
+    } catch (error: any) {
+      Toast.show({ type: 'error', text1: 'Failed to delete announcement', text2: error?.message || 'Try again' });
+    }
+  };
+
   const getInitials = (displayName: string) => {
     const parts = displayName.trim().split(' ');
     const first = parts[0]?.[0] || '';
@@ -414,6 +585,14 @@ export default function ChatConversationScreen() {
     return otherMessage?.sender_id || null;
   }, [isGroup, isAIChat, messages, user?.id]);
 
+  const directPartnerProfile = useMemo(() => {
+    if (isGroup || isAIChat || !user?.id) return null;
+    const otherMessage = messages.find(
+      (message) => message.sender_id !== user.id && message.sender_id !== 'ai'
+    );
+    return otherMessage?.sender || null;
+  }, [isGroup, isAIChat, messages, user?.id]);
+
   const currentUserParticipant = useMemo(
     () => groupMembers.find((participant) => participant.user_id === user?.id),
     [groupMembers, user?.id]
@@ -427,53 +606,110 @@ export default function ChatConversationScreen() {
   const initials = getInitials(groupDetails?.group_name || name);
   const color = isAIChat ? Colors.primary : getAvatarColor(groupDetails?.group_name || name);
 
-  const renderMessage = ({ item: message }: { item: ChatMessage }) => {
+  const getDateLabel = (isoDate: string) => {
+    const date = new Date(isoDate);
+    const today = new Date();
+    const yesterday = new Date();
+    yesterday.setDate(today.getDate() - 1);
+
+    const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+    const todayOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+    const yesterdayOnly = new Date(
+      yesterday.getFullYear(),
+      yesterday.getMonth(),
+      yesterday.getDate()
+    ).getTime();
+
+    if (dateOnly === todayOnly) return 'Today';
+    if (dateOnly === yesterdayOnly) return 'Yesterday';
+
+    return date.toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+    });
+  };
+
+  const renderMessage = ({ item: message, index }: { item: ChatMessage; index: number }) => {
     const isMyMessage = message.sender_id === user?.id;
+    const previousMessage = index > 0 ? filteredMessages[index - 1] : null;
+    const showDateSeparator =
+      index === 0 ||
+      new Date(previousMessage?.created_at || '').toDateString() !==
+        new Date(message.created_at).toDateString();
+    const showAvatar = !isMyMessage && (!previousMessage || previousMessage.sender_id !== message.sender_id);
+    const showSenderLabel = !isMyMessage && isGroup && showAvatar;
     const messageTime = new Date(message.created_at).toLocaleTimeString('en-US', {
       hour: 'numeric',
       minute: '2-digit',
     });
 
     return (
-      <View
-        style={[
-          styles.messageWrapper,
-          isMyMessage ? styles.myMessageWrapper : styles.otherMessageWrapper,
-        ]}
-      >
-        <TouchableOpacity
-          style={[
-            styles.messageBubble,
-            isMyMessage ? styles.myMessage : styles.otherMessage,
-          ]}
-          onLongPress={() => handleMessageLongPress(message)}
-          delayLongPress={400}
-          activeOpacity={0.8}
-        >
-          {!isMyMessage && isGroup && (
-            <Text style={styles.senderName} numberOfLines={1}>
-              {message.sender?.full_name || 'Member'}
-            </Text>
-          )}
-          <Text
-            style={[
-              styles.messageText,
-              isMyMessage ? styles.myMessageText : styles.otherMessageText,
-            ]}
-          >
-            {message.content}
-          </Text>
-          <View style={styles.messageFooter}>
-            <Text
-              style={[
-                styles.messageTime,
-                isMyMessage ? styles.myMessageTime : styles.otherMessageTime,
-              ]}
-            >
-              {messageTime}
-            </Text>
+      <View>
+        {showDateSeparator && (
+          <View style={styles.dateSeparatorContainer}>
+            <Text style={styles.dateSeparatorLabel}>{getDateLabel(message.created_at)}</Text>
           </View>
-        </TouchableOpacity>
+        )}
+
+        <View
+          style={[
+            styles.messageWrapper,
+            isMyMessage ? styles.myMessageWrapper : styles.otherMessageWrapper,
+          ]}
+        >
+          {!isMyMessage && (
+            <View style={styles.incomingAvatarWrap}>
+              {showAvatar ? (
+                <UserAvatar
+                  uri={message.sender?.avatar_url}
+                  name={message.sender?.full_name || 'User'}
+                  size={30}
+                  role={message.sender?.role}
+                  showRing={false}
+                />
+              ) : (
+                <View style={styles.avatarSpacer} />
+              )}
+            </View>
+          )}
+
+          <TouchableOpacity
+            style={[
+              styles.messageBubble,
+              isMyMessage ? styles.myMessage : styles.otherMessage,
+            ]}
+            onLongPress={() => handleMessageLongPress(message)}
+            delayLongPress={400}
+            activeOpacity={0.8}
+          >
+            {showSenderLabel && (
+              <Text style={styles.senderName} numberOfLines={1}>
+                {message.sender?.full_name || 'Member'}
+              </Text>
+            )}
+            <View style={styles.messageContentWrap}>
+              <Text
+                style={[
+                  styles.messageText,
+                  isMyMessage ? styles.myMessageText : styles.otherMessageText,
+                ]}
+              >
+                {message.content}
+              </Text>
+            </View>
+            <View style={[styles.messageFooter, isMyMessage ? styles.myMessageFooter : styles.otherMessageFooter]}>
+              <Text
+                style={[
+                  styles.messageTime,
+                  isMyMessage ? styles.myMessageTime : styles.otherMessageTime,
+                ]}
+              >
+                {messageTime}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   };
@@ -490,12 +726,22 @@ export default function ChatConversationScreen() {
           onPress={() => {
             if (isGroup && groupMembers.length > 0) {
               setShowGroupMembers(true);
+            } else if (!isGroup && directPartnerId) {
+              navigation.navigate('PublicProfile', { userId: directPartnerId });
             }
           }}
           activeOpacity={0.8}
         >
           {isGroup && groupDetails?.group_avatar ? (
             <Image source={{ uri: groupDetails.group_avatar }} style={styles.headerAvatarImage} />
+          ) : !isGroup && directPartnerProfile ? (
+            <UserAvatar
+              uri={directPartnerProfile.avatar_url}
+              name={directPartnerProfile.full_name || name}
+              size={40}
+              role={directPartnerProfile.role}
+              showRing={false}
+            />
           ) : (
             <View style={[styles.headerAvatar, { backgroundColor: color }]}>
               <Text style={styles.headerAvatarText}>{initials}</Text>
@@ -503,7 +749,9 @@ export default function ChatConversationScreen() {
           )}
 
           <View style={styles.headerInfo}>
-            <Text style={styles.headerName}>{groupDetails?.group_name || name}</Text>
+            <Text style={styles.headerName}>
+              {isGroup ? groupDetails?.group_name || name : directPartnerProfile?.full_name || name}
+            </Text>
             {isGroup ? (
               <View style={styles.groupHeaderMeta}>
                 <Text style={styles.headerStatus}>{groupMembers.length} members</Text>
@@ -521,10 +769,21 @@ export default function ChatConversationScreen() {
                 </View>
               </View>
             ) : (
-              <Text style={styles.headerStatus}>{isAIChat ? 'AI Assistant' : 'Active chat'}</Text>
+              <Text style={styles.headerStatus}>
+                {isAIChat ? 'AI Assistant' : directPartnerProfile?.role || 'Direct chat'}
+              </Text>
             )}
           </View>
         </TouchableOpacity>
+
+        {pinnedMessageCount > 0 && (
+          <TouchableOpacity style={styles.pinnedButton} onPress={() => setShowPinnedMessages(true)}>
+            <MaterialIcons name="push-pin" size={20} color={Colors.primary} />
+            <View style={styles.pinnedBadge}>
+              <Text style={styles.pinnedBadgeText}>{pinnedMessageCount}</Text>
+            </View>
+          </TouchableOpacity>
+        )}
 
         <TouchableOpacity style={styles.moreButton} onPress={() => setShowChatOptions(true)}>
           <MaterialIcons name="more-vert" size={24} color={Colors.text} />
@@ -552,45 +811,120 @@ export default function ChatConversationScreen() {
         </View>
       )}
 
-      {canSupervise && !isAIChat && (
-        <View style={[styles.supervisionBanner, !isSupervisor && { backgroundColor: Colors.primarySoft }]}>
-          {isSupervisor ? (
-            <>
-              <View style={styles.supervisionContent}>
-                <MaterialIcons name="supervised-user-circle" size={20} color={Colors.primaryContent} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.supervisionTitle}>You are supervising this group</Text>
-                  {supervisionStats && (
-                    <Text style={styles.supervisionSubtitle}>
-                      {supervisionStats.totalMessages} messages • {supervisionStats.participantCount} members
-                    </Text>
-                  )}
-                </View>
-              </View>
-              <TouchableOpacity
-                style={[styles.supervisionButton, { backgroundColor: Colors.error }]}
-                onPress={handleRemoveSupervision}
+      {/* Pinned Message Banner */}
+      {showPinnedBanner && latestPinnedMessage && (
+        <TouchableOpacity
+          style={[styles.floatingBanner, styles.pinnedBanner]}
+          onPress={() => setShowPinnedMessages(true)}
+          onLongPress={() => canManageGroup && setShowPinnedActions(true)}
+          delayLongPress={500}
+          activeOpacity={0.8}
+        >
+          <View style={{ flex: 1 }}>
+            <View style={styles.bannerIconRow}>
+              <MaterialIcons name="push-pin" size={20} color={Colors.primary} />
+              <Text style={styles.bannerLabel}>Pinned Message</Text>
+            </View>
+            <Text 
+              style={styles.bannerMessageText}
+              numberOfLines={2}
+            >
+              {latestPinnedMessage?.content || 'Message pinned'}
+            </Text>
+          </View>
+          <View style={styles.bannerActions}>
+            {canManageGroup && (
+              <TouchableOpacity 
+                onPress={(e) => {
+                  e.stopPropagation();
+                  setShowPinnedActions(true);
+                }}
+                style={styles.actionButton}
               >
-                <MaterialIcons name="close" size={16} color={Colors.surface} />
+                <MaterialIcons name="more-vert" size={18} color="#ffffff" />
               </TouchableOpacity>
-            </>
-          ) : (
-            <>
-              <View style={styles.supervisionContent}>
-                <MaterialIcons name="verified" size={20} color={Colors.primaryContent} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.supervisionTitle}>Available to supervise</Text>
-                  <Text style={styles.supervisionSubtitle}>You can monitor and manage this group</Text>
-                </View>
-              </View>
-              <TouchableOpacity
-                style={[styles.supervisionButton, { backgroundColor: Colors.primary }]}
-                onPress={handleAddSupervision}
+            )}
+            <TouchableOpacity 
+              style={styles.pinnedCloseBtn}
+              onPress={(e) => {
+                e.stopPropagation();
+                setShowPinnedBanner(false);
+              }}
+            >
+              <MaterialIcons name="close" size={20} color="#ffffff" />
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      )}
+
+      {/* Announcement Banner (Red with pulse animation) */}
+      {showAnnouncementBanner && latestAnnouncement && (
+        <Animated.View 
+          style={[
+            styles.floatingBanner, 
+            styles.announcementBanner,
+            announcementAnimatedStyle
+          ]}
+        >
+          <View style={styles.bannerContent}>
+            <Animated.View 
+              style={announcementIconAnimatedStyle}
+            >
+              <MaterialIcons name="campaign" size={24} color="#ffffff" />
+            </Animated.View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.announcementMessageText, { fontWeight: '700' }]} numberOfLines={1}>
+                {latestAnnouncement?.title || 'New announcement'}
+              </Text>
+              <Text style={[styles.announcementMessageText, { fontWeight: '400', fontSize: FontSizes.sm }]} numberOfLines={1}>
+                {latestAnnouncement?.content}
+              </Text>
+            </View>
+          </View>
+          <View style={styles.bannerActions}>
+            {canManageGroup && (
+              <TouchableOpacity 
+                onPress={(e) => {
+                  e.stopPropagation();
+                  setShowAnnouncementActions(true);
+                }}
+                style={styles.announcementActionButton}
               >
-                <MaterialIcons name="add" size={16} color={Colors.primaryContent} />
+                <MaterialIcons name="more-vert" size={18} color="#ffffff" />
               </TouchableOpacity>
-            </>
-          )}
+            )}
+            <TouchableOpacity 
+              style={styles.announcementCloseBtn}
+              onPress={(e) => {
+                e.stopPropagation();
+                setShowAnnouncementBanner(false);
+              }}
+            >
+              <MaterialIcons name="close" size={20} color="#ffffff" />
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
+      )}
+
+      {isSupervisor && canSupervise && !isAIChat && (
+        <View style={[styles.supervisionBanner, { backgroundColor: Colors.primarySoft }]}>
+          <View style={styles.supervisionContent}>
+            <MaterialIcons name="supervised-user-circle" size={20} color={Colors.primaryContent} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.supervisionTitle}>You are supervising this group</Text>
+              {supervisionStats && (
+                <Text style={styles.supervisionSubtitle}>
+                  {supervisionStats.totalMessages} messages • {supervisionStats.participantCount} members
+                </Text>
+              )}
+            </View>
+          </View>
+          <TouchableOpacity
+            style={[styles.supervisionButton, { backgroundColor: Colors.error }]}
+            onPress={handleRemoveSupervision}
+          >
+            <MaterialIcons name="close" size={16} color={Colors.surface} />
+          </TouchableOpacity>
         </View>
       )}
 
@@ -782,6 +1116,19 @@ export default function ChatConversationScreen() {
               <Text style={styles.optionText}>Mark as Read</Text>
             </TouchableOpacity>
 
+            {isGroup && canManageGroup && (
+              <TouchableOpacity
+                style={styles.optionRow}
+                onPress={() => {
+                  setShowChatOptions(false);
+                  setShowCreateAnnouncement(true);
+                }}
+              >
+                <MaterialIcons name="campaign" size={20} color={Colors.warning} />
+                <Text style={styles.optionText}>Create Announcement</Text>
+              </TouchableOpacity>
+            )}
+
             <TouchableOpacity
               style={[styles.optionRow, styles.optionCancel]}
               onPress={() => setShowChatOptions(false)}
@@ -815,6 +1162,50 @@ export default function ChatConversationScreen() {
               <MaterialIcons name="reply" size={20} color={Colors.text} />
               <Text style={styles.optionText}>Reply</Text>
             </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.optionRow}
+              onPress={async () => {
+                setShowMessageOptions(false);
+                if (selectedMessage) {
+                  try {
+                    // Note: Full forward implementation requires destination selection
+                    // For now, we'll just show a toast
+                    Toast.show({
+                      type: 'info',
+                      text1: 'Forwarding',
+                      text2: 'Message forwarding requires selecting a destination. This will be implemented in the next phase.',
+                    });
+                  } catch (error: any) {
+                    Toast.show({ type: 'error', text1: 'Failed to forward message', text2: error?.message });
+                  }
+                }
+              }}
+            >
+              <MaterialIcons name="share" size={20} color={Colors.text} />
+              <Text style={styles.optionText}>Forward</Text>
+            </TouchableOpacity>
+
+            {isGroup && canManageGroup && (
+              <TouchableOpacity
+                style={styles.optionRow}
+                onPress={async () => {
+                  setShowMessageOptions(false);
+                  if (selectedMessage?.id) {
+                    try {
+                      await pinMessage(selectedMessage.id, conversationId, user?.id || '');
+                      await loadPinnedMessagesCount();
+                      Toast.show({ type: 'success', text1: 'Message pinned' });
+                    } catch (error: any) {
+                      Toast.show({ type: 'error', text1: 'Failed to pin message', text2: error?.message });
+                    }
+                  }
+                }}
+              >
+                <MaterialIcons name="push-pin" size={20} color={Colors.primary} />
+                <Text style={styles.optionText}>Pin Message</Text>
+              </TouchableOpacity>
+            )}
 
             {selectedMessage?.sender_id === user?.id && !isAIChat && (
               <TouchableOpacity
@@ -1014,6 +1405,166 @@ export default function ChatConversationScreen() {
         </View>
       </Modal>
 
+      <PinnedMessagesModal
+        conversationId={conversationId}
+        visible={showPinnedMessages}
+        onClose={() => setShowPinnedMessages(false)}
+        isAdmin={canManageGroup}
+        onUnpin={async () => {
+          await loadPinnedMessagesCount();
+        }}
+      />
+
+      <Modal
+        visible={showCreateAnnouncement}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowCreateAnnouncement(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.optionsSheet, { maxHeight: '85%' }]}>
+            <View style={styles.membersHeader}>
+              <Text style={styles.optionsTitle}>Create Announcement</Text>
+              <TouchableOpacity onPress={() => setShowCreateAnnouncement(false)}>
+                <MaterialIcons name="close" size={22} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={styles.inputLabel}>Announcement Title</Text>
+              <TextInput
+                style={styles.groupInput}
+                placeholder="Enter announcement title"
+                placeholderTextColor={Colors.textSecondary}
+                value={announcementTitle}
+                onChangeText={setAnnouncementTitle}
+                editable={!isCreatingAnnouncement}
+              />
+
+              <Text style={styles.inputLabel}>Announcement Content</Text>
+              <TextInput
+                style={[styles.groupInput, { minHeight: 120, textAlignVertical: 'top' }]}
+                placeholder="Enter announcement details"
+                placeholderTextColor={Colors.textSecondary}
+                value={announcementContent}
+                onChangeText={setAnnouncementContent}
+                multiline
+                editable={!isCreatingAnnouncement}
+              />
+
+              <TouchableOpacity
+                style={[
+                  styles.primaryOption,
+                  styles.optionRow,
+                  isCreatingAnnouncement && styles.sendButtonDisabled,
+                ]}
+                onPress={handleCreateAnnouncement}
+                disabled={isCreatingAnnouncement}
+              >
+                {isCreatingAnnouncement ? (
+                  <ActivityIndicator size="small" color={Colors.primaryContent} />
+                ) : (
+                  <>
+                    <MaterialIcons name="campaign" size={20} color={Colors.primaryContent} />
+                    <Text style={[styles.optionText, { color: Colors.primaryContent }]}>Post Announcement</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.optionRow, styles.optionCancel]}
+                onPress={() => setShowCreateAnnouncement(false)}
+                disabled={isCreatingAnnouncement}
+              >
+                <MaterialIcons name="close" size={20} color={Colors.textSecondary} />
+                <Text style={[styles.optionText, { color: Colors.textSecondary }]}>Cancel</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showPinnedActions}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setShowPinnedActions(false)}
+      >
+        <TouchableOpacity 
+          style={styles.modalOverlay}
+          onPress={() => setShowPinnedActions(false)}
+          activeOpacity={1}
+        >
+          <View style={styles.optionsSheet}>
+            <Text style={styles.optionsTitle}>Pinned Message Options</Text>
+
+            <TouchableOpacity
+              style={[styles.optionRow, { marginBottom: Spacing.xs }]}
+              onPress={() => {
+                setShowPinnedActions(false);
+                setShowPinnedMessages(true);
+              }}
+            >
+              <MaterialIcons name="list" size={20} color={Colors.info} />
+              <Text style={styles.optionText}>View all pinned messages</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.optionRow, { marginBottom: Spacing.xs }]}
+              onPress={() => {
+                handleUnpinMessage();
+              }}
+            >
+              <MaterialIcons name="push-pin" size={20} color={Colors.warning} />
+              <Text style={styles.optionText}>Unpin this message</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.optionRow, styles.optionCancel]}
+              onPress={() => setShowPinnedActions(false)}
+            >
+              <MaterialIcons name="close" size={20} color={Colors.textSecondary} />
+              <Text style={[styles.optionText, { color: Colors.textSecondary }]}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      <Modal
+        visible={showAnnouncementActions}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setShowAnnouncementActions(false)}
+      >
+        <TouchableOpacity 
+          style={styles.modalOverlay}
+          onPress={() => setShowAnnouncementActions(false)}
+          activeOpacity={1}
+        >
+          <View style={styles.optionsSheet}>
+            <Text style={styles.optionsTitle}>Announcement Options</Text>
+
+            <TouchableOpacity
+              style={[styles.optionRow, { marginBottom: Spacing.xs }]}
+              onPress={() => {
+                handleDeleteAnnouncement();
+              }}
+            >
+              <MaterialIcons name="delete-outline" size={20} color={Colors.error} />
+              <Text style={[styles.optionText, { color: Colors.error }]}>Delete announcement</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.optionRow, styles.optionCancel]}
+              onPress={() => setShowAnnouncementActions(false)}
+            >
+              <MaterialIcons name="close" size={20} color={Colors.textSecondary} />
+              <Text style={[styles.optionText, { color: Colors.textSecondary }]}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
       <ConfirmDialog
         visible={confirmDialog.visible}
         title={confirmDialog.title}
@@ -1105,6 +1656,27 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     moreButton: {
       padding: 4,
     },
+    pinnedButton: {
+      padding: 4,
+      position: 'relative',
+    },
+    pinnedBadge: {
+      position: 'absolute',
+      top: -4,
+      right: -4,
+      backgroundColor: Colors.primary,
+      borderRadius: 10,
+      minWidth: 20,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 4,
+      paddingVertical: 2,
+    },
+    pinnedBadgeText: {
+      fontSize: 10,
+      fontWeight: FontWeights.bold,
+      color: Colors.primaryContent,
+    },
     messageSearchBar: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -1120,6 +1692,121 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       color: Colors.text,
       fontSize: FontSizes.md,
     },
+    floatingBanner: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      justifyContent: 'space-between',
+      paddingHorizontal: Spacing.md,
+      paddingVertical: Spacing.md,
+      gap: Spacing.md,
+      borderBottomWidth: 0,
+      marginHorizontal: Spacing.md,
+      marginVertical: Spacing.sm,
+      borderRadius: BorderRadius.lg,
+      minHeight: 70,
+      ...Shadows.lg,
+    },
+    bannelContent: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.md,
+    },
+    bannerContent: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: Spacing.md,
+      minWidth: 0,
+    },
+    bannerIconRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.sm,
+      marginBottom: Spacing.sm,
+    },
+    bannerText: {
+      flex: 1,
+      fontSize: FontSizes.md,
+      color: Colors.text,
+      fontWeight: FontWeights.medium,
+    },
+    bannerLabel: {
+      fontSize: FontSizes.xs,
+      color: Colors.textSecondary,
+      fontWeight: FontWeights.semibold,
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+    },
+    bannerMessageText: {
+      fontSize: FontSizes.sm,
+      color: Colors.text,
+      fontWeight: FontWeights.medium,
+      lineHeight: 18,
+      flexWrap: 'wrap',
+    },
+    bannerActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.xs,
+      marginTop: 0,
+    },
+    actionButton: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: 'rgba(59, 130, 246, 0.25)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    pinnedCloseBtn: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: 'rgba(59, 130, 246, 0.2)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    announcementLabel: {
+      fontSize: FontSizes.xs,
+      color: '#ffffff',
+      fontWeight: FontWeights.bold,
+      textTransform: 'uppercase',
+      letterSpacing: 0.8,
+      opacity: 0.95,
+      marginBottom: 6,
+    },
+    announcementMessageText: {
+      fontSize: FontSizes.md,
+      color: '#ffffff',
+      fontWeight: FontWeights.semibold,
+      lineHeight: 22,
+      marginRight: Spacing.sm,
+    },
+    announcementActionButton: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: 'rgba(255, 255, 255, 0.3)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    announcementCloseBtn: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: 'rgba(255, 255, 255, 0.25)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    pinnedBanner: {
+      backgroundColor: Colors.primarySoft,
+      borderBottomColor: Colors.primary,
+    },
+    announcementBanner: {
+      backgroundColor: '#ef4444',
+      borderBottomColor: '#dc2626',
+    },
     messagesContainer: {
       flex: 1,
     },
@@ -1130,7 +1817,25 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     },
     messageWrapper: {
       flexDirection: 'row',
+      alignItems: 'flex-end',
       marginBottom: 12,
+    },
+    dateSeparatorContainer: {
+      alignItems: 'center',
+      marginBottom: Spacing.sm,
+      marginTop: Spacing.sm,
+    },
+    dateSeparatorLabel: {
+      fontSize: FontSizes.xs,
+      color: Colors.textSecondary,
+      backgroundColor: Colors.card,
+      borderWidth: 1,
+      borderColor: Colors.border,
+      borderRadius: BorderRadius.full,
+      paddingHorizontal: Spacing.sm,
+      paddingVertical: 2,
+      overflow: 'hidden',
+      fontWeight: FontWeights.medium,
     },
     myMessageWrapper: {
       justifyContent: 'flex-end',
@@ -1139,27 +1844,45 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       justifyContent: 'flex-start',
     },
     messageBubble: {
-      maxWidth: '78%',
-      borderRadius: BorderRadius.md,
-      padding: 12,
+      maxWidth: '82%',
+      borderRadius: 18,
+      paddingHorizontal: 12,
+      paddingVertical: 9,
+      ...Shadows.sm,
     },
     myMessage: {
       backgroundColor: Colors.primary,
+      borderBottomRightRadius: 8,
     },
     otherMessage: {
       backgroundColor: Colors.card,
       borderWidth: 1,
       borderColor: Colors.border,
+      borderBottomLeftRadius: 8,
     },
     senderName: {
       fontSize: FontSizes.xs,
-      color: Colors.textSecondary,
-      marginBottom: 4,
+      color: Colors.info,
+      marginBottom: 3,
       fontWeight: FontWeights.semibold,
+    },
+    incomingAvatarWrap: {
+      width: 34,
+      marginRight: 8,
+      alignItems: 'flex-end',
+      justifyContent: 'flex-end',
+    },
+    avatarSpacer: {
+      width: 30,
+      height: 30,
+    },
+    messageContentWrap: {
+      paddingRight: 2,
     },
     messageText: {
       fontSize: FontSizes.md,
-      lineHeight: 20,
+      lineHeight: 21,
+      letterSpacing: 0.1,
     },
     myMessageText: {
       color: Colors.primaryContent,
@@ -1169,11 +1892,17 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     },
     messageFooter: {
       flexDirection: 'row',
+      marginTop: 6,
+    },
+    myMessageFooter: {
       justifyContent: 'flex-end',
-      marginTop: 4,
+    },
+    otherMessageFooter: {
+      justifyContent: 'flex-start',
     },
     messageTime: {
-      fontSize: 11,
+      fontSize: 10,
+      fontWeight: FontWeights.medium,
     },
     myMessageTime: {
       color: Colors.primaryContent,

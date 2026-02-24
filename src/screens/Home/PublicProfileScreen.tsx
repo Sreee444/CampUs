@@ -41,6 +41,8 @@ import {
   getConnectionStatus,
   ConnectionStatusResult,
 } from '../../api/connections';
+import { getUserVerifications, getMutualConnections } from '../../api/chat';
+import UserProfileCard from '../../components/UserProfileCard';
 
 type PublicProfileScreenNavigationProp = StackNavigationProp<RootStackParamList, 'PublicProfile'>;
 type PublicProfileScreenRouteProp = RouteProp<RootStackParamList, 'PublicProfile'>;
@@ -69,6 +71,8 @@ export default function PublicProfileScreen() {
   const [actionLoading, setActionLoading] = useState(false);
   const [userProjects, setUserProjects] = useState<any[]>([]);
   const [connectionsCount, setConnectionsCount] = useState(0);
+  const [verificationBadges, setVerificationBadges] = useState<any[]>([]);
+  const [mutualConnectionsCount, setMutualConnectionsCount] = useState(0);
 
   const buttonScale = useSharedValue(1);
 
@@ -77,6 +81,8 @@ export default function PublicProfileScreen() {
     loadConnectionStatus();
     loadUserProjects();
     loadConnectionsCount();
+    loadVerificationBadges();
+    loadMutualConnections();
   }, [userId]);
 
   // =====================================
@@ -148,6 +154,25 @@ export default function PublicProfileScreen() {
         .eq('status', 'accepted');
       setConnectionsCount(count || 0);
     } catch (_) {}
+  };
+
+  const loadVerificationBadges = async () => {
+    try {
+      const badges = await getUserVerifications(userId);
+      setVerificationBadges(badges || []);
+    } catch (error) {
+      console.error('Error loading verification badges:', error);
+    }
+  };
+
+  const loadMutualConnections = async () => {
+    try {
+      if (!user?.id) return;
+      const mutualConnections = await getMutualConnections(userId, user.id);
+      setMutualConnectionsCount(mutualConnections?.length || 0);
+    } catch (error) {
+      console.error('Error loading mutual connections:', error);
+    }
   };
 
   // =====================================
@@ -435,8 +460,8 @@ export default function PublicProfileScreen() {
             <Text style={[styles.rolePillText, { color: roleConfig.color }]}>{roleConfig.label.toUpperCase()}</Text>
           </View>
 
-          {/* Special badges */}
-          {(profile.is_club_coordinator || profile.is_volunteer) && (
+          {/* Special badges & Verification badges */}
+          {(profile.is_club_coordinator || profile.is_volunteer || profile.is_verified || verificationBadges.length > 0) && (
             <View style={styles.badgeRow}>
               {profile.is_club_coordinator && (
                 <View style={[styles.specialBadge, { backgroundColor: '#7c3aed22', borderColor: '#7c3aed44' }]}>
@@ -450,6 +475,18 @@ export default function PublicProfileScreen() {
                   <Text style={[styles.specialBadgeText, { color: '#0891b2' }]}>Volunteer</Text>
                 </View>
               )}
+              {profile.is_verified && (
+                <View style={[styles.specialBadge, { backgroundColor: '#06b6d422', borderColor: '#06b6d444' }]}>
+                  <MaterialIcons name="verified" size={12} color="#06b6d4" />
+                  <Text style={[styles.specialBadgeText, { color: '#06b6d4' }]}>Verified</Text>
+                </View>
+              )}
+              {verificationBadges.map((badge, idx) => (
+                <View key={idx} style={[styles.specialBadge, { backgroundColor: '#8b5cf615', borderColor: '#8b5cf644' }]}>
+                  <MaterialIcons name={badge.type === 'mentor' ? 'school' : 'admin-panel-settings'} size={12} color="#8b5cf6" />
+                  <Text style={[styles.specialBadgeText, { color: '#8b5cf6' }]}>{badge.type.toUpperCase()}</Text>
+                </View>
+              ))}
             </View>
           )}
 
@@ -465,6 +502,15 @@ export default function PublicProfileScreen() {
               <Text style={styles.statLabel}>Connections</Text>
             </View>
             <View style={styles.statDivider} />
+            {mutualConnectionsCount > 0 && (
+              <>
+                <View style={styles.statItem}>
+                  <Text style={styles.statValue}>{mutualConnectionsCount}</Text>
+                  <Text style={styles.statLabel}>Mutual</Text>
+                </View>
+                <View style={styles.statDivider} />
+              </>
+            )}
             <View style={styles.statItem}>
               <Text style={styles.statValue}>{userProjects.length}</Text>
               <Text style={styles.statLabel}>Projects</Text>

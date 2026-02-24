@@ -2,6 +2,8 @@
 
 export type UserRole = 'student' | 'alumni' | 'faculty' | 'admin';
 
+export type UserStatus = 'online' | 'away' | 'offline';
+
 export type Profile = {
   id: string;
   email: string;
@@ -30,6 +32,12 @@ export type Profile = {
   is_mentor?: boolean;
   mentor_bio?: string;
   areas_of_expertise?: string[];
+
+  // User Status & Verification
+  is_verified?: boolean;
+  is_suspended?: boolean;
+  status?: UserStatus;
+  status_updated_at?: string;
 
   // Metadata
   created_at?: string;
@@ -217,13 +225,19 @@ export type Conversation = {
   unread_count?: number;
 };
 
+export type ConversationParticipantRole = 'admin' | 'moderator' | 'member' | 'viewer';
+
 export type ConversationParticipant = {
   id: string;
   conversation_id: string;
   user_id: string;
   is_admin: boolean;
+  role?: ConversationParticipantRole;
   joined_at: string;
   left_at?: string;
+  
+  // Joined
+  user?: Profile;
 };
 
 export type MessageType = 'text' | 'image' | 'file' | 'system';
@@ -237,6 +251,15 @@ export type Message = {
   attachment_url?: string;
   is_deleted: boolean;
   deleted_at?: string;
+  
+  // Quote/Reply
+  reply_to_message_id?: string;
+  reply_to_message?: Message;
+  
+  // Forwarding
+  forwarded_from_message_id?: string;
+  forwarded_from_message?: Message;
+  
   created_at: string;
   updated_at: string;
 
@@ -256,6 +279,30 @@ export type TypingIndicator = {
   conversation_id: string;
   user_id: string;
   started_at: string;
+};
+
+// Phase 1 Features
+export type MessageReaction = {
+  id: string;
+  message_id: string;
+  user_id: string;
+  emoji: string;
+  created_at: string;
+
+  // Joined
+  user?: Profile;
+};
+
+export type PinnedMessage = {
+  id: string;
+  message_id: string;
+  conversation_id: string;
+  pinned_by: string;
+  created_at: string;
+
+  // Joined
+  message?: Message;
+  pinned_by_user?: Profile;
 };
 
 export type MentorRequestStatus = 'pending' | 'accepted' | 'rejected' | 'completed';
@@ -456,4 +503,150 @@ export type UserReminder = {
   is_completed: boolean;
   related_event_id?: string;
   created_at: string;
+};
+// ===== NEW FEATURE TYPES =====
+
+// Group Announcements (special pinned messages admins create)
+export type GroupAnnouncement = {
+  id: string;
+  conversation_id: string;
+  created_by: string;
+  title: string;
+  content: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+
+  // Joined
+  creator?: Profile;
+};
+
+// Scheduled Messages
+export type ScheduledMessage = {
+  id: string;
+  conversation_id: string;
+  sender_id: string;
+  content: string;
+  message_type: MessageType;
+  scheduled_for: string;
+  status: 'pending' | 'sent' | 'failed';
+  sent_at?: string;
+  created_at: string;
+
+  // Joined
+  sender?: Profile;
+};
+
+// Content Filters (spam/keyword blocking)
+export type ContentFilter = {
+  id: string;
+  created_by: string; // Admin
+  keyword: string;
+  action: 'block' | 'warn' | 'flag_for_review';
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+// User Blocks
+export type UserBlock = {
+  id: string;
+  blocking_user_id: string;
+  blocked_user_id: string;
+  reason?: string;
+  created_at: string;
+
+  // Joined
+  blocked_user?: Profile;
+};
+
+// Group Activity Logs (who did what)
+export type GroupActivityLog = {
+  id: string;
+  conversation_id: string;
+  actor_id: string;
+  action: 'joined' | 'left' | 'promoted' | 'demoted' | 'removed' | 'group_name_changed' | 'group_avatar_changed' | 'admin_changed';
+  target_user_id?: string;
+  details?: string;
+  created_at: string;
+
+  // Joined
+  actor?: Profile;
+  target_user?: Profile;
+};
+
+// Chat Analytics
+export type ChatAnalytics = {
+  id: string;
+  conversation_id: string;
+  total_messages: number;
+  unique_senders: number;
+  most_active_member_id?: string;
+  message_count_by_day?: Record<string, number>;
+  average_response_time_minutes?: number;
+  last_calculated_at: string;
+
+  // Joined
+  most_active_member?: Profile;
+};
+
+// User Engagement Metrics (for admin dashboard)
+export type UserEngagementMetrics = {
+  id: string;
+  user_id: string;
+  messages_sent: number;
+  conversations_participated: number;
+  messages_received: number;
+  active_groups: number;
+  last_activity: string;
+  engagement_score: number;
+  calculated_at: string;
+
+  // Joined
+  user?: Profile;
+};
+
+// Mutual Connections Helper (for profile cards)
+export type MutualConnection = {
+  user_id: string;
+  mutual_count: number;
+  common_groups?: string[];
+};
+
+// User Verification Record
+export type UserVerification = {
+  id: string;
+  user_id: string;
+  verified_by: string; // Admin
+  verification_type: 'mentor' | 'admin' | 'faculty' | 'ambassador';
+  is_active: boolean;
+  verified_at: string;
+  expires_at?: string;
+
+  // Joined
+  user?: Profile;
+  verified_by_user?: Profile;
+};
+
+// Connection Suggestion
+export type ConnectionSuggestion = {
+  id: string;
+  user_id: string;
+  suggested_user_id: string;
+  suggestion_type: 'shared_interests' | 'shared_events' | 'skill_match' | 'project_match';
+  match_score: number;
+  common_attributes?: string[];
+  dismissed: boolean;
+  created_at: string;
+
+  // Joined
+  suggested_user?: Profile;
+};
+
+// Unread Message Count (denormalized for performance)
+export type ConversationUnreadCount = {
+  user_id: string;
+  conversation_id: string;
+  unread_count: number;
+  last_unread_at: string;
 };
