@@ -51,7 +51,10 @@ type ChatMessage = {
   content?: string;
   created_at: string;
   sender?: {
+    id?: string;
     full_name?: string;
+    avatar_url?: string;
+    role?: string;
   };
 };
 
@@ -414,6 +417,14 @@ export default function ChatConversationScreen() {
     return otherMessage?.sender_id || null;
   }, [isGroup, isAIChat, messages, user?.id]);
 
+  const directPartnerProfile = useMemo(() => {
+    if (isGroup || isAIChat || !user?.id) return null;
+    const otherMessage = messages.find(
+      (message) => message.sender_id !== user.id && message.sender_id !== 'ai'
+    );
+    return otherMessage?.sender || null;
+  }, [isGroup, isAIChat, messages, user?.id]);
+
   const currentUserParticipant = useMemo(
     () => groupMembers.find((participant) => participant.user_id === user?.id),
     [groupMembers, user?.id]
@@ -427,53 +438,110 @@ export default function ChatConversationScreen() {
   const initials = getInitials(groupDetails?.group_name || name);
   const color = isAIChat ? Colors.primary : getAvatarColor(groupDetails?.group_name || name);
 
-  const renderMessage = ({ item: message }: { item: ChatMessage }) => {
+  const getDateLabel = (isoDate: string) => {
+    const date = new Date(isoDate);
+    const today = new Date();
+    const yesterday = new Date();
+    yesterday.setDate(today.getDate() - 1);
+
+    const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+    const todayOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+    const yesterdayOnly = new Date(
+      yesterday.getFullYear(),
+      yesterday.getMonth(),
+      yesterday.getDate()
+    ).getTime();
+
+    if (dateOnly === todayOnly) return 'Today';
+    if (dateOnly === yesterdayOnly) return 'Yesterday';
+
+    return date.toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+    });
+  };
+
+  const renderMessage = ({ item: message, index }: { item: ChatMessage; index: number }) => {
     const isMyMessage = message.sender_id === user?.id;
+    const previousMessage = index > 0 ? filteredMessages[index - 1] : null;
+    const showDateSeparator =
+      index === 0 ||
+      new Date(previousMessage?.created_at || '').toDateString() !==
+        new Date(message.created_at).toDateString();
+    const showAvatar = !isMyMessage && (!previousMessage || previousMessage.sender_id !== message.sender_id);
+    const showSenderLabel = !isMyMessage && isGroup && showAvatar;
     const messageTime = new Date(message.created_at).toLocaleTimeString('en-US', {
       hour: 'numeric',
       minute: '2-digit',
     });
 
     return (
-      <View
-        style={[
-          styles.messageWrapper,
-          isMyMessage ? styles.myMessageWrapper : styles.otherMessageWrapper,
-        ]}
-      >
-        <TouchableOpacity
-          style={[
-            styles.messageBubble,
-            isMyMessage ? styles.myMessage : styles.otherMessage,
-          ]}
-          onLongPress={() => handleMessageLongPress(message)}
-          delayLongPress={400}
-          activeOpacity={0.8}
-        >
-          {!isMyMessage && isGroup && (
-            <Text style={styles.senderName} numberOfLines={1}>
-              {message.sender?.full_name || 'Member'}
-            </Text>
-          )}
-          <Text
-            style={[
-              styles.messageText,
-              isMyMessage ? styles.myMessageText : styles.otherMessageText,
-            ]}
-          >
-            {message.content}
-          </Text>
-          <View style={styles.messageFooter}>
-            <Text
-              style={[
-                styles.messageTime,
-                isMyMessage ? styles.myMessageTime : styles.otherMessageTime,
-              ]}
-            >
-              {messageTime}
-            </Text>
+      <View>
+        {showDateSeparator && (
+          <View style={styles.dateSeparatorContainer}>
+            <Text style={styles.dateSeparatorLabel}>{getDateLabel(message.created_at)}</Text>
           </View>
-        </TouchableOpacity>
+        )}
+
+        <View
+          style={[
+            styles.messageWrapper,
+            isMyMessage ? styles.myMessageWrapper : styles.otherMessageWrapper,
+          ]}
+        >
+          {!isMyMessage && (
+            <View style={styles.incomingAvatarWrap}>
+              {showAvatar ? (
+                <UserAvatar
+                  uri={message.sender?.avatar_url}
+                  name={message.sender?.full_name || 'User'}
+                  size={30}
+                  role={message.sender?.role}
+                  showRing={false}
+                />
+              ) : (
+                <View style={styles.avatarSpacer} />
+              )}
+            </View>
+          )}
+
+          <TouchableOpacity
+            style={[
+              styles.messageBubble,
+              isMyMessage ? styles.myMessage : styles.otherMessage,
+            ]}
+            onLongPress={() => handleMessageLongPress(message)}
+            delayLongPress={400}
+            activeOpacity={0.8}
+          >
+            {showSenderLabel && (
+              <Text style={styles.senderName} numberOfLines={1}>
+                {message.sender?.full_name || 'Member'}
+              </Text>
+            )}
+            <View style={styles.messageContentWrap}>
+              <Text
+                style={[
+                  styles.messageText,
+                  isMyMessage ? styles.myMessageText : styles.otherMessageText,
+                ]}
+              >
+                {message.content}
+              </Text>
+            </View>
+            <View style={[styles.messageFooter, isMyMessage ? styles.myMessageFooter : styles.otherMessageFooter]}>
+              <Text
+                style={[
+                  styles.messageTime,
+                  isMyMessage ? styles.myMessageTime : styles.otherMessageTime,
+                ]}
+              >
+                {messageTime}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   };
@@ -490,12 +558,22 @@ export default function ChatConversationScreen() {
           onPress={() => {
             if (isGroup && groupMembers.length > 0) {
               setShowGroupMembers(true);
+            } else if (!isGroup && directPartnerId) {
+              navigation.navigate('PublicProfile', { userId: directPartnerId });
             }
           }}
           activeOpacity={0.8}
         >
           {isGroup && groupDetails?.group_avatar ? (
             <Image source={{ uri: groupDetails.group_avatar }} style={styles.headerAvatarImage} />
+          ) : !isGroup && directPartnerProfile ? (
+            <UserAvatar
+              uri={directPartnerProfile.avatar_url}
+              name={directPartnerProfile.full_name || name}
+              size={40}
+              role={directPartnerProfile.role}
+              showRing={false}
+            />
           ) : (
             <View style={[styles.headerAvatar, { backgroundColor: color }]}>
               <Text style={styles.headerAvatarText}>{initials}</Text>
@@ -503,7 +581,9 @@ export default function ChatConversationScreen() {
           )}
 
           <View style={styles.headerInfo}>
-            <Text style={styles.headerName}>{groupDetails?.group_name || name}</Text>
+            <Text style={styles.headerName}>
+              {isGroup ? groupDetails?.group_name || name : directPartnerProfile?.full_name || name}
+            </Text>
             {isGroup ? (
               <View style={styles.groupHeaderMeta}>
                 <Text style={styles.headerStatus}>{groupMembers.length} members</Text>
@@ -521,7 +601,9 @@ export default function ChatConversationScreen() {
                 </View>
               </View>
             ) : (
-              <Text style={styles.headerStatus}>{isAIChat ? 'AI Assistant' : 'Active chat'}</Text>
+              <Text style={styles.headerStatus}>
+                {isAIChat ? 'AI Assistant' : directPartnerProfile?.role || 'Direct chat'}
+              </Text>
             )}
           </View>
         </TouchableOpacity>
@@ -1130,7 +1212,25 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     },
     messageWrapper: {
       flexDirection: 'row',
+      alignItems: 'flex-end',
       marginBottom: 12,
+    },
+    dateSeparatorContainer: {
+      alignItems: 'center',
+      marginBottom: Spacing.sm,
+      marginTop: Spacing.sm,
+    },
+    dateSeparatorLabel: {
+      fontSize: FontSizes.xs,
+      color: Colors.textSecondary,
+      backgroundColor: Colors.card,
+      borderWidth: 1,
+      borderColor: Colors.border,
+      borderRadius: BorderRadius.full,
+      paddingHorizontal: Spacing.sm,
+      paddingVertical: 2,
+      overflow: 'hidden',
+      fontWeight: FontWeights.medium,
     },
     myMessageWrapper: {
       justifyContent: 'flex-end',
@@ -1139,27 +1239,45 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       justifyContent: 'flex-start',
     },
     messageBubble: {
-      maxWidth: '78%',
-      borderRadius: BorderRadius.md,
-      padding: 12,
+      maxWidth: '82%',
+      borderRadius: 18,
+      paddingHorizontal: 12,
+      paddingVertical: 9,
+      ...Shadows.sm,
     },
     myMessage: {
       backgroundColor: Colors.primary,
+      borderBottomRightRadius: 8,
     },
     otherMessage: {
       backgroundColor: Colors.card,
       borderWidth: 1,
       borderColor: Colors.border,
+      borderBottomLeftRadius: 8,
     },
     senderName: {
       fontSize: FontSizes.xs,
-      color: Colors.textSecondary,
-      marginBottom: 4,
+      color: Colors.info,
+      marginBottom: 3,
       fontWeight: FontWeights.semibold,
+    },
+    incomingAvatarWrap: {
+      width: 34,
+      marginRight: 8,
+      alignItems: 'flex-end',
+      justifyContent: 'flex-end',
+    },
+    avatarSpacer: {
+      width: 30,
+      height: 30,
+    },
+    messageContentWrap: {
+      paddingRight: 2,
     },
     messageText: {
       fontSize: FontSizes.md,
-      lineHeight: 20,
+      lineHeight: 21,
+      letterSpacing: 0.1,
     },
     myMessageText: {
       color: Colors.primaryContent,
@@ -1169,11 +1287,17 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     },
     messageFooter: {
       flexDirection: 'row',
+      marginTop: 6,
+    },
+    myMessageFooter: {
       justifyContent: 'flex-end',
-      marginTop: 4,
+    },
+    otherMessageFooter: {
+      justifyContent: 'flex-start',
     },
     messageTime: {
-      fontSize: 11,
+      fontSize: 10,
+      fontWeight: FontWeights.medium,
     },
     myMessageTime: {
       color: Colors.primaryContent,
