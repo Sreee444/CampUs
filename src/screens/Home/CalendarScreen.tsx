@@ -67,6 +67,7 @@ export default function CalendarScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
   const [viewType, setViewType] = useState<'month' | 'week' | 'agenda'>('month');
+  const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedEventTypes, setSelectedEventTypes] = useState<string[]>([]);
   const [showFilters, setShowFilters] = useState(false);
@@ -96,6 +97,9 @@ export default function CalendarScreen() {
   ).current;
 
   const pad2 = (value: number) => String(value).padStart(2, '0');
+  const applySearch = () => {
+    setSearchQuery(searchInput.trim());
+  };
   const getDateKey = (date: Date) =>
     `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
   const getDateKeyFromString = (value?: string) => {
@@ -401,11 +405,18 @@ export default function CalendarScreen() {
           style={styles.searchInput}
           placeholder="Search events..."
           placeholderTextColor={Colors.textSecondary}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
+          value={searchInput}
+          onChangeText={setSearchInput}
+          onSubmitEditing={applySearch}
+          returnKeyType="search"
         />
-        {searchQuery.length > 0 && (
-          <TouchableOpacity onPress={() => setSearchQuery('')}>
+        {searchInput.length > 0 && (
+          <TouchableOpacity
+            onPress={() => {
+              setSearchInput('');
+              setSearchQuery('');
+            }}
+          >
             <MaterialIcons name="close" size={20} color={Colors.textSecondary} />
           </TouchableOpacity>
         )}

@@ -50,6 +50,7 @@ export default function ProjectsScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
+  const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTab, setSelectedTab] = useState<'all' | 'my' | 'mentoring'>('all');
 
@@ -113,6 +114,10 @@ export default function ProjectsScreen() {
   const canCreateProject = profile && [
     'student', 'faculty', 'alumni', 'admin'
   ].includes(profile.role);
+
+  const applySearch = () => {
+    setSearchQuery(searchInput.trim());
+  };
 
   const handleCreateProject = () => {
     if (canCreateProject) {
@@ -187,9 +192,21 @@ export default function ProjectsScreen() {
             style={styles.searchInput}
             placeholder="Search projects..."
             placeholderTextColor="#94a3b8"
-            value={searchQuery}
-            onChangeText={setSearchQuery}
+            value={searchInput}
+            onChangeText={setSearchInput}
+            onSubmitEditing={applySearch}
+            returnKeyType="search"
           />
+          {!!searchInput && (
+            <TouchableOpacity
+              onPress={() => {
+                setSearchInput('');
+                setSearchQuery('');
+              }}
+            >
+              <MaterialIcons name="close" size={18} color="#94a3b8" />
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 

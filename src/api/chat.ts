@@ -324,102 +324,131 @@ export const createGroupConversation = async (
   return conversation as Conversation;
 };
 
-export const getConversationParticipants = async (conversationId: string) => {
-  const { data, error } = await supabase
+export const getConversationDetails = async (conversationId: string) => {
+  const { data: conversation, error: conversationError } = await supabase
+    .from("conversations")
+    .select("*")
+    .eq("id", conversationId)
+    .single();
+
+  if (conversationError) throw conversationError;
+
+  const { data: participants, error: participantsError } = await supabase
     .from("conversation_participants")
     .select(`
-      id,
-      conversation_id,
-      user_id,
-      is_admin,
-      joined_at,
-      left_at,
-      user:profiles!conversation_participants_user_id_fkey(
-        id,
-        full_name,
-        avatar_url,
-        role,
-        department,
-        bio
-      )
+      *,
+      user:profiles!conversation_participants_user_id_fkey(*)
     `)
     .eq("conversation_id", conversationId)
     .is("left_at", null)
     .order("joined_at", { ascending: true });
 
-  if (error) throw error;
-  return data || [];
+  if (participantsError) throw participantsError;
+
+  return {
+    ...conversation,
+    participants: participants || [],
+  };
 };
 
-export const addGroupParticipants = async (
-  conversationId: string,
-  participantIds: string[]
-) => {
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+const ensureGroupAdminPermission = async (conversationId: string, actorId: string) => {
+  const details = await getConversationDetails(conversationId);
 
-  if (userError) throw userError;
-  if (!user?.id) throw new Error("User must be authenticated");
+  if (!details?.is_group) {
+    throw new Error('This action is only available for group chats');
+  }
 
-  const uniqueIds = Array.from(new Set(participantIds.filter(Boolean)));
-  if (uniqueIds.length === 0) return [];
+  const actorParticipant = (details.participants || []).find(
+    (participant: any) => participant.user_id === actorId
+  );
 
-  const payload = uniqueIds.map((participantId) => ({
-    conversation_id: conversationId,
-    user_id: participantId,
-    is_admin: false,
-  }));
+  const isMainAdmin = details.created_by === actorId;
+  const isGroupAdmin = !!actorParticipant?.is_admin;
 
-  const { data, error } = await supabase
-    .from("conversation_participants")
-    .insert(payload as any)
-    .select("user_id");
+  if (!isMainAdmin && !isGroupAdmin) {
+    throw new Error('Only group admins can perform this action');
+  }
 
-  if (error) throw error;
-  return data || [];
+  return details;
 };
 
-export const renameGroupConversation = async (
+export const updateGroupConversation = async (
   conversationId: string,
-  groupName: string
+  actorId: string,
+  updates: { group_name?: string; group_avatar?: string | null }
 ) => {
-  const trimmed = groupName.trim();
-  if (!trimmed) {
-    throw new Error("Group name is required");
+  const details = await ensureGroupAdminPermission(conversationId, actorId);
+
+  const payload: Record<string, any> = {};
+
+  if (typeof updates.group_name === 'string') {
+    const nextName = updates.group_name.trim();
+    if (!nextName) {
+      throw new Error('Group name cannot be empty');
+    }
+    payload.group_name = nextName;
+  }
+
+  if (typeof updates.group_avatar !== 'undefined') {
+    payload.group_avatar = updates.group_avatar || null;
+  }
+
+  if (Object.keys(payload).length === 0) {
+    return details;
   }
 
   const { data, error } = await supabase
     .from("conversations")
-    .update({ group_name: trimmed } as any)
+    .update(payload as any)
     .eq("id", conversationId)
-    .eq("is_group", true)
-    .select("id, group_name")
+    .select("*")
     .single();
 
   if (error) throw error;
   return data;
 };
 
-export const leaveGroupConversation = async (conversationId: string) => {
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+export const removeParticipantFromGroup = async (
+  conversationId: string,
+  actorId: string,
+  targetUserId: string
+) => {
+  const details = await ensureGroupAdminPermission(conversationId, actorId);
 
-  if (userError) throw userError;
-  if (!user?.id) throw new Error("User must be authenticated");
+  if (targetUserId === details.created_by) {
+    throw new Error('Main admin cannot be removed from group');
+  }
 
   const { error } = await supabase
     .from("conversation_participants")
-    .update({ left_at: new Date().toISOString() } as any)
+    .update({ left_at: new Date().toISOString(), is_admin: false } as any)
     .eq("conversation_id", conversationId)
-    .eq("user_id", user.id)
+    .eq("user_id", targetUserId)
     .is("left_at", null);
 
   if (error) throw error;
-  return true;
+};
+
+export const setGroupParticipantAdmin = async (
+  conversationId: string,
+  actorId: string,
+  targetUserId: string,
+  isAdmin: boolean
+) => {
+  const details = await ensureGroupAdminPermission(conversationId, actorId);
+
+  if (targetUserId === details.created_by && !isAdmin) {
+    throw new Error('Main admin permissions cannot be removed');
+  }
+
+  const { error } = await supabase
+    .from("conversation_participants")
+    .update({ is_admin: isAdmin } as any)
+    .eq("conversation_id", conversationId)
+    .eq("user_id", targetUserId)
+    .is("left_at", null);
+
+  if (error) throw error;
 };
 
 // ===== MESSAGES =====
