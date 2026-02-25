@@ -41,14 +41,22 @@ export async function loadMyTeamState(
 
     let teamId = reg?.team_id ?? null;
 
-    // 1b. FALLBACK: If registration exists but team_id is null, check event_team_members 
-    // This handles cases where the registration row didn't sync yet.
+    // 1b. FALLBACK: If registration exists but team_id is null, check event-scoped membership.
+    // Join through event_teams so membership cannot leak across events.
     if (!teamId) {
         const { data: memberEntry } = await (supabase as any)
             .from('event_team_members')
-            .select('team_id')
+            .select(`
+                team_id,
+                team:event_teams!inner(
+                    id,
+                    event_id
+                )
+            `)
             .eq('user_id', userId)
             .eq('status', 'active')
+            .eq('team.event_id', eventId)
+            .limit(1)
             .maybeSingle();
 
         if (memberEntry) {

@@ -74,9 +74,18 @@ export default function JoinTeamScreen() {
 
             const { data: existing } = await (supabase as any)
                 .from('event_team_members')
-                .select('id')
-                .eq('team_id', (data as any).id)
+                .select(`
+                    id,
+                    team_id,
+                    team:event_teams!inner(
+                        id,
+                        event_id
+                    )
+                `)
                 .eq('user_id', authUser?.id)
+                .eq('status', 'active')
+                .eq('team.event_id', eventId)
+                .limit(1)
                 .maybeSingle();
 
             setFoundTeam(data);
@@ -123,6 +132,28 @@ export default function JoinTeamScreen() {
 
             if (regRow.team_id) {
                 Alert.alert('Already in a Team');
+                return;
+            }
+
+            const { data: scopedMembership, error: scopedMembershipError } = await (supabase as any)
+                .from('event_team_members')
+                .select(`
+                    id,
+                    team_id,
+                    team:event_teams!inner(
+                        id,
+                        event_id
+                    )
+                `)
+                .eq('user_id', authUser.id)
+                .eq('status', 'active')
+                .eq('team.event_id', eventId)
+                .limit(1)
+                .maybeSingle();
+
+            if (scopedMembershipError) throw scopedMembershipError;
+            if (scopedMembership) {
+                Alert.alert('Already in a Team', 'You are already in a team for this event.');
                 return;
             }
 

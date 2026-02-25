@@ -149,8 +149,32 @@ export default function EventDetailsScreen() {
     if (!user?.id) return;
     try {
       setIsCheckingTeam(true);
-      const state = await loadMyTeamState(eventId, user.id);
-      setTeamState(state);
+      const [state, scopedMembershipRes] = await Promise.all([
+        loadMyTeamState(eventId, user.id),
+        (supabase as any)
+          .from('event_team_members')
+          .select(`
+            team_id,
+            role,
+            status,
+            team:event_teams!inner(
+              id,
+              event_id
+            )
+          `)
+          .eq('user_id', user.id)
+          .eq('status', 'active')
+          .eq('team.event_id', eventId)
+          .limit(1)
+          .maybeSingle(),
+      ]);
+
+      const scopedTeamId = scopedMembershipRes?.data?.team_id ?? null;
+      setTeamState({
+        ...state,
+        teamId: scopedTeamId,
+        isInTeam: !!scopedTeamId,
+      });
     } catch (err) {
       console.error('Team status error:', err);
       setTeamState(null);
@@ -173,6 +197,95 @@ export default function EventDetailsScreen() {
       }
     }, [eventId, user?.id, loadTeamStatus])
   );
+
+  // Prevent team state carry-over between events.
+  useEffect(() => {
+    setTeamState(null);
+    setIsCheckingTeam(true);
+  }, [eventId]);
+
+  const cleanupTeamOnEventLeave = useCallback(async (currentEventId: string, currentUserId: string) => {
+    const { data: membershipRow, error: membershipError } = await (supabase as any)
+      .from('event_team_members')
+      .select(`
+        team_id,
+        role,
+        team:event_teams!inner(
+          id,
+          event_id,
+          leader_id
+        )
+      `)
+      .eq('user_id', currentUserId)
+      .eq('status', 'active')
+      .eq('team.event_id', currentEventId)
+      .limit(1)
+      .maybeSingle();
+
+    if (membershipError) throw membershipError;
+    if (!membershipRow?.team_id) return;
+
+    const teamId = membershipRow.team_id as string;
+    const isLeader = membershipRow.role === 'leader' || membershipRow.team?.leader_id === currentUserId;
+
+    const { error: removeMembershipError } = await (supabase as any)
+      .from('event_team_members')
+      .delete()
+      .eq('team_id', teamId)
+      .eq('user_id', currentUserId);
+    if (removeMembershipError) throw removeMembershipError;
+
+    if (isLeader) {
+      const { error: clearTeamRegsError } = await (supabase as any)
+        .from('event_registrations')
+        .update({ team_id: null, looking_for_team: false })
+        .eq('event_id', currentEventId)
+        .eq('team_id', teamId);
+      if (clearTeamRegsError) throw clearTeamRegsError;
+
+      await (supabase as any)
+        .from('team_requests')
+        .delete()
+        .eq('event_id', currentEventId)
+        .eq('team_id', teamId);
+
+      await (supabase as any)
+        .from('event_team_members')
+        .delete()
+        .eq('team_id', teamId);
+
+      const { error: deleteTeamError } = await (supabase as any)
+        .from('event_teams')
+        .delete()
+        .eq('id', teamId)
+        .eq('event_id', currentEventId);
+      if (deleteTeamError) throw deleteTeamError;
+
+      return;
+    }
+
+    const { count: remainingMembers, error: remainingMembersError } = await (supabase as any)
+      .from('event_team_members')
+      .select('*', { count: 'exact', head: true })
+      .eq('team_id', teamId)
+      .eq('status', 'active');
+    if (remainingMembersError) throw remainingMembersError;
+
+    if ((remainingMembers ?? 0) === 0) {
+      await (supabase as any)
+        .from('team_requests')
+        .delete()
+        .eq('event_id', currentEventId)
+        .eq('team_id', teamId);
+
+      const { error: deleteEmptyTeamError } = await (supabase as any)
+        .from('event_teams')
+        .delete()
+        .eq('id', teamId)
+        .eq('event_id', currentEventId);
+      if (deleteEmptyTeamError) throw deleteEmptyTeamError;
+    }
+  }, []);
 
   // Notify all admin users
   const notifyAdmins = async (title: string, message: string) => {
@@ -215,6 +328,10 @@ export default function EventDetailsScreen() {
         // UNREGISTER — UPDATE status to 'cancelled', never DELETE the row
         setShowUnregisterConfirmation(false);
 
+        if ((event as any)?.participation_type === 'team') {
+          await cleanupTeamOnEventLeave(eventId, user.id);
+        }
+
         const { error } = await (supabase as any)
           .from('event_registrations')
           .update({
@@ -253,6 +370,7 @@ export default function EventDetailsScreen() {
           is_registered: false,
           registrations_count: Math.max(0, (event.registrations_count || 1) - 1),
         });
+        setTeamState(null);
 
         // Refetch team state so UI reflects the cleared team association
         loadTeamStatus();
@@ -348,6 +466,14 @@ export default function EventDetailsScreen() {
     destination: 'CreateTeam' | 'JoinTeam'
   ) => {
     if (!event) return;
+    if (teamState?.isInTeam) {
+      Toast.show({
+        type: 'info',
+        text1: 'Already in a team',
+        text2: 'You are already in a team for this event.',
+      });
+      return;
+    }
 
     if (destination === 'CreateTeam') {
       navigation.navigate('CreateTeam', {
@@ -827,7 +953,7 @@ export default function EventDetailsScreen() {
                 <View style={styles.teamZoneActions}>
                   <TouchableOpacity
                     style={[styles.teamZonePrimaryButton]}
-                    onPress={() => navigation.navigate('CreateTeam', { eventId, maxTeamSize: (event as any)?.max_team_size ?? 5 })}
+                    onPress={() => handleRegisterAndNavigate('CreateTeam')}
                   >
                     <MaterialIcons name="add" size={18} color="#fff" />
                     <Text style={styles.teamZonePrimaryText}>Create Team</Text>
@@ -865,7 +991,7 @@ export default function EventDetailsScreen() {
                     {!isInTeam && !hasSentJoinRequest && (
                       <TouchableOpacity
                         style={styles.teamZoneSecondaryButton}
-                        onPress={() => navigation.navigate('JoinTeam', { eventId })}
+                        onPress={() => handleRegisterAndNavigate('JoinTeam')}
                       >
                         <MaterialIcons name="login" size={18} color="#6b7280" />
                         <Text style={styles.teamZoneSecondaryText}>Join via Code</Text>
