@@ -32,6 +32,7 @@ import {
   getEventStatusColor,
   getRegistrationButtonState,
 } from '../../utils/semanticColors';
+import { evaluateEventEligibility } from '../../utils/eventEligibility';
 
 type EventsScreenNavigationProp = CompositeNavigationProp<
   BottomTabNavigationProp<MainTabParamList, 'Events'>,
@@ -123,7 +124,11 @@ export default function EventsScreen() {
       loadEvents(true);
     } catch (error) {
       console.error('Registration error:', error);
-      Toast.show({ type: 'error', text1: 'Registration failed', text2: 'Please try again' });
+      Toast.show({
+        type: 'error',
+        text1: 'Registration failed',
+        text2: (error as any)?.message || 'Please try again',
+      });
     }
   };
 
@@ -362,6 +367,27 @@ export default function EventsScreen() {
                 {event.description}
               </Text>
 
+              {(() => {
+                const eligibleDepartments = (event.eligible_departments || []) as string[];
+                const eligibleYears = ((event.eligible_years || []) as number[]).slice().sort((a, b) => a - b);
+                const eligibilityType = event.eligibility_type || 'college';
+                const label = eligibilityType === 'college' ? 'Open to all' : 'Restricted';
+                return (
+                  <View style={styles.eligibilityCard}>
+                    <View style={styles.eligibilityHeader}>
+                      <MaterialIcons name="verified-user" size={14} color="#6366f1" />
+                      <Text style={styles.eligibilityTitle}>{label}</Text>
+                    </View>
+                    <Text style={styles.eligibilityText} numberOfLines={1}>
+                      Departments: {eligibleDepartments.length ? eligibleDepartments.join(', ') : 'All'}
+                    </Text>
+                    <Text style={styles.eligibilityText} numberOfLines={1}>
+                      Years: {eligibleYears.length ? eligibleYears.map((y) => `Year ${y}`).join(', ') : 'All'}
+                    </Text>
+                  </View>
+                );
+              })()}
+
               {/* Event Details */}
               <View style={styles.eventDetails}>
                 <View style={styles.eventDetailRow}>
@@ -428,31 +454,61 @@ export default function EventsScreen() {
                 const count = event.registrations_count || 0;
                 const max = event.max_participants;
                 const isFull = max && count >= max;
+                const eligibility = evaluateEventEligibility(
+                  {
+                    eligibility_type: event.eligibility_type,
+                    eligible_departments: event.eligible_departments,
+                    eligible_years: event.eligible_years,
+                  },
+                  {
+                    department: profile?.department,
+                    year: profile?.year,
+                  }
+                );
+                const isRegClosed = new Date(event.registration_deadline || event.start_date) <= new Date();
                 const buttonState = getRegistrationButtonState(
                   event.registration_deadline || event.start_date,
                   event.is_registered,
                   isFull
                 );
+                const blockedByEligibility = !event.is_registered && !eligibility.isEligible;
+                const blockedState = blockedByEligibility
+                  ? {
+                    disabled: true,
+                    bg: '#f3f4f6',
+                    color: '#6b7280',
+                    icon: 'block',
+                    label: "Can't Register",
+                  }
+                  : buttonState;
                 return (
-                  <TouchableOpacity
+                  <View>
+                    <TouchableOpacity
                     style={[
                       styles.registerButton,
-                      { backgroundColor: buttonState.bg },
-                      buttonState.disabled && styles.disabledButton
+                      { backgroundColor: blockedState.bg },
+                      blockedState.disabled && styles.disabledButton
                     ]}
-                    onPress={() => !buttonState.disabled && handleRegister(event)}
-                    disabled={buttonState.disabled}
+                    onPress={() => !blockedState.disabled && handleRegister(event)}
+                    disabled={blockedState.disabled}
                   >
                     <MaterialIcons
-                      name={buttonState.icon as any}
+                      name={blockedState.icon as any}
                       size={16}
-                      color={buttonState.color}
+                      color={blockedState.color}
                       style={{ marginRight: 6 }}
                     />
-                    <Text style={[styles.registerButtonText, { color: buttonState.color }]}>
-                      {buttonState.label}
+                    <Text style={[styles.registerButtonText, { color: blockedState.color }]}>
+                      {blockedState.label}
                     </Text>
-                  </TouchableOpacity>
+                    </TouchableOpacity>
+                    {blockedByEligibility && (
+                      <Text style={styles.blockedText}>{eligibility.reason || 'Not eligible for this event.'}</Text>
+                    )}
+                    {!blockedByEligibility && isRegClosed && !event.is_registered && (
+                      <Text style={styles.blockedText}>Registration is closed for this event.</Text>
+                    )}
+                  </View>
                 );
               })()}
             </TouchableOpacity>
@@ -574,6 +630,30 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     fontSize: FontSizes.sm,
     color: Colors.textSecondary,
     marginBottom: 8,
+  },
+  eligibilityCard: {
+    backgroundColor: '#f8faff',
+    borderWidth: 1,
+    borderColor: '#e0e7ff',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 8,
+  },
+  eligibilityHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  eligibilityTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#4f46e5',
+  },
+  eligibilityText: {
+    fontSize: 11,
+    color: '#475569',
   },
 
   container: {
@@ -851,5 +931,10 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   registerButtonText: {
     fontSize: FontSizes.sm,
     fontWeight: FontWeights.semibold,
+  },
+  blockedText: {
+    marginTop: 6,
+    fontSize: 11,
+    color: '#b45309',
   },
 });

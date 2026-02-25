@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
@@ -25,6 +25,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { ConfirmBottomSheet } from '../../components/ConfirmBottomSheet';
 import { createNotification } from '../../api/notifications';
 import { loadMyTeamState, cancelJoinRequest, acceptInvite, rejectInvite } from '../../utils/teamActions';
+import { evaluateEventEligibility } from '../../utils/eventEligibility';
 
 type EventDetailsScreenNavigationProp = StackNavigationProp<RootStackParamList, 'EventDetails'>;
 type EventDetailsScreenRouteProp = RouteProp<RootStackParamList, 'EventDetails'>;
@@ -392,6 +393,10 @@ export default function EventDetailsScreen() {
         // REGISTER — always include status='registered'
         setShowRegisterConfirmation(false);
 
+        if (!eligibility.isEligible) {
+          throw new Error(eligibility.reason || 'You are not eligible to register for this event.');
+        }
+
         const { error } = await (supabase as any)
           .from('event_registrations')
           .upsert({
@@ -639,6 +644,27 @@ export default function EventDetailsScreen() {
     return target.toLocaleDateString();
   };
 
+  const eligibility = useMemo(() => {
+    if (!event) return { isEligible: true } as const;
+    return evaluateEventEligibility(
+      {
+        eligibility_type: (event as any)?.eligibility_type,
+        eligible_departments: (event as any)?.eligible_departments,
+        eligible_years: (event as any)?.eligible_years,
+      },
+      {
+        department: profile?.department,
+        year: profile?.year,
+      }
+    );
+  }, [
+    event?.eligibility_type,
+    JSON.stringify(event?.eligible_departments || []),
+    JSON.stringify(event?.eligible_years || []),
+    profile?.department,
+    profile?.year,
+  ]);
+
   if (isLoading || !event) {
     return (
       <SafeAreaView style={styles.container}>
@@ -662,10 +688,15 @@ export default function EventDetailsScreen() {
   const isUpcoming = eventStart > now;
   const isLive = eventStart <= now && eventEnd >= now;
   const isEnded = eventEnd < now;
-  const canRegister = isUpcoming && new Date(event.registration_deadline) > now;
+  const registrationOpen = isUpcoming && new Date(event.registration_deadline) > now;
+  const canRegister = registrationOpen && eligibility.isEligible;
   const isCreator = user?.id === event.created_by;
   const isAdmin = profile?.role === 'admin';
   const canManageEvent = isCreator || isAdmin;
+  const eligibilityType = (event as any)?.eligibility_type || 'college';
+  const eligibleDepartments = ((event as any)?.eligible_departments || []) as string[];
+  const eligibleYears = (((event as any)?.eligible_years || []) as number[]).slice().sort((a, b) => a - b);
+  const eligibilityText = eligibilityType === 'college' ? 'Open to all departments and years' : 'Restricted participation';
 
   return (
     <SafeAreaView style={styles.container}>
@@ -800,6 +831,22 @@ export default function EventDetailsScreen() {
             )}
           </View>
 
+          <View style={styles.detailRow}>
+            <View style={[styles.iconBubble, { backgroundColor: '#ede9fe' }]}>
+              <MaterialIcons name="verified-user" size={18} color="#6366f1" />
+            </View>
+            <View style={styles.detailContent}>
+              <Text style={styles.detailLabel}>Eligibility</Text>
+              <Text style={styles.detailText}>{eligibilityText}</Text>
+              <Text style={styles.metaText}>
+                Departments: {eligibleDepartments.length ? eligibleDepartments.join(', ') : 'All'}
+              </Text>
+              <Text style={styles.metaText}>
+                Years: {eligibleYears.length ? eligibleYears.map((y) => `Year ${y}`).join(', ') : 'All'}
+              </Text>
+            </View>
+          </View>
+
           <TouchableOpacity
             style={styles.detailRow}
             onPress={() => {
@@ -846,9 +893,17 @@ export default function EventDetailsScreen() {
                 onPress={() => setShowRegisterConfirmation(true)}
                 disabled={!canRegister || isRegistering}
               >
-                <Text style={styles.primaryButtonText}>{isRegistering ? 'Registering...' : 'Register for Event'}</Text>
+                <Text style={styles.primaryButtonText}>
+                  {isRegistering ? 'Registering...' : canRegister ? 'Register for Event' : "Can't Register"}
+                </Text>
               </TouchableOpacity>
-              {!canRegister && <Text style={styles.metaText}>Registration is closed for this event.</Text>}
+              {!canRegister && (
+                <Text style={styles.metaText}>
+                  {!registrationOpen
+                    ? 'Registration is closed for this event.'
+                    : (eligibility.reason || 'You are not eligible for this event.')}
+                </Text>
+              )}
             </>
           )}
           <Text style={styles.metaText}>

@@ -22,6 +22,7 @@ import { updateProfile, uploadAvatar } from '../../api/auth';
 import { useAuth } from '../../contexts/AuthContext';
 import { DEPARTMENT_OPTIONS } from '../../constants/academic';
 import { calculateAcademicFields } from '../../utils/academic';
+import DropdownSheet from '../../components/DropdownSheet';
 
 type CompleteProfileScreenNavigationProp = StackNavigationProp<RootStackParamList, 'CompleteProfile'>;
 
@@ -195,6 +196,22 @@ export default function CompleteProfileScreen() {
     setOpenDropdown(null);
   };
 
+  const activeDropdown = useMemo(() => {
+    if (!openDropdown) return null;
+    if (openDropdown === 'department') {
+      return { title: 'Select Department', options: [...DEPARTMENT_OPTIONS] as string[] };
+    }
+    return { title: 'Select Admission Year', options: admissionYearOptions.map(String) };
+  }, [openDropdown, admissionYearOptions]);
+
+  const handleSheetSelect = (value: string) => {
+    if (openDropdown === 'department') {
+      handleSelectDepartment(value);
+      return;
+    }
+    handleSelectAdmissionYear(Number(value));
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <LinearGradient
@@ -265,54 +282,40 @@ export default function CompleteProfileScreen() {
             {/* Department Field */}
             <View style={styles.dropdownGroup}>
               <Text style={styles.label}>Department</Text>
-              <TouchableOpacity style={styles.dropdownField} onPress={() => setOpenDropdown(openDropdown === 'department' ? null : 'department')}>
-                <MaterialIcons
-                  name="apartment"
-                  size={20}
-                  color="#94a3b8"
-                  style={styles.inputIcon}
-                />
-                <Text style={[styles.dropdownValueText, !department && styles.dropdownPlaceholder]}>
-                  {department || 'Select your department'}
-                </Text>
-                <MaterialIcons name="keyboard-arrow-down" size={22} color="#64748b" />
-              </TouchableOpacity>
-              {openDropdown === 'department' && (
-                <View style={styles.dropdownList}>
-                  {DEPARTMENT_OPTIONS.map((item) => (
-                    <TouchableOpacity key={item} style={styles.dropdownItem} onPress={() => handleSelectDepartment(item)}>
-                      <Text style={styles.dropdownItemText}>{item}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
+              <View style={styles.dropdownContainer}>
+                <TouchableOpacity style={styles.dropdownField} onPress={() => setOpenDropdown(openDropdown === 'department' ? null : 'department')}>
+                  <MaterialIcons
+                    name="apartment"
+                    size={20}
+                    color="#94a3b8"
+                    style={styles.inputIcon}
+                  />
+                  <Text style={[styles.dropdownValueText, !department && styles.dropdownPlaceholder]}>
+                    {department || 'Select your department'}
+                  </Text>
+                  <MaterialIcons name="keyboard-arrow-down" size={22} color="#64748b" />
+                </TouchableOpacity>
+              </View>
               {!!errors.department && <Text style={styles.helperError}>{errors.department}</Text>}
             </View>
 
             {/* Year of Admission Field */}
             <View style={styles.dropdownGroup}>
               <Text style={styles.label}>Year of Admission</Text>
-              <TouchableOpacity style={styles.dropdownField} onPress={() => setOpenDropdown(openDropdown === 'year_of_admission' ? null : 'year_of_admission')}>
-                <MaterialIcons
-                  name="calendar-month"
-                  size={20}
-                  color="#94a3b8"
-                  style={styles.inputIcon}
-                />
-                <Text style={[styles.dropdownValueText, !yearOfAdmission && styles.dropdownPlaceholder]}>
-                  {yearOfAdmission ? String(yearOfAdmission) : 'Select admission year'}
-                </Text>
-                <MaterialIcons name="keyboard-arrow-down" size={22} color="#64748b" />
-              </TouchableOpacity>
-              {openDropdown === 'year_of_admission' && (
-                <View style={styles.dropdownList}>
-                  {admissionYearOptions.map((item) => (
-                    <TouchableOpacity key={item} style={styles.dropdownItem} onPress={() => handleSelectAdmissionYear(item)}>
-                      <Text style={styles.dropdownItemText}>{item}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
+              <View style={styles.dropdownContainer}>
+                <TouchableOpacity style={styles.dropdownField} onPress={() => setOpenDropdown(openDropdown === 'year_of_admission' ? null : 'year_of_admission')}>
+                  <MaterialIcons
+                    name="calendar-month"
+                    size={20}
+                    color="#94a3b8"
+                    style={styles.inputIcon}
+                  />
+                  <Text style={[styles.dropdownValueText, !yearOfAdmission && styles.dropdownPlaceholder]}>
+                    {yearOfAdmission ? String(yearOfAdmission) : 'Select admission year'}
+                  </Text>
+                  <MaterialIcons name="keyboard-arrow-down" size={22} color="#64748b" />
+                </TouchableOpacity>
+              </View>
               {!!errors.year_of_admission && <Text style={styles.helperError}>{errors.year_of_admission}</Text>}
             </View>
 
@@ -449,6 +452,13 @@ export default function CompleteProfileScreen() {
             </Text>
           </TouchableOpacity>
         </LinearGradient>
+        <DropdownSheet
+          visible={!!openDropdown && !!activeDropdown}
+          title={activeDropdown?.title || 'Select Option'}
+          options={activeDropdown?.options || []}
+          onSelect={handleSheetSelect}
+          onClose={() => setOpenDropdown(null)}
+        />
       </LinearGradient>
     </SafeAreaView>
   );
@@ -553,6 +563,7 @@ const styles = StyleSheet.create({
   dropdownGroup: {
     gap: Spacing.sm,
     marginBottom: 18,
+    overflow: 'visible',
   },
   label: {
     fontSize: 14,
@@ -597,6 +608,11 @@ const styles = StyleSheet.create({
     paddingRight: 14,
     ...Shadows.sm,
   },
+  dropdownContainer: {
+    position: 'relative',
+    overflow: 'visible',
+    zIndex: 20,
+  },
   dropdownValueText: {
     flex: 1,
     fontSize: FontSizes.md,
@@ -607,11 +623,20 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
   },
   dropdownList: {
-    marginTop: 8,
+    position: 'absolute',
+    top: 60,
+    left: 0,
+    right: 0,
     backgroundColor: '#ffffff',
     borderRadius: 16,
     paddingVertical: 6,
+    maxHeight: 220,
+    zIndex: 40,
+    elevation: 8,
     ...Shadows.sm,
+  },
+  dropdownListScroll: {
+    maxHeight: 220,
   },
   dropdownItem: {
     paddingHorizontal: 16,

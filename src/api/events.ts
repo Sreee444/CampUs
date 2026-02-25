@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { supabase } from "./supabase";
 import { Event, EventRegistration, EventDiscussion, EventType } from "../types/database";
+import { evaluateEventEligibility } from "../utils/eventEligibility";
 
 // Get all events
 export const getEvents = async (
@@ -134,14 +135,53 @@ export const deleteEvent = async (eventId: string) => {
 
 // Register for event
 export const registerForEvent = async (eventId: string, userId: string) => {
+  const [{ data: event, error: eventError }, { data: profile, error: profileError }] = await Promise.all([
+    supabase
+      .from("events")
+      .select("id, registration_deadline, eligibility_type, eligible_departments, eligible_years")
+      .eq("id", eventId)
+      .single(),
+    supabase
+      .from("profiles")
+      .select("department, year")
+      .eq("id", userId)
+      .single(),
+  ]);
+
+  if (eventError) throw eventError;
+  if (profileError) throw profileError;
+
+  const now = new Date();
+  if (event?.registration_deadline && new Date(event.registration_deadline) <= now) {
+    throw new Error("Registration is closed for this event.");
+  }
+
+  const eligibility = evaluateEventEligibility(
+    {
+      eligibility_type: event?.eligibility_type,
+      eligible_departments: event?.eligible_departments,
+      eligible_years: event?.eligible_years,
+    },
+    {
+      department: profile?.department,
+      year: profile?.year,
+    }
+  );
+
+  if (!eligibility.isEligible) {
+    throw new Error(eligibility.reason || "You are not eligible to register for this event.");
+  }
+
   // @ts-ignore - Supabase type inference issue
   const { data, error } = await supabase
     .from("event_registrations")
-    .insert({
+    .upsert({
       event_id: eventId,
       user_id: userId,
       status: "registered",
-    } as any)
+      team_id: null,
+      looking_for_team: false,
+    } as any, { onConflict: 'event_id,user_id' })
     .select()
     .single();
 

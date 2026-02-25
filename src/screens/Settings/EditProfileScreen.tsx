@@ -19,6 +19,7 @@ import { getColors, Spacing, FontSizes, FontWeights, Shadows } from '../../theme
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { Toast } from '../../components/Toast';
+import DropdownSheet from '../../components/DropdownSheet';
 import { updateProfile, uploadAvatar } from '../../api/auth';
 import * as ImagePicker from 'expo-image-picker';
 import {
@@ -129,6 +130,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     inputGroup: {
       gap: 8,
       marginBottom: 16,
+      overflow: 'visible',
     },
     label: {
       fontSize: 14,
@@ -179,6 +181,11 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       paddingRight: 12,
       ...Shadows.sm,
     },
+    dropdownContainer: {
+      position: 'relative',
+      overflow: 'visible',
+      zIndex: 20,
+    },
     dropdownLeftIcon: {
       position: 'absolute',
       left: 14,
@@ -193,11 +200,19 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       color: Colors.textSecondary,
     },
     dropdownList: {
-      marginTop: 8,
+      position: 'absolute',
+      top: 60,
+      left: 0,
+      right: 0,
       borderRadius: 16,
       backgroundColor: Colors.card,
       maxHeight: 200,
+      zIndex: 40,
+      elevation: 8,
       ...Shadows.sm,
+    },
+    dropdownListScroll: {
+      maxHeight: 200,
     },
     dropdownItem: {
       paddingHorizontal: 14,
@@ -410,6 +425,41 @@ export default function EditProfileScreen() {
     setOpenDropdown(null);
   };
 
+  const activeDropdown = useMemo(() => {
+    if (!openDropdown) return null;
+    if (openDropdown === 'department') {
+      return { title: 'Select Department', options: [...DEPARTMENT_OPTIONS] as string[] };
+    }
+    if (openDropdown === 'year_of_admission') {
+      return { title: 'Select Admission Year', options: admissionYearOptions.map(String) };
+    }
+    if (openDropdown === 'section') {
+      return { title: 'Select Section', options: [...SECTION_OPTIONS] as string[] };
+    }
+    return { title: 'Select Specialization', options: specializationOptions };
+  }, [openDropdown, admissionYearOptions, specializationOptions]);
+
+  const handleSheetSelect = (value: string) => {
+    if (openDropdown === 'department') {
+      selectAndClose(() => {
+        setDepartment(value);
+        setSpecialization(null);
+      });
+      return;
+    }
+    if (openDropdown === 'year_of_admission') {
+      selectAndClose(() => setYearOfAdmission(Number(value)));
+      return;
+    }
+    if (openDropdown === 'section') {
+      selectAndClose(() => setSection(value as 'A' | 'B' | 'C' | 'D'));
+      return;
+    }
+    if (openDropdown === 'specialization') {
+      selectAndClose(() => setSpecialization(value));
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -510,30 +560,19 @@ export default function EditProfileScreen() {
               <View style={styles.col}>
                 <View style={styles.inputGroup}>
                   <Text style={styles.label}>Year of Admission</Text>
-                  <TouchableOpacity
-                    style={[styles.dropdownField, isGraduated && styles.disabledInput]}
-                    disabled={isGraduated}
-                    onPress={() => setOpenDropdown(openDropdown === 'year_of_admission' ? null : 'year_of_admission')}
-                  >
-                    <MaterialIcons name="calendar-month" size={20} color={Colors.textSecondary} style={styles.dropdownLeftIcon} />
-                    <Text style={[styles.dropdownText, !yearOfAdmission && styles.dropdownPlaceholder]}>
-                      {yearOfAdmission ? String(yearOfAdmission) : 'Select'}
-                    </Text>
-                    <MaterialIcons name="keyboard-arrow-down" size={22} color={Colors.textSecondary} />
-                  </TouchableOpacity>
-                  {openDropdown === 'year_of_admission' && !isGraduated && (
-                    <View style={styles.dropdownList}>
-                      {admissionYearOptions.map((option) => (
-                        <TouchableOpacity
-                          key={option}
-                          style={styles.dropdownItem}
-                          onPress={() => selectAndClose(() => setYearOfAdmission(option))}
-                        >
-                          <Text style={styles.dropdownItemText}>{option}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  )}
+                  <View style={styles.dropdownContainer}>
+                    <TouchableOpacity
+                      style={[styles.dropdownField, isGraduated && styles.disabledInput]}
+                      disabled={isGraduated}
+                      onPress={() => setOpenDropdown(openDropdown === 'year_of_admission' ? null : 'year_of_admission')}
+                    >
+                      <MaterialIcons name="calendar-month" size={20} color={Colors.textSecondary} style={styles.dropdownLeftIcon} />
+                      <Text style={[styles.dropdownText, !yearOfAdmission && styles.dropdownPlaceholder]}>
+                        {yearOfAdmission ? String(yearOfAdmission) : 'Select'}
+                      </Text>
+                      <MaterialIcons name="keyboard-arrow-down" size={22} color={Colors.textSecondary} />
+                    </TouchableOpacity>
+                  </View>
                   {!!errors.year_of_admission && <Text style={styles.errorText}>{errors.year_of_admission}</Text>}
                 </View>
               </View>
@@ -541,30 +580,19 @@ export default function EditProfileScreen() {
               <View style={styles.col}>
                 <View style={styles.inputGroup}>
                   <Text style={styles.label}>Section</Text>
-                  <TouchableOpacity
-                    style={[styles.dropdownField, isGraduated && styles.disabledInput]}
-                    disabled={isGraduated}
-                    onPress={() => setOpenDropdown(openDropdown === 'section' ? null : 'section')}
-                  >
-                    <MaterialIcons name="groups" size={20} color={Colors.textSecondary} style={styles.dropdownLeftIcon} />
-                    <Text style={[styles.dropdownText, !section && styles.dropdownPlaceholder]}>
-                      {section || 'Select'}
-                    </Text>
-                    <MaterialIcons name="keyboard-arrow-down" size={22} color={Colors.textSecondary} />
-                  </TouchableOpacity>
-                  {openDropdown === 'section' && !isGraduated && (
-                    <View style={styles.dropdownList}>
-                      {SECTION_OPTIONS.map((option) => (
-                        <TouchableOpacity
-                          key={option}
-                          style={styles.dropdownItem}
-                          onPress={() => selectAndClose(() => setSection(option))}
-                        >
-                          <Text style={styles.dropdownItemText}>{option}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  )}
+                  <View style={styles.dropdownContainer}>
+                    <TouchableOpacity
+                      style={[styles.dropdownField, isGraduated && styles.disabledInput]}
+                      disabled={isGraduated}
+                      onPress={() => setOpenDropdown(openDropdown === 'section' ? null : 'section')}
+                    >
+                      <MaterialIcons name="groups" size={20} color={Colors.textSecondary} style={styles.dropdownLeftIcon} />
+                      <Text style={[styles.dropdownText, !section && styles.dropdownPlaceholder]}>
+                        {section || 'Select'}
+                      </Text>
+                      <MaterialIcons name="keyboard-arrow-down" size={22} color={Colors.textSecondary} />
+                    </TouchableOpacity>
+                  </View>
                   {!!errors.section && <Text style={styles.errorText}>{errors.section}</Text>}
                 </View>
               </View>
@@ -572,64 +600,37 @@ export default function EditProfileScreen() {
 
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Department</Text>
-              <TouchableOpacity
-                style={[styles.dropdownField, isGraduated && styles.disabledInput]}
-                disabled={isGraduated}
-                onPress={() => setOpenDropdown(openDropdown === 'department' ? null : 'department')}
-              >
-                <MaterialIcons name="apartment" size={20} color={Colors.textSecondary} style={styles.dropdownLeftIcon} />
-                <Text style={[styles.dropdownText, !department && styles.dropdownPlaceholder]}>
-                  {department || 'Select department'}
-                </Text>
-                <MaterialIcons name="keyboard-arrow-down" size={22} color={Colors.textSecondary} />
-              </TouchableOpacity>
-              {openDropdown === 'department' && !isGraduated && (
-                <View style={styles.dropdownList}>
-                  {DEPARTMENT_OPTIONS.map((option) => (
-                    <TouchableOpacity
-                      key={option}
-                      style={styles.dropdownItem}
-                      onPress={() =>
-                        selectAndClose(() => {
-                          setDepartment(option);
-                          setSpecialization(null);
-                        })
-                      }
-                    >
-                      <Text style={styles.dropdownItemText}>{option}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
+              <View style={styles.dropdownContainer}>
+                <TouchableOpacity
+                  style={[styles.dropdownField, isGraduated && styles.disabledInput]}
+                  disabled={isGraduated}
+                  onPress={() => setOpenDropdown(openDropdown === 'department' ? null : 'department')}
+                >
+                  <MaterialIcons name="apartment" size={20} color={Colors.textSecondary} style={styles.dropdownLeftIcon} />
+                  <Text style={[styles.dropdownText, !department && styles.dropdownPlaceholder]}>
+                    {department || 'Select department'}
+                  </Text>
+                  <MaterialIcons name="keyboard-arrow-down" size={22} color={Colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
               {!!errors.department && <Text style={styles.errorText}>{errors.department}</Text>}
             </View>
 
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Specialization</Text>
-              <TouchableOpacity
-                style={[styles.dropdownField, isGraduated && styles.disabledInput]}
-                disabled={isGraduated || !department}
-                onPress={() => setOpenDropdown(openDropdown === 'specialization' ? null : 'specialization')}
-              >
-                <MaterialIcons name="psychology" size={20} color={Colors.textSecondary} style={styles.dropdownLeftIcon} />
-                <Text style={[styles.dropdownText, !specialization && styles.dropdownPlaceholder]}>
-                  {specialization || (department ? 'Select specialization' : 'Select department first')}
-                </Text>
-                <MaterialIcons name="keyboard-arrow-down" size={22} color={Colors.textSecondary} />
-              </TouchableOpacity>
-              {openDropdown === 'specialization' && !isGraduated && department && (
-                <View style={styles.dropdownList}>
-                  {specializationOptions.map((option) => (
-                    <TouchableOpacity
-                      key={option}
-                      style={styles.dropdownItem}
-                      onPress={() => selectAndClose(() => setSpecialization(option))}
-                    >
-                      <Text style={styles.dropdownItemText}>{option}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
+              <View style={styles.dropdownContainer}>
+                <TouchableOpacity
+                  style={[styles.dropdownField, isGraduated && styles.disabledInput]}
+                  disabled={isGraduated || !department}
+                  onPress={() => setOpenDropdown(openDropdown === 'specialization' ? null : 'specialization')}
+                >
+                  <MaterialIcons name="psychology" size={20} color={Colors.textSecondary} style={styles.dropdownLeftIcon} />
+                  <Text style={[styles.dropdownText, !specialization && styles.dropdownPlaceholder]}>
+                    {specialization || (department ? 'Select specialization' : 'Select department first')}
+                  </Text>
+                  <MaterialIcons name="keyboard-arrow-down" size={22} color={Colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
               {!!errors.specialization && <Text style={styles.errorText}>{errors.specialization}</Text>}
             </View>
 
@@ -701,6 +702,13 @@ export default function EditProfileScreen() {
         message={toast.message}
         type={toast.type}
         onHide={() => setToast((prev) => ({ ...prev, visible: false }))}
+      />
+      <DropdownSheet
+        visible={!!openDropdown && !isGraduated && !!activeDropdown}
+        title={activeDropdown?.title || 'Select Option'}
+        options={activeDropdown?.options || []}
+        onSelect={handleSheetSelect}
+        onClose={() => setOpenDropdown(null)}
       />
     </SafeAreaView>
   );

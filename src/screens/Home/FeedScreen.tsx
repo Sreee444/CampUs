@@ -166,7 +166,11 @@ export default function FeedScreen() {
       loadFeedData(true);
     } catch (error) {
       console.error('Registration error:', error);
-      Toast.show({ type: 'error', text1: 'Registration failed', text2: 'Please try again' });
+      Toast.show({
+        type: 'error',
+        text1: 'Registration failed',
+        text2: (error as any)?.message || 'Please try again',
+      });
     }
   };
 
