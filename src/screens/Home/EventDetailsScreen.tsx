@@ -645,7 +645,7 @@ export default function EventDetailsScreen() {
   };
 
   const eligibility = useMemo(() => {
-    if (!event) return { isEligible: true } as const;
+    if (!event) return { isEligible: true, reason: undefined };
     return evaluateEventEligibility(
       {
         eligibility_type: (event as any)?.eligibility_type,
