@@ -67,12 +67,46 @@ export const signInWithGoogle = async () => {
 };
 
 // Sign up new user
-export const signUp = async (email: string, password: string, fullName: string, role: string) => {
+export const signUp = async (
+  email: string,
+  password: string,
+  fullName: string,
+  role: string,
+  profileData?: {
+    department?: string;
+    specialization?: string;
+    section?: 'A' | 'B' | 'C' | 'D';
+    year_of_admission?: number;
+    year?: number;
+    semester?: number;
+    batch?: string;
+    roll_number?: string;
+    academic_status?: 'active' | 'graduated';
+    bio?: string;
+    skills?: string[];
+    interests?: string[];
+  }
+) => {
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: {
-      data: { full_name: fullName, role },
+      data: {
+        full_name: fullName,
+        role,
+        department: profileData?.department,
+        specialization: profileData?.specialization,
+        section: profileData?.section,
+        year_of_admission: profileData?.year_of_admission,
+        year: profileData?.year,
+        semester: profileData?.semester,
+        batch: profileData?.batch,
+        roll_number: profileData?.roll_number,
+        academic_status: profileData?.academic_status,
+        bio: profileData?.bio,
+        skills: profileData?.skills,
+        interests: profileData?.interests,
+      },
       emailRedirectTo: undefined,
     }
   });

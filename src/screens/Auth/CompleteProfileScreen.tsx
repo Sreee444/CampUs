@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -20,6 +20,8 @@ import { RootStackParamList } from '../../navigation/types';
 import { Colors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } from '../../theme';
 import { updateProfile, uploadAvatar } from '../../api/auth';
 import { useAuth } from '../../contexts/AuthContext';
+import { DEPARTMENT_OPTIONS } from '../../constants/academic';
+import { calculateAcademicFields } from '../../utils/academic';
 
 type CompleteProfileScreenNavigationProp = StackNavigationProp<RootStackParamList, 'CompleteProfile'>;
 
@@ -43,9 +45,14 @@ const interestOptions: InterestItem[] = [
 export default function CompleteProfileScreen() {
   const navigation = useNavigation<CompleteProfileScreenNavigationProp>();
   const { user, profile, refreshProfile } = useAuth();
+  const currentYear = new Date().getFullYear();
+  const admissionYearOptions = useMemo(
+    () => Array.from({ length: 12 }, (_, index) => currentYear - index),
+    [currentYear]
+  );
   const [fullName, setFullName] = useState('');
-  const [department, setDepartment] = useState('');
-  const [yearOrPosition, setYearOrPosition] = useState('');
+  const [department, setDepartment] = useState<string | null>(null);
+  const [yearOfAdmission, setYearOfAdmission] = useState<number | null>(null);
   const [bio, setBio] = useState('');
   const [skillsInput, setSkillsInput] = useState('');
   const [selectedInterests, setSelectedInterests] = useState<InterestItem[]>(
@@ -53,11 +60,15 @@ export default function CompleteProfileScreen() {
   );
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [openDropdown, setOpenDropdown] = useState<'department' | 'year_of_admission' | null>(null);
+  const [errors, setErrors] = useState<{ department?: string; year_of_admission?: string }>({});
+  const computedAcademic = useMemo(() => calculateAcademicFields(yearOfAdmission), [yearOfAdmission]);
 
   useEffect(() => {
     if (profile) {
       setFullName(profile.full_name || '');
-      setDepartment(profile.department || '');
+      setDepartment(profile.department || null);
+      setYearOfAdmission(profile.year_of_admission ?? null);
       setBio(profile.bio || '');
       setAvatarUrl(profile.avatar_url || null);
       setSkillsInput((profile.skills || []).join(', '));
@@ -92,6 +103,12 @@ export default function CompleteProfileScreen() {
       return;
     }
 
+    const nextErrors: { department?: string; year_of_admission?: string } = {};
+    if (!department) nextErrors.department = 'Please select a department';
+    if (!yearOfAdmission) nextErrors.year_of_admission = 'Please select year of admission';
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) return;
+
     const selectedInterestLabels = selectedInterests
       .filter((interest) => interest.selected)
       .map((interest) => interest.label);
@@ -101,22 +118,23 @@ export default function CompleteProfileScreen() {
       .map((skill) => skill.trim())
       .filter(Boolean);
 
-    const yearNumber = Number(yearOrPosition);
-    const year = Number.isFinite(yearNumber) ? yearNumber : undefined;
-
     try {
       setIsSaving(true);
       await updateProfile(user.id, {
         full_name: fullName.trim(),
-        department: department.trim() || undefined,
-        year,
+        department: department || undefined,
+        year_of_admission: yearOfAdmission || undefined,
+        year: computedAcademic.year || undefined,
+        semester: computedAcademic.semester || undefined,
+        batch: computedAcademic.batch || undefined,
+        academic_status: computedAcademic.academic_status,
         bio: bio.trim() || undefined,
         skills: skills.length ? skills : undefined,
         interests: selectedInterestLabels.length ? selectedInterestLabels : undefined,
       });
 
       await refreshProfile();
-      Toast.show({ type: 'success', text1: 'Profile updated' });
+      Toast.show({ type: 'success', text1: 'Profile updated successfully' });
       navigation.replace('MainTabs');
     } catch (error: any) {
       Toast.show({
@@ -163,6 +181,18 @@ export default function CompleteProfileScreen() {
         });
       }
     }
+  };
+
+  const handleSelectAdmissionYear = (value: number) => {
+    setYearOfAdmission(value);
+    setErrors((prev) => ({ ...prev, year_of_admission: undefined }));
+    setOpenDropdown(null);
+  };
+
+  const handleSelectDepartment = (value: string) => {
+    setDepartment(value);
+    setErrors((prev) => ({ ...prev, department: undefined }));
+    setOpenDropdown(null);
   };
 
   return (
@@ -233,8 +263,61 @@ export default function CompleteProfileScreen() {
             </View>
 
             {/* Department Field */}
-            <View style={styles.inputGroup}>
+            <View style={styles.dropdownGroup}>
               <Text style={styles.label}>Department</Text>
+              <TouchableOpacity style={styles.dropdownField} onPress={() => setOpenDropdown(openDropdown === 'department' ? null : 'department')}>
+                <MaterialIcons
+                  name="apartment"
+                  size={20}
+                  color="#94a3b8"
+                  style={styles.inputIcon}
+                />
+                <Text style={[styles.dropdownValueText, !department && styles.dropdownPlaceholder]}>
+                  {department || 'Select your department'}
+                </Text>
+                <MaterialIcons name="keyboard-arrow-down" size={22} color="#64748b" />
+              </TouchableOpacity>
+              {openDropdown === 'department' && (
+                <View style={styles.dropdownList}>
+                  {DEPARTMENT_OPTIONS.map((item) => (
+                    <TouchableOpacity key={item} style={styles.dropdownItem} onPress={() => handleSelectDepartment(item)}>
+                      <Text style={styles.dropdownItemText}>{item}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+              {!!errors.department && <Text style={styles.helperError}>{errors.department}</Text>}
+            </View>
+
+            {/* Year of Admission Field */}
+            <View style={styles.dropdownGroup}>
+              <Text style={styles.label}>Year of Admission</Text>
+              <TouchableOpacity style={styles.dropdownField} onPress={() => setOpenDropdown(openDropdown === 'year_of_admission' ? null : 'year_of_admission')}>
+                <MaterialIcons
+                  name="calendar-month"
+                  size={20}
+                  color="#94a3b8"
+                  style={styles.inputIcon}
+                />
+                <Text style={[styles.dropdownValueText, !yearOfAdmission && styles.dropdownPlaceholder]}>
+                  {yearOfAdmission ? String(yearOfAdmission) : 'Select admission year'}
+                </Text>
+                <MaterialIcons name="keyboard-arrow-down" size={22} color="#64748b" />
+              </TouchableOpacity>
+              {openDropdown === 'year_of_admission' && (
+                <View style={styles.dropdownList}>
+                  {admissionYearOptions.map((item) => (
+                    <TouchableOpacity key={item} style={styles.dropdownItem} onPress={() => handleSelectAdmissionYear(item)}>
+                      <Text style={styles.dropdownItemText}>{item}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+              {!!errors.year_of_admission && <Text style={styles.helperError}>{errors.year_of_admission}</Text>}
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Academic Progress (Auto)</Text>
               <View style={styles.inputWrapper}>
                 <MaterialIcons
                   name="school"
@@ -244,29 +327,8 @@ export default function CompleteProfileScreen() {
                 />
                 <TextInput
                   style={styles.input}
-                  placeholder="e.g. Computer Science"
-                  value={department}
-                  onChangeText={setDepartment}
-                  placeholderTextColor="#94a3b8"
-                />
-              </View>
-            </View>
-
-            {/* Year / Position Field */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Year / Position</Text>
-              <View style={styles.inputWrapper}>
-                <MaterialIcons
-                  name="badge"
-                  size={20}
-                  color="#94a3b8"
-                  style={styles.inputIcon}
-                />
-                <TextInput
-                  style={styles.input}
-                  placeholder="e.g. 3 or Adjunct Professor"
-                  value={yearOrPosition}
-                  onChangeText={setYearOrPosition}
+                  editable={false}
+                  value={`Year ${computedAcademic.year || '-'} | Semester ${computedAcademic.semester || '-'} | ${computedAcademic.batch || '-'}`}
                   placeholderTextColor="#94a3b8"
                 />
               </View>
@@ -488,9 +550,13 @@ const styles = StyleSheet.create({
   inputGroup: {
     gap: Spacing.sm,
   },
+  dropdownGroup: {
+    gap: Spacing.sm,
+    marginBottom: 18,
+  },
   label: {
-    fontSize: FontSizes.sm,
-    fontWeight: FontWeights.semibold,
+    fontSize: 14,
+    fontWeight: '600',
     color: '#334155',
   },
   inputWrapper: {
@@ -520,6 +586,46 @@ const styles = StyleSheet.create({
   textArea: {
     height: 110,
     textAlignVertical: 'top',
+  },
+  dropdownField: {
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: '#ffffff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: 48,
+    paddingRight: 14,
+    ...Shadows.sm,
+  },
+  dropdownValueText: {
+    flex: 1,
+    fontSize: FontSizes.md,
+    fontWeight: FontWeights.medium,
+    color: '#111818',
+  },
+  dropdownPlaceholder: {
+    color: '#94a3b8',
+  },
+  dropdownList: {
+    marginTop: 8,
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    paddingVertical: 6,
+    ...Shadows.sm,
+  },
+  dropdownItem: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  dropdownItemText: {
+    fontSize: FontSizes.sm,
+    color: '#334155',
+    fontWeight: FontWeights.medium,
+  },
+  helperError: {
+    color: '#ef4444',
+    fontSize: 12,
+    marginTop: 4,
   },
   interestsSection: {
     marginTop: Spacing.xl,

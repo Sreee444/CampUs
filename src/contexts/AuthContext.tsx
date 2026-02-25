@@ -1,8 +1,9 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../api/supabase';
 import { Profile } from '../types/database';
-import { getCurrentUser, getProfile } from '../api/auth';
+import { getCurrentUser, getProfile, updateProfile } from '../api/auth';
 import { updateLastActive } from '../api/users';
+import { calculateAcademicFields } from '../utils/academic';
 
 export type AuthUser = {
   id: string;
@@ -94,6 +95,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const loadProfile = async (userId: string) => {
     try {
       const userProfile = await getProfile(userId);
+      if (!userProfile) {
+        setProfile(null);
+        return;
+      }
+
+      if (userProfile.year_of_admission) {
+        const computed = calculateAcademicFields(userProfile.year_of_admission);
+        const needsAcademicRefresh =
+          userProfile.semester !== computed.semester ||
+          userProfile.year !== computed.year ||
+          userProfile.batch !== computed.batch ||
+          userProfile.academic_status !== computed.academic_status;
+
+        if (needsAcademicRefresh) {
+          const updatedProfile = await updateProfile(userId, {
+            semester: computed.semester ?? undefined,
+            year: computed.year ?? undefined,
+            batch: computed.batch ?? undefined,
+            academic_status: computed.academic_status,
+          });
+          setProfile(updatedProfile);
+          return;
+        }
+      }
+
       setProfile(userProfile);
     } catch (error: any) {
       // Ignore abort errors (happens when component unmounts or request is cancelled)

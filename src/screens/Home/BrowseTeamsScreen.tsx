@@ -9,6 +9,7 @@ import {
     RefreshControl,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RouteProp } from '@react-navigation/native';
@@ -17,7 +18,7 @@ import { RootStackParamList } from '../../navigation/types';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../api/supabase';
 import { SKILL_ROLES } from '../../utils/teamUtils';
-import { sendJoinRequest, cancelJoinRequest } from '../../utils/teamActions';
+import { loadMyTeamState, sendJoinRequest, cancelJoinRequest } from '../../utils/teamActions';
 
 type BrowseTeamsNavProp = StackNavigationProp<RootStackParamList, 'BrowseTeams'>;
 type BrowseTeamsRouteProp = RouteProp<RootStackParamList, 'BrowseTeams'>;
@@ -30,7 +31,8 @@ interface TeamItem {
     max_members: number;
     is_recruiting: boolean;
     members_count: number;
-    my_request_status: 'none' | 'pending' | 'accepted' | 'rejected';
+    leader_name: string;
+    my_request_status: 'none' | 'pending';
     my_request_id: string | null;
     i_am_member: boolean;
 }
@@ -44,74 +46,77 @@ export default function BrowseTeamsScreen() {
     const [teams, setTeams] = useState<TeamItem[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
-    const [userHasTeam, setUserHasTeam] = useState(false);
+    const [userTeamId, setUserTeamId] = useState<string | null>(null);
     const [joiningTeamId, setJoiningTeamId] = useState<string | null>(null);
 
     const loadTeams = useCallback(async () => {
+        if (!user?.id) return;
         try {
-            // Fetch all recruiting teams for the event
-            const { data: teamsData, error } = await supabase
+            const myState = await loadMyTeamState(eventId, user.id);
+            setUserTeamId(myState.userTeamId ?? null);
+
+            const { data: teamsData, error } = await (supabase as any)
                 .from('event_teams')
-                .select('id, name, team_code, required_roles, max_members, is_recruiting')
+                .select('id, name, team_code, required_roles, max_members, is_recruiting, leader_id')
                 .eq('event_id', eventId)
                 .order('name');
 
             if (error) throw error;
             const teamList = (teamsData as any[]) ?? [];
             const teamIds = teamList.map((t: any) => t.id);
+            const leaderIds = Array.from(new Set(teamList.map((t: any) => t.leader_id).filter(Boolean)));
 
-            if (teamIds.length === 0) { setTeams([]); return; }
+            if (teamIds.length === 0) {
+                setTeams([]);
+                return;
+            }
 
-            // Active member counts from event_team_members
-            const { data: membersData } = await supabase
-                .from('event_team_members')
-                .select('team_id, user_id, status')
-                .in('team_id', teamIds)
-                .eq('status', 'active');
+            const [{ data: membersData }, { data: myRequests }, { data: leadersData }] = await Promise.all([
+                (supabase as any)
+                    .from('event_team_members')
+                    .select('team_id')
+                    .in('team_id', teamIds)
+                    .eq('status', 'active'),
+                (supabase as any)
+                    .from('team_requests')
+                    .select('id, team_id')
+                    .eq('event_id', eventId)
+                    .eq('requester_id', user.id)
+                    .eq('type', 'join')
+                    .eq('status', 'pending'),
+                leaderIds.length > 0
+                    ? (supabase as any)
+                        .from('profiles')
+                        .select('id, full_name')
+                        .in('id', leaderIds)
+                    : Promise.resolve({ data: [] }),
+            ]);
 
             const membersList = (membersData as any[]) ?? [];
-
-            // Check if current user already has a team via event_registrations (source of truth)
-            const { data: myReg } = await (supabase as any)
-                .from('event_registrations')
-                .select('team_id')
-                .eq('event_id', eventId)
-                .eq('user_id', user?.id ?? '')
-                .eq('status', 'registered')
-                .maybeSingle();
-            const myTeamId = myReg?.team_id ?? null;
-            setUserHasTeam(myTeamId !== null);
-
-            // Fetch MY pending join requests from team_requests (not team_join_requests!)
-            const { data: myRequests } = await (supabase as any)
-                .from('team_requests')
-                .select('id, team_id, status, type')
-                .eq('event_id', eventId)
-                .eq('requester_id', user?.id ?? '')
-                .eq('type', 'join')
-                .eq('status', 'pending');
-
-            const myRequestMap: Record<string, { id: string; status: string }> = {};
+            const requestMap: Record<string, string> = {};
             ((myRequests as any[]) ?? []).forEach((r: any) => {
-                myRequestMap[r.team_id] = { id: r.id, status: r.status };
+                requestMap[r.team_id] = r.id;
             });
 
-            const enriched: TeamItem[] = teamList.map((t: any) => {
-                const count = membersList.filter((m: any) => m.team_id === t.id).length;
-                const isMember = t.id === myTeamId; // member iff their registration points here
-                const req = myRequestMap[t.id];
-                const reqStatus = req ? 'pending' : 'none';
+            const leaderMap: Record<string, string> = {};
+            ((leadersData as any[]) ?? []).forEach((leader: any) => {
+                leaderMap[leader.id] = leader.full_name || 'Unknown leader';
+            });
+
+            const enriched: TeamItem[] = teamList.map((team: any) => {
+                const count = membersList.filter((m: any) => m.team_id === team.id).length;
                 return {
-                    id: t.id,
-                    name: t.name,
-                    team_code: t.team_code,
-                    required_roles: t.required_roles ?? [],
-                    max_members: t.max_members ?? 5,
-                    is_recruiting: t.is_recruiting ?? true,
+                    id: team.id,
+                    name: team.name,
+                    team_code: team.team_code,
+                    required_roles: team.required_roles ?? [],
+                    max_members: team.max_members ?? 5,
+                    is_recruiting: team.is_recruiting ?? true,
                     members_count: count,
-                    my_request_status: reqStatus as TeamItem['my_request_status'],
-                    my_request_id: req?.id ?? null,
-                    i_am_member: isMember,
+                    leader_name: leaderMap[team.leader_id] || 'Unknown leader',
+                    my_request_status: requestMap[team.id] ? 'pending' : 'none',
+                    my_request_id: requestMap[team.id] ?? null,
+                    i_am_member: (myState.userTeamId ?? null) === team.id,
                 };
             });
 
@@ -124,20 +129,24 @@ export default function BrowseTeamsScreen() {
         }
     }, [eventId, user?.id]);
 
-    // Reload on every focus — catches state changes from other screens
     useFocusEffect(
-        useCallback(() => { loadTeams(); }, [eventId, user?.id])
+        useCallback(() => {
+            loadTeams();
+        }, [loadTeams])
     );
 
-    const handleRefresh = () => { setRefreshing(true); loadTeams(); };
+    const handleRefresh = () => {
+        setRefreshing(true);
+        loadTeams();
+    };
 
     const handleRequestJoin = async (team: TeamItem) => {
         if (!user?.id) return;
         try {
             setJoiningTeamId(team.id);
             await sendJoinRequest({ teamId: team.id, eventId, userId: user.id, teamName: team.name });
-            Toast.show({ type: 'success', text1: '✅ Request sent!', text2: 'Wait for the team leader to accept' });
-            loadTeams();
+            setTeams((prev) => prev.map((t) => (t.id === team.id ? { ...t, my_request_status: 'pending' } : t)));
+            Toast.show({ type: 'success', text1: 'Request sent' });
         } catch (err: any) {
             Toast.show({ type: 'error', text1: 'Request failed', text2: err.message });
         } finally {
@@ -150,8 +159,8 @@ export default function BrowseTeamsScreen() {
         try {
             setJoiningTeamId(team.id);
             await cancelJoinRequest({ teamId: team.id, requesterId: user.id, eventId });
+            setTeams((prev) => prev.map((t) => (t.id === team.id ? { ...t, my_request_status: 'none', my_request_id: null } : t)));
             Toast.show({ type: 'info', text1: 'Request cancelled' });
-            loadTeams();
         } catch (err: any) {
             Toast.show({ type: 'error', text1: 'Failed to cancel', text2: err.message });
         } finally {
@@ -159,101 +168,83 @@ export default function BrowseTeamsScreen() {
         }
     };
 
-    const getRequestButton = (team: TeamItem) => {
-        const isLoading = joiningTeamId === team.id;
+    const renderTeamAction = (team: TeamItem) => {
+        const disabled = joiningTeamId === team.id;
+        const isFull = team.members_count >= team.max_members;
 
         if (team.i_am_member) {
-            return (
-                <TouchableOpacity
-                    style={styles.viewBtn}
-                    onPress={() => navigation.navigate('TeamDetails', { teamId: team.id, eventId })}
-                >
-                    <MaterialIcons name="group" size={16} color="#6366f1" />
-                    <Text style={styles.viewBtnText}>My Team</Text>
-                </TouchableOpacity>
-            );
-        }
-
-        if (userHasTeam) {
-            return (
-                <View style={styles.inTeamBadge}>
-                    <Text style={styles.inTeamBadgeText}>Already in a team</Text>
-                </View>
-            );
+            return <Text style={styles.inTeamText}>You are in this team</Text>;
         }
 
         if (team.my_request_status === 'pending') {
             return (
                 <TouchableOpacity
-                    style={styles.cancelBtn}
+                    style={[styles.outlineDangerButton, disabled && styles.buttonDisabled]}
                     onPress={() => handleCancelRequest(team)}
-                    disabled={isLoading}
+                    disabled={disabled}
                 >
-                    {isLoading
-                        ? <ActivityIndicator size="small" color="#6b7280" />
-                        : <Text style={styles.cancelBtnText}>⏳ Pending — Cancel</Text>}
+                    <Text style={styles.outlineDangerButtonText}>
+                        {disabled ? 'Cancelling...' : 'Cancel Request'}
+                    </Text>
                 </TouchableOpacity>
             );
         }
 
-        if (team.my_request_status === 'rejected') {
+        if (userTeamId && userTeamId !== team.id) {
             return (
-                <View style={styles.rejectedBadge}>
-                    <Text style={styles.rejectedText}>Request declined</Text>
+                <View style={[styles.outlineButton, styles.buttonDisabled]}>
+                    <Text style={styles.outlineButtonText}>Already in a Team</Text>
                 </View>
             );
         }
 
-        if (!team.is_recruiting || team.members_count >= team.max_members) {
+        if (!team.is_recruiting || isFull) {
             return (
-                <View style={styles.fullBadge}>
-                    <Text style={styles.fullBadgeText}>{team.members_count >= team.max_members ? 'Full' : 'Closed'}</Text>
+                <View style={[styles.outlineButton, styles.buttonDisabled]}>
+                    <Text style={styles.outlineButtonText}>{isFull ? 'Team Full' : 'Closed'}</Text>
                 </View>
             );
         }
 
         return (
             <TouchableOpacity
-                style={styles.requestBtn}
+                style={[styles.primaryButton, disabled && styles.buttonDisabled]}
                 onPress={() => handleRequestJoin(team)}
-                disabled={isLoading}
+                disabled={disabled}
             >
-                {isLoading
-                    ? <ActivityIndicator size="small" color="#fff" />
-                    : <>
-                        <MaterialIcons name="person-add" size={16} color="#fff" />
-                        <Text style={styles.requestBtnText}>Request to Join</Text>
-                    </>}
+                {disabled
+                    ? <ActivityIndicator color="#fff" size="small" />
+                    : <Text style={styles.primaryButtonText}>Request to Join</Text>}
             </TouchableOpacity>
         );
     };
 
     return (
         <View style={styles.container}>
-            {/* Header */}
-            <View style={styles.header}>
-                <TouchableOpacity onPress={() => navigation.goBack()}>
-                    <MaterialIcons name="arrow-back" size={24} color="#111827" />
-                </TouchableOpacity>
-                <View style={{ flex: 1 }}>
-                    <Text style={styles.headerTitle}>Browse Teams</Text>
-                    <Text style={styles.headerSub}>{teams.length} team{teams.length !== 1 ? 's' : ''} available</Text>
+            <LinearGradient colors={['#dff8f0', '#f2eefc']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.headerGradient}>
+                <View style={styles.header}>
+                    <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerIconBtn}>
+                        <MaterialIcons name="arrow-back" size={22} color="#111827" />
+                    </TouchableOpacity>
+                    <View style={{ flex: 1 }}>
+                        <Text style={styles.headerTitle}>Browse Teams</Text>
+                        <Text style={styles.headerSub}>{teams.length} team{teams.length !== 1 ? 's' : ''}</Text>
+                    </View>
+                    <TouchableOpacity onPress={handleRefresh} style={styles.headerIconBtn}>
+                        <MaterialIcons name="refresh" size={22} color="#6366f1" />
+                    </TouchableOpacity>
                 </View>
-                <TouchableOpacity onPress={handleRefresh}>
-                    <MaterialIcons name="refresh" size={22} color="#6366f1" />
-                </TouchableOpacity>
-            </View>
+            </LinearGradient>
 
             {isLoading ? (
                 <View style={styles.centered}>
                     <ActivityIndicator size="large" color="#6366f1" />
-                    <Text style={styles.loadingText}>Loading teams…</Text>
+                    <Text style={styles.loadingText}>Loading teams...</Text>
                 </View>
             ) : teams.length === 0 ? (
                 <View style={styles.centered}>
-                    <Text style={styles.emptyEmoji}>🏗️</Text>
                     <Text style={styles.emptyTitle}>No teams yet</Text>
-                    <Text style={styles.emptySub}>Be the first to create a team!</Text>
+                    <Text style={styles.emptySub}>Be the first to create one.</Text>
                 </View>
             ) : (
                 <ScrollView
@@ -261,65 +252,36 @@ export default function BrowseTeamsScreen() {
                     showsVerticalScrollIndicator={false}
                     refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#6366f1" />}
                 >
-                    {teams.map((team) => {
-                        const spotsLeft = team.max_members - team.members_count;
-                        return (
-                            <View key={team.id} style={styles.card}>
-                                {/* Team header row */}
-                                <View style={styles.cardTop}>
-                                    <View style={styles.teamIconWrap}>
-                                        <Text style={styles.teamIconText}>{team.name[0]?.toUpperCase()}</Text>
-                                    </View>
-                                    <View style={styles.cardInfo}>
-                                        <Text style={styles.teamName}>{team.name}</Text>
-                                        <Text style={styles.teamCode}>Code: {team.team_code}</Text>
-                                    </View>
-                                    {/* Status dot */}
-                                    <View style={[styles.statusDot,
-                                    { backgroundColor: team.is_recruiting && spotsLeft > 0 ? '#10b981' : '#ef4444' }
-                                    ]} />
+                    {teams.map((team) => (
+                        <View key={team.id} style={styles.card}>
+                            <View style={styles.cardTop}>
+                                <View style={styles.teamIconWrap}>
+                                    <Text style={styles.teamIconText}>{team.name[0]?.toUpperCase()}</Text>
                                 </View>
-
-                                {/* Stats */}
-                                <View style={styles.statsRow}>
-                                    <MaterialIcons name="people" size={14} color="#6b7280" />
-                                    <Text style={styles.statText}>
-                                        {team.members_count}/{team.max_members} members
-                                    </Text>
-                                    {spotsLeft > 0 && team.is_recruiting && (
-                                        <View style={styles.spotsBadge}>
-                                            <Text style={styles.spotsBadgeText}>{spotsLeft} spot{spotsLeft !== 1 ? 's' : ''} left</Text>
-                                        </View>
-                                    )}
-                                </View>
-
-                                {/* Required roles */}
-                                {team.required_roles.length > 0 && (
-                                    <View style={styles.rolesRow}>
-                                        {team.required_roles.map((roleId) => {
-                                            const info = SKILL_ROLES.find((r) => r.id === roleId);
-                                            return (
-                                                <View
-                                                    key={roleId}
-                                                    style={[styles.roleChip, { borderColor: info?.color ?? '#6b7280' }]}
-                                                >
-                                                    <Text style={[styles.roleChipText, { color: info?.color ?? '#6b7280' }]}>
-                                                        {info?.icon} {info?.label ?? roleId}
-                                                    </Text>
-                                                </View>
-                                            );
-                                        })}
-                                    </View>
-                                )}
-
-                                {/* Action button */}
-                                <View style={styles.cardAction}>
-                                    {getRequestButton(team)}
+                                <View style={{ flex: 1 }}>
+                                    <Text style={styles.teamName}>{team.name}</Text>
+                                    <Text style={styles.teamMeta}>{team.members_count} / {team.max_members} members</Text>
+                                    <Text style={styles.teamMeta}>Leader: {team.leader_name}</Text>
                                 </View>
                             </View>
-                        );
-                    })}
-                    <View style={{ height: 40 }} />
+
+                            {team.required_roles.length > 0 && (
+                                <View style={styles.rolesRow}>
+                                    {team.required_roles.map((roleId) => {
+                                        const role = SKILL_ROLES.find((r) => r.id === roleId);
+                                        return (
+                                            <View key={roleId} style={styles.rolePill}>
+                                                <Text style={styles.rolePillText}>{role?.label || roleId}</Text>
+                                            </View>
+                                        );
+                                    })}
+                                </View>
+                            )}
+
+                            {renderTeamAction(team)}
+                        </View>
+                    ))}
+                    <View style={{ height: 28 }} />
                 </ScrollView>
             )}
         </View>
@@ -327,121 +289,99 @@ export default function BrowseTeamsScreen() {
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#f9fafb' },
+    container: { flex: 1, backgroundColor: '#f5f4f2' },
+    headerGradient: {
+        paddingTop: 8,
+        paddingBottom: 14,
+    },
     header: {
         flexDirection: 'row',
         alignItems: 'center',
         paddingHorizontal: 20,
-        paddingVertical: 16,
-        backgroundColor: '#fff',
-        borderBottomWidth: 1,
-        borderBottomColor: '#f0f0f0',
+        paddingVertical: 12,
         gap: 12,
     },
+    headerIconBtn: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: 'rgba(255,255,255,0.72)',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
     headerTitle: { fontSize: 18, fontWeight: '700', color: '#111827' },
-    headerSub: { fontSize: 12, color: '#9ca3af', marginTop: 1 },
+    headerSub: { fontSize: 12, color: '#6b7280', marginTop: 1 },
     centered: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
-    loadingText: { color: '#9ca3af', fontSize: 14 },
-    emptyEmoji: { fontSize: 52 },
+    loadingText: { color: '#6b7280', fontSize: 14 },
     emptyTitle: { fontSize: 18, fontWeight: '700', color: '#374151' },
-    emptySub: { fontSize: 13, color: '#9ca3af' },
-    list: { flex: 1, padding: 16 },
+    emptySub: { fontSize: 13, color: '#6b7280' },
+    list: { flex: 1, paddingHorizontal: 20, paddingTop: 20 },
     card: {
-        backgroundColor: '#fff',
-        borderRadius: 16,
-        padding: 16,
-        marginBottom: 12,
-        borderWidth: 1,
-        borderColor: '#e5e7eb',
-        gap: 10,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.04,
-        shadowRadius: 6,
+        backgroundColor: '#fffdfb',
+        borderRadius: 20,
+        padding: 20,
+        marginBottom: 18,
+        gap: 12,
+        shadowColor: '#0f172a',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.06,
+        shadowRadius: 10,
         elevation: 2,
     },
     cardTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
     teamIconWrap: {
-        width: 44,
-        height: 44,
-        borderRadius: 22,
-        backgroundColor: '#6366f1',
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: '#e9d5ff',
         alignItems: 'center',
         justifyContent: 'center',
     },
-    teamIconText: { color: '#fff', fontWeight: '800', fontSize: 18 },
-    cardInfo: { flex: 1 },
-    teamName: { fontSize: 15, fontWeight: '700', color: '#111827' },
-    teamCode: { fontSize: 12, color: '#9ca3af', marginTop: 2, fontFamily: 'monospace' },
-    statusDot: { width: 10, height: 10, borderRadius: 5 },
-    statsRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    statText: { fontSize: 13, color: '#6b7280', flex: 1 },
-    spotsBadge: {
-        backgroundColor: '#d1fae5',
-        borderRadius: 8,
-        paddingHorizontal: 8,
-        paddingVertical: 2,
+    teamIconText: { color: '#7c3aed', fontWeight: '800', fontSize: 15 },
+    teamName: { fontSize: 17, fontWeight: '800', color: '#111827' },
+    teamMeta: { fontSize: 13, color: '#6b7280', marginTop: 2 },
+    rolesRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    rolePill: {
+        backgroundColor: '#f1f5f9',
+        borderRadius: 999,
+        paddingHorizontal: 10,
+        paddingVertical: 5,
     },
-    spotsBadgeText: { fontSize: 11, color: '#059669', fontWeight: '600' },
-    rolesRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-    roleChip: {
-        paddingHorizontal: 8,
-        paddingVertical: 3,
-        borderRadius: 20,
-        borderWidth: 1,
-        backgroundColor: '#f9fafb',
-    },
-    roleChipText: { fontSize: 11, fontWeight: '600' },
-    cardAction: { marginTop: 2 },
-    requestBtn: {
-        flexDirection: 'row',
+    rolePillText: { color: '#4f46e5', fontSize: 12, fontWeight: '600' },
+    primaryButton: {
+        backgroundColor: '#13ecec',
+        borderRadius: 28,
+        height: 52,
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 6,
-        backgroundColor: '#6366f1',
-        borderRadius: 12,
-        paddingVertical: 11,
     },
-    requestBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
-    viewBtn: {
-        flexDirection: 'row',
+    primaryButtonText: { color: '#062b2b', fontWeight: '700', fontSize: 15 },
+    outlineButton: {
+        borderWidth: 1.5,
+        borderColor: '#6366f1',
+        borderRadius: 28,
+        height: 52,
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 6,
-        backgroundColor: '#eef2ff',
-        borderRadius: 12,
-        paddingVertical: 11,
-        borderWidth: 1,
-        borderColor: '#c7d2fe',
+        backgroundColor: 'rgba(255,255,255,0.65)',
     },
-    viewBtnText: { color: '#6366f1', fontWeight: '700', fontSize: 14 },
-    cancelBtn: {
+    outlineButtonText: { color: '#6366f1', fontWeight: '700', fontSize: 15 },
+    outlineDangerButton: {
+        borderWidth: 1.5,
+        borderColor: '#ef4444',
+        borderRadius: 28,
+        height: 52,
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: '#f3f4f6',
-        borderRadius: 12,
-        paddingVertical: 11,
+        backgroundColor: 'rgba(255,255,255,0.65)',
     },
-    cancelBtnText: { color: '#6b7280', fontWeight: '600', fontSize: 13 },
-    inTeamBadge: {
-        alignItems: 'center',
-        backgroundColor: '#f3f4f6',
-        borderRadius: 12,
-        paddingVertical: 10,
+    outlineDangerButtonText: { color: '#ef4444', fontWeight: '700', fontSize: 15 },
+    buttonDisabled: { opacity: 0.6 },
+    inTeamText: {
+        color: '#16a34a',
+        fontWeight: '700',
+        fontSize: 13,
+        textAlign: 'center',
+        marginTop: 4,
     },
-    inTeamBadgeText: { color: '#9ca3af', fontSize: 13 },
-    rejectedBadge: {
-        alignItems: 'center',
-        backgroundColor: '#fef2f2',
-        borderRadius: 12,
-        paddingVertical: 10,
-    },
-    rejectedText: { color: '#ef4444', fontSize: 13, fontWeight: '600' },
-    fullBadge: {
-        alignItems: 'center',
-        backgroundColor: '#f3f4f6',
-        borderRadius: 12,
-        paddingVertical: 10,
-    },
-    fullBadgeText: { color: '#9ca3af', fontSize: 13, fontWeight: '600' },
 });

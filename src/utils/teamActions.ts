@@ -17,6 +17,7 @@ import { supabase } from '../api/supabase';
 export interface MyTeamState {
     registration: { id: string; team_id: string | null; status: string } | null;
     teamId: string | null;
+    userTeamId: string | null;
     isInTeam: boolean;
     isRegistered: boolean;
     pendingRequests: any[];            // all pending team_requests for this user+event
@@ -84,6 +85,7 @@ export async function loadMyTeamState(
     return {
         registration: reg ?? null,
         teamId,
+        userTeamId: teamId,
         isInTeam: teamId !== null,
         isRegistered: reg !== null,
         pendingRequests,

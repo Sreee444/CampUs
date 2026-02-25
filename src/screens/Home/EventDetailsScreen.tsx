@@ -9,8 +9,6 @@ import {
   SafeAreaView,
   Alert,
   Image,
-  Dimensions,
-  Switch,
   ActivityIndicator,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -20,15 +18,13 @@ import { RouteProp } from '@react-navigation/native';
 import { RootStackParamList } from '../../navigation/types';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../api/supabase';
-import { CountdownTimer, EventStatus } from '../../components/CountdownTimer';
+import { EventStatus } from '../../components/CountdownTimer';
 import { scheduleEventReminder, createEventReminder } from '../../api/eventReminders';
 import Toast from 'react-native-toast-message';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ConfirmBottomSheet } from '../../components/ConfirmBottomSheet';
 import { createNotification } from '../../api/notifications';
-import StatusBadge from '../../components/StatusBadge';
-import { computeTeamStatus } from '../../utils/teamUtils';
-import { loadMyTeamState, cancelJoinRequest } from '../../utils/teamActions';
+import { loadMyTeamState, cancelJoinRequest, acceptInvite, rejectInvite } from '../../utils/teamActions';
 
 type EventDetailsScreenNavigationProp = StackNavigationProp<RootStackParamList, 'EventDetails'>;
 type EventDetailsScreenRouteProp = RouteProp<RootStackParamList, 'EventDetails'>;
@@ -63,8 +59,6 @@ interface EventDetails {
   eligibility_type?: string;
 }
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-
 export default function EventDetailsScreen() {
   const navigation = useNavigation<EventDetailsScreenNavigationProp>();
   const route = useRoute<EventDetailsScreenRouteProp>();
@@ -80,6 +74,7 @@ export default function EventDetailsScreen() {
   // Centralized team state
   const [teamState, setTeamState] = useState<any>(null);
   const [isCheckingTeam, setIsCheckingTeam] = useState(true);
+  const [isHandlingInvite, setIsHandlingInvite] = useState(false);
 
   const { eventId } = route.params;
 
@@ -159,6 +154,7 @@ export default function EventDetailsScreen() {
             status,
             team:event_teams!inner(
               id,
+              name,
               event_id
             )
           `)
@@ -170,9 +166,22 @@ export default function EventDetailsScreen() {
       ]);
 
       const scopedTeamId = scopedMembershipRes?.data?.team_id ?? null;
+      const scopedTeamName = scopedMembershipRes?.data?.team?.name ?? null;
+      let teamMembersCount = 0;
+      if (scopedTeamId) {
+        const { count } = await (supabase as any)
+          .from('event_team_members')
+          .select('*', { count: 'exact', head: true })
+          .eq('team_id', scopedTeamId)
+          .eq('status', 'active');
+        teamMembersCount = count ?? 0;
+      }
       setTeamState({
         ...state,
         teamId: scopedTeamId,
+        userTeamId: scopedTeamId,
+        teamName: scopedTeamName,
+        teamMembersCount,
         isInTeam: !!scopedTeamId,
       });
     } catch (err) {
@@ -461,6 +470,54 @@ export default function EventDetailsScreen() {
     }
   };
 
+  const handleAcceptInvite = async () => {
+    if (!user?.id || !teamState?.receivedInvite?.id || !teamState?.receivedInvite?.team_id) return;
+    try {
+      setIsHandlingInvite(true);
+      await acceptInvite({
+        requestId: teamState.receivedInvite.id,
+        teamId: teamState.receivedInvite.team_id,
+        eventId,
+        userId: user.id,
+      });
+      Toast.show({ type: 'success', text1: 'Invitation accepted' });
+      await loadTeamStatus();
+    } catch (err: any) {
+      Toast.show({ type: 'error', text1: 'Failed to accept invite', text2: err.message });
+    } finally {
+      setIsHandlingInvite(false);
+    }
+  };
+
+  const handleRejectInvite = async () => {
+    if (!teamState?.receivedInvite?.id) return;
+    try {
+      setIsHandlingInvite(true);
+      await rejectInvite(teamState.receivedInvite.id);
+      Toast.show({ type: 'info', text1: 'Invitation rejected' });
+      await loadTeamStatus();
+    } catch (err: any) {
+      Toast.show({ type: 'error', text1: 'Failed to reject invite', text2: err.message });
+    } finally {
+      setIsHandlingInvite(false);
+    }
+  };
+
+  const handleCancelPendingJoinRequest = async () => {
+    if (!user?.id || !teamState?.sentJoinRequest?.team_id) return;
+    try {
+      await cancelJoinRequest({
+        teamId: teamState.sentJoinRequest.team_id,
+        requesterId: user.id,
+        eventId,
+      });
+      Toast.show({ type: 'info', text1: 'Request cancelled' });
+      await loadTeamStatus();
+    } catch (err: any) {
+      Toast.show({ type: 'error', text1: 'Failed to cancel request', text2: err.message });
+    }
+  };
+
   // For team events: just navigate to the target screen
   const handleRegisterAndNavigate = (
     destination: 'CreateTeam' | 'JoinTeam'
@@ -612,28 +669,46 @@ export default function EventDetailsScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <MaterialIcons name="arrow-back" size={24} color="#000" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Event Details</Text>
-        <View style={styles.headerActions}>
-          <TouchableOpacity style={styles.headerButton}>
-            <MaterialIcons name="share" size={24} color="#000" />
+      <LinearGradient
+        colors={['#dff8f0', '#f2eefc']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.gradientHeader}
+      >
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.roundIconButton}>
+            <MaterialIcons name="arrow-back" size={22} color="#111827" />
           </TouchableOpacity>
-          {canManageEvent && (
-            <TouchableOpacity
-              style={[styles.headerButton, styles.deleteButton]}
-              onPress={() => setShowDeleteConfirmation(true)}
-            >
-              <MaterialIcons name="delete-outline" size={24} color="#ef4444" />
+          <View style={styles.headerCenter}>
+            <Text style={styles.headerTitleMain} numberOfLines={1}>{event.title}</Text>
+            <View style={styles.headerPills}>
+              <View style={styles.headerTypePill}>
+                <Text style={styles.headerTypePillText}>{event.event_type}</Text>
+              </View>
+              <View style={isUpcoming ? styles.headerUpcomingPill : styles.headerNeutralPill}>
+                <Text style={isUpcoming ? styles.headerUpcomingText : styles.headerNeutralText}>
+                  {isUpcoming ? 'Upcoming' : isLive ? 'Live' : 'Ended'}
+                </Text>
+              </View>
+            </View>
+          </View>
+          <View style={styles.headerActions}>
+            <TouchableOpacity style={styles.roundIconButton}>
+              <MaterialIcons name="share" size={22} color="#111827" />
             </TouchableOpacity>
-          )}
+            {canManageEvent && (
+              <TouchableOpacity
+                style={[styles.roundIconButton, { backgroundColor: '#fee2e2' }]}
+                onPress={() => setShowDeleteConfirmation(true)}
+              >
+                <MaterialIcons name="delete-outline" size={20} color="#ef4444" />
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
-      </View>
+      </LinearGradient>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
         {/* Event Banner/Poster */}
         {event.banner_image && (
           <View style={styles.bannerContainer}>
@@ -650,66 +725,47 @@ export default function EventDetailsScreen() {
           </View>
         )}
 
-        {/* Event Header */}
-        <View style={styles.eventHeader}>
-          <View style={styles.eventTypeContainer}>
-            <Text style={styles.eventTypeText}>{event.event_type.toUpperCase()}</Text>
+        {/* 1. Event Info Card */}
+        <View style={styles.saasCard}>
+          <View style={styles.eventHeader}>
+            <EventStatus startDate={event.start_date} endDate={event.end_date} />
           </View>
-          <EventStatus startDate={event.start_date} endDate={event.end_date} />
-        </View>
 
-        {/* Event Title */}
-        <Text style={styles.eventTitle}>{event.title}</Text>
+          <Text style={styles.eventTitle}>{event.title}</Text>
+          <Text style={styles.description}>{event.description}</Text>
 
-
-
-        {/* Live Indicator */}
-        {isLive && (
-          <View style={styles.liveSection}>
-            <View style={styles.liveBadge}>
-              <View style={styles.liveDot} />
-              <Text style={styles.liveText}>🔴 Event is Live Now!</Text>
-            </View>
-            {event.is_online && event.meeting_link && (
-              <TouchableOpacity style={styles.joinButton} onPress={openMeetingLink}>
-                <MaterialIcons name="video-call" size={20} color="#fff" />
-                <Text style={styles.joinButtonText}>Join Meeting</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        )}
-
-        {/* Event Details */}
-        <View style={styles.detailsSection}>
+          <View style={{ height: 12 }} />
           <View style={styles.detailRow}>
-            <MaterialIcons name="schedule" size={20} color="#6b7280" />
+            <View style={[styles.iconBubble, { backgroundColor: '#e0f2fe' }]}>
+              <MaterialIcons name="event" size={18} color="#0284c7" />
+            </View>
             <View style={styles.detailContent}>
-              <Text style={styles.detailLabel}>Start Time</Text>
+              <Text style={styles.detailLabel}>Date</Text>
               <Text style={styles.detailText}>{formatEventDate(event.start_date)}</Text>
             </View>
           </View>
 
           <View style={styles.detailRow}>
-            <MaterialIcons name="access-time" size={20} color="#6b7280" />
+            <View style={[styles.iconBubble, { backgroundColor: '#ede9fe' }]}>
+              <MaterialIcons name="schedule" size={18} color="#7c3aed" />
+            </View>
             <View style={styles.detailContent}>
-              <Text style={styles.detailLabel}>End Time</Text>
+              <Text style={styles.detailLabel}>Time</Text>
               <Text style={styles.detailText}>{formatEventDate(event.end_date)}</Text>
             </View>
           </View>
 
           <View style={styles.detailRow}>
-            <MaterialIcons
-              name={event.is_online ? "laptop" : "location-on"}
-              size={20}
-              color="#6b7280"
-            />
+            <View style={[styles.iconBubble, { backgroundColor: '#fef3c7' }]}>
+              <MaterialIcons
+                name={event.is_online ? "laptop" : "location-on"}
+                size={18}
+                color="#b45309"
+              />
+            </View>
             <View style={styles.detailContent}>
-              <Text style={styles.detailLabel}>
-                {event.is_online ? "Meeting" : "Venue"}
-              </Text>
-              <Text style={styles.detailText}>
-                {event.is_online ? "Online Event" : event.venue}
-              </Text>
+              <Text style={styles.detailLabel}>{event.is_online ? "Meeting" : "Venue"}</Text>
+              <Text style={styles.detailText}>{event.is_online ? "Online Event" : event.venue}</Text>
               {event.is_online && event.meeting_link && isLive && (
                 <TouchableOpacity onPress={openMeetingLink}>
                   <Text style={styles.meetingLink}>Join Meeting</Text>
@@ -719,11 +775,13 @@ export default function EventDetailsScreen() {
           </View>
 
           <View style={styles.detailRow}>
-            <MaterialIcons name="people" size={20} color="#6b7280" />
+            <View style={[styles.iconBubble, { backgroundColor: '#dcfce7' }]}>
+              <MaterialIcons name="people" size={18} color="#16a34a" />
+            </View>
             <View style={styles.detailContent}>
               <Text style={styles.detailLabel}>Participants</Text>
               <Text style={styles.detailText}>
-                {event.registrations_count} / {event.max_participants || '∞'} registered
+                {event.registrations_count} / {event.max_participants || 'Unlimited'} registered
               </Text>
             </View>
             {canManageEvent && event.registrations_count > 0 && (
@@ -737,7 +795,7 @@ export default function EventDetailsScreen() {
                 }
               >
                 <Text style={styles.viewUsersText}>View All</Text>
-                <MaterialIcons name="arrow-forward" size={16} color="#fb7185" />
+                <MaterialIcons name="arrow-forward" size={16} color="#6366f1" />
               </TouchableOpacity>
             )}
           </View>
@@ -751,284 +809,140 @@ export default function EventDetailsScreen() {
             }}
             activeOpacity={0.7}
           >
-            <MaterialIcons name="person" size={20} color="#6b7280" />
+            <View style={[styles.iconBubble, { backgroundColor: '#ffe4e6' }]}>
+              <MaterialIcons name="person" size={18} color="#e11d48" />
+            </View>
             <View style={styles.detailContent}>
               <Text style={styles.detailLabel}>Organizer</Text>
-              <Text style={styles.detailText}>
-                {event.organizer_profile?.full_name || 'Campus Team'}
-              </Text>
+              <Text style={styles.detailText}>{event.organizer_profile?.full_name || 'Campus Team'}</Text>
             </View>
             <MaterialIcons name="chevron-right" size={20} color="#6b7280" />
           </TouchableOpacity>
         </View>
 
-        {/* Description */}
-        <View style={styles.descriptionSection}>
-          <Text style={styles.sectionTitle}>About This Event</Text>
-          <Text style={styles.description}>{event.description}</Text>
-        </View>
-
-        {/* Event Timeline Section */}
-        <View style={styles.timelineSection}>
-          <Text style={styles.sectionTitle}>📅 Event Timeline</Text>
-
-          <View style={styles.timelineContainer}>
-            {/* Registration Deadline */}
-            <View style={styles.timelineItem}>
-              <View style={[styles.timelineIconContainer, { backgroundColor: '#fef3c7' }]}>
-                <MaterialIcons name="event-available" size={20} color="#f59e0b" />
+        {/* 2. Registration Card */}
+        <View style={styles.saasCard}>
+          <Text style={styles.sectionTitle}>Registration</Text>
+          {event.is_registered ? (
+            <>
+              <View style={styles.registeredPill}>
+                <MaterialIcons name="check-circle" size={18} color="#16a34a" />
+                <Text style={styles.registeredText}>Registered Successfully</Text>
               </View>
-              <View style={styles.timelineContent}>
-                <Text style={styles.timelineLabel}>Registration Closes</Text>
-                <Text style={styles.timelineDate}>{formatEventDate(event.registration_deadline)}</Text>
-                {/* Show countdown if registration deadline is approaching */}
-                {isUpcoming && new Date(event.registration_deadline) > new Date() && (
-                  <View style={styles.miniCountdown}>
-                    <MaterialIcons name="timer" size={14} color="#f59e0b" />
-                    <Text style={styles.miniCountdownText}>
-                      {getDaysUntil(event.registration_deadline)} left to register
-                    </Text>
-                  </View>
-                )}
-                {new Date(event.registration_deadline) <= new Date() && (
-                  <View style={styles.closedBadge}>
-                    <Text style={styles.closedBadgeText}>Registration Closed</Text>
-                  </View>
-                )}
-              </View>
-            </View>
-
-            {/* Event Start */}
-            <View style={styles.timelineItem}>
-              <View style={[styles.timelineIconContainer, { backgroundColor: '#d1fae5' }]}>
-                <MaterialIcons name="play-circle-filled" size={20} color="#10b981" />
-              </View>
-              <View style={styles.timelineContent}>
-                <Text style={styles.timelineLabel}>Event Starts</Text>
-                <Text style={styles.timelineDate}>{formatEventDate(event.start_date)}</Text>
-              </View>
-            </View>
-
-            {/* Event End */}
-            <View style={styles.timelineItem}>
-              <View style={[styles.timelineIconContainer, { backgroundColor: '#fee2e2' }]}>
-                <MaterialIcons name="stop-circle" size={20} color="#ef4444" />
-              </View>
-              <View style={styles.timelineContent}>
-                <Text style={styles.timelineLabel}>Event Ends</Text>
-                <Text style={styles.timelineDate}>{formatEventDate(event.end_date)}</Text>
-              </View>
-            </View>
-          </View>
-        </View>
-
-        {/* Registration Section */}
-        {canRegister && (
-          <View style={styles.registrationSection}>
-            {event.is_registered ? (
-              // Already Registered - Show Unregister Button
-              <View>
-                {(event as any)?.participation_type !== 'team' && (
-                  <View style={styles.individualNotice}>
-                    <MaterialIcons name="person" size={16} color="#6b7280" />
-                    <Text style={styles.individualNoticeText}>This is an individual event.</Text>
-                  </View>
-                )}
-                <TouchableOpacity
-                  style={[
-                    styles.unregisterButton,
-                    isRegistering && styles.registerButtonDisabled,
-                  ]}
-                  onPress={() => setShowUnregisterConfirmation(true)}
-                  disabled={isRegistering}
-                >
-                  <MaterialIcons name="cancel" size={20} color="#ef4444" />
-                  <Text style={styles.unregisterButtonText}>
-                    {isRegistering ? 'Unregistering...' : 'Unregister'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            ) : (event as any)?.participation_type === 'team' ? (
-              // Team Event — user NOT registered yet: show Register button only
-              // Create/Join team buttons are inside the Team Participation Zone (below), shown only after registration
-              <View style={styles.teamRegisterContainer}>
-                <View style={styles.teamRegisterInfoBanner}>
-                  <MaterialIcons name="info-outline" size={16} color="#6366f1" />
-                  <Text style={styles.teamRegisterInfoText}>
-                    Register first to access team features (create or join a team).
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  style={[
-                    styles.registerButton,
-                    isRegistering && styles.registerButtonDisabled,
-                  ]}
-                  onPress={() => setShowRegisterConfirmation(true)}
-                  disabled={isRegistering}
-                >
-                  <MaterialIcons name="event-available" size={20} color="#fff" />
-                  <Text style={styles.registerButtonText}>
-                    {isRegistering ? 'Registering...' : 'Register for Event'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            ) : (
-              // Individual Event - Show Register Button
               <TouchableOpacity
-                style={[
-                  styles.registerButton,
-                  isRegistering && styles.registerButtonDisabled,
-                ]}
-                onPress={() => setShowRegisterConfirmation(true)}
+                style={[styles.outlineDangerButton, styles.roundButton, isRegistering && styles.registerButtonDisabled]}
+                onPress={() => setShowUnregisterConfirmation(true)}
                 disabled={isRegistering}
               >
-                <MaterialIcons name="event-available" size={20} color="#fff" />
-                <Text style={styles.registerButtonText}>
-                  {isRegistering ? 'Registering...' : 'Register for Event'}
+                <Text style={styles.outlineDangerButtonText}>
+                  {isRegistering ? 'Unregistering...' : 'Unregister'}
                 </Text>
               </TouchableOpacity>
-            )}
+            </>
+          ) : (
+            <>
+              <TouchableOpacity
+                style={[styles.primaryButton, styles.roundButton, (!canRegister || isRegistering) && styles.registerButtonDisabled]}
+                onPress={() => setShowRegisterConfirmation(true)}
+                disabled={!canRegister || isRegistering}
+              >
+                <Text style={styles.primaryButtonText}>{isRegistering ? 'Registering...' : 'Register for Event'}</Text>
+              </TouchableOpacity>
+              {!canRegister && <Text style={styles.metaText}>Registration is closed for this event.</Text>}
+            </>
+          )}
+          <Text style={styles.metaText}>
+            Registration deadline: {new Date(event.registration_deadline).toLocaleDateString()}
+          </Text>
+        </View>
 
-            <Text style={styles.registrationInfo}>
-              Registration deadline: {new Date(event.registration_deadline).toLocaleDateString()}
-            </Text>
-          </View>
-        )}
-
-        {isUpcoming && new Date(event.registration_deadline) <= now && (
-          <View style={styles.closedSection}>
-            <Text style={styles.closedText}>Registration Closed</Text>
-          </View>
-        )}
-
-        {/* Team Participation Zone — only when registered + team event */}
-        {(event as any)?.participation_type === 'team' && event.is_registered && (() => {
-          const deadlinePassed = new Date(event.registration_deadline) <= now;
-          const isInTeam = !!teamState?.isInTeam;
-          const hasSentJoinRequest = !!teamState?.hasSentJoinRequest;
-          const hasReceivedInvite = !!teamState?.hasReceivedInvite;
-
-          // Only show loader if checking
-          if (isCheckingTeam) {
-            return (
-              <View style={{ alignItems: 'center', paddingVertical: 16 }}>
+        {/* 3. Team Participation Card */}
+        {(event as any)?.participation_type === 'team' && event.is_registered && (
+          <View style={styles.saasCard}>
+            {isCheckingTeam ? (
+              <View style={styles.loadingInline}>
                 <ActivityIndicator size="small" color="#6366f1" />
               </View>
-            );
-          }
-
-          return (
-            <View style={styles.teamZoneContainer}>
-              {/* PRIMARY ACTION: Based on current state */}
-              {isInTeam ? (
+            ) : teamState?.isInTeam ? (
+              <>
+                <Text style={styles.sectionTitle}>Team Participation</Text>
+                <Text style={styles.metaTitle}>Your Team</Text>
+                <Text style={styles.metaTitle}>{teamState?.teamName || 'Team joined'}</Text>
+                <Text style={styles.metaText}>{teamState?.teamMembersCount ?? 0} members</Text>
                 <TouchableOpacity
-                  style={styles.teamZoneActionButton}
+                  style={[styles.primaryButton, styles.roundButton]}
                   onPress={() => navigation.navigate('TeamDetails', { teamId: teamState?.teamId, eventId })}
                 >
-                  <MaterialIcons name="group" size={18} color="#6366f1" />
-                  <Text style={styles.teamZoneActionText}>View My Team</Text>
-                  <MaterialIcons name="chevron-right" size={18} color="#6366f1" />
+                  <Text style={styles.primaryButtonText}>View My Team</Text>
                 </TouchableOpacity>
-              ) : hasSentJoinRequest ? (
-                <View style={styles.teamZoneActions}>
+              </>
+            ) : teamState?.hasReceivedInvite ? (
+              <>
+                <Text style={styles.sectionTitle}>Team Participation</Text>
+                <View style={styles.inviteHighlight}>
+                  <Text style={styles.metaText}>You have a team invitation</Text>
+                </View>
+                <View style={styles.inlineButtons}>
                   <TouchableOpacity
-                    style={[styles.teamZonePrimaryButton, { backgroundColor: '#fef3c7' }]}
-                    onPress={async () => {
-                      if (teamState?.sentJoinRequest?.team_id) {
-                        try {
-                          await cancelJoinRequest({ teamId: teamState.sentJoinRequest.team_id, requesterId: user.id, eventId });
-                          Toast.show({ type: 'info', text1: 'Request cancelled' });
-                          await loadTeamStatus();
-                        } catch (err: any) {
-                          Toast.show({ type: 'error', text1: 'Failed to cancel', text2: err.message });
-                        }
-                      }
-                    }}
+                    style={[styles.primaryButton, styles.roundButton, styles.inlineButton, isHandlingInvite && styles.registerButtonDisabled]}
+                    onPress={handleAcceptInvite}
+                    disabled={isHandlingInvite}
                   >
-                    <MaterialIcons name="hourglass-empty" size={18} color="#f59e0b" />
-                    <Text style={[styles.teamZonePrimaryText, { color: '#d97706' }]}>Cancel Request</Text>
+                    <Text style={styles.primaryButtonText}>Accept</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.outlineButton, styles.roundButton, styles.inlineButton, isHandlingInvite && styles.registerButtonDisabled]}
+                    onPress={handleRejectInvite}
+                    disabled={isHandlingInvite}
+                  >
+                    <Text style={styles.outlineButtonText}>Reject</Text>
                   </TouchableOpacity>
                 </View>
-              ) : !deadlinePassed ? (
-                <View style={styles.teamZoneActions}>
-                  <TouchableOpacity
-                    style={[styles.teamZonePrimaryButton]}
-                    onPress={() => handleRegisterAndNavigate('CreateTeam')}
-                  >
-                    <MaterialIcons name="add" size={18} color="#fff" />
-                    <Text style={styles.teamZonePrimaryText}>Create Team</Text>
+              </>
+            ) : teamState?.hasSentJoinRequest ? (
+              <>
+                <Text style={styles.sectionTitle}>Team Participation</Text>
+                <Text style={styles.metaText}>Join request pending approval</Text>
+                <TouchableOpacity style={[styles.outlineButton, styles.roundButton]} onPress={handleCancelPendingJoinRequest}>
+                  <Text style={styles.outlineButtonText}>Cancel Request</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <Text style={styles.sectionTitle}>Team Participation</Text>
+                <Text style={styles.metaText}>You are not in a team yet.</Text>
+                <View style={styles.buttonStack}>
+                  <TouchableOpacity style={[styles.primaryButton, styles.roundButton]} onPress={() => handleRegisterAndNavigate('CreateTeam')}>
+                    <Text style={styles.primaryButtonText}>Create Team</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.outlineButton, styles.roundButton]} onPress={() => handleRegisterAndNavigate('JoinTeam')}>
+                    <Text style={styles.outlineButtonText}>Join via Code</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.ghostButton} onPress={() => navigation.navigate('BrowseTeams', { eventId })}>
+                    <Text style={styles.ghostButtonText}>Browse Teams</Text>
                   </TouchableOpacity>
                 </View>
-              ) : null}
+              </>
+            )}
+          </View>
+        )}
 
-              {/* SECONDARY ACTIONS: Always show if deadline not passed (or already in team/have requests) */}
-              {!deadlinePassed && (
-                <View style={[styles.teamZoneSecondaryActions, { marginTop: 8 }]}>
-                  {hasReceivedInvite && (
-                    <TouchableOpacity
-                      style={[styles.teamZoneSecondaryButton, { backgroundColor: '#eef2ff', borderColor: '#6366f1' }]}
-                      onPress={() => navigation.navigate('TeamInvitations')}
-                    >
-                      <MaterialIcons name="mail" size={18} color="#6366f1" />
-                      <Text style={[styles.teamZoneSecondaryText, { color: '#6366f1', fontWeight: 'bold' }]}>View Invites!</Text>
-                    </TouchableOpacity>
-                  )}
-                  <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-                    <TouchableOpacity
-                      style={styles.teamZoneSecondaryButton}
-                      onPress={() => navigation.navigate('BrowseTeams', { eventId })}
-                    >
-                      <MaterialIcons name="search" size={18} color="#6b7280" />
-                      <Text style={styles.teamZoneSecondaryText}>Browse Teams</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.teamZoneSecondaryButton}
-                      onPress={() => navigation.navigate('TeamConnect', { eventId, requiredRoles: (event as any)?.required_roles ?? [] })}
-                    >
-                      <MaterialIcons name="person-search" size={18} color="#6b7280" />
-                      <Text style={styles.teamZoneSecondaryText}>Find Teammates</Text>
-                    </TouchableOpacity>
-                    {!isInTeam && !hasSentJoinRequest && (
-                      <TouchableOpacity
-                        style={styles.teamZoneSecondaryButton}
-                        onPress={() => handleRegisterAndNavigate('JoinTeam')}
-                      >
-                        <MaterialIcons name="login" size={18} color="#6b7280" />
-                        <Text style={styles.teamZoneSecondaryText}>Join via Code</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                </View>
-              )}
-
-              {deadlinePassed && !isInTeam && !hasSentJoinRequest && (
-                <View style={styles.deadlineBanner}>
-                  <MaterialIcons name="lock" size={14} color="#ef4444" />
-                  <Text style={styles.deadlineBannerText}>Registration deadline passed — team changes locked</Text>
-                </View>
-              )}
-            </View>
-          );
-        })()}
-
-        {/* Event Collaboration/Discussion Section */}
-        <View style={styles.collaborationSection}>
+        {/* 4. Discussion Card */}
+        <View style={styles.saasCard}>
           <TouchableOpacity
             style={styles.discussionButton}
             onPress={() => navigation.navigate('EventDiscussion', { eventId })}
           >
-            <MaterialIcons name="forum" size={20} color="#3b82f6" />
+            <MaterialIcons name="forum" size={20} color="#6366f1" />
             <View style={{ flex: 1 }}>
               <Text style={styles.discussionButtonTitle}>Event Discussion</Text>
               <Text style={styles.discussionButtonSubtitle}>
-                {isUpcoming ? 'Ask questions & prepare' : 'Share feedback & learnings'}
+                {isUpcoming ? 'Ask questions & prepare' : 'Share feedback and learnings'}
               </Text>
             </View>
             <MaterialIcons name="chevron-right" size={24} color="#9ca3b8" />
           </TouchableOpacity>
         </View>
-
-        <View style={{ height: 100 }} />
       </ScrollView>
 
       {/* Register Confirmation */}
@@ -1076,16 +990,76 @@ export default function EventDetailsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#f5f4f2',
+  },
+  gradientHeader: {
+    paddingTop: 8,
+    paddingBottom: 14,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    paddingVertical: 12,
+  },
+  headerCenter: {
+    flex: 1,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+  },
+  headerTitleMain: {
+    fontSize: 19,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  headerPills: {
+    marginTop: 6,
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+  },
+  headerTypePill: {
+    backgroundColor: '#ede9fe',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  headerTypePillText: {
+    color: '#6d28d9',
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'capitalize',
+  },
+  headerUpcomingPill: {
+    backgroundColor: '#dcfce7',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  headerUpcomingText: {
+    color: '#15803d',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  headerNeutralPill: {
+    backgroundColor: '#e2e8f0',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  headerNeutralText: {
+    color: '#475569',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  roundIconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.72)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   headerTitle: {
     fontSize: 18,
@@ -1108,6 +1082,18 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: 20,
+    paddingTop: 20,
+  },
+  saasCard: {
+    backgroundColor: '#fffdfb',
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 18,
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 2,
   },
   loadingContainer: {
     flex: 1,
@@ -1120,10 +1106,9 @@ const styles = StyleSheet.create({
   },
   eventHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
     alignItems: 'center',
-    marginTop: 20,
-    marginBottom: 16,
+    marginBottom: 10,
   },
   eventTypeContainer: {
     backgroundColor: '#e0e7ff',
@@ -1137,11 +1122,11 @@ const styles = StyleSheet.create({
     color: '#6366f1',
   },
   eventTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
+    fontSize: 23,
+    fontWeight: '800',
     color: '#1f2937',
-    marginBottom: 20,
-    lineHeight: 32,
+    marginBottom: 8,
+    lineHeight: 30,
   },
   timerSection: {
     backgroundColor: '#f9fafb',
@@ -1201,22 +1186,30 @@ const styles = StyleSheet.create({
   },
   detailRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: 12,
-    marginBottom: 16,
+    marginBottom: 14,
+  },
+  iconBubble: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   detailContent: {
     flex: 1,
   },
   detailLabel: {
     fontSize: 12,
-    fontWeight: '500',
+    fontWeight: '600',
     color: '#6b7280',
     marginBottom: 2,
   },
   detailText: {
-    fontSize: 14,
+    fontSize: 15,
     color: '#1f2937',
+    fontWeight: '500',
   },
   meetingLink: {
     fontSize: 14,
@@ -1228,15 +1221,116 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: 20,
+    fontWeight: '800',
     color: '#1f2937',
     marginBottom: 12,
   },
-  description: {
+  metaTitle: {
     fontSize: 16,
-    color: '#374151',
-    lineHeight: 24,
+    fontWeight: '600',
+    color: '#1f2937',
+    marginBottom: 12,
+  },
+  metaText: {
+    fontSize: 13,
+    color: '#6b7280',
+    marginTop: 8,
+  },
+  registeredText: {
+    color: '#16a34a',
+    fontWeight: '700',
+    fontSize: 14,
+    marginBottom: 0,
+  },
+  registeredPill: {
+    backgroundColor: '#dcfce7',
+    borderRadius: 999,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 12,
+    alignSelf: 'flex-start',
+  },
+  buttonStack: {
+    gap: 12,
+  },
+  inlineButtons: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  inlineButton: {
+    flex: 1,
+  },
+  inviteHighlight: {
+    backgroundColor: '#f3e8ff',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    marginBottom: 12,
+  },
+  loadingInline: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+  },
+  primaryButton: {
+    backgroundColor: '#13ecec',
+    borderRadius: 28,
+    height: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  primaryButtonText: {
+    color: '#062b2b',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  outlineButton: {
+    borderWidth: 1.5,
+    borderColor: '#6366f1',
+    borderRadius: 28,
+    height: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.65)',
+  },
+  outlineButtonText: {
+    color: '#6366f1',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  outlineDangerButton: {
+    borderWidth: 1.5,
+    borderColor: '#ef4444',
+    borderRadius: 28,
+    height: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.65)',
+  },
+  outlineDangerButtonText: {
+    color: '#ef4444',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  ghostButton: {
+    paddingVertical: 4,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ghostButtonText: {
+    color: '#6366f1',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  description: {
+    fontSize: 15,
+    color: '#475569',
+    lineHeight: 23,
   },
   registrationSection: {
     marginBottom: 24,
@@ -1268,6 +1362,10 @@ const styles = StyleSheet.create({
   registerButtonDisabled: {
     opacity: 0.6,
   },
+  roundButton: {
+    borderRadius: 28,
+    height: 52,
+  },
   registerButtonText: {
     fontSize: 16,
     fontWeight: '600',
@@ -1298,8 +1396,10 @@ const styles = StyleSheet.create({
   },
   bannerContainer: {
     width: '100%',
-    height: 250,
-    marginBottom: 20,
+    height: 210,
+    marginBottom: 18,
+    borderRadius: 20,
+    overflow: 'hidden',
     position: 'relative',
     backgroundColor: '#f3f4f6',
   },
@@ -1392,13 +1492,13 @@ const styles = StyleSheet.create({
   discussionButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f0f9ff',
+    backgroundColor: '#f8faff',
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 12,
     gap: 12,
-    borderLeftWidth: 4,
-    borderLeftColor: '#3b82f6',
+    borderWidth: 1,
+    borderColor: '#e0e7ff',
   },
   discussionButtonTitle: {
     fontSize: 16,
@@ -1417,12 +1517,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 8,
-    backgroundColor: '#fff1f2',
+    backgroundColor: '#eef2ff',
   },
   viewUsersText: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#fb7185',
+    color: '#6366f1',
   },
   // Team zone styles
   individualNotice: {
@@ -1547,3 +1647,4 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 });
+

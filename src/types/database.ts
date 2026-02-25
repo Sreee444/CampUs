@@ -15,7 +15,14 @@ export type Profile = {
 
   // Academic Info
   department?: string;
+  specialization?: string;
+  section?: 'A' | 'B' | 'C' | 'D';
+  year_of_admission?: number;
   year?: number;
+  semester?: number;
+  batch?: string;
+  roll_number?: string;
+  academic_status?: 'active' | 'graduated';
   enrollment_number?: string;
 
   // Student specific
