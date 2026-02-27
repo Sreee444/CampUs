@@ -36,6 +36,7 @@ export type RootStackParamList = {
   Calendar: undefined;
   TeamFormation: undefined;
   AIChatAssistant: undefined;
+  AISuggestions: undefined;
   PublicProfile: { userId: string };
   AllUsers: { mode?: 'browse' | 'message' } | undefined;
   Discussions: undefined;
@@ -52,6 +53,7 @@ export type RootStackParamList = {
   AdminAnalytics: undefined;
   AdminDiscussions: undefined;
   AIInsights: undefined;
+  TeamInvitations: undefined;
 };
 
 declare global {
