@@ -53,7 +53,7 @@ export default function SignupScreen() {
   const [skillsInput, setSkillsInput] = useState('');
   const [selectedInterests, setSelectedInterests] = useState<InterestItem[]>(interestOptions);
 
-  const roles = ['student', 'alumni', 'faculty', 'admin'];
+  const roles = ['student', 'alumni', 'faculty'];
 
   const toggleInterest = (id: string) => {
     setSelectedInterests((prev) =>
