@@ -169,7 +169,7 @@ export default function PublicProfileScreen() {
     try {
       if (!user?.id) return;
       const mutualConnections = await getMutualConnections(userId, user.id);
-      setMutualConnectionsCount(mutualConnections?.length || 0);
+      setMutualConnectionsCount(mutualConnections?.mutual_count || 0);
     } catch (error) {
       console.error('Error loading mutual connections:', error);
     }
