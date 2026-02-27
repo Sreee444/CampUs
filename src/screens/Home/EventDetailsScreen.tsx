@@ -930,6 +930,12 @@ export default function EventDetailsScreen() {
                 >
                   <Text style={styles.primaryButtonText}>View My Team</Text>
                 </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.ghostButton}
+                  onPress={() => navigation.navigate('TeamConnect', { eventId, requiredRoles: (event as any)?.required_roles ?? [], teamId: teamState?.teamId })}
+                >
+                  <Text style={styles.ghostButtonText}>Browse Members</Text>
+                </TouchableOpacity>
               </>
             ) : teamState?.hasReceivedInvite ? (
               <>
@@ -953,6 +959,12 @@ export default function EventDetailsScreen() {
                     <Text style={styles.outlineButtonText}>Reject</Text>
                   </TouchableOpacity>
                 </View>
+                <TouchableOpacity
+                  style={styles.ghostButton}
+                  onPress={() => navigation.navigate('TeamConnect', { eventId, requiredRoles: (event as any)?.required_roles ?? [], teamId: teamState?.teamId })}
+                >
+                  <Text style={styles.ghostButtonText}>Browse Members</Text>
+                </TouchableOpacity>
               </>
             ) : teamState?.hasSentJoinRequest ? (
               <>
@@ -960,6 +972,12 @@ export default function EventDetailsScreen() {
                 <Text style={styles.metaText}>Join request pending approval</Text>
                 <TouchableOpacity style={[styles.outlineButton, styles.roundButton]} onPress={handleCancelPendingJoinRequest}>
                   <Text style={styles.outlineButtonText}>Cancel Request</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.ghostButton}
+                  onPress={() => navigation.navigate('TeamConnect', { eventId, requiredRoles: (event as any)?.required_roles ?? [], teamId: teamState?.teamId })}
+                >
+                  <Text style={styles.ghostButtonText}>Browse Members</Text>
                 </TouchableOpacity>
               </>
             ) : (
@@ -975,6 +993,12 @@ export default function EventDetailsScreen() {
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.ghostButton} onPress={() => navigation.navigate('BrowseTeams', { eventId })}>
                     <Text style={styles.ghostButtonText}>Browse Teams</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.ghostButton}
+                    onPress={() => navigation.navigate('TeamConnect', { eventId, requiredRoles: (event as any)?.required_roles ?? [], teamId: teamState?.teamId })}
+                  >
+                    <Text style={styles.ghostButtonText}>Browse Members</Text>
                   </TouchableOpacity>
                 </View>
               </>

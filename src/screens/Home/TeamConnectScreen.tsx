@@ -3,7 +3,7 @@
  * Shows participants who are looking for a team in any team-based event.
  * Sorted by Team Compatibility % computed from skill matching.
  */
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
     View,
     Text,
@@ -30,12 +30,14 @@ type TeamConnectScreenRouteProp = RouteProp<RootStackParamList, 'TeamConnect'>;
 export default function TeamConnectScreen() {
     const navigation = useNavigation<TeamConnectScreenNavigationProp>();
     const route = useRoute<TeamConnectScreenRouteProp>();
-    const { user } = useAuth();
+    const { profile } = useAuth();
 
     const { eventId, requiredRoles, teamId } = route.params;
 
     const [activeTab, setActiveTab] = useState<'looking' | 'all'>('looking');
     const [participants, setParticipants] = useState<ParticipantWithMatch[]>([]);
+    const [filterTab, setFilterTab] = useState<'all' | 'best' | 'dept'>('all');
+    const [onlyLooking, setOnlyLooking] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [invitingUserId, setInvitingUserId] = useState<string | null>(null);
     const [invitedUserIds, setInvitedUserIds] = useState<Set<string>>(new Set());
@@ -114,6 +116,14 @@ export default function TeamConnectScreen() {
                         ...(registeredWithTeam?.map((r: any) => r.user_id) ?? []),
                     ]);
                     
+                    const { data: lookingRegs } = await (supabase as any)
+                        .from('event_registrations')
+                        .select('user_id')
+                        .eq('event_id', eventId)
+                        .eq('looking_for_team', true);
+
+                    const lookingIds = new Set((lookingRegs ?? []).map((r: any) => r.user_id));
+
                     raw = ((fallbackUsers as any[]) ?? [])
                         .filter((user: any) => !teamUserIds.has(user.id))
                         .map((user: any) => ({
@@ -123,9 +133,17 @@ export default function TeamConnectScreen() {
                             department: user.department,
                             year: user.year,
                             skills: user.skills ?? [],
-                            is_looking_for_team: false, // Unknown for unregistered users
+                            is_looking_for_team: lookingIds.has(user.id),
                         }));
                 } else {
+                    const { data: lookingRegs } = await (supabase as any)
+                        .from('event_registrations')
+                        .select('user_id')
+                        .eq('event_id', eventId)
+                        .eq('looking_for_team', true);
+
+                    const lookingIds = new Set((lookingRegs ?? []).map((r: any) => r.user_id));
+
                     raw = ((allUsers as any[]) ?? []).map((user: any) => ({
                         id: user.id,
                         full_name: user.full_name,
@@ -133,7 +151,7 @@ export default function TeamConnectScreen() {
                         department: user.department,
                         year: user.year,
                         skills: user.skills ?? [],
-                        is_looking_for_team: false, // Unknown for unregistered users
+                        is_looking_for_team: lookingIds.has(user.id),
                     }));
                 }
             }
@@ -171,6 +189,21 @@ export default function TeamConnectScreen() {
         return '#6b7280';
     };
 
+    const filteredParticipants = useMemo(() => {
+        let list = participants;
+        if (filterTab === 'best') {
+            list = list.slice(0, 10);
+        }
+        if (filterTab === 'dept' && profile?.department) {
+            const dept = profile.department.toLowerCase().trim();
+            list = list.filter((p) => (p.department || '').toLowerCase().trim() === dept);
+        }
+        if (onlyLooking) {
+            list = list.filter((p) => p.is_looking_for_team);
+        }
+        return list;
+    }, [participants, filterTab, profile?.department, onlyLooking]);
+
     const handleInviteUser = async (userId: string) => {
         try {
             setInvitingUserId(userId);
@@ -203,7 +236,7 @@ export default function TeamConnectScreen() {
                 <View style={{ flex: 1 }}>
                     <Text style={styles.headerTitle}>Find Teammates</Text>
                     <Text style={styles.headerSubtitle}>
-                        {participants.length} user{participants.length !== 1 ? 's' : ''} available
+                        {filteredParticipants.length} user{filteredParticipants.length !== 1 ? 's' : ''} available
                     </Text>
                 </View>
                 <TouchableOpacity onPress={loadParticipants}>
@@ -241,6 +274,39 @@ export default function TeamConnectScreen() {
                 </TouchableOpacity>
             </View>
 
+            {/* Filters */}
+            <View style={styles.filterBar}>
+                <TouchableOpacity
+                    style={[styles.filterChip, filterTab === 'all' && styles.filterChipActive]}
+                    onPress={() => setFilterTab('all')}
+                >
+                    <Text style={[styles.filterText, filterTab === 'all' && styles.filterTextActive]}>All</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={[styles.filterChip, filterTab === 'best' && styles.filterChipActive]}
+                    onPress={() => setFilterTab('best')}
+                >
+                    <Text style={[styles.filterText, filterTab === 'best' && styles.filterTextActive]}>Best match</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={[styles.filterChip, filterTab === 'dept' && styles.filterChipActive]}
+                    onPress={() => setFilterTab('dept')}
+                >
+                    <Text style={[styles.filterText, filterTab === 'dept' && styles.filterTextActive]}>Same dept</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={[styles.filterChip, onlyLooking && styles.filterChipActive]}
+                    onPress={() => setOnlyLooking((prev) => !prev)}
+                >
+                    <Text style={[styles.filterText, onlyLooking && styles.filterTextActive]}>
+                        Looking only
+                    </Text>
+                </TouchableOpacity>
+            </View>
+            {filterTab === 'dept' && !profile?.department && (
+                <Text style={styles.filterHint}>Set your department to filter by department.</Text>
+            )}
+
             {/* Required Roles Banner */}
             {castRoles.length > 0 && (
                 <View style={styles.rolesBanner}>
@@ -261,7 +327,7 @@ export default function TeamConnectScreen() {
                     <ActivityIndicator size="large" color="#6366f1" />
                     <Text style={styles.loadingText}>Finding teammates…</Text>
                 </View>
-            ) : participants.length === 0 ? (
+            ) : filteredParticipants.length === 0 ? (
                 <View style={styles.centered}>
                     <Text style={styles.emptyEmoji}>🤝</Text>
                     <Text style={styles.emptyTitle}>
@@ -275,7 +341,7 @@ export default function TeamConnectScreen() {
                 </View>
             ) : (
                 <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
-                    {participants.map((p) => {
+                    {filteredParticipants.map((p) => {
                         const matchColor = getMatchColor(p.match.percentage);
                         return (
                             <TouchableOpacity 
@@ -417,6 +483,45 @@ const styles = StyleSheet.create({
     },
     tabTextActive: {
         color: '#6366f1',
+    },
+    filterBar: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+        paddingHorizontal: 20,
+        paddingVertical: 10,
+        backgroundColor: '#fff',
+        borderBottomWidth: 1,
+        borderBottomColor: '#f3f4f6',
+    },
+    filterChip: {
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: '#e5e7eb',
+        backgroundColor: '#f9fafb',
+    },
+    filterChipActive: {
+        backgroundColor: '#eef2ff',
+        borderColor: '#c7d2fe',
+    },
+    filterText: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#6b7280',
+    },
+    filterTextActive: {
+        color: '#4f46e5',
+    },
+    filterHint: {
+        fontSize: 12,
+        color: '#9ca3af',
+        paddingHorizontal: 20,
+        paddingBottom: 6,
+        backgroundColor: '#fff',
+        borderBottomWidth: 1,
+        borderBottomColor: '#f3f4f6',
     },
     rolesBanner: {
         flexDirection: 'row',

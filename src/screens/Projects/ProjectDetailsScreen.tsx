@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -26,10 +26,14 @@ import {
   deleteProjectTeam,
   updateProjectStatus,
   sendJoinRequest,
+  sendProjectInvite,
   getUserJoinRequestStatus,
   getTeamJoinRequests,
   acceptJoinRequest,
   rejectJoinRequest,
+  acceptProjectInvite,
+  rejectProjectInvite,
+  cancelProjectInvite,
   removeTeamMember,
 } from '../../api/projects';
 import { ProjectTeam } from '../../types/database';
@@ -38,6 +42,7 @@ import { ConfirmBottomSheet } from '../../components/ConfirmBottomSheet';
 import { getProjectStatusColor, PROJECT_STATUS_OPTIONS } from '../../utils/semanticColors';
 import { createNotification } from '../../api/notifications';
 import { supabase } from '../../api/supabase';
+import { computeMatchScore, detectSkillRoles, ParticipantWithMatch, sortByMatch } from '../../utils/matchingUtils';
 
 type ProjectDetailsScreenNavigationProp = StackNavigationProp<RootStackParamList, 'ProjectDetails'>;
 type ProjectDetailsScreenRouteProp = RouteProp<RootStackParamList, 'ProjectDetails'>;
@@ -73,6 +78,14 @@ export default function ProjectDetailsScreen() {
   const [error, setError] = useState('');
   const [joinRequestStatus, setJoinRequestStatus] = useState<any>(null);
   const [pendingJoinRequests, setPendingJoinRequests] = useState<JoinRequest[]>([]);
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [inviteSearch, setInviteSearch] = useState('');
+  const [inviteCandidates, setInviteCandidates] = useState<ParticipantWithMatch[]>([]);
+  const [isLoadingInvitees, setIsLoadingInvitees] = useState(false);
+  const [invitingUserId, setInvitingUserId] = useState<string | null>(null);
+  const [invitedUserIds, setInvitedUserIds] = useState<Set<string>>(new Set());
+  const [isHandlingInvite, setIsHandlingInvite] = useState(false);
+  const [inviteFilter, setInviteFilter] = useState<'all' | 'best' | 'dept'>('all');
   
   // Status modal
   const [showStatusModal, setShowStatusModal] = useState(false);
@@ -119,6 +132,24 @@ export default function ProjectDetailsScreen() {
   const displayMembers = hasCreatorInMembers || !team?.creator ? teamMembers : [team.creator, ...teamMembers];
   const isMember = !!user?.id && (isCreator || teamMembers.some((member) => member.id === user?.id));
   const isTeamFull = safeMaxMembers > 0 ? safeMembersCount >= safeMaxMembers : false;
+  const requiredRoles = useMemo(
+    () => detectSkillRoles(team?.required_skills ?? []),
+    [team?.required_skills]
+  );
+
+  const isInviteMessage = useCallback((message?: string) => {
+    return typeof message === 'string' && message.startsWith('[INVITE]');
+  }, []);
+
+  const pendingInvites = useMemo(
+    () => pendingJoinRequests.filter((request) => isInviteMessage(request.message)),
+    [pendingJoinRequests, isInviteMessage]
+  );
+
+  const pendingInboundRequests = useMemo(
+    () => pendingJoinRequests.filter((request) => !isInviteMessage(request.message)),
+    [pendingJoinRequests, isInviteMessage]
+  );
 
   useEffect(() => {
     if (!teamId) {
@@ -144,12 +175,14 @@ export default function ProjectDetailsScreen() {
           !!data.members?.some((m) => m.id === user.id);
 
         if (!userIsMember) {
-        try {
-          const requestStatus = await getUserJoinRequestStatus(teamId, user.id);
-          setJoinRequestStatus(requestStatus);
-        } catch (err) {
-          // No request found, that's okay
-        }
+          try {
+            const requestStatus = await getUserJoinRequestStatus(teamId, user.id);
+            setJoinRequestStatus(requestStatus);
+          } catch (err) {
+            // No request found, that's okay
+          }
+        } else {
+          setJoinRequestStatus(null);
         }
       }
 
@@ -169,6 +202,68 @@ export default function ProjectDetailsScreen() {
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!pendingInvites.length) {
+      setInvitedUserIds(new Set());
+      return;
+    }
+    setInvitedUserIds(new Set(pendingInvites.map((invite) => invite.user_id)));
+  }, [pendingInvites]);
+
+  const getMatchColor = (pct: number) => {
+    if (pct >= 75) return '#10b981';
+    if (pct >= 40) return '#f59e0b';
+    return '#6b7280';
+  };
+
+  const loadInviteCandidates = useCallback(async () => {
+    if (!team || !canManageTeam) return;
+
+    try {
+      setIsLoadingInvitees(true);
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, full_name, email, avatar_url, department, year, skills, role');
+
+      if (error) throw error;
+
+      const memberIds = new Set(displayMembers.map((member) => member.id));
+      const pendingIds = new Set(pendingJoinRequests.map((request) => request.user_id));
+      if (user?.id) {
+        memberIds.add(user.id);
+      }
+
+      const filtered = (data || [])
+        .filter((profileItem: any) => !memberIds.has(profileItem.id))
+        .filter((profileItem: any) => !pendingIds.has(profileItem.id))
+        .map((profileItem: any) => ({
+          id: profileItem.id,
+          full_name: profileItem.full_name,
+          avatar_url: profileItem.avatar_url,
+          department: profileItem.department,
+          year: profileItem.year,
+          skills: profileItem.skills ?? [],
+        }));
+
+      const sorted = sortByMatch(filtered, requiredRoles);
+      setInviteCandidates(sorted);
+    } catch (err: any) {
+      Toast.show({
+        type: 'error',
+        text1: 'Failed to load users',
+        text2: err?.message || 'Unable to load invite list',
+      });
+    } finally {
+      setIsLoadingInvitees(false);
+    }
+  }, [team, canManageTeam, displayMembers, pendingJoinRequests, requiredRoles, user?.id]);
+
+  useEffect(() => {
+    if (showInviteModal) {
+      loadInviteCandidates();
+    }
+  }, [showInviteModal, loadInviteCandidates]);
 
   const handleStatusChange = async (newStatus: string) => {
     if (!team || !canManageTeam) return;
@@ -352,6 +447,57 @@ export default function ProjectDetailsScreen() {
     }
   };
 
+  const handleInviteUser = async (userId: string) => {
+    if (!team || !canManageTeam || !user?.id) return;
+
+    const projectStatus = team.status || 'planning';
+    const closedStatuses = ['cancelled', 'completed', 'on-hold'];
+
+    if (closedStatuses.includes(projectStatus)) {
+      Toast.show({
+        type: 'error',
+        text1: 'Cannot Invite',
+        text2: `This project is ${projectStatus}`,
+      });
+      return;
+    }
+
+    if (isTeamFull) {
+      Toast.show({
+        type: 'error',
+        text1: 'Team Full',
+        text2: 'This project already has the maximum members.',
+      });
+      return;
+    }
+
+    try {
+      setInvitingUserId(userId);
+      await sendProjectInvite(teamId, userId, profile?.full_name || user.email || 'Team leader');
+
+      await createNotification({
+        user_id: userId,
+        title: 'Project Invitation',
+        body: `${profile?.full_name || user.email || 'A team leader'} invited you to join ${team.name}`,
+        type: 'project_invite',
+        related_id: teamId,
+      });
+
+      setInvitedUserIds((prev) => new Set([...prev, userId]));
+      Toast.show({ type: 'success', text1: 'Invitation sent' });
+      await loadTeamData();
+      await loadInviteCandidates();
+    } catch (err: any) {
+      Toast.show({
+        type: 'error',
+        text1: 'Invite Failed',
+        text2: err?.message || 'Unable to send invite',
+      });
+    } finally {
+      setInvitingUserId(null);
+    }
+  };
+
   const handleAcceptRequest = async (request: JoinRequest) => {
     if (!isCreator) return;
 
@@ -411,6 +557,85 @@ export default function ProjectDetailsScreen() {
         type: 'error',
         text1: 'Reject Failed',
         text2: 'Unable to reject join request',
+      });
+    }
+  };
+
+  const handleAcceptInvite = async () => {
+    if (!user?.id || !joinRequestStatus?.id || !team) return;
+    try {
+      setIsHandlingInvite(true);
+      await acceptProjectInvite(joinRequestStatus.id, teamId, user.id);
+
+      await createNotification({
+        user_id: creatorId,
+        title: 'Invite Accepted',
+        body: `${profile?.full_name || user.email || 'A user'} accepted the invite to ${team.name}`,
+        type: 'project_update',
+        related_id: teamId,
+      });
+
+      Toast.show({ type: 'success', text1: 'Invitation accepted' });
+      await loadTeamData();
+    } catch (err: any) {
+      Toast.show({
+        type: 'error',
+        text1: 'Failed to accept invite',
+        text2: err?.message || 'Unable to accept invite',
+      });
+    } finally {
+      setIsHandlingInvite(false);
+    }
+  };
+
+  const handleRejectInvite = async () => {
+    if (!joinRequestStatus?.id || !team) return;
+    try {
+      setIsHandlingInvite(true);
+      await rejectProjectInvite(joinRequestStatus.id);
+
+      await createNotification({
+        user_id: creatorId,
+        title: 'Invite Declined',
+        body: `${profile?.full_name || user?.email || 'A user'} declined the invite to ${team.name}`,
+        type: 'project_update',
+        related_id: teamId,
+      });
+
+      Toast.show({ type: 'info', text1: 'Invitation declined' });
+      await loadTeamData();
+    } catch (err: any) {
+      Toast.show({
+        type: 'error',
+        text1: 'Failed to decline invite',
+        text2: err?.message || 'Unable to decline invite',
+      });
+    } finally {
+      setIsHandlingInvite(false);
+    }
+  };
+
+  const handleCancelInvite = async (invite: JoinRequest) => {
+    if (!team || !canManageTeam) return;
+    try {
+      await cancelProjectInvite(invite.id);
+
+      await createNotification({
+        user_id: invite.user_id,
+        title: 'Invite Cancelled',
+        body: `The invitation to join ${team.name} was cancelled.`,
+        type: 'project_update',
+        related_id: teamId,
+      });
+
+      Toast.show({ type: 'info', text1: 'Invite cancelled' });
+      await loadTeamData();
+      await loadInviteCandidates();
+    } catch (err: any) {
+      Toast.show({
+        type: 'error',
+        text1: 'Cancel Failed',
+        text2: err?.message || 'Unable to cancel invite',
       });
     }
   };
@@ -557,6 +782,10 @@ export default function ProjectDetailsScreen() {
 
   const renderJoinButton = () => {
     if (!user?.id) return null;
+
+    const hasInvite =
+      joinRequestStatus?.status === 'pending' &&
+      isInviteMessage(joinRequestStatus?.message);
     
     if (isMember && !canManageTeam) {
       return (
@@ -590,6 +819,33 @@ export default function ProjectDetailsScreen() {
       );
     }
     
+    if (hasInvite) {
+      return (
+        <View style={styles.inviteInlineContainer}>
+          <View style={styles.inviteInlineBadge}>
+            <MaterialIcons name="mail" size={16} color="#6366f1" />
+            <Text style={styles.inviteInlineText}>Project Invite</Text>
+          </View>
+          <View style={styles.inviteInlineActions}>
+            <TouchableOpacity
+              style={[styles.inviteAcceptButton, isHandlingInvite && styles.inviteActionDisabled]}
+              onPress={handleAcceptInvite}
+              disabled={isHandlingInvite}
+            >
+              <Text style={styles.inviteAcceptText}>Accept</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.inviteRejectButton, isHandlingInvite && styles.inviteActionDisabled]}
+              onPress={handleRejectInvite}
+              disabled={isHandlingInvite}
+            >
+              <Text style={styles.inviteRejectText}>Decline</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      );
+    }
+
     if (joinRequestStatus?.status === 'pending') {
       return (
         <View style={styles.pendingBadge}>
@@ -620,6 +876,29 @@ export default function ProjectDetailsScreen() {
 
   const currentStatus = team?.status || 'planning';
   const statusInfo = getProjectStatusColor(currentStatus);
+
+  const filteredInviteCandidates = useMemo(() => {
+    const query = inviteSearch.trim().toLowerCase();
+    let list = inviteCandidates;
+
+    if (inviteFilter === 'best') {
+      list = list.slice(0, 10);
+    }
+
+    if (inviteFilter === 'dept' && profile?.department) {
+      const dept = profile.department.toLowerCase().trim();
+      list = list.filter((candidate) => (candidate.department || '').toLowerCase().trim() === dept);
+    }
+
+    if (!query) return list;
+
+    return list.filter((candidate) => {
+      const name = (candidate.full_name || '').toLowerCase();
+      const dept = (candidate.department || '').toLowerCase();
+      const skills = (candidate.skills || []).join(' ').toLowerCase();
+      return name.includes(query) || dept.includes(query) || skills.includes(query);
+    });
+  }, [inviteCandidates, inviteSearch, inviteFilter, profile?.department]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -760,15 +1039,15 @@ export default function ProjectDetailsScreen() {
           )}
 
           {/* Pending Join Requests (Creator Only) */}
-          {isCreator && pendingJoinRequests.length > 0 && (
+          {isCreator && pendingInboundRequests.length > 0 && (
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>Join Requests</Text>
                 <View style={styles.requestsBadge}>
-                  <Text style={styles.requestsCount}>{pendingJoinRequests.length}</Text>
+                  <Text style={styles.requestsCount}>{pendingInboundRequests.length}</Text>
                 </View>
               </View>
-              {pendingJoinRequests.map((request) => (
+              {pendingInboundRequests.map((request) => (
                 <View key={request.id} style={styles.requestCard}>
                   <TouchableOpacity
                     style={styles.requestUser}
@@ -846,6 +1125,8 @@ export default function ProjectDetailsScreen() {
               {displayMembers.map((member) => {
                 const isLeader = member.id === creatorId;
                 const isAdminMember = member.role === 'admin';
+                const matchInfo = computeMatchScore(member.skills ?? [], requiredRoles);
+                const matchColor = getMatchColor(matchInfo.percentage);
                 return (
                   <View key={member.id} style={styles.memberCard}>
                     <TouchableOpacity
@@ -873,6 +1154,13 @@ export default function ProjectDetailsScreen() {
                         <Text style={styles.memberDept}>{member.department || member.role || 'Member'}</Text>
                       </View>
                     </TouchableOpacity>
+                    <View style={styles.memberActions}>
+                      <View style={[styles.memberMatchBadge, { borderColor: matchColor }]}>
+                        <Text style={[styles.memberMatchPct, { color: matchColor }]}>
+                          {matchInfo.percentage}%
+                        </Text>
+                        <Text style={styles.memberMatchLabel}>match</Text>
+                      </View>
                     {canManageMembers && !isLeader && !isAdminMember && (
                       <TouchableOpacity
                         style={styles.removeMemberButton}
@@ -881,11 +1169,57 @@ export default function ProjectDetailsScreen() {
                         <MaterialIcons name="remove-circle-outline" size={20} color="#ef4444" />
                       </TouchableOpacity>
                     )}
+                    </View>
                   </View>
                 );
               })}
             </View>
           </View>
+
+          {/* Invite Members */}
+          {canManageTeam && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Invite Members</Text>
+              <Text style={styles.sectionSubtitle}>
+                Invite students to join your project and see how well they match your required skills.
+              </Text>
+              <TouchableOpacity
+                style={styles.inviteMembersButton}
+                onPress={() => setShowInviteModal(true)}
+              >
+                <MaterialIcons name="person-add" size={18} color="#fff" />
+                <Text style={styles.inviteMembersText}>Invite People</Text>
+              </TouchableOpacity>
+              {pendingInvites.length > 0 && (
+                <View style={styles.pendingInvites}>
+                  <Text style={styles.pendingInvitesTitle}>Pending Invites</Text>
+                  {pendingInvites.slice(0, 3).map((invite) => (
+                    <View key={invite.id} style={styles.pendingInviteItem}>
+                      <UserAvatar
+                        uri={invite.user.avatar_url}
+                        name={invite.user.full_name || invite.user.email}
+                        size={36}
+                        role={invite.user.role}
+                        showRing
+                      />
+                      <View style={styles.pendingInviteInfo}>
+                        <Text style={styles.pendingInviteName}>
+                          {invite.user.full_name || invite.user.email}
+                        </Text>
+                        <Text style={styles.pendingInviteMeta}>Invitation sent</Text>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.cancelInviteButton}
+                        onPress={() => handleCancelInvite(invite)}
+                      >
+                        <MaterialIcons name="close" size={16} color="#ef4444" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </View>
+          )}
 
           <View style={{ height: 40 }} />
         </ScrollView>
@@ -972,6 +1306,137 @@ export default function ProjectDetailsScreen() {
                 <Text style={styles.joinModalSendText}>Next</Text>
               </TouchableOpacity>
             </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Invite Members Modal */}
+      <Modal
+        visible={showInviteModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowInviteModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowInviteModal(false)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.inviteModal}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>Invite Members</Text>
+            <Text style={styles.modalSubtitle}>
+              Find users and invite them to join this project.
+            </Text>
+            <TextInput
+              style={styles.inviteSearchInput}
+              placeholder="Search by name, department, or skill"
+              placeholderTextColor={Colors.textSecondary}
+              value={inviteSearch}
+              onChangeText={setInviteSearch}
+            />
+            <View style={styles.inviteFilterTabs}>
+              <TouchableOpacity
+                style={[styles.inviteFilterTab, inviteFilter === 'all' && styles.inviteFilterTabActive]}
+                onPress={() => setInviteFilter('all')}
+              >
+                <Text style={[styles.inviteFilterText, inviteFilter === 'all' && styles.inviteFilterTextActive]}>All</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.inviteFilterTab, inviteFilter === 'best' && styles.inviteFilterTabActive]}
+                onPress={() => setInviteFilter('best')}
+              >
+                <Text style={[styles.inviteFilterText, inviteFilter === 'best' && styles.inviteFilterTextActive]}>Best match</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.inviteFilterTab, inviteFilter === 'dept' && styles.inviteFilterTabActive]}
+                onPress={() => setInviteFilter('dept')}
+              >
+                <Text style={[styles.inviteFilterText, inviteFilter === 'dept' && styles.inviteFilterTextActive]}>Same dept</Text>
+              </TouchableOpacity>
+            </View>
+            {inviteFilter === 'dept' && !profile?.department && (
+              <Text style={styles.inviteFilterHint}>Set your department to filter by department.</Text>
+            )}
+            {isLoadingInvitees ? (
+              <View style={styles.inviteLoading}>
+                <ActivityIndicator size="small" color={Colors.primary} />
+                <Text style={styles.inviteLoadingText}>Loading users...</Text>
+              </View>
+            ) : filteredInviteCandidates.length === 0 ? (
+              <View style={styles.inviteEmpty}>
+                <Text style={styles.inviteEmptyTitle}>No users available</Text>
+                <Text style={styles.inviteEmptySubtitle}>
+                  Everyone is already on the team or has a pending request.
+                </Text>
+              </View>
+            ) : (
+              <ScrollView style={styles.inviteList} showsVerticalScrollIndicator={false}>
+                    {filteredInviteCandidates.map((candidate) => {
+                      const matchColor = getMatchColor(candidate.match.percentage);
+                      const isInvited = invitedUserIds.has(candidate.id);
+                      const pendingInvite = pendingInvites.find((invite) => invite.user_id === candidate.id);
+                      return (
+                        <View key={candidate.id} style={styles.inviteCard}>
+                      <TouchableOpacity
+                        style={styles.inviteInfo}
+                        onPress={() => navigation.navigate('PublicProfile', { userId: candidate.id })}
+                      >
+                        <UserAvatar
+                          uri={candidate.avatar_url}
+                          name={candidate.full_name || 'User'}
+                          size={44}
+                          role={undefined}
+                          showRing
+                        />
+                        <View style={styles.inviteDetails}>
+                          <Text style={styles.inviteName}>{candidate.full_name || 'Anonymous'}</Text>
+                          <Text style={styles.inviteMeta}>
+                            {[candidate.department, candidate.year ? `Year ${candidate.year}` : null]
+                              .filter(Boolean)
+                              .join(' • ')}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                        <View style={styles.inviteActions}>
+                          <View style={[styles.inviteMatchBadge, { borderColor: matchColor }]}>
+                            <Text style={[styles.inviteMatchPct, { color: matchColor }]}>
+                              {candidate.match.percentage}%
+                            </Text>
+                            <Text style={styles.inviteMatchLabel}>match</Text>
+                          </View>
+                          {isInvited && pendingInvite ? (
+                            <TouchableOpacity
+                              style={styles.inviteCancelButton}
+                              onPress={() => handleCancelInvite(pendingInvite)}
+                            >
+                              <Text style={styles.inviteCancelText}>Cancel Invite</Text>
+                            </TouchableOpacity>
+                          ) : (
+                            <TouchableOpacity
+                              style={[
+                                styles.inviteActionButton,
+                                (invitingUserId === candidate.id || isInvited) && styles.inviteActionButtonDisabled,
+                              ]}
+                              onPress={() => handleInviteUser(candidate.id)}
+                              disabled={invitingUserId === candidate.id || isInvited}
+                            >
+                              {invitingUserId === candidate.id ? (
+                                <ActivityIndicator size="small" color="#fff" />
+                              ) : (
+                                <Text style={styles.inviteActionText}>
+                                  {isInvited ? 'Invited' : 'Invite'}
+                                </Text>
+                              )}
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      </View>
+                    );
+                  })}
+                <View style={{ height: 24 }} />
+              </ScrollView>
+            )}
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
@@ -1425,6 +1890,12 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       color: Colors.text,
       marginBottom: Spacing.sm,
     },
+    sectionSubtitle: {
+      fontSize: FontSizes.sm,
+      color: Colors.textSecondary,
+      marginBottom: Spacing.sm,
+      lineHeight: 20,
+    },
     sectionHeader: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -1565,6 +2036,10 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       alignItems: 'center',
       gap: 12,
     },
+    memberActions: {
+      alignItems: 'center',
+      gap: 8,
+    },
     memberDetails: {
       flex: 1,
     },
@@ -1597,11 +2072,84 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       color: Colors.textSecondary,
       marginTop: 2,
     },
+    memberMatchBadge: {
+      width: 54,
+      height: 54,
+      borderRadius: 27,
+      borderWidth: 2,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    memberMatchPct: {
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.bold,
+    },
+    memberMatchLabel: {
+      fontSize: 10,
+      color: Colors.textSecondary,
+      marginTop: -2,
+    },
     removeMemberButton: {
       width: 32,
       height: 32,
       alignItems: 'center',
       justifyContent: 'center',
+    },
+
+    // Invite Members
+    inviteMembersButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      paddingVertical: 12,
+      borderRadius: BorderRadius.lg,
+      backgroundColor: '#6366f1',
+    },
+    inviteMembersText: {
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.semibold,
+      color: '#fff',
+    },
+    pendingInvites: {
+      marginTop: Spacing.md,
+      gap: Spacing.sm,
+    },
+    pendingInvitesTitle: {
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.semibold,
+      color: Colors.textSecondary,
+    },
+    pendingInviteItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      padding: Spacing.sm,
+      backgroundColor: Colors.card,
+      borderRadius: BorderRadius.lg,
+      borderWidth: 1,
+      borderColor: Colors.border,
+    },
+    pendingInviteInfo: {
+      flex: 1,
+    },
+    pendingInviteName: {
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.semibold,
+      color: Colors.text,
+    },
+    pendingInviteMeta: {
+      fontSize: FontSizes.xs,
+      color: Colors.textSecondary,
+      marginTop: 2,
+    },
+    cancelInviteButton: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: '#fee2e2',
     },
 
     // Modals
@@ -1623,6 +2171,14 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       borderTopRightRadius: 20,
       padding: Spacing.lg,
       paddingBottom: Spacing.xl,
+    },
+    inviteModal: {
+      backgroundColor: Colors.surface,
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
+      padding: Spacing.lg,
+      paddingBottom: Spacing.xl,
+      maxHeight: '85%',
     },
     modalHandle: {
       width: 40,
@@ -1693,6 +2249,204 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       marginBottom: Spacing.md,
       borderWidth: 1,
       borderColor: Colors.border,
+    },
+    inviteSearchInput: {
+      backgroundColor: Colors.card,
+      borderRadius: BorderRadius.lg,
+      padding: Spacing.md,
+      fontSize: FontSizes.sm,
+      color: Colors.text,
+      marginBottom: Spacing.md,
+      borderWidth: 1,
+      borderColor: Colors.border,
+    },
+    inviteFilterTabs: {
+      flexDirection: 'row',
+      gap: 8,
+      marginBottom: Spacing.sm,
+    },
+    inviteFilterTab: {
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: BorderRadius.full,
+      backgroundColor: Colors.card,
+      borderWidth: 1,
+      borderColor: Colors.border,
+    },
+    inviteFilterTabActive: {
+      backgroundColor: '#eef2ff',
+      borderColor: '#c7d2fe',
+    },
+    inviteFilterText: {
+      fontSize: FontSizes.xs,
+      fontWeight: FontWeights.semibold,
+      color: Colors.textSecondary,
+    },
+    inviteFilterTextActive: {
+      color: '#6366f1',
+    },
+    inviteFilterHint: {
+      fontSize: FontSizes.xs,
+      color: Colors.textSecondary,
+      marginBottom: Spacing.sm,
+    },
+    inviteList: {
+      maxHeight: 420,
+    },
+    inviteCard: {
+      padding: Spacing.sm,
+      backgroundColor: Colors.card,
+      borderRadius: BorderRadius.lg,
+      borderWidth: 1,
+      borderColor: Colors.border,
+      marginBottom: Spacing.sm,
+      gap: Spacing.sm,
+    },
+    inviteInfo: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+    },
+    inviteDetails: {
+      flex: 1,
+    },
+    inviteName: {
+      fontSize: FontSizes.md,
+      fontWeight: FontWeights.semibold,
+      color: Colors.text,
+    },
+    inviteMeta: {
+      fontSize: FontSizes.sm,
+      color: Colors.textSecondary,
+      marginTop: 2,
+    },
+    inviteActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 10,
+    },
+    inviteMatchBadge: {
+      width: 48,
+      height: 48,
+      borderRadius: 24,
+      borderWidth: 2,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    inviteMatchPct: {
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.bold,
+    },
+    inviteMatchLabel: {
+      fontSize: 9,
+      color: Colors.textSecondary,
+      marginTop: -2,
+    },
+    inviteActionButton: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 10,
+      borderRadius: BorderRadius.lg,
+      backgroundColor: '#6366f1',
+    },
+    inviteActionButtonDisabled: {
+      backgroundColor: '#c7d2fe',
+    },
+    inviteActionText: {
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.semibold,
+      color: '#fff',
+    },
+    inviteCancelButton: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 10,
+      borderRadius: BorderRadius.lg,
+      backgroundColor: '#fee2e2',
+    },
+    inviteCancelText: {
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.semibold,
+      color: '#ef4444',
+    },
+    inviteLoading: {
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: Spacing.md,
+    },
+    inviteLoadingText: {
+      fontSize: FontSizes.sm,
+      color: Colors.textSecondary,
+    },
+    inviteEmpty: {
+      alignItems: 'center',
+      gap: 4,
+      paddingVertical: Spacing.md,
+    },
+    inviteEmptyTitle: {
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.semibold,
+      color: Colors.text,
+    },
+    inviteEmptySubtitle: {
+      fontSize: FontSizes.xs,
+      color: Colors.textSecondary,
+      textAlign: 'center',
+    },
+
+    // Inline Invite Actions (for invitee)
+    inviteInlineContainer: {
+      flex: 1,
+      gap: 8,
+    },
+    inviteInlineBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      borderRadius: BorderRadius.full,
+      backgroundColor: '#eef2ff',
+      alignSelf: 'flex-start',
+    },
+    inviteInlineText: {
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.semibold,
+      color: '#6366f1',
+    },
+    inviteInlineActions: {
+      flexDirection: 'row',
+      gap: 10,
+    },
+    inviteAcceptButton: {
+      flex: 1,
+      paddingVertical: 10,
+      borderRadius: BorderRadius.lg,
+      backgroundColor: '#10b981',
+      alignItems: 'center',
+    },
+    inviteAcceptText: {
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.semibold,
+      color: '#fff',
+    },
+    inviteRejectButton: {
+      flex: 1,
+      paddingVertical: 10,
+      borderRadius: BorderRadius.lg,
+      backgroundColor: '#fee2e2',
+      alignItems: 'center',
+    },
+    inviteRejectText: {
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.semibold,
+      color: '#ef4444',
+    },
+    inviteActionDisabled: {
+      opacity: 0.6,
     },
     joinModalActions: {
       flexDirection: 'row',

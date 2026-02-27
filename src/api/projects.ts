@@ -473,6 +473,110 @@ export const sendJoinRequest = async (teamId: string, userId: string, message?: 
   return data;
 };
 
+// Send project invite (creator/admin only - enforced by UI)
+export const sendProjectInvite = async (teamId: string, userId: string, invitedBy?: string) => {
+  // Check if already a member
+  const { data: existingMember } = await supabase
+    .from("project_team_members")
+    .select("id")
+    .eq("team_id", teamId)
+    .eq("user_id", userId)
+    .single();
+
+  if (existingMember) {
+    throw new Error("User is already a member");
+  }
+
+  // Check if already has pending request/invite
+  const { data: existingRequest } = await supabase
+    .from("project_team_join_requests")
+    .select("id")
+    .eq("team_id", teamId)
+    .eq("user_id", userId)
+    .eq("status", "pending")
+    .single();
+
+  if (existingRequest) {
+    throw new Error("Invite already pending");
+  }
+
+  // Check recruiting + capacity
+  const { data: team, error: teamError } = await supabase
+    .from("project_teams")
+    .select("id, max_members, is_recruiting")
+    .eq("id", teamId)
+    .single();
+
+  if (teamError) throw teamError;
+
+  if (!team.is_recruiting) {
+    throw new Error("Team is not recruiting");
+  }
+
+  const { count, error: countError } = await supabase
+    .from("project_team_members")
+    .select("id", { count: "exact", head: true })
+    .eq("team_id", teamId);
+
+  if (countError) throw countError;
+
+  const currentMembers = count || 0;
+  if (team.max_members && currentMembers >= team.max_members) {
+    throw new Error("Team is full");
+  }
+
+  const inviteMessage = `[INVITE] Invited by ${invitedBy || "team leader"}`;
+
+  const { data, error } = await supabase
+    .from("project_team_join_requests")
+    .insert({
+      team_id: teamId,
+      user_id: userId,
+      message: inviteMessage,
+      status: "pending",
+    })
+    .select(`*`)
+    .single();
+
+  if (error) throw error;
+  return data;
+};
+
+// Accept project invite (invitee accepts)
+export const acceptProjectInvite = async (requestId: string, teamId: string, userId: string) => {
+  await joinProjectTeam(teamId, userId);
+
+  const { error } = await supabase
+    .from("project_team_join_requests")
+    .update({ status: "accepted" })
+    .eq("id", requestId);
+
+  if (error) throw error;
+  return true;
+};
+
+// Reject project invite (invitee rejects)
+export const rejectProjectInvite = async (requestId: string) => {
+  const { error } = await supabase
+    .from("project_team_join_requests")
+    .update({ status: "rejected" })
+    .eq("id", requestId);
+
+  if (error) throw error;
+  return true;
+};
+
+// Cancel project invite (creator/admin)
+export const cancelProjectInvite = async (requestId: string) => {
+  const { error } = await supabase
+    .from("project_team_join_requests")
+    .update({ status: "rejected" })
+    .eq("id", requestId);
+
+  if (error) throw error;
+  return true;
+};
+
 // Get pending join requests for a team
 export const getTeamJoinRequests = async (teamId: string) => {
   const { data, error } = await supabase
