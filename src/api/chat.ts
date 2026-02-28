@@ -1,5 +1,7 @@
 // @ts-nocheck
-import { supabase } from "./supabase";
+import { Tables } from '../types/supabase';
+import * as FileSystem from 'expo-file-system/legacy';
+import { supabase } from './supabase';
 import {
   Conversation,
   Message,
@@ -78,11 +80,11 @@ export const getConnections = async (
   const { data, error } = await supabase
     .from("connections")
     .select(`
-      *,
-      requester:profiles!connections_requester_id_fkey(*),
-      recipient:profiles!connections_recipient_id_fkey(*)
+  *,
+  requester: profiles!connections_requester_id_fkey(*),
+    recipient: profiles!connections_recipient_id_fkey(*)
     `)
-    .or(`requester_id.eq.${userId},recipient_id.eq.${userId}`)
+    .or(`requester_id.eq.${userId}, recipient_id.eq.${userId} `)
     .eq("status", status);
 
   if (error) throw error;
@@ -94,8 +96,8 @@ export const getPendingRequests = async (userId: string) => {
   const { data, error } = await supabase
     .from("connections")
     .select(`
-      *,
-      requester:profiles!connections_requester_id_fkey(*)
+  *,
+  requester: profiles!connections_requester_id_fkey(*)
     `)
     .eq("recipient_id", userId)
     .eq("status", "pending");
@@ -125,7 +127,7 @@ export const getConversations = async (userId: string) => {
   const { data, error } = await supabase
     .from("conversations")
     .select(`
-      *
+    *
     `)
     .in("id", conversationIds)
     .order("updated_at", { ascending: false });
@@ -139,17 +141,17 @@ export const getConversations = async (userId: string) => {
         supabase
           .from("conversation_participants")
           .select(`
-            *,
-            user:profiles!conversation_participants_user_id_fkey(*)
-          `)
+    *,
+    user: profiles!conversation_participants_user_id_fkey(*)
+      `)
           .eq("conversation_id", conversation.id)
           .is("left_at", null),
         supabase
           .from("messages")
           .select(`
-            *,
-            sender:profiles!messages_sender_id_fkey(*)
-          `)
+      *,
+      sender: profiles!messages_sender_id_fkey(*)
+        `)
           .eq("conversation_id", conversation.id)
           .eq("is_deleted", false)
           .order("created_at", { ascending: false })
@@ -347,9 +349,9 @@ export const getConversationDetails = async (conversationId: string) => {
   const { data: participants, error: participantsError } = await supabase
     .from("conversation_participants")
     .select(`
-      *,
-      user:profiles!conversation_participants_user_id_fkey(*)
-    `)
+        *,
+        user: profiles!conversation_participants_user_id_fkey(*)
+          `)
     .eq("conversation_id", conversationId)
     .is("left_at", null)
     .order("joined_at", { ascending: true });
@@ -474,9 +476,9 @@ export const getMessages = async (
   const { data, error } = await supabase
     .from("messages")
     .select(`
-      *,
-      sender:profiles!messages_sender_id_fkey(*)
-    `)
+          *,
+          sender: profiles!messages_sender_id_fkey(*)
+            `)
     .eq("conversation_id", conversationId)
     .eq("is_deleted", false)
     .order("created_at", { ascending: false })
@@ -541,8 +543,8 @@ export const sendMessage = async (
       attachment_url: attachmentUrl,
     } as any)
     .select(`
-      *,
-      sender:profiles!messages_sender_id_fkey(*)
+            *,
+            sender: profiles!messages_sender_id_fkey(*)
     `)
     .single();
 
@@ -646,14 +648,14 @@ export const subscribeToTyping = (
   callback: (typingUsers: string[]) => void
 ) => {
   return supabase
-    .channel(`typing:${conversationId}`)
+    .channel(`typing:${conversationId} `)
     .on(
       "postgres_changes",
       {
         event: "*",
         schema: "public",
         table: "typing_indicators",
-        filter: `conversation_id=eq.${conversationId}`,
+        filter: `conversation_id = eq.${conversationId} `,
       },
       async () => {
         // Fetch current typing users
@@ -678,22 +680,22 @@ export const subscribeToMessages = (
   }) => void
 ) => {
   return supabase
-    .channel(`messages:${conversationId}`)
+    .channel(`messages:${conversationId} `)
     .on(
       "postgres_changes",
       {
         event: "INSERT",
         schema: "public",
         table: "messages",
-        filter: `conversation_id=eq.${conversationId}`,
+        filter: `conversation_id = eq.${conversationId} `,
       },
       async (payload) => {
         // Fetch full message with sender info
         const { data } = await supabase
           .from("messages")
           .select(`
-            *,
-            sender:profiles!messages_sender_id_fkey(*)
+  *,
+  sender: profiles!messages_sender_id_fkey(*)
           `)
           .eq("id", payload.new.id)
           .single();
@@ -713,7 +715,7 @@ export const subscribeToMessages = (
         event: "UPDATE",
         schema: "public",
         table: "messages",
-        filter: `conversation_id=eq.${conversationId}`,
+        filter: `conversation_id = eq.${conversationId} `,
       },
       async (payload) => {
         const updated = payload.new as any;
@@ -729,8 +731,8 @@ export const subscribeToMessages = (
         const { data } = await supabase
           .from("messages")
           .select(`
-            *,
-            sender:profiles!messages_sender_id_fkey(*)
+  *,
+  sender: profiles!messages_sender_id_fkey(*)
           `)
           .eq("id", updated.id)
           .single();
@@ -750,7 +752,7 @@ export const subscribeToMessages = (
         event: "DELETE",
         schema: "public",
         table: "messages",
-        filter: `conversation_id=eq.${conversationId}`,
+        filter: `conversation_id = eq.${conversationId} `,
       },
       (payload) => {
         callback({
@@ -767,25 +769,27 @@ export const uploadChatAttachment = async (
   userId: string,
   fileUri: string
 ) => {
-  const response = await fetch(fileUri);
-  const arrayBuffer = await response.arrayBuffer();
-  const uint8Array = new Uint8Array(arrayBuffer);
-  const fileExt = fileUri.split(".").pop();
-  const fileName = `${Date.now()}.${fileExt}`;
+  const fileExt = (fileUri.split('.').pop()?.split('?')[0] ?? 'jpg').toLowerCase();
+  const fileName = `${Date.now()}.${fileExt} `;
   const filePath = `${userId}/${fileName}`;
+  const contentType = fileExt === 'png' ? 'image/png' : fileExt === 'webp' ? 'image/webp' : 'image/jpeg';
+
+  const base64 = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.Base64 });
+  const byteCharacters = atob(base64);
+  const uint8Array = new Uint8Array(byteCharacters.length);
+  for (let i = 0; i < byteCharacters.length; i++) {
+    uint8Array[i] = byteCharacters.charCodeAt(i);
+  }
 
   const { error: uploadError } = await supabase.storage
-    .from("chat-attachments")
-    .upload(filePath, uint8Array, {
-      contentType: `image/${fileExt}`,
-      upsert: true,
-    });
+    .from('chat-attachments')
+    .upload(filePath, uint8Array, { contentType, upsert: true });
 
   if (uploadError) throw uploadError;
 
-  const {
-    data: { publicUrl },
-  } = supabase.storage.from("chat-attachments").getPublicUrl(filePath);
+  const { data: { publicUrl } } = supabase.storage
+    .from('chat-attachments')
+    .getPublicUrl(filePath);
 
   return publicUrl;
 };
@@ -867,7 +871,7 @@ export const addConversationSupervisor = async (
   // Update conversation with supervisor
   const { data, error } = await supabase
     .from("conversations")
-    .update({ 
+    .update({
       supervisor_id: facultyId,
       supervision_started_at: new Date().toISOString()
     } as any)
@@ -883,7 +887,7 @@ export const addConversationSupervisor = async (
 export const removeConversationSupervisor = async (conversationId: string) => {
   const { data, error } = await supabase
     .from("conversations")
-    .update({ 
+    .update({
       supervisor_id: null,
       supervision_ended_at: new Date().toISOString()
     } as any)
@@ -1640,7 +1644,7 @@ export const getMutualConnections = async (userId: string, targetUserId: string)
 
   // Find mutual connections
   const user1Ids = new Set(
-    (user1Connections || []).map((c: any) => 
+    (user1Connections || []).map((c: any) =>
       c.requester_id === userId ? c.recipient_id : c.requester_id
     )
   );

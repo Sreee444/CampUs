@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,13 +9,22 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import Toast from 'react-native-toast-message';
+import * as WebBrowser from 'expo-web-browser';
+import * as AuthSession from 'expo-auth-session';
+
 import { RootStackParamList } from '../../navigation/types';
-import { signIn, signInWithGoogle } from '../../api/auth';
+import { signIn } from '../../api/auth';
+import { supabase } from '../../api/supabase';
+
+// Required for Expo WebBrowser OAuth session completion
+WebBrowser.maybeCompleteAuthSession();
 
 type LoginScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Login'>;
 
@@ -27,22 +36,145 @@ export default function LoginScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
+  // 🔍 TEMPORARY DEBUG — check this in Metro console, then remove
+  const redirectUrl = AuthSession.makeRedirectUri({ scheme: 'campusapp', path: 'auth/callback' });
+  console.log('[Auth] Expo Redirect URL:', redirectUrl);
+
+  // ─── Auth State Listener + Session Check on Mount ───────────────────────────
+  useEffect(() => {
+    // Check if the user is already logged in on mount
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        handlePostLoginNavigation(session.user.id);
+      }
+    });
+
+    // Listen for future auth state changes (e.g. after OAuth redirect)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (__DEV__) {
+        console.log('[Auth] event:', event, '| userId:', session?.user?.id);
+      }
+
+      if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session) {
+        await handlePostLoginNavigation(session.user.id);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // ─── Post-Login: Check if profile is complete, route accordingly ─────────────
+  const handlePostLoginNavigation = async (userId: string) => {
+    try {
+      const { data } = await supabase
+        .from('profiles')
+        .select('full_name, department')
+        .eq('id', userId)
+        .single();
+
+      const profile = data as { full_name: string | null; department: string | null } | null;
+
+      // If profile is incomplete (new users via Google OAuth), send to CompleteProfile
+      if (!profile?.full_name || !profile?.department) {
+        navigation.replace('CompleteProfile');
+      } else {
+        navigation.replace('MainTabs', { screen: 'Home' });
+      }
+    } catch {
+      // Fallback: navigate to Home even if profile check fails
+      navigation.replace('MainTabs', { screen: 'Home' });
+    }
+  };
+
+  // ─── Google OAuth Handler ────────────────────────────────────────────────────
   const handleGoogleSignIn = async () => {
+    if (isGoogleLoading) return; // Prevent double clicks
+
     try {
       setIsGoogleLoading(true);
-      await signInWithGoogle();
-      Toast.show({ type: 'success', text1: 'Signed in with Google!' });
-    } catch (error: any) {
-      Toast.show({
-        type: 'error',
-        text1: 'Google sign-in failed',
-        text2: error?.message || 'Please try again',
+
+      // Build the deep link that Google will redirect to after OAuth
+      // This MUST match one of the entries in Supabase → Auth → Redirect URLs
+      const redirectUrl = AuthSession.makeRedirectUri({
+        scheme: 'campusapp',       // Must match app.json "scheme"
+        path: 'auth/callback',
       });
+
+      if (__DEV__) {
+        console.log('[Auth] Redirect URL:', redirectUrl);
+      }
+
+
+
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: redirectUrl,
+          skipBrowserRedirect: true, // We handle the browser ourselves below
+        },
+      });
+
+      if (error) throw error;
+
+      if (!data?.url) {
+        throw new Error('No OAuth URL returned from Supabase.');
+      }
+
+      // Open the Google consent screen in the system browser
+      const result = await WebBrowser.openAuthSessionAsync(
+        data.url,
+        redirectUrl,
+        { showInRecents: false }
+      );
+
+      if (__DEV__) {
+        console.log('[Auth] WebBrowser result:', result.type);
+      }
+
+      if (result.type === 'success' && result.url) {
+        // Extract tokens from the callback URL fragment (#access_token=...)
+        const fragmentString = result.url.includes('#')
+          ? result.url.split('#')[1]
+          : result.url.split('?')[1] ?? '';
+
+        const params = new URLSearchParams(fragmentString);
+        const access_token = params.get('access_token');
+        const refresh_token = params.get('refresh_token');
+
+        if (access_token && refresh_token) {
+          const { error: sessionError } = await supabase.auth.setSession({
+            access_token,
+            refresh_token,
+          });
+          if (sessionError) throw sessionError;
+          // onAuthStateChange listener above will handle navigation
+        } else {
+          // Token not in fragment — may be in query string (PKCE flow)
+          // onAuthStateChange may still fire if Supabase picks up the session
+          if (__DEV__) {
+            console.warn('[Auth] No tokens in callback URL. Possible PKCE flow.');
+          }
+        }
+      } else if (result.type === 'cancel') {
+        // User closed the browser — not an error
+        if (__DEV__) console.log('[Auth] User cancelled Google sign-in.');
+      }
+    } catch (error: any) {
+      if (__DEV__) {
+        console.error('[Auth] Google sign-in error:', error);
+      }
+      Alert.alert(
+        'Sign in failed',
+        error?.message || 'Could not sign in with Google. Please try again.'
+      );
     } finally {
       setIsGoogleLoading(false);
     }
   };
 
+  // ─── Email Login Handler ─────────────────────────────────────────────────────
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
       Toast.show({ type: 'error', text1: 'Enter email and password' });
@@ -52,6 +184,7 @@ export default function LoginScreen() {
       setIsLoading(true);
       await signIn(email.trim(), password);
       Toast.show({ type: 'success', text1: 'Welcome back!' });
+      // onAuthStateChange listener will handle navigation
     } catch (error: any) {
       Toast.show({
         type: 'error',
@@ -104,7 +237,9 @@ export default function LoginScreen() {
                   onChangeText={setEmail}
                   keyboardType="email-address"
                   autoCapitalize="none"
+                  autoCorrect={false}
                   placeholderTextColor="#94a3b8"
+                  editable={!isLoading && !isGoogleLoading}
                 />
               </View>
             </View>
@@ -121,6 +256,7 @@ export default function LoginScreen() {
                   onChangeText={setPassword}
                   secureTextEntry={!showPassword}
                   placeholderTextColor="#94a3b8"
+                  editable={!isLoading && !isGoogleLoading}
                 />
                 <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeIcon}>
                   <MaterialIcons
@@ -133,6 +269,7 @@ export default function LoginScreen() {
               <TouchableOpacity
                 style={styles.forgotButton}
                 onPress={() => navigation.navigate('ResetPassword')}
+                disabled={isLoading || isGoogleLoading}
               >
                 <Text style={styles.forgotButtonText}>Forgot Password?</Text>
               </TouchableOpacity>
@@ -140,14 +277,15 @@ export default function LoginScreen() {
 
             {/* Login button */}
             <TouchableOpacity
-              style={[styles.loginButton, isLoading && styles.buttonDisabled]}
+              style={[styles.loginButton, (isLoading || isGoogleLoading) && styles.buttonDisabled]}
               onPress={handleLogin}
               activeOpacity={0.9}
-              disabled={isLoading}
+              disabled={isLoading || isGoogleLoading}
             >
-              <Text style={styles.loginButtonText}>
-                {isLoading ? 'Signing in...' : 'Log In'}
-              </Text>
+              {isLoading
+                ? <ActivityIndicator size="small" color="#111818" />
+                : <Text style={styles.loginButtonText}>Log In</Text>
+              }
             </TouchableOpacity>
 
             {/* Divider */}
@@ -159,14 +297,17 @@ export default function LoginScreen() {
 
             {/* Google button */}
             <TouchableOpacity
-              style={[styles.googleButton, isGoogleLoading && styles.buttonDisabled]}
+              style={[styles.googleButton, (isGoogleLoading || isLoading) && styles.buttonDisabled]}
               onPress={handleGoogleSignIn}
               activeOpacity={0.9}
-              disabled={isGoogleLoading}
+              disabled={isGoogleLoading || isLoading}
             >
-              <MaterialIcons name="g-translate" size={20} color="#EA4335" />
+              {isGoogleLoading
+                ? <ActivityIndicator size="small" color="#EA4335" />
+                : <MaterialIcons name="g-translate" size={20} color="#EA4335" />
+              }
               <Text style={styles.googleButtonText}>
-                {isGoogleLoading ? 'Connecting...' : 'Google'}
+                {isGoogleLoading ? 'Connecting...' : 'Continue with Google'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -312,7 +453,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   buttonDisabled: {
-    opacity: 0.7,
+    opacity: 0.6,
   },
   loginButtonText: {
     fontSize: 16,

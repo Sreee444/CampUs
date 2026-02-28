@@ -1,359 +1,214 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  SafeAreaView,
-  ScrollView,
-  Platform,
-  ActivityIndicator,
+  View, Text, TouchableOpacity, StyleSheet, SafeAreaView,
+  ScrollView, Platform, ActivityIndicator,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
-import { getEngagementMetrics } from '../../api/admin';
-import Loader from '../../components/Loader';
+import { getEngagementMetrics, EngagementMetrics, TimeRange } from '../../api/admin';
+
+const TIME_RANGE_TABS: { label: string; value: TimeRange }[] = [
+  { label: '7 Days', value: '7d' },
+  { label: '30 Days', value: '30d' },
+  { label: '90 Days', value: '90d' },
+];
 
 export default function AdminAnalyticsScreen() {
   const navigation = useNavigation();
   const { isDark } = useTheme();
   const Colors = getColors(isDark);
-  const styles = createStyles(Colors, isDark);
+  const styles = createStyles(Colors);
 
-  const [metrics, setMetrics] = useState<any>(null);
+  const [metrics, setMetrics] = useState<EngagementMetrics | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [timeRange, setTimeRange] = useState<TimeRange>('30d');
 
-  useEffect(() => {
-    loadMetrics();
-  }, []);
-
-  const loadMetrics = async () => {
+  const loadMetrics = useCallback(async (range: TimeRange) => {
+    setIsLoading(true);
     try {
-      const data = await getEngagementMetrics();
+      const data = await getEngagementMetrics(range);
       setMetrics(data);
     } catch (error) {
       console.error('Error loading analytics:', error);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  if (isLoading || !metrics) {
-    return <Loader />;
-  }
+  useEffect(() => { loadMetrics(timeRange); }, [timeRange]);
+
+  const roleColors: Record<string, string> = {
+    student: '#3b82f6',
+    faculty: '#10b981',
+    alumni: '#f59e0b',
+    admin: '#8b5cf6',
+  };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors.background }]}>
+      {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <MaterialIcons name="arrow-back" size={24} color={Colors.text} />
         </TouchableOpacity>
-        <Text style={styles.title}>Engagement Analytics</Text>
-        <View style={{ width: 24 }} />
+        <Text style={[styles.title, { color: Colors.text }]}>Analytics</Text>
+        <TouchableOpacity onPress={() => loadMetrics(timeRange)} style={styles.backBtn}>
+          <MaterialIcons name="refresh" size={22} color={Colors.primary} />
+        </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Key Metrics */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Key Metrics</Text>
-          <View style={styles.metricsGrid}>
-            <View style={[styles.metricCard, { borderLeftColor: '#3b82f6' }]}>
-              <View style={styles.metricHeader}>
-                <MaterialIcons name="people" size={24} color="#3b82f6" />
-                <Text style={styles.metricValue}>{metrics.totalUsers}</Text>
-              </View>
-              <Text style={styles.metricLabel}>Total Users</Text>
-            </View>
+      {/* Time Range Tabs */}
+      <View style={[styles.tabBar, { backgroundColor: Colors.surface }]}>
+        {TIME_RANGE_TABS.map((tab) => (
+          <TouchableOpacity
+            key={tab.value}
+            style={[styles.tab, timeRange === tab.value && { backgroundColor: Colors.primary }]}
+            onPress={() => setTimeRange(tab.value)}
+          >
+            <Text style={[styles.tabText, { color: timeRange === tab.value ? '#fff' : Colors.textSecondary }]}>
+              {tab.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
 
-            <View style={[styles.metricCard, { borderLeftColor: '#10b981' }]}>
-              <View style={styles.metricHeader}>
-                <MaterialIcons name="article" size={24} color="#10b981" />
-                <Text style={styles.metricValue}>{metrics.totalPosts}</Text>
-              </View>
-              <Text style={styles.metricLabel}>Posts Created</Text>
-            </View>
-
-            <View style={[styles.metricCard, { borderLeftColor: '#f59e0b' }]}>
-              <View style={styles.metricHeader}>
-                <MaterialIcons name="event" size={24} color="#f59e0b" />
-                <Text style={styles.metricValue}>{metrics.totalEvents}</Text>
-              </View>
-              <Text style={styles.metricLabel}>Events</Text>
-            </View>
-
-            <View style={[styles.metricCard, { borderLeftColor: '#8b5cf6' }]}>
-              <View style={styles.metricHeader}>
-                <MaterialIcons name="groups" size={24} color="#8b5cf6" />
-                <Text style={styles.metricValue}>{metrics.totalTeams}</Text>
-              </View>
-              <Text style={styles.metricLabel}>Project Teams</Text>
-            </View>
-          </View>
+      {isLoading ? (
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator size="large" color={Colors.primary} />
+          <Text style={[styles.loadingText, { color: Colors.textSecondary }]}>Loading analytics…</Text>
+          {/* Skeleton cards */}
+          {[1, 2, 3].map((i) => (
+            <View key={i} style={[styles.skeletonCard, { backgroundColor: Colors.surface }]} />
+          ))}
         </View>
+      ) : metrics ? (
+        <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
 
-        {/* Engagement Activity */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Recent Activity (30 days)</Text>
-          <View style={[styles.activityCard, { backgroundColor: Colors.surface }]}>
-            <View style={styles.activityRow}>
-              <View style={styles.activityIcon}>
-                <MaterialIcons name="message" size={20} color="#3b82f6" />
-              </View>
-              <View style={styles.activityContent}>
-                <Text style={styles.activityTitle}>Messages Sent</Text>
-                <Text style={styles.activityValue}>{metrics.recentMessages}</Text>
-              </View>
-              <Text style={styles.activityPercent}>+12%</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* User Distribution */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>User Distribution</Text>
-          {Object.entries(metrics.usersByRole).map(([role, count]: [string, any], index: number) => {
-            const colors = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6'];
-            const roleName = role.charAt(0).toUpperCase() + role.slice(1);
-            const percentage = Math.round((count / metrics.totalUsers) * 100);
-
-            return (
-              <View key={role} style={styles.distributionItem}>
-                <View style={styles.distributionLabel}>
-                  <View
-                    style={[styles.colorDot, { backgroundColor: colors[index % colors.length] }]}
-                  />
-                  <Text style={styles.distributionRole}>{roleName}</Text>
+          {/* Static Totals */}
+          <Text style={[styles.sectionTitle, { color: Colors.text }]}>Platform Overview</Text>
+          <View style={styles.grid2}>
+            {[
+              { label: 'Total Users', value: metrics.totalUsers, icon: 'people', color: '#3b82f6' },
+              { label: 'Total Events', value: metrics.totalEvents, icon: 'event', color: '#f59e0b' },
+              { label: 'Total Posts', value: metrics.totalPosts, icon: 'article', color: '#10b981' },
+              { label: 'Project Teams', value: metrics.totalTeams, icon: 'groups', color: '#8b5cf6' },
+            ].map((item) => (
+              <View key={item.label} style={[styles.statCard, { backgroundColor: Colors.surface, borderLeftColor: item.color }]}>
+                <View style={[styles.statIcon, { backgroundColor: item.color + '20' }]}>
+                  <MaterialIcons name={item.icon as any} size={22} color={item.color} />
                 </View>
-                <View style={styles.distributionChart}>
-                  <View
-                    style={[
-                      styles.distributionBar,
-                      {
-                        width: `${Math.max(percentage, 10)}%`,
-                        backgroundColor: colors[index % colors.length],
-                      },
-                    ]}
-                  />
-                </View>
-                <Text style={styles.distributionStat}>
-                  {count} ({percentage}%)
-                </Text>
+                <Text style={[styles.statValue, { color: Colors.text }]}>{item.value}</Text>
+                <Text style={[styles.statLabel, { color: Colors.textSecondary }]}>{item.label}</Text>
               </View>
-            );
-          })}
-        </View>
-
-        {/* Engagement Stats */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Engagement Overview</Text>
-          <View style={[styles.statGridSmall, { backgroundColor: Colors.surface }]}>
-            <View style={styles.statItem}>
-              <Text style={styles.statNumber}>
-                {Math.round(metrics.totalPosts / (metrics.totalUsers || 1))}
-              </Text>
-              <Text style={styles.statName}>Posts per User</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={styles.statNumber}>
-                {Math.round(metrics.recentMessages / 30)}
-              </Text>
-              <Text style={styles.statName}>Daily Messages</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={styles.statNumber}>
-                {Math.round(metrics.totalTeams / (metrics.totalEvents || 1))}
-              </Text>
-              <Text style={styles.statName}>Teams per Event</Text>
-            </View>
+            ))}
           </View>
-        </View>
 
-        {/* Last Updated */}
-        <View style={[styles.footer, { backgroundColor: Colors.surface }]}>
-          <MaterialIcons name="access-time" size={16} color={Colors.textSecondary} />
-          <Text style={styles.footerText}>
-            Last updated: {new Date(metrics.lastUpdated).toLocaleTimeString()}
+          {/* Time-range sensitive */}
+          <Text style={[styles.sectionTitle, { color: Colors.text }]}>
+            Activity ({timeRange === '7d' ? 'Last 7 Days' : timeRange === '30d' ? 'Last 30 Days' : 'Last 90 Days'})
           </Text>
-        </View>
+          <View style={styles.grid2}>
+            {[
+              { label: 'Messages Sent', value: metrics.recentMessages, color: '#3b82f6', icon: 'message' },
+              { label: 'New Posts', value: metrics.recentPosts, color: '#10b981', icon: 'article' },
+              { label: 'New Registrations', value: metrics.recentRegistrations, color: '#f59e0b', icon: 'how-to-reg' },
+              { label: 'New Users', value: metrics.newUsers, color: '#ec4899', icon: 'person-add' },
+            ].map((item) => (
+              <View key={item.label} style={[styles.statCard, { backgroundColor: Colors.surface, borderLeftColor: item.color }]}>
+                <View style={[styles.statIcon, { backgroundColor: item.color + '20' }]}>
+                  <MaterialIcons name={item.icon as any} size={22} color={item.color} />
+                </View>
+                <Text style={[styles.statValue, { color: Colors.text }]}>{item.value}</Text>
+                <Text style={[styles.statLabel, { color: Colors.textSecondary }]}>{item.label}</Text>
+              </View>
+            ))}
+          </View>
 
-        <View style={{ height: Spacing.lg }} />
-      </ScrollView>
+          {/* User Distribution */}
+          <Text style={[styles.sectionTitle, { color: Colors.text }]}>User Distribution</Text>
+          <View style={[styles.card, { backgroundColor: Colors.surface }]}>
+            {Object.entries(metrics.usersByRole).map(([role, count]) => {
+              const pct = metrics.totalUsers > 0 ? Math.round((count / metrics.totalUsers) * 100) : 0;
+              const color = roleColors[role] ?? '#94a3b8';
+              return (
+                <View key={role} style={styles.barRow}>
+                  <View style={[styles.colorDot, { backgroundColor: color }]} />
+                  <Text style={[styles.barLabel, { color: Colors.text }]}>
+                    {role.charAt(0).toUpperCase() + role.slice(1)}
+                  </Text>
+                  <View style={[styles.barTrack, { backgroundColor: Colors.border }]}>
+                    <View style={[styles.barFill, { width: `${Math.max(pct, 3)}%`, backgroundColor: color }]} />
+                  </View>
+                  <Text style={[styles.barStat, { color: Colors.textSecondary }]}>{count} ({pct}%)</Text>
+                </View>
+              );
+            })}
+          </View>
+
+          {/* Computed ratios */}
+          <Text style={[styles.sectionTitle, { color: Colors.text }]}>Engagement Ratios</Text>
+          <View style={[styles.ratioRow, { backgroundColor: Colors.surface }]}>
+            {[
+              { label: 'Posts/User', value: (metrics.totalPosts / Math.max(metrics.totalUsers, 1)).toFixed(1) },
+              { label: 'Msgs/Day', value: (metrics.recentMessages / (timeRange === '7d' ? 7 : timeRange === '30d' ? 30 : 90)).toFixed(1) },
+              { label: 'Teams/Event', value: (metrics.totalTeams / Math.max(metrics.totalEvents, 1)).toFixed(1) },
+            ].map((r, i) => (
+              <React.Fragment key={r.label}>
+                {i > 0 && <View style={[styles.divider, { backgroundColor: Colors.border }]} />}
+                <View style={styles.ratioItem}>
+                  <Text style={[styles.ratioValue, { color: Colors.primary }]}>{r.value}</Text>
+                  <Text style={[styles.ratioLabel, { color: Colors.textSecondary }]}>{r.label}</Text>
+                </View>
+              </React.Fragment>
+            ))}
+          </View>
+
+          <View style={styles.footer}>
+            <MaterialIcons name="access-time" size={14} color={Colors.textSecondary} />
+            <Text style={[styles.footerText, { color: Colors.textSecondary }]}>
+              Updated: {new Date(metrics.lastUpdated).toLocaleTimeString()}
+            </Text>
+          </View>
+          <View style={{ height: Spacing.xxl }} />
+        </ScrollView>
+      ) : null}
     </SafeAreaView>
   );
 }
 
-const createStyles = (Colors: any, isDark: boolean) =>
+const createStyles = (Colors: any) =>
   StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: Colors.background,
-      ...(Platform.OS === 'web' && { height: '100vh', width: '100vw' } as any),
-    },
-    header: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingHorizontal: Spacing.md,
-      paddingVertical: Spacing.md,
-      borderBottomWidth: 1,
-      borderBottomColor: Colors.border,
-    },
-    title: {
-      fontSize: FontSizes.lg,
-      fontWeight: FontWeights.bold,
-      color: Colors.text,
-      flex: 1,
-      textAlign: 'center',
-    },
-    content: {
-      flex: 1,
-      padding: Spacing.md,
-    },
-    section: {
-      marginBottom: Spacing.xl,
-    },
-    sectionTitle: {
-      fontSize: FontSizes.lg,
-      fontWeight: FontWeights.bold,
-      color: Colors.text,
-      marginBottom: Spacing.md,
-    },
-    metricsGrid: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: Spacing.md,
-    },
-    metricCard: {
-      flex: 0.48,
-      backgroundColor: Colors.surface,
-      borderRadius: BorderRadius.lg,
-      borderLeftWidth: 4,
-      padding: Spacing.md,
-    },
-    metricHeader: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: Spacing.sm,
-      marginBottom: Spacing.sm,
-    },
-    metricValue: {
-      fontSize: FontSizes.xxl,
-      fontWeight: FontWeights.bold,
-      color: Colors.text,
-    },
-    metricLabel: {
-      fontSize: FontSizes.xs,
-      color: Colors.textSecondary,
-    },
-    activityCard: {
-      borderRadius: BorderRadius.lg,
-      padding: Spacing.md,
-    },
-    activityRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: Spacing.md,
-    },
-    activityIcon: {
-      width: 48,
-      height: 48,
-      borderRadius: BorderRadius.lg,
-      backgroundColor: '#3b82f620',
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    activityContent: {
-      flex: 1,
-    },
-    activityTitle: {
-      fontSize: FontSizes.sm,
-      color: Colors.textSecondary,
-    },
-    activityValue: {
-      fontSize: FontSizes.lg,
-      fontWeight: FontWeights.bold,
-      color: Colors.text,
-      marginTop: 4,
-    },
-    activityPercent: {
-      fontSize: FontSizes.md,
-      fontWeight: FontWeights.bold,
-      color: '#10b981',
-    },
-    distributionItem: {
-      marginBottom: Spacing.md,
-    },
-    distributionLabel: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: Spacing.sm,
-      marginBottom: Spacing.sm,
-    },
-    colorDot: {
-      width: 12,
-      height: 12,
-      borderRadius: BorderRadius.full,
-    },
-    distributionRole: {
-      fontSize: FontSizes.sm,
-      fontWeight: FontWeights.semibold,
-      color: Colors.text,
-    },
-    distributionChart: {
-      height: 24,
-      backgroundColor: Colors.surface,
-      borderRadius: BorderRadius.md,
-      overflow: 'hidden',
-    },
-    distributionBar: {
-      height: '100%',
-      borderRadius: BorderRadius.md,
-    },
-    distributionStat: {
-      fontSize: FontSizes.xs,
-      color: Colors.textSecondary,
-      marginTop: Spacing.sm,
-    },
-    statGridSmall: {
-      flexDirection: 'row',
-      borderRadius: BorderRadius.lg,
-      overflow: 'hidden',
-    },
-    statItem: {
-      flex: 1,
-      alignItems: 'center',
-      paddingVertical: Spacing.lg,
-      paddingHorizontal: Spacing.md,
-    },
-    statDivider: {
-      width: 1,
-      backgroundColor: Colors.border,
-    },
-    statNumber: {
-      fontSize: FontSizes.xxl,
-      fontWeight: FontWeights.bold,
-      color: Colors.primary,
-    },
-    statName: {
-      fontSize: FontSizes.xs,
-      color: Colors.textSecondary,
-      marginTop: Spacing.sm,
-      textAlign: 'center',
-    },
-    footer: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: Spacing.sm,
-      padding: Spacing.md,
-      borderRadius: BorderRadius.lg,
-    },
-    footerText: {
-      fontSize: FontSizes.xs,
-      color: Colors.textSecondary,
-    },
+    container: { flex: 1, ...(Platform.OS === 'web' && { height: '100vh', width: '100vw' } as any) },
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: Spacing.md, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: Colors.border },
+    backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+    title: { fontSize: FontSizes.lg, fontWeight: FontWeights.bold },
+    tabBar: { flexDirection: 'row', margin: Spacing.md, borderRadius: BorderRadius.lg, padding: 4, gap: 4 },
+    tab: { flex: 1, paddingVertical: 8, borderRadius: BorderRadius.md, alignItems: 'center' },
+    tabText: { fontSize: FontSizes.sm, fontWeight: FontWeights.semibold },
+    loadingWrap: { flex: 1, alignItems: 'center', paddingTop: Spacing.xl, gap: 12 },
+    loadingText: { fontSize: FontSizes.sm, marginBottom: 12 },
+    skeletonCard: { width: '90%', height: 70, borderRadius: BorderRadius.lg, opacity: 0.4 },
+    scroll: { flex: 1, padding: Spacing.md },
+    sectionTitle: { fontSize: FontSizes.md, fontWeight: FontWeights.bold, marginBottom: 10, marginTop: 14 },
+    grid2: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 4 },
+    statCard: { flex: 0.48, borderRadius: BorderRadius.lg, borderLeftWidth: 4, padding: 12, gap: 4 },
+    statIcon: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
+    statValue: { fontSize: FontSizes.xl, fontWeight: FontWeights.bold },
+    statLabel: { fontSize: FontSizes.xs },
+    card: { borderRadius: BorderRadius.lg, padding: 14, gap: 12, marginBottom: 4 },
+    barRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    colorDot: { width: 10, height: 10, borderRadius: 5 },
+    barLabel: { width: 64, fontSize: FontSizes.sm, fontWeight: FontWeights.medium },
+    barTrack: { flex: 1, height: 12, borderRadius: 6, overflow: 'hidden' },
+    barFill: { height: '100%', borderRadius: 6 },
+    barStat: { fontSize: FontSizes.xs, width: 68, textAlign: 'right' },
+    ratioRow: { flexDirection: 'row', borderRadius: BorderRadius.lg, overflow: 'hidden', marginBottom: 4 },
+    ratioItem: { flex: 1, alignItems: 'center', paddingVertical: 16 },
+    divider: { width: 1 },
+    ratioValue: { fontSize: FontSizes.xl, fontWeight: FontWeights.bold },
+    ratioLabel: { fontSize: FontSizes.xs, marginTop: 4, textAlign: 'center' },
+    footer: { flexDirection: 'row', alignItems: 'center', gap: 6, justifyContent: 'center', marginTop: 14 },
+    footerText: { fontSize: FontSizes.xs },
   });

@@ -86,7 +86,7 @@ export default function ProjectDetailsScreen() {
   const [invitedUserIds, setInvitedUserIds] = useState<Set<string>>(new Set());
   const [isHandlingInvite, setIsHandlingInvite] = useState(false);
   const [inviteFilter, setInviteFilter] = useState<'all' | 'best' | 'dept'>('all');
-  
+
   // Status modal
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
@@ -98,20 +98,26 @@ export default function ProjectDetailsScreen() {
   const [editProjectDescription, setEditProjectDescription] = useState('');
   const [editProjectCategory, setEditProjectCategory] = useState('');
   const [editMaxMembers, setEditMaxMembers] = useState('');
-  
+
   // Join request modal
   const [showJoinRequestModal, setShowJoinRequestModal] = useState(false);
   const [joinMessage, setJoinMessage] = useState('');
   const [isSendingRequest, setIsSendingRequest] = useState(false);
-  
+
   // Remove member confirmation
   const [memberToRemove, setMemberToRemove] = useState<any>(null);
   const [isRemovingMember, setIsRemovingMember] = useState(false);
-  
+
   // Leave team confirmation
   const [showLeaveConfirmation, setShowLeaveConfirmation] = useState(false);
   const [isLeavingTeam, setIsLeavingTeam] = useState(false);
-  
+
+  // Change leader
+  const [isChangingLeader, setIsChangingLeader] = useState(false);
+
+  // Member action sheet (3-dot menu)
+  const [memberActionTarget, setMemberActionTarget] = useState<any>(null);
+
   // Join request confirmation
   const [showJoinConfirmation, setShowJoinConfirmation] = useState(false);
   const [showDeleteProjectConfirmation, setShowDeleteProjectConfirmation] = useState(false);
@@ -217,8 +223,11 @@ export default function ProjectDetailsScreen() {
     return '#6b7280';
   };
 
+  // Track whether candidates have been loaded for the current modal open
+  const candidatesLoadedRef = React.useRef(false);
+
   const loadInviteCandidates = useCallback(async () => {
-    if (!team || !canManageTeam) return;
+    if (!team || !isCreator) return;
 
     try {
       setIsLoadingInvitees(true);
@@ -257,11 +266,20 @@ export default function ProjectDetailsScreen() {
     } finally {
       setIsLoadingInvitees(false);
     }
-  }, [team, canManageTeam, displayMembers, pendingJoinRequests, requiredRoles, user?.id]);
+    // Only re-run when team/required skills change, NOT on every displayMembers change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [team?.id, requiredRoles, isCreator]);
 
   useEffect(() => {
     if (showInviteModal) {
-      loadInviteCandidates();
+      // Only load once per modal open, not on every dep change
+      if (!candidatesLoadedRef.current) {
+        candidatesLoadedRef.current = true;
+        loadInviteCandidates();
+      }
+    } else {
+      // Reset flag when modal closes so next open reloads
+      candidatesLoadedRef.current = false;
     }
   }, [showInviteModal, loadInviteCandidates]);
 
@@ -390,7 +408,7 @@ export default function ProjectDetailsScreen() {
     // Prevent joining closed projects
     const projectStatus = team.status || 'planning';
     const closedStatuses = ['cancelled', 'completed', 'on-hold'];
-    
+
     if (closedStatuses.includes(projectStatus)) {
       Toast.show({
         type: 'error',
@@ -404,9 +422,9 @@ export default function ProjectDetailsScreen() {
     try {
       setIsSendingRequest(true);
       setShowJoinConfirmation(false);
-      
+
       await sendJoinRequest(teamId, user.id, joinMessage.trim() || undefined);
-      
+
       // Try to send notifications (don't fail if this fails)
       try {
         // Notify team creator
@@ -417,7 +435,7 @@ export default function ProjectDetailsScreen() {
           type: 'project_request',
           related_id: teamId,
         });
-        
+
         // Notify all admins
         await notifyAdmins(
           'Project Join Request',
@@ -426,7 +444,7 @@ export default function ProjectDetailsScreen() {
       } catch (notifErr) {
         console.error('Failed to send notifications, but join request was sent:', notifErr);
       }
-      
+
       Toast.show({
         type: 'success',
         text1: 'Request Sent',
@@ -483,10 +501,10 @@ export default function ProjectDetailsScreen() {
         related_id: teamId,
       });
 
+      // Update local state only — avoids modal glitch from full screen reload
       setInvitedUserIds((prev) => new Set([...prev, userId]));
+      setInviteCandidates((prev) => prev.filter((c) => c.id !== userId));
       Toast.show({ type: 'success', text1: 'Invitation sent' });
-      await loadTeamData();
-      await loadInviteCandidates();
     } catch (err: any) {
       Toast.show({
         type: 'error',
@@ -503,7 +521,7 @@ export default function ProjectDetailsScreen() {
 
     try {
       await acceptJoinRequest(request.id, teamId, request.user_id);
-      
+
       // Try to send notifications (don't fail if this fails)
       try {
         // Notify the user
@@ -514,7 +532,7 @@ export default function ProjectDetailsScreen() {
           type: 'project_update',
           related_id: teamId,
         });
-        
+
         // Notify admins
         await notifyAdmins(
           'Project Team Update',
@@ -523,7 +541,7 @@ export default function ProjectDetailsScreen() {
       } catch (notifErr) {
         console.error('Failed to send notifications, but request was accepted:', notifErr);
       }
-      
+
       Toast.show({
         type: 'success',
         text1: 'Request Accepted',
@@ -640,6 +658,49 @@ export default function ProjectDetailsScreen() {
     }
   };
 
+  // ─── Change Team Leader ──────────────────────────────────────────────────────
+  const handleChangeLeader = (newLeaderId: string, newLeaderName: string) => {
+    if (!isCreator || !team) return;
+
+    Alert.alert(
+      'Transfer Leadership',
+      `Make ${newLeaderName} the new project leader? You will become a regular member.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Confirm',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setIsChangingLeader(true);
+              // Supabase generic DB type maps this to `never` — casting via typed object
+              const updatePayload: Record<string, string> = { created_by: newLeaderId };
+              const { error: updateError } = await (supabase
+                .from('project_teams') as any)
+                .update(updatePayload)
+                .eq('id', teamId);
+
+              await createNotification({
+                user_id: newLeaderId,
+                title: 'You are now the Project Leader',
+                body: `${profile?.full_name || user?.email || 'Previous leader'} made you the leader of ${team.name}`,
+                type: 'project_update',
+                related_id: teamId,
+              });
+
+              Toast.show({ type: 'success', text1: 'Leadership transferred', text2: `${newLeaderName} is now the project leader` });
+              await loadTeamData();
+            } catch (err: any) {
+              Toast.show({ type: 'error', text1: 'Transfer Failed', text2: err?.message || 'Unable to transfer leadership' });
+            } finally {
+              setIsChangingLeader(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const handleRemoveMember = async () => {
     if (!memberToRemove || !canManageMembers || !user?.id) return;
 
@@ -664,7 +725,7 @@ export default function ProjectDetailsScreen() {
     try {
       setIsRemovingMember(true);
       await removeTeamMember(teamId, memberToRemove.id, user.id);
-      
+
       // Try to send notifications (don't fail if this fails)
       try {
         // Notify the removed member
@@ -675,7 +736,7 @@ export default function ProjectDetailsScreen() {
           type: 'project_update',
           related_id: teamId,
         });
-        
+
         // Notify admins
         await notifyAdmins(
           'Project Team Update',
@@ -684,7 +745,7 @@ export default function ProjectDetailsScreen() {
       } catch (notifErr) {
         console.error('Failed to send notifications, but member was removed:', notifErr);
       }
-      
+
       Toast.show({
         type: 'success',
         text1: 'Member Removed',
@@ -710,9 +771,9 @@ export default function ProjectDetailsScreen() {
     try {
       setIsLeavingTeam(true);
       setShowLeaveConfirmation(false);
-      
+
       await removeTeamMember(teamId, user.id, user.id);
-      
+
       // Try to send notifications (don't fail if this fails)
       try {
         // Notify team creator
@@ -723,7 +784,7 @@ export default function ProjectDetailsScreen() {
           type: 'project_update',
           related_id: teamId,
         });
-      
+
         // Notify admins
         await notifyAdmins(
           'Project Team Update',
@@ -732,13 +793,13 @@ export default function ProjectDetailsScreen() {
       } catch (notifErr) {
         console.error('Failed to send notifications, but left team:', notifErr);
       }
-      
+
       Toast.show({
         type: 'success',
         text1: 'Left Team',
         text2: `You have left ${team.name}`,
       });
-      
+
       // Navigate back after leaving
       navigation.goBack();
     } catch (err: any) {
@@ -760,7 +821,7 @@ export default function ProjectDetailsScreen() {
         .from('profiles')
         .select('id')
         .eq('role', 'admin');
-      
+
       if (admins && admins.length > 0) {
         // Create notification for each admin
         const notificationPromises = admins.map((admin: { id: string }) =>
@@ -786,7 +847,7 @@ export default function ProjectDetailsScreen() {
     const hasInvite =
       joinRequestStatus?.status === 'pending' &&
       isInviteMessage(joinRequestStatus?.message);
-    
+
     if (isMember && !canManageTeam) {
       return (
         <TouchableOpacity
@@ -798,27 +859,27 @@ export default function ProjectDetailsScreen() {
         </TouchableOpacity>
       );
     }
-    
+
     if (isMember) return null;
     if (isCreator) return null;
-    
+
     // Check if project status allows joining
     const projectStatus = team?.status || 'planning';
     const closedStatuses = ['cancelled', 'completed', 'on-hold'];
-    
+
     if (closedStatuses.includes(projectStatus)) {
       return (
         <View style={styles.closedBadge}>
           <MaterialIcons name="block" size={16} color="#ef4444" />
           <Text style={styles.closedText}>
             {projectStatus === 'cancelled' ? 'Project Cancelled' :
-             projectStatus === 'completed' ? 'Project Completed' :
-             'Project On Hold'}
+              projectStatus === 'completed' ? 'Project Completed' :
+                'Project On Hold'}
           </Text>
         </View>
       );
     }
-    
+
     if (hasInvite) {
       return (
         <View style={styles.inviteInlineContainer}>
@@ -936,7 +997,7 @@ export default function ProjectDetailsScreen() {
                   </View>
                 )}
               </View>
-              
+
               <View style={[styles.statusBadge, { backgroundColor: statusInfo.bg }]}>
                 <View style={[styles.statusDot, { backgroundColor: statusInfo.color }]} />
                 <Text style={[styles.statusText, { color: statusInfo.color }]}>
@@ -1127,6 +1188,7 @@ export default function ProjectDetailsScreen() {
                 const isAdminMember = member.role === 'admin';
                 const matchInfo = computeMatchScore(member.skills ?? [], requiredRoles);
                 const matchColor = getMatchColor(matchInfo.percentage);
+                const canShowMenu = isCreator && !isLeader && !isAdminMember;
                 return (
                   <View key={member.id} style={styles.memberCard}>
                     <TouchableOpacity
@@ -1161,14 +1223,14 @@ export default function ProjectDetailsScreen() {
                         </Text>
                         <Text style={styles.memberMatchLabel}>match</Text>
                       </View>
-                    {canManageMembers && !isLeader && !isAdminMember && (
-                      <TouchableOpacity
-                        style={styles.removeMemberButton}
-                        onPress={() => setMemberToRemove(member)}
-                      >
-                        <MaterialIcons name="remove-circle-outline" size={20} color="#ef4444" />
-                      </TouchableOpacity>
-                    )}
+                      {canShowMenu && (
+                        <TouchableOpacity
+                          style={styles.memberMenuDots}
+                          onPress={() => setMemberActionTarget(member)}
+                        >
+                          <MaterialIcons name="more-vert" size={22} color={Colors.textSecondary} />
+                        </TouchableOpacity>
+                      )}
                     </View>
                   </View>
                 );
@@ -1177,7 +1239,7 @@ export default function ProjectDetailsScreen() {
           </View>
 
           {/* Invite Members */}
-          {canManageTeam && (
+          {isCreator && (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Invite Members</Text>
               <Text style={styles.sectionSubtitle}>
@@ -1372,12 +1434,12 @@ export default function ProjectDetailsScreen() {
               </View>
             ) : (
               <ScrollView style={styles.inviteList} showsVerticalScrollIndicator={false}>
-                    {filteredInviteCandidates.map((candidate) => {
-                      const matchColor = getMatchColor(candidate.match.percentage);
-                      const isInvited = invitedUserIds.has(candidate.id);
-                      const pendingInvite = pendingInvites.find((invite) => invite.user_id === candidate.id);
-                      return (
-                        <View key={candidate.id} style={styles.inviteCard}>
+                {filteredInviteCandidates.map((candidate) => {
+                  const matchColor = getMatchColor(candidate.match.percentage);
+                  const isInvited = invitedUserIds.has(candidate.id);
+                  const pendingInvite = pendingInvites.find((invite) => invite.user_id === candidate.id);
+                  return (
+                    <View key={candidate.id} style={styles.inviteCard}>
                       <TouchableOpacity
                         style={styles.inviteInfo}
                         onPress={() => navigation.navigate('PublicProfile', { userId: candidate.id })}
@@ -1398,42 +1460,42 @@ export default function ProjectDetailsScreen() {
                           </Text>
                         </View>
                       </TouchableOpacity>
-                        <View style={styles.inviteActions}>
-                          <View style={[styles.inviteMatchBadge, { borderColor: matchColor }]}>
-                            <Text style={[styles.inviteMatchPct, { color: matchColor }]}>
-                              {candidate.match.percentage}%
-                            </Text>
-                            <Text style={styles.inviteMatchLabel}>match</Text>
-                          </View>
-                          {isInvited && pendingInvite ? (
-                            <TouchableOpacity
-                              style={styles.inviteCancelButton}
-                              onPress={() => handleCancelInvite(pendingInvite)}
-                            >
-                              <Text style={styles.inviteCancelText}>Cancel Invite</Text>
-                            </TouchableOpacity>
-                          ) : (
-                            <TouchableOpacity
-                              style={[
-                                styles.inviteActionButton,
-                                (invitingUserId === candidate.id || isInvited) && styles.inviteActionButtonDisabled,
-                              ]}
-                              onPress={() => handleInviteUser(candidate.id)}
-                              disabled={invitingUserId === candidate.id || isInvited}
-                            >
-                              {invitingUserId === candidate.id ? (
-                                <ActivityIndicator size="small" color="#fff" />
-                              ) : (
-                                <Text style={styles.inviteActionText}>
-                                  {isInvited ? 'Invited' : 'Invite'}
-                                </Text>
-                              )}
-                            </TouchableOpacity>
-                          )}
+                      <View style={styles.inviteActions}>
+                        <View style={[styles.inviteMatchBadge, { borderColor: matchColor }]}>
+                          <Text style={[styles.inviteMatchPct, { color: matchColor }]}>
+                            {candidate.match.percentage}%
+                          </Text>
+                          <Text style={styles.inviteMatchLabel}>match</Text>
                         </View>
+                        {isInvited && pendingInvite ? (
+                          <TouchableOpacity
+                            style={styles.inviteCancelButton}
+                            onPress={() => handleCancelInvite(pendingInvite)}
+                          >
+                            <Text style={styles.inviteCancelText}>Cancel Invite</Text>
+                          </TouchableOpacity>
+                        ) : (
+                          <TouchableOpacity
+                            style={[
+                              styles.inviteActionButton,
+                              (invitingUserId === candidate.id || isInvited) && styles.inviteActionButtonDisabled,
+                            ]}
+                            onPress={() => handleInviteUser(candidate.id)}
+                            disabled={invitingUserId === candidate.id || isInvited}
+                          >
+                            {invitingUserId === candidate.id ? (
+                              <ActivityIndicator size="small" color="#fff" />
+                            ) : (
+                              <Text style={styles.inviteActionText}>
+                                {isInvited ? 'Invited' : 'Invite'}
+                              </Text>
+                            )}
+                          </TouchableOpacity>
+                        )}
                       </View>
-                    );
-                  })}
+                    </View>
+                  );
+                })}
                 <View style={{ height: 24 }} />
               </ScrollView>
             )}
@@ -1552,6 +1614,56 @@ export default function ProjectDetailsScreen() {
         icon="send"
       />
 
+      {/* Member Action Sheet (3-dot menu) */}
+      <Modal
+        visible={!!memberActionTarget}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMemberActionTarget(null)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setMemberActionTarget(null)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.memberActionSheet}>
+            <View style={styles.modalHandle} />
+            <Text style={[styles.modalTitle, { marginBottom: 4 }]}>
+              {memberActionTarget?.full_name || 'Member'}
+            </Text>
+            <Text style={[styles.modalSubtitle, { marginBottom: 8 }]}>
+              {memberActionTarget?.department || 'Team Member'}
+            </Text>
+            <View style={styles.memberActionDivider} />
+            <TouchableOpacity
+              style={styles.memberActionItem}
+              onPress={() => {
+                setMemberActionTarget(null);
+                handleChangeLeader(
+                  memberActionTarget.id,
+                  memberActionTarget.full_name || memberActionTarget.email || 'this member'
+                );
+              }}
+              disabled={isChangingLeader}
+            >
+              <MaterialIcons name="star-outline" size={22} color="#f59e0b" />
+              <Text style={styles.memberActionItemText}>Make Project Leader</Text>
+            </TouchableOpacity>
+            <View style={styles.memberActionDivider} />
+            <TouchableOpacity
+              style={styles.memberActionItem}
+              onPress={() => {
+                setMemberToRemove(memberActionTarget);
+                setMemberActionTarget(null);
+              }}
+            >
+              <MaterialIcons name="person-remove" size={22} color="#ef4444" />
+              <Text style={[styles.memberActionItemText, { color: '#ef4444' }]}>Remove from Team</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       {/* Delete Project Confirmation */}
       <ConfirmBottomSheet
         visible={showDeleteProjectConfirmation}
@@ -1619,7 +1731,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       color: Colors.error,
       textAlign: 'center',
     },
-    
+
     // Project Header
     projectHeader: {
       padding: Spacing.lg,
@@ -2475,5 +2587,47 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       fontSize: FontSizes.md,
       fontWeight: FontWeights.semibold,
       color: '#fff',
+    },
+    makeLeaderButton: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: 'rgba(245,158,11,0.1)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: 4,
+    },
+    memberMenuDots: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    memberActionSheet: {
+      backgroundColor: Colors.card,
+      borderRadius: BorderRadius.xl,
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      minWidth: 220,
+      ...Shadows.md,
+    },
+    memberActionItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      paddingVertical: 14,
+      paddingHorizontal: 8,
+      borderRadius: BorderRadius.md,
+    },
+    memberActionItemText: {
+      fontSize: FontSizes.md,
+      fontWeight: FontWeights.medium,
+      color: Colors.text,
+    },
+    memberActionDivider: {
+      height: 1,
+      backgroundColor: Colors.border,
+      marginVertical: 2,
     },
   });

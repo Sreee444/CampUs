@@ -3,6 +3,7 @@ import { Profile, UserRole } from "../types/database";
 import * as WebBrowser from 'expo-web-browser';
 import { makeRedirectUri } from 'expo-auth-session';
 import { Platform } from 'react-native';
+import * as FileSystem from 'expo-file-system/legacy';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -217,43 +218,36 @@ export const updatePassword = async (newPassword: string) => {
 // Upload avatar
 export const uploadAvatar = async (userId: string, fileUri: string) => {
   try {
-    // Extract file extension and create file path
     const fileExt = fileUri.split('.').pop()?.toLowerCase() || 'jpg';
     const fileName = `avatar.${fileExt}`;
     const filePath = `${userId}/${fileName}`;
 
-    // Determine mime type
     let mimeType = 'image/jpeg';
     if (fileExt === 'png') mimeType = 'image/png';
     else if (fileExt === 'webp') mimeType = 'image/webp';
     else if (fileExt === 'gif') mimeType = 'image/gif';
 
-    // Read file using React Native compatible approach
-    let arrayBuffer: ArrayBuffer;
+    // Use expo-file-system — response.arrayBuffer() is NOT supported in Hermes/React Native
+    let base64: string;
     try {
-      const response = await fetch(fileUri);
-
-      if (!response.ok) {
-        throw new Error(`Failed to read image file: ${response.statusText}`);
-      }
-      
-      // Convert to ArrayBuffer instead of Blob for React Native compatibility
-      arrayBuffer = await response.arrayBuffer();
-    } catch (fetchError: any) {
-      console.error('Fetch error:', fetchError);
+      base64 = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.Base64 });
+    } catch (readError: any) {
+      console.error('FileSystem read error:', readError);
       throw new Error('❌ Failed to read image. Please try selecting another image.');
     }
 
-    // Validate file size (max 5MB)
-    if (arrayBuffer.byteLength > 5 * 1024 * 1024) {
+    // Validate file size (base64.length * 0.75 ≈ raw bytes)
+    if (Math.ceil(base64.length * 0.75) > 5 * 1024 * 1024) {
       throw new Error('📦 Image size must be less than 5MB. Please select a smaller image.');
     }
 
-    // Convert ArrayBuffer to Uint8Array for Supabase (React Native compatible)
-    const uint8Array = new Uint8Array(arrayBuffer);
+    const byteCharacters = atob(base64);
+    const uint8Array = new Uint8Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      uint8Array[i] = byteCharacters.charCodeAt(i);
+    }
 
-    // Upload to storage
-    const { data, error: uploadError } = await supabase.storage
+    const { error: uploadError } = await supabase.storage
       .from('avatars')
       .upload(filePath, uint8Array, {
         upsert: true,
@@ -263,51 +257,32 @@ export const uploadAvatar = async (userId: string, fileUri: string) => {
 
     if (uploadError) {
       console.error('Storage upload error:', uploadError);
-
-      // Check for specific error types
       if (uploadError.message?.includes('Bucket not found') || uploadError.message?.includes('not found')) {
-        throw new Error(
-          '🔧 Storage not configured!\n\n' +
-          'Please run the setup:\n' +
-          '1. Open Supabase SQL Editor\n' +
-          '2. Run supabase_storage_setup.sql\n' +
-          '3. Try uploading again'
-        );
+        throw new Error('🔧 Storage not configured!\n\nPlease run the setup:\n1. Open Supabase SQL Editor\n2. Run supabase_storage_setup.sql\n3. Try uploading again');
       }
-
       if (uploadError.message?.includes('policy')) {
         throw new Error('🔒 Permission denied. Please check storage policies in Supabase.');
       }
-
       if (uploadError.message?.includes('size')) {
         throw new Error('📦 File too large. Maximum size is 5MB.');
       }
-
       throw new Error(`❌ Upload failed: ${uploadError.message}`);
     }
 
-    // Success! Get public URL
-    const { data: { publicUrl } } = supabase.storage
-      .from('avatars')
-      .getPublicUrl(filePath);
-
+    const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(filePath);
     return publicUrl;
 
   } catch (error: any) {
     console.error('Upload avatar error:', error);
-
-    // Provide user-friendly error messages
     let errorMessage = error.message || '❌ Failed to upload avatar';
-
-    // Handle abort signal errors
     if (errorMessage.includes('aborted') || errorMessage.includes('signal')) {
-      errorMessage = '⚠️ Upload interrupted.\n\nThis usually means:\n1. Storage bucket not set up (run SQL setup)\n2. Network timeout\n3. Try a smaller image\n\nCheck SETUP_GUIDE.md for help.';
+      errorMessage = '⚠️ Upload interrupted. Check storage bucket setup and try again.';
     } else if (errorMessage.includes('network') || errorMessage.includes('fetch')) {
-      errorMessage = '📡 Network error. Please check your internet connection and try again.';
+      errorMessage = '📡 Network error. Please check your internet connection.';
     } else if (errorMessage.includes('timeout')) {
-      errorMessage = '⏱️ Upload timeout. Please try again with a better connection.';
+      errorMessage = '⏱️ Upload timeout. Please try again.';
     }
-
     throw new Error(errorMessage);
   }
 };
+

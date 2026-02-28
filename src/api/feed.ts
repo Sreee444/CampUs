@@ -1,5 +1,7 @@
 // @ts-nocheck
+import * as FileSystem from 'expo-file-system/legacy';
 import { supabase } from "./supabase";
+import { Database } from '../types/database';
 import { FeedPost, PostComment, PostLike, PostType } from "../types/database";
 
 // Get feed posts with author info and counts
@@ -217,25 +219,27 @@ export const approvePost = async (postId: string, moderatorId: string) => {
 
 // Upload post image
 export const uploadPostImage = async (userId: string, fileUri: string) => {
-  const response = await fetch(fileUri);
-  const arrayBuffer = await response.arrayBuffer();
-  const uint8Array = new Uint8Array(arrayBuffer);
-  const fileExt = fileUri.split(".").pop();
+  const fileExt = (fileUri.split('.').pop()?.split('?')[0] ?? 'jpg').toLowerCase();
   const fileName = `${Date.now()}.${fileExt}`;
   const filePath = `${userId}/${fileName}`;
+  const contentType = fileExt === 'png' ? 'image/png' : fileExt === 'webp' ? 'image/webp' : 'image/jpeg';
+
+  const base64 = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.Base64 });
+  const byteCharacters = atob(base64);
+  const uint8Array = new Uint8Array(byteCharacters.length);
+  for (let i = 0; i < byteCharacters.length; i++) {
+    uint8Array[i] = byteCharacters.charCodeAt(i);
+  }
 
   const { error: uploadError } = await supabase.storage
-    .from("post-images")
-    .upload(filePath, uint8Array, {
-      contentType: `image/${fileExt}`,
-      upsert: true,
-    });
+    .from('post-images')
+    .upload(filePath, uint8Array, { contentType, upsert: true });
 
   if (uploadError) throw uploadError;
 
-  const {
-    data: { publicUrl },
-  } = supabase.storage.from("post-images").getPublicUrl(filePath);
+  const { data: { publicUrl } } = supabase.storage
+    .from('post-images')
+    .getPublicUrl(filePath);
 
   return publicUrl;
 };

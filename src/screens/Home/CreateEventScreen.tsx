@@ -21,6 +21,7 @@ import Toast from 'react-native-toast-message';
 import { RootStackParamList } from '../../navigation/types';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../api/supabase';
+import * as FileSystem from 'expo-file-system/legacy';
 import { DEPARTMENTS, YEARS } from '../../utils/teamUtils';
 
 type CreateEventScreenNavigationProp = StackNavigationProp<RootStackParamList, 'CreateEvent'>;
@@ -111,48 +112,33 @@ export default function CreateEventScreen() {
   const uploadImage = async (uri: string) => {
     try {
       setUploading(true);
-      console.log('Starting image upload from URI:', uri);
-
-      // For React Native/Expo Go compatibility, use base64 instead of blob
-      const response = await fetch(uri);
-      const arrayBuffer = await response.arrayBuffer();
-      const fileExt = uri.split('.').pop() || 'jpg';
+      const fileExt = (uri.split('.').pop()?.split('?')[0] ?? 'jpg').toLowerCase();
       const fileName = `event-poster-${Date.now()}.${fileExt}`;
+      const contentType = fileExt === 'png' ? 'image/png' : fileExt === 'webp' ? 'image/webp' : 'image/jpeg';
 
-      console.log('Uploading to Supabase:', fileName);
-
-      // Convert ArrayBuffer to Uint8Array for Supabase
-      const uint8Array = new Uint8Array(arrayBuffer);
+      // Read as base64 — response.arrayBuffer() is NOT supported in Hermes/React Native
+      const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+      const byteCharacters = atob(base64);
+      const uint8Array = new Uint8Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        uint8Array[i] = byteCharacters.charCodeAt(i);
+      }
 
       const { data, error } = await supabase.storage
         .from('event-banners')
-        .upload(fileName, uint8Array, {
-          contentType: `image/${fileExt}`,
-          upsert: true,
-        });
+        .upload(fileName, uint8Array, { contentType, upsert: true });
 
-      if (error) {
-        console.error('Supabase upload error:', error);
-        throw error;
-      }
-
-      console.log('Upload successful!', data);
+      if (error) throw error;
 
       const { data: publicUrlData } = supabase.storage
         .from('event-banners')
         .getPublicUrl(fileName);
 
-      console.log('Public URL:', publicUrlData.publicUrl);
-
       setFormData(prev => ({ ...prev, banner_image: publicUrlData.publicUrl }));
       Toast.show({ type: 'success', text1: 'Poster uploaded successfully!' });
     } catch (err: any) {
       console.error('Upload error:', err);
-      Toast.show({
-        type: 'error',
-        text1: 'Failed to upload poster',
-        text2: err.message || 'Please try again'
-      });
+      Toast.show({ type: 'error', text1: 'Failed to upload poster', text2: err.message || 'Please try again' });
     } finally {
       setUploading(false);
     }
@@ -277,10 +263,10 @@ export default function CreateEventScreen() {
           eligibility_type: formData.eligibility_type,
           eligible_departments: ['department', 'department_year'].includes(formData.eligibility_type)
             ? formData.eligible_departments
-            : null,
+            : [],
           eligible_years: ['year', 'department_year'].includes(formData.eligibility_type)
             ? formData.eligible_years
-            : null,
+            : [],
         } as any)
         .select()
         .single();

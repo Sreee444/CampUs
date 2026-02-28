@@ -69,3 +69,5 @@ Thumbs.db
 database/
 docs/
 stitch_campus_login/
+supabase/
+migrations/

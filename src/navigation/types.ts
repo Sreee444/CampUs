@@ -30,13 +30,13 @@ export type RootStackParamList = {
   CreateTopic: undefined;
   CreateProject: undefined;
   CreateEvent: undefined;
+  EditEvent: { eventId: string };
   EventDetails: { eventId: string };
   EventRegisteredUsers: { eventId: string; eventTitle: string };
   EventDiscussion: { eventId: string };
   Calendar: undefined;
   TeamFormation: undefined;
   AIChatAssistant: undefined;
-  AISuggestions: undefined;
   PublicProfile: { userId: string };
   AllUsers: { mode?: 'browse' | 'message' } | undefined;
   Discussions: undefined;
@@ -53,7 +53,10 @@ export type RootStackParamList = {
   AdminAnalytics: undefined;
   AdminDiscussions: undefined;
   AIInsights: undefined;
+  AISuggestions: undefined;
   TeamInvitations: undefined;
+  NotificationDetails: { notificationId: string };
+  AdminAudit: undefined;
 };
 
 declare global {

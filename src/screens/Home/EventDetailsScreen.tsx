@@ -76,6 +76,8 @@ export default function EventDetailsScreen() {
   const [teamState, setTeamState] = useState<any>(null);
   const [isCheckingTeam, setIsCheckingTeam] = useState(true);
   const [isHandlingInvite, setIsHandlingInvite] = useState(false);
+  const [isLookingForTeam, setIsLookingForTeam] = useState(false);
+  const [isTogglingLookingForTeam, setIsTogglingLookingForTeam] = useState(false);
 
   const { eventId } = route.params;
 
@@ -185,6 +187,17 @@ export default function EventDetailsScreen() {
         teamMembersCount,
         isInTeam: !!scopedTeamId,
       });
+
+      // Load looking_for_team flag
+      if (user?.id) {
+        const { data: regRow } = await (supabase as any)
+          .from('event_registrations')
+          .select('looking_for_team')
+          .eq('event_id', eventId)
+          .eq('user_id', user.id)
+          .maybeSingle();
+        setIsLookingForTeam(regRow?.looking_for_team ?? false);
+      }
     } catch (err) {
       console.error('Team status error:', err);
       setTeamState(null);
@@ -475,6 +488,28 @@ export default function EventDetailsScreen() {
     }
   };
 
+  const handleToggleLookingForTeam = async () => {
+    if (!user?.id) return;
+    try {
+      setIsTogglingLookingForTeam(true);
+      const next = !isLookingForTeam;
+      await (supabase as any)
+        .from('event_registrations')
+        .update({ looking_for_team: next })
+        .eq('event_id', eventId)
+        .eq('user_id', user.id);
+      setIsLookingForTeam(next);
+      Toast.show({
+        type: 'info',
+        text1: next ? 'Marked as looking for a team' : 'Removed from looking for team',
+      });
+    } catch (err: any) {
+      Toast.show({ type: 'error', text1: 'Failed to update', text2: err?.message });
+    } finally {
+      setIsTogglingLookingForTeam(false);
+    }
+  };
+
   const handleAcceptInvite = async () => {
     if (!user?.id || !teamState?.receivedInvite?.id || !teamState?.receivedInvite?.team_id) return;
     try {
@@ -728,12 +763,20 @@ export default function EventDetailsScreen() {
               <MaterialIcons name="share" size={22} color="#111827" />
             </TouchableOpacity>
             {canManageEvent && (
-              <TouchableOpacity
-                style={[styles.roundIconButton, { backgroundColor: '#fee2e2' }]}
-                onPress={() => setShowDeleteConfirmation(true)}
-              >
-                <MaterialIcons name="delete-outline" size={20} color="#ef4444" />
-              </TouchableOpacity>
+              <>
+                <TouchableOpacity
+                  style={[styles.roundIconButton, { backgroundColor: '#f3e8ff', marginRight: 8 }]}
+                  onPress={() => navigation.navigate('EditEvent', { eventId })}
+                >
+                  <MaterialIcons name="edit" size={20} color="#a855f7" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.roundIconButton, { backgroundColor: '#fee2e2' }]}
+                  onPress={() => setShowDeleteConfirmation(true)}
+                >
+                  <MaterialIcons name="delete-outline" size={20} color="#ef4444" />
+                </TouchableOpacity>
+              </>
             )}
           </View>
         </View>
@@ -984,6 +1027,34 @@ export default function EventDetailsScreen() {
               <>
                 <Text style={styles.sectionTitle}>Team Participation</Text>
                 <Text style={styles.metaText}>You are not in a team yet.</Text>
+                {/* Looking for a team toggle */}
+                <TouchableOpacity
+                  style={[
+                    styles.outlineButton,
+                    styles.roundButton,
+                    {
+                      flexDirection: 'row', alignItems: 'center', gap: 8, justifyContent: 'center',
+                      borderColor: isLookingForTeam ? '#16a34a' : '#6366f1',
+                      marginBottom: 8
+                    },
+                    isTogglingLookingForTeam && styles.registerButtonDisabled,
+                  ]}
+                  onPress={handleToggleLookingForTeam}
+                  disabled={isTogglingLookingForTeam}
+                >
+                  <MaterialIcons
+                    name={isLookingForTeam ? 'group' : 'group-add'}
+                    size={18}
+                    color={isLookingForTeam ? '#16a34a' : '#6366f1'}
+                  />
+                  <Text style={[styles.outlineButtonText, { color: isLookingForTeam ? '#16a34a' : '#6366f1' }]}>
+                    {isTogglingLookingForTeam
+                      ? 'Updating...'
+                      : isLookingForTeam
+                        ? '✓ Looking for a Team'
+                        : 'Mark as Looking for a Team'}
+                  </Text>
+                </TouchableOpacity>
                 <View style={styles.buttonStack}>
                   <TouchableOpacity style={[styles.primaryButton, styles.roundButton]} onPress={() => handleRegisterAndNavigate('CreateTeam')}>
                     <Text style={styles.primaryButtonText}>Create Team</Text>

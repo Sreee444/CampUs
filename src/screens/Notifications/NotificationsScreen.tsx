@@ -120,7 +120,14 @@ export default function NotificationsScreen() {
                 // Navigate to the dedciated invitations screen
                 navigation.navigate('TeamInvitations');
                 break;
+            case 'broadcast':
+                navigation.navigate('NotificationDetails', { notificationId: notification.id });
+                break;
             default:
+                // For unknown types, open detail view if notification has a body
+                if (notification.id) {
+                    navigation.navigate('NotificationDetails', { notificationId: notification.id });
+                }
                 break;
         }
     };

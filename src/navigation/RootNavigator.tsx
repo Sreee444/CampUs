@@ -23,6 +23,7 @@ import PrivacyScreen from '../screens/Settings/PrivacyScreen';
 import ProjectDetailsScreen from '../screens/Projects/ProjectDetailsScreen';
 import CreateProjectScreen from '../screens/Projects/CreateProjectScreen';
 import CreateEventScreen from '../screens/Home/CreateEventScreen';
+import EditEventScreen from '../screens/Home/EditEventScreen';
 import EventDetailsScreen from '../screens/Home/EventDetailsScreen';
 import EventDiscussionScreen from '../screens/Home/EventDiscussionScreen';
 import EventRegisteredUsersScreen from '../screens/Home/EventRegisteredUsersScreen';
@@ -40,6 +41,7 @@ import JoinTeamScreen from '../screens/Home/JoinTeamScreen';
 import TeamConnectScreen from '../screens/Home/TeamConnectScreen';
 import BrowseTeamsScreen from '../screens/Home/BrowseTeamsScreen';
 import NotificationsScreen from '../screens/Notifications/NotificationsScreen';
+import NotificationDetailsScreen from '../screens/Notifications/NotificationDetailsScreen';
 import AdminDashboardScreen from '../screens/Admin/AdminDashboardScreen';
 import AdminUsersScreen from '../screens/Admin/AdminUsersScreen';
 import AdminModerationScreen from '../screens/Admin/AdminModerationScreen';
@@ -47,6 +49,7 @@ import AdminReportsScreen from '../screens/Admin/AdminReportsScreen';
 import AdminBroadcastScreen from '../screens/Admin/AdminBroadcastScreen';
 import AdminAnalyticsScreen from '../screens/Admin/AdminAnalyticsScreen';
 import AdminDiscussionsScreen from '../screens/Admin/AdminDiscussionsScreen';
+import AdminAuditScreen from '../screens/Admin/AdminAuditScreen';
 import AIInsightsScreen from '../screens/Admin/AIInsightsScreen';
 import AISuggestionsScreen from '../screens/Home/AISuggestionsScreen';
 import TeamInvitationsScreen from '../screens/Home/TeamInvitationsScreen';
@@ -228,6 +231,11 @@ export default function RootNavigator() {
               options={{ animationEnabled: true }}
             />
             <Stack.Screen
+              name="EditEvent"
+              component={EditEventScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
               name="EventDetails"
               component={EventDetailsScreen}
               options={{ animationEnabled: true }}
@@ -340,6 +348,16 @@ export default function RootNavigator() {
             <Stack.Screen
               name="TeamInvitations"
               component={TeamInvitationsScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="NotificationDetails"
+              component={NotificationDetailsScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="AdminAudit"
+              component={AdminAuditScreen}
               options={{ animationEnabled: true }}
             />
           </>

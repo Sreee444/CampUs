@@ -94,6 +94,13 @@ export default function AdminDashboardScreen() {
       screen: 'AIInsights',
       color: '#ec4899',
     },
+    {
+      title: 'Audit Log',
+      icon: 'history',
+      description: 'Admin actions & changes',
+      screen: 'AdminAudit',
+      color: '#64748b',
+    },
   ];
 
   const handleNavigate = (screen: string) => {

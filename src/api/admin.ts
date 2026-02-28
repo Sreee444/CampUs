@@ -1,6 +1,12 @@
-// @ts-nocheck
 import { supabase } from "./supabase";
 import { Profile, Report, UserBan } from "../types/database";
+
+export type TimeRange = '7d' | '30d' | '90d';
+
+const sinceDate = (range: TimeRange): string => {
+  const days = range === '7d' ? 7 : range === '30d' ? 30 : 90;
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+};
 
 // ===== USER MANAGEMENT =====
 
@@ -44,7 +50,7 @@ export const changeUserRole = async (
   userId: string,
   newRole: "student" | "faculty" | "alumni" | "admin"
 ) => {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("profiles")
     .update({ role: newRole })
     .eq("id", userId)
@@ -60,40 +66,39 @@ export const toggleUserBan = async (
   banned_by: string,
   reason: string,
   banUntil?: string
-) => {
-  // Check if already banned
-  const existing = await supabase
-    .from("user_bans")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("is_permanent", false)
-    .gt("banned_until", new Date().toISOString());
+): Promise<{ success: boolean; action: 'banned' | 'unbanned'; data?: UserBan }> => {
+  // Find any active ban (temporary or permanent)
+  const { data: existing } = await supabase
+    .from('user_bans')
+    .select('id, is_permanent, banned_until')
+    .eq('user_id', userId)
+    .or(`is_permanent.eq.true,banned_until.gt.${new Date().toISOString()}`);
 
-  if (existing.data && existing.data.length > 0) {
-    // Remove ban
+  if (existing && existing.length > 0) {
+    // Remove all active bans for this user
     const { error } = await supabase
-      .from("user_bans")
+      .from('user_bans')
       .delete()
-      .eq("id", existing.data[0].id);
+      .in('id', existing.map((b: any) => b.id));
     if (error) throw error;
-    return { success: true, action: "unbanned" };
+    return { success: true, action: 'unbanned' };
   }
 
   // Create new ban
-  const { data, error } = await supabase
-    .from("user_bans")
+  const { data, error } = await (supabase as any)
+    .from('user_bans')
     .insert({
       user_id: userId,
       banned_by,
       reason,
-      banned_until: banUntil || null,
+      banned_until: banUntil ?? null,
       is_permanent: !banUntil,
-    } as any)
+    })
     .select()
     .single();
 
   if (error) throw error;
-  return { success: true, action: "banned", data };
+  return { success: true, action: 'banned', data: data as UserBan };
 };
 
 export const getActiveBans = async (): Promise<UserBan[]> => {
@@ -134,7 +139,7 @@ export const approvePost = async (
     throw new Error("Unauthorized: Only admin/faculty can approve posts");
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("feed_posts")
     .update({
       is_approved: true,
@@ -188,7 +193,7 @@ export const updateReportStatus = async (
   reviewedBy: string,
   actionTaken?: string
 ) => {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("reports")
     .update({
       status,
@@ -210,96 +215,109 @@ export const sendBroadcastMessage = async (
   senderUserId: string,
   title: string,
   message: string,
-  targetRole?: string
-) => {
-  // Get target users
-  let query = supabase.from("profiles").select("id");
-
-  if (targetRole) {
-    query = query.eq("role", targetRole);
-  }
+  targetRole?: string,
+  imageUrl?: string
+): Promise<{ success: boolean; recipient_count: number }> => {
+  let query = supabase.from('profiles').select('id');
+  if (targetRole && targetRole !== 'all') query = (query as any).eq('role', targetRole);
 
   const { data: users, error: usersError } = await query;
   if (usersError) throw usersError;
 
-  const userIds = (users as any[]).map((u) => u.id);
+  const userIds = ((users as any[]) ?? []).map((u: any) => u.id);
+  if (userIds.length === 0) return { success: true, recipient_count: 0 };
 
-  // Create notifications for all users
-  const notifications = userIds.map((userId) => ({
+  const notifications = userIds.map((userId: string) => ({
     user_id: userId,
-    type: "broadcast",
+    type: 'broadcast',
     title,
     message,
+    image_url: imageUrl ?? null,
     data: { broadcast_by: senderUserId },
     is_read: false,
     created_at: new Date().toISOString(),
   }));
 
-  const { error } = await supabase
-    .from("notifications")
-    .insert(notifications as any);
-
+  const { error } = await (supabase as any).from('notifications').insert(notifications);
   if (error) throw error;
+
+  // Audit log
+  await insertAdminLog(senderUserId, 'broadcast_sent', null, {
+    title,
+    target_role: targetRole ?? 'all',
+    recipient_count: userIds.length,
+  });
+
   return { success: true, recipient_count: userIds.length };
 };
 
 // ===== ANALYTICS =====
 
-export const getEngagementMetrics = async () => {
-  try {
-    // Total users
-    const { count: totalUsers } = await supabase
-      .from("profiles")
-      .select("id", { count: "exact", head: true });
+export type EngagementMetrics = {
+  totalUsers: number;
+  usersByRole: Record<string, number>;
+  totalPosts: number;
+  totalEvents: number;
+  totalTeams: number;
+  recentMessages: number;
+  recentPosts: number;
+  recentRegistrations: number;
+  newUsers: number;
+  lastUpdated: string;
+  timeRange: TimeRange;
+};
 
-    // Users by role
-    const roles = ["student", "faculty", "alumni", "admin"];
-    const usersByRole: any = {};
+export const getEngagementMetrics = async (
+  timeRange: TimeRange = '30d'
+): Promise<EngagementMetrics> => {
+  const since = sinceDate(timeRange);
 
-    for (const role of roles) {
-      const { count } = await supabase
-        .from("profiles")
-        .select("id", { count: "exact", head: true })
-        .eq("role", role);
-      usersByRole[role] = count || 0;
-    }
+  // All static counts (not time-filtered)
+  const [usersRes, postsRes, eventsRes, teamsRes] = await Promise.all([
+    supabase.from('profiles').select('id', { count: 'exact', head: true }),
+    supabase.from('feed_posts').select('id', { count: 'exact', head: true }).eq('is_approved', true),
+    supabase.from('events').select('id', { count: 'exact', head: true }),
+    supabase.from('project_teams').select('id', { count: 'exact', head: true }),
+  ]);
 
-    // Active posts
-    const { count: totalPosts } = await supabase
-      .from("feed_posts")
-      .select("id", { count: "exact", head: true })
-      .eq("is_approved", true);
+  // Time-filtered counts
+  const [messagesRes, recentPostsRes, registrationsRes, newUsersRes] = await Promise.all([
+    supabase.from('messages').select('id', { count: 'exact', head: true }).gte('created_at', since),
+    supabase.from('feed_posts').select('id', { count: 'exact', head: true }).gte('created_at', since),
+    supabase.from('event_registrations').select('id', { count: 'exact', head: true }).gte('created_at', since),
+    supabase.from('profiles').select('id', { count: 'exact', head: true }).gte('created_at', since),
+  ]);
 
-    // Total events
-    const { count: totalEvents } = await supabase
-      .from("events")
-      .select("id", { count: "exact", head: true });
+  // Users by role
+  const roles = ['student', 'faculty', 'alumni', 'admin'];
+  const roleResults = await Promise.all(
+    roles.map((role) =>
+      supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('role', role)
+    )
+  );
+  const usersByRole: Record<string, number> = {};
+  roles.forEach((role, i) => { usersByRole[role] = roleResults[i].count ?? 0; });
 
-    // Total project teams
-    const { count: totalTeams } = await supabase
-      .from("project_teams")
-      .select("id", { count: "exact", head: true });
+  return {
+    totalUsers: usersRes.count ?? 0,
+    usersByRole,
+    totalPosts: postsRes.count ?? 0,
+    totalEvents: eventsRes.count ?? 0,
+    totalTeams: teamsRes.count ?? 0,
+    recentMessages: messagesRes.count ?? 0,
+    recentPosts: recentPostsRes.count ?? 0,
+    recentRegistrations: registrationsRes.count ?? 0,
+    newUsers: newUsersRes.count ?? 0,
+    lastUpdated: new Date().toISOString(),
+    timeRange,
+  };
+};
 
-    // Messages sent (last 30 days)
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-    const { count: recentMessages } = await supabase
-      .from("messages")
-      .select("id", { count: "exact", head: true })
-      .gte("created_at", thirtyDaysAgo);
-
-    return {
-      totalUsers,
-      usersByRole,
-      totalPosts,
-      totalEvents,
-      totalTeams,
-      recentMessages,
-      lastUpdated: new Date().toISOString(),
-    };
-  } catch (error) {
-    console.error("Error fetching analytics:", error);
-    throw error;
-  }
+export const getRecipientCount = async (role?: string): Promise<number> => {
+  let query = supabase.from('profiles').select('id', { count: 'exact', head: true });
+  if (role && role !== 'all') query = query.eq('role', role);
+  const { count } = await query;
+  return count ?? 0;
 };
 
 // ===== DISCUSSION MODERATION =====
@@ -308,7 +326,7 @@ export const lockDiscussionTopic = async (
   topicId: string,
   moderatorId: string
 ) => {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("discussion_topics")
     .update({ is_locked: true })
     .eq("id", topicId)
@@ -320,7 +338,7 @@ export const lockDiscussionTopic = async (
 };
 
 export const unlockDiscussionTopic = async (topicId: string) => {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("discussion_topics")
     .update({ is_locked: false })
     .eq("id", topicId)
@@ -332,7 +350,7 @@ export const unlockDiscussionTopic = async (topicId: string) => {
 };
 
 export const pinDiscussionTopic = async (topicId: string) => {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("discussion_topics")
     .update({ is_pinned: true })
     .eq("id", topicId)
@@ -344,7 +362,7 @@ export const pinDiscussionTopic = async (topicId: string) => {
 };
 
 export const unpinDiscussionTopic = async (topicId: string) => {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("discussion_topics")
     .update({ is_pinned: false })
     .eq("id", topicId)
@@ -355,12 +373,73 @@ export const unpinDiscussionTopic = async (topicId: string) => {
   return data;
 };
 
-export const deleteDiscussionReply = async (replyId: string) => {
-  const { error } = await supabase
-    .from("discussion_replies")
-    .delete()
-    .eq("id", replyId);
+export const deleteDiscussionReply = async (replyId: string): Promise<{ success: boolean }> => {
+  // Soft delete
+  const { error } = await (supabase as any)
+    .from('discussion_replies')
+    .update({ is_deleted: true, deleted_at: new Date().toISOString() })
+    .eq('id', replyId);
+  if (error) throw error;
+  return { success: true };
+};
 
+// ===== AUDIT LOG =====
+
+export type AdminLogAction =
+  | 'ban_user'
+  | 'unban_user'
+  | 'role_change'
+  | 'post_approved'
+  | 'post_rejected'
+  | 'report_resolved'
+  | 'broadcast_sent'
+  | 'topic_locked'
+  | 'topic_pinned';
+
+export const insertAdminLog = async (
+  adminId: string,
+  action: AdminLogAction,
+  targetUserId: string | null,
+  metadata?: Record<string, unknown>
+): Promise<void> => {
+  // Best-effort — don't throw if admin_logs table doesn't exist yet
+  try {
+    await (supabase as any).from('admin_logs').insert({
+      admin_id: adminId,
+      action,
+      target_user_id: targetUserId,
+      metadata: metadata ?? {},
+      created_at: new Date().toISOString(),
+    });
+  } catch (_) {
+    // Table may not exist yet — silently skip
+  }
+};
+
+export const getAdminLogs = async (
+  filter?: { action?: AdminLogAction; page?: number }
+): Promise<any[]> => {
+  const pageSize = 30;
+  const from = ((filter?.page ?? 0)) * pageSize;
+
+  let query = supabase
+    .from('admin_logs')
+    .select('*, admin:profiles!admin_logs_admin_id_fkey(full_name, avatar_url)')
+    .order('created_at', { ascending: false })
+    .range(from, from + pageSize - 1);
+
+  if (filter?.action) query = (query as any).eq('action', filter.action);
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return data ?? [];
+};
+
+export const softDeletePost = async (postId: string): Promise<{ success: boolean }> => {
+  const { error } = await (supabase as any)
+    .from('feed_posts')
+    .update({ is_deleted: true, deleted_at: new Date().toISOString() })
+    .eq('id', postId);
   if (error) throw error;
   return { success: true };
 };
