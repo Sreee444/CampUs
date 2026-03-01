@@ -15,7 +15,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { CompositeNavigationProp } from '@react-navigation/native';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -24,6 +24,7 @@ import { getColors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } fro
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { getConversations, createGroupConversation } from '../../api/chat';
+import { supabase } from '../../api/supabase';
 import { getMyConnections, ConnectionWithProfile } from '../../api/connections';
 import { UserAvatar } from '../../components/UserAvatar';
 import Toast from 'react-native-toast-message';
@@ -47,7 +48,7 @@ export default function ChatScreen() {
   const [isRealtimeSearch, setIsRealtimeSearch] = useState(true);
   const [connectionSearchQuery, setConnectionSearchQuery] = useState('');
   const [refreshing, setRefreshing] = useState(false);
-  const [activeFilter, setActiveFilter] = useState<'all' | 'unread' | 'groups' | 'direct'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'unread' | 'groups' | 'direct' | 'mentorship'>('all');
   const [showComposeMenu, setShowComposeMenu] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -65,7 +66,8 @@ export default function ChatScreen() {
 
     try {
       const data = await getConversations(user.id);
-      setConversations(data);
+      const filtered = (data || []).filter((conversation: any) => conversation.conv_type !== 'mentorship');
+      setConversations(filtered);
     } catch (error) {
       console.error('Chat list error:', error);
     }
@@ -80,11 +82,28 @@ export default function ChatScreen() {
     }
   };
 
+  // Reload conversations every time user navigates to this tab
+  useFocusEffect(
+    React.useCallback(() => {
+      if (user?.id) loadConversations();
+    }, [user?.id])
+  );
+
+  // Real-time: refresh list when any message is inserted
+  // Use user-specific channel name to avoid duplicate subscription conflicts
   useEffect(() => {
     if (!user?.id) return;
-
-    loadConversations();
+    const channel = supabase
+      .channel(`chat_list_${user.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages' },
+        () => { loadConversations(); }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, [user?.id]);
+
 
   useEffect(() => {
     if (!isRealtimeSearch) return;
@@ -278,7 +297,8 @@ export default function ChatScreen() {
   const groupCount = conversations.filter((conversation) => conversation.is_group).length;
   const directCount = conversations.filter((conversation) => !conversation.is_group).length;
 
-  const filterOptions: Array<{ key: 'all' | 'unread' | 'groups' | 'direct'; label: string; count: number }> = [
+  const mentorshipCount = conversations.filter((c) => c.conv_type === 'mentorship').length;
+  const filterOptions: Array<{ key: 'all' | 'unread' | 'groups' | 'direct' | 'mentorship'; label: string; count: number }> = [
     { key: 'all', label: 'All', count: conversations.length },
     { key: 'unread', label: 'Unread', count: unreadTotal },
     { key: 'groups', label: 'Groups', count: groupCount },
@@ -293,9 +313,9 @@ export default function ChatScreen() {
     const avatarUri = conversation.is_group ? conversation.group_avatar : otherUser?.avatar_url;
     const lastMessageTime = conversation.last_message
       ? new Date(conversation.last_message.created_at).toLocaleTimeString('en-US', {
-          hour: 'numeric',
-          minute: '2-digit',
-        })
+        hour: 'numeric',
+        minute: '2-digit',
+      })
       : '';
 
     return (
@@ -596,7 +616,7 @@ export default function ChatScreen() {
                   style={[
                     styles.createGroupButton,
                     (creatingChat || selectedParticipantIds.length < 2 || !groupName.trim()) &&
-                      styles.createGroupButtonDisabled,
+                    styles.createGroupButtonDisabled,
                   ]}
                   onPress={handleCreateGroup}
                   disabled={creatingChat || selectedParticipantIds.length < 2 || !groupName.trim()}

@@ -269,10 +269,12 @@ export default function ProjectsScreen() {
             filteredProjects.map((project) => {
               const hasMembersData = Array.isArray(project.members);
               const members = hasMembersData ? project.members : [];
+              // Filter out advisors from member count (they're shown in Project Mentor section)
+              const nonAdvisorMembers = members.filter((m: any) => m.member_role !== 'advisor');
               const creatorId = project.creator?.id || project.created_by;
-              const hasCreatorInMembers = !!creatorId && members.some((member) => member.id === creatorId);
-              const effectiveMembersCount = Math.max(project.members_count || 0, members.length) + (hasMembersData && creatorId && !hasCreatorInMembers ? 1 : 0);
-              const displayMembers = hasMembersData && (hasCreatorInMembers || !project.creator) ? members : (hasMembersData ? [project.creator, ...members] : []);
+              const hasCreatorInMembers = !!creatorId && nonAdvisorMembers.some((member) => member.id === creatorId);
+              const effectiveMembersCount = nonAdvisorMembers.length + (hasMembersData && creatorId && !hasCreatorInMembers ? 1 : 0);
+              const displayMembers = hasMembersData && (hasCreatorInMembers || !project.creator) ? nonAdvisorMembers : (hasMembersData ? [project.creator, ...nonAdvisorMembers] : []);
               const progressPercent = project.max_members
                 ? Math.min(100, Math.round((effectiveMembersCount / project.max_members) * 100))
                 : 0;

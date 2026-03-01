@@ -37,7 +37,6 @@ import {
   removeParticipantFromGroup,
   sendMessage,
   setGroupParticipantAdmin,
-  subscribeToMessages,
   updateGroupConversation,
   pinMessage,
   unpinMessage,
@@ -52,6 +51,7 @@ import Toast from 'react-native-toast-message';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import { UserAvatar } from '../../components/UserAvatar';
 import PinnedMessagesModal from '../../components/PinnedMessagesModal';
+import { supabase } from '../../api/supabase';
 
 type ChatConversationScreenNavigationProp = StackNavigationProp<RootStackParamList, 'ChatConversation'>;
 type ChatConversationScreenRouteProp = RouteProp<RootStackParamList, 'ChatConversation'>;
@@ -134,7 +134,7 @@ export default function ChatConversationScreen() {
     title: string;
     message: string;
     onConfirm: () => void;
-  }>({ visible: false, title: '', message: '', onConfirm: () => {} });
+  }>({ visible: false, title: '', message: '', onConfirm: () => { } });
 
   // Animated styles for announcement banner
   const announcementAnimatedStyle = useAnimatedStyle(() => {
@@ -215,31 +215,31 @@ export default function ChatConversationScreen() {
       if (announcements && announcements.length > 0) {
         setLatestAnnouncement(announcements[0]);
         setShowAnnouncementBanner(true);
-        
+
         // Reset animations
         announcementSlide.value = -100;
         announcementScale.value = 0.95;
         announcementIconRotate.value = 0;
-        
+
         // Slide in animation
-        announcementSlide.value = withTiming(0, { 
-          duration: 600, 
-          easing: Easing.out(Easing.cubic) 
+        announcementSlide.value = withTiming(0, {
+          duration: 600,
+          easing: Easing.out(Easing.cubic)
         });
-        
+
         // Scale animation
-        announcementScale.value = withTiming(1, { 
-          duration: 600, 
-          easing: Easing.out(Easing.cubic) 
+        announcementScale.value = withTiming(1, {
+          duration: 600,
+          easing: Easing.out(Easing.cubic)
         });
-        
+
         // Icon rotation animation
         announcementIconRotate.value = withRepeat(
           withTiming(360, { duration: 3000, easing: Easing.linear }),
           -1,
           false
         );
-        
+
         // Pulse animation
         announcementPulse.value = withRepeat(
           withTiming(0.7, { duration: 1500 }),
@@ -266,25 +266,57 @@ export default function ChatConversationScreen() {
     }
     checkSupervisionCapability().catch((err) => console.error('Error in supervision check:', err));
 
-    const channel = subscribeToMessages(conversationId, (event) => {
-      if (event.type === 'delete' && event.messageId) {
-        setMessages((prev) => prev.filter((message) => message.id !== event.messageId));
-        return;
-      }
+    console.log("Subscribing to conversation:", conversationId);
 
-      if (!event.message) return;
+    const channel = supabase
+      .channel(`chat-${conversationId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        async (payload) => {
+          console.log("Realtime payload:", payload);
 
-      upsertMessage(event.message as ChatMessage);
+          // Get the sender profile for the new message
+          const { data: senderData } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', payload.new.sender_id)
+            .single();
 
-      if (event.type === 'insert' && event.message.sender_id !== user.id) {
-        markConversationAsRead(conversationId, user.id).catch((error) => {
-          console.error('Failed to mark conversation as read:', error);
-        });
-      }
-    });
+          const newMessage = {
+            ...payload.new,
+            sender: senderData || undefined,
+          } as ChatMessage;
+
+          setMessages((prev) => {
+            const exists = prev.find(m => m.id === payload.new.id);
+            if (exists) return prev;
+
+            // Append and sort
+            return [...prev, newMessage].sort(
+              (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+            );
+          });
+
+          if (payload.new.sender_id !== user.id) {
+            markConversationAsRead(conversationId, user.id).catch((error) => {
+              console.error('Failed to mark conversation as read:', error);
+            });
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log("Realtime status:", status);
+      });
 
     return () => {
-      channel?.unsubscribe?.();
+      console.log("Removing channel:", conversationId);
+      supabase.removeChannel(channel);
     };
   }, [conversationId, user?.id, isAIChat, isGroup]);
 
@@ -636,7 +668,7 @@ export default function ChatConversationScreen() {
     const showDateSeparator =
       index === 0 ||
       new Date(previousMessage?.created_at || '').toDateString() !==
-        new Date(message.created_at).toDateString();
+      new Date(message.created_at).toDateString();
     const showAvatar = !isMyMessage && (!previousMessage || previousMessage.sender_id !== message.sender_id);
     const showSenderLabel = !isMyMessage && isGroup && showAvatar;
     const messageTime = new Date(message.created_at).toLocaleTimeString('en-US', {
@@ -825,7 +857,7 @@ export default function ChatConversationScreen() {
               <MaterialIcons name="push-pin" size={20} color={Colors.primary} />
               <Text style={styles.bannerLabel}>Pinned Message</Text>
             </View>
-            <Text 
+            <Text
               style={styles.bannerMessageText}
               numberOfLines={2}
             >
@@ -834,7 +866,7 @@ export default function ChatConversationScreen() {
           </View>
           <View style={styles.bannerActions}>
             {canManageGroup && (
-              <TouchableOpacity 
+              <TouchableOpacity
                 onPress={(e) => {
                   e.stopPropagation();
                   setShowPinnedActions(true);
@@ -844,7 +876,7 @@ export default function ChatConversationScreen() {
                 <MaterialIcons name="more-vert" size={18} color="#ffffff" />
               </TouchableOpacity>
             )}
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.pinnedCloseBtn}
               onPress={(e) => {
                 e.stopPropagation();
@@ -859,15 +891,15 @@ export default function ChatConversationScreen() {
 
       {/* Announcement Banner (Red with pulse animation) */}
       {showAnnouncementBanner && latestAnnouncement && (
-        <Animated.View 
+        <Animated.View
           style={[
-            styles.floatingBanner, 
+            styles.floatingBanner,
             styles.announcementBanner,
             announcementAnimatedStyle
           ]}
         >
           <View style={styles.bannerContent}>
-            <Animated.View 
+            <Animated.View
               style={announcementIconAnimatedStyle}
             >
               <MaterialIcons name="campaign" size={24} color="#ffffff" />
@@ -883,7 +915,7 @@ export default function ChatConversationScreen() {
           </View>
           <View style={styles.bannerActions}>
             {canManageGroup && (
-              <TouchableOpacity 
+              <TouchableOpacity
                 onPress={(e) => {
                   e.stopPropagation();
                   setShowAnnouncementActions(true);
@@ -893,7 +925,7 @@ export default function ChatConversationScreen() {
                 <MaterialIcons name="more-vert" size={18} color="#ffffff" />
               </TouchableOpacity>
             )}
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.announcementCloseBtn}
               onPress={(e) => {
                 e.stopPropagation();
@@ -1275,8 +1307,8 @@ export default function ChatConversationScreen() {
                           {isMainAdmin
                             ? 'Main admin'
                             : member.is_admin
-                            ? 'Group admin'
-                            : member.user?.role || 'Member'}
+                              ? 'Group admin'
+                              : member.user?.role || 'Member'}
                         </Text>
                       </View>
                     </TouchableOpacity>
@@ -1490,7 +1522,7 @@ export default function ChatConversationScreen() {
         transparent
         onRequestClose={() => setShowPinnedActions(false)}
       >
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.modalOverlay}
           onPress={() => setShowPinnedActions(false)}
           activeOpacity={1}
@@ -1536,7 +1568,7 @@ export default function ChatConversationScreen() {
         transparent
         onRequestClose={() => setShowAnnouncementActions(false)}
       >
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.modalOverlay}
           onPress={() => setShowAnnouncementActions(false)}
           activeOpacity={1}

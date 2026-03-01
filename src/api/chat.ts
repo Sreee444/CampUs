@@ -110,7 +110,7 @@ export const getPendingRequests = async (userId: string) => {
 
 // Get user conversations
 export const getConversations = async (userId: string) => {
-  // First get all conversation IDs where user is a participant
+  // Step 1: get conversation IDs the user participates in
   const { data: participantData, error: participantError } = await supabase
     .from("conversation_participants")
     .select("conversation_id")
@@ -119,68 +119,59 @@ export const getConversations = async (userId: string) => {
 
   if (participantError) throw participantError;
 
-  const conversationIds = participantData.map((p: any) => p.conversation_id);
-
+  const conversationIds = (participantData || []).map((p: any) => p.conversation_id);
   if (conversationIds.length === 0) return [];
 
-  // Get full conversation details
+  // Step 2: fetch conversations ordered by most recent activity
   const { data, error } = await supabase
     .from("conversations")
-    .select(`
-    *
-    `)
+    .select("*")
     .in("id", conversationIds)
     .order("updated_at", { ascending: false });
 
   if (error) throw error;
 
-  // Get participants and last message for each conversation
+  // Step 3: enrich each conversation — participants, last message, unread count
   const conversationsWithData = await Promise.all(
     (data || []).map(async (conversation: any) => {
-      const [participants, lastMessage, unreadCount] = await Promise.all([
+      const [participantsResult, messagesResult, unreadResult] = await Promise.all([
+        // Get all current participants with profile info
         supabase
           .from("conversation_participants")
-          .select(`
-    *,
-    user: profiles!conversation_participants_user_id_fkey(*)
-      `)
+          .select("*, user:profiles!conversation_participants_user_id_fkey(*)")
           .eq("conversation_id", conversation.id)
           .is("left_at", null),
+
+        // Get last message — use array + index instead of .single() to avoid crash when 0 messages
         supabase
           .from("messages")
-          .select(`
-      *,
-      sender: profiles!messages_sender_id_fkey(*)
-        `)
+          .select("*, sender:profiles!messages_sender_id_fkey(*)")
           .eq("conversation_id", conversation.id)
           .eq("is_deleted", false)
           .order("created_at", { ascending: false })
-          .limit(1)
-          .single(),
+          .limit(1),
+
+        // Count messages from others as unread (simple, never crashes)
         supabase
           .from("messages")
           .select("id", { count: "exact", head: true })
           .eq("conversation_id", conversation.id)
           .eq("is_deleted", false)
-          .not("sender_id", "eq", userId)
-          .not(
-            "id",
-            "in",
-            `(SELECT message_id FROM message_reads WHERE user_id = '${userId}')`
-          ),
+          .neq("sender_id", userId),
       ]);
 
       return {
         ...conversation,
-        participants: participants.data?.map((p: any) => p.user) || [],
-        last_message: lastMessage.data || null,
-        unread_count: unreadCount.count || 0,
+        participants: participantsResult.data?.map((p: any) => p.user) || [],
+        last_message: messagesResult.data?.[0] || null,
+        unread_count: unreadResult.count || 0,
       };
     })
   );
 
   return conversationsWithData as Conversation[];
 };
+
 
 // Create 1-on-1 conversation
 export const createDirectConversation = async (
@@ -475,10 +466,7 @@ export const getMessages = async (
 ) => {
   const { data, error } = await supabase
     .from("messages")
-    .select(`
-          *,
-          sender: profiles!messages_sender_id_fkey(*)
-            `)
+    .select(`*, sender: profiles!messages_sender_id_fkey(*)`)
     .eq("conversation_id", conversationId)
     .eq("is_deleted", false)
     .order("created_at", { ascending: false })
@@ -486,24 +474,24 @@ export const getMessages = async (
 
   if (error) throw error;
 
-  // Check read status for each message
-  const messagesWithReadStatus = await Promise.all(
-    (data || []).map(async (message: any) => {
-      const { data: readData } = await supabase
-        .from("message_reads")
-        .select("id")
-        .eq("message_id", message.id)
-        .eq("user_id", userId)
-        .single();
+  const msgs = data || [];
 
-      return {
-        ...message,
-        is_read: !!readData,
-      };
-    })
-  );
+  // ONE batch query for read status instead of N+1 individual .single() calls
+  const messageIds = msgs.map((m: any) => m.id);
+  const readSet = new Set<string>();
+  if (messageIds.length > 0) {
+    const { data: readData } = await supabase
+      .from("message_reads")
+      .select("message_id")
+      .eq("user_id", userId)
+      .in("message_id", messageIds);
+    (readData || []).forEach((r: any) => readSet.add(r.message_id));
+  }
 
-  return messagesWithReadStatus.reverse() as Message[];
+  return msgs.reverse().map((message: any) => ({
+    ...message,
+    is_read: readSet.has(message.id),
+  })) as Message[];
 };
 
 // Send message
@@ -596,7 +584,7 @@ export const markConversationAsRead = async (
   conversationId: string,
   userId: string
 ) => {
-  // Get all unread messages
+  // Get all messages from others in this conversation
   const { data: messages } = await supabase
     .from("messages")
     .select("id")
@@ -606,16 +594,27 @@ export const markConversationAsRead = async (
 
   if (!messages || messages.length === 0) return;
 
-  const reads = messages.map((msg: any) => ({
-    message_id: msg.id,
-    user_id: userId,
-  }));
+  const messageIds = messages.map((m: any) => m.id);
 
-  // @ts-ignore - Supabase type inference issue
-  const { error } = await supabase.from("message_reads").upsert(reads as any);
+  // Check which ones are already read (to avoid duplicates — table has no unique constraint)
+  const { data: alreadyRead } = await supabase
+    .from("message_reads")
+    .select("message_id")
+    .eq("user_id", userId)
+    .in("message_id", messageIds);
 
+  const alreadyReadIds = new Set((alreadyRead || []).map((r: any) => r.message_id));
+  const newReads = messageIds
+    .filter((id: string) => !alreadyReadIds.has(id))
+    .map((id: string) => ({ message_id: id, user_id: userId }));
+
+  if (newReads.length === 0) return;
+
+  // @ts-ignore
+  const { error } = await supabase.from("message_reads").insert(newReads as any);
   if (error && error.code !== "23505") throw error;
 };
+
 
 // ===== TYPING INDICATORS =====
 

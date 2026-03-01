@@ -74,7 +74,7 @@ export default function EventsScreen() {
       if (refresh) setIsRefreshing(true);
       else setIsLoading(true);
 
-      const data = await getEvents(user?.id, undefined, activeTab === 'upcoming');
+      const data = await getEvents(user?.id, undefined, activeTab);
       setEvents(data || []);
     } catch (error) {
       console.error('Events load error:', error);
@@ -93,17 +93,8 @@ export default function EventsScreen() {
     loadEvents();
   }, [user?.id, activeTab]);
 
+  // DB already filtered by tab — only apply category filter client-side
   const filteredEvents = events.filter((event) => {
-    const now = new Date();
-    const eventStart = new Date(event.start_date);
-    const eventEnd = new Date(event.end_date);
-
-    // Filter by tab
-    if (activeTab === 'upcoming' && eventStart <= now) return false;
-    if (activeTab === 'live' && (eventStart > now || eventEnd < now)) return false;
-    if (activeTab === 'past' && eventEnd >= now) return false;
-
-    // Filter by category
     return selectedCategory === 'All' || event.event_type === selectedCategory;
   });
 
@@ -434,7 +425,7 @@ export default function EventsScreen() {
                 const isRegClosed = regDeadline < now;
                 const timerLabel = isRegClosed ? 'Event starts in' : 'Registration closes in';
                 const targetDate = isRegClosed ? event.start_date : (event.registration_deadline || event.start_date);
-                
+
                 return (
                   <View style={styles.premiumTimerContainer}>
                     <View style={styles.timerLabel}>
@@ -484,23 +475,23 @@ export default function EventsScreen() {
                 return (
                   <View>
                     <TouchableOpacity
-                    style={[
-                      styles.registerButton,
-                      { backgroundColor: blockedState.bg },
-                      blockedState.disabled && styles.disabledButton
-                    ]}
-                    onPress={() => !blockedState.disabled && handleRegister(event)}
-                    disabled={blockedState.disabled}
-                  >
-                    <MaterialIcons
-                      name={blockedState.icon as any}
-                      size={16}
-                      color={blockedState.color}
-                      style={{ marginRight: 6 }}
-                    />
-                    <Text style={[styles.registerButtonText, { color: blockedState.color }]}>
-                      {blockedState.label}
-                    </Text>
+                      style={[
+                        styles.registerButton,
+                        { backgroundColor: blockedState.bg },
+                        blockedState.disabled && styles.disabledButton
+                      ]}
+                      onPress={() => !blockedState.disabled && handleRegister(event)}
+                      disabled={blockedState.disabled}
+                    >
+                      <MaterialIcons
+                        name={blockedState.icon as any}
+                        size={16}
+                        color={blockedState.color}
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text style={[styles.registerButtonText, { color: blockedState.color }]}>
+                        {blockedState.label}
+                      </Text>
                     </TouchableOpacity>
                     {blockedByEligibility && (
                       <Text style={styles.blockedText}>{eligibility.reason || 'Not eligible for this event.'}</Text>

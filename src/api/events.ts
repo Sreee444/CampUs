@@ -4,26 +4,36 @@ import { supabase } from "./supabase";
 import { Event, EventRegistration, EventDiscussion, EventType } from "../types/database";
 import { evaluateEventEligibility } from "../utils/eventEligibility";
 
-// Get all events
+// Get all events — tab can be 'upcoming' | 'live' | 'past' | 'all'
 export const getEvents = async (
   userId?: string,
   type?: EventType,
-  upcoming = true
+  tab: 'upcoming' | 'live' | 'past' | 'all' = 'upcoming'
 ) => {
+  const now = new Date().toISOString();
+
   let query = supabase
     .from("events")
     .select(`
       *,
       creator:profiles!events_created_by_fkey(*)
-    `)
-    .order("start_date", { ascending: true });
+    `);
 
   if (type) {
     query = query.eq("event_type", type);
   }
 
-  if (upcoming) {
-    query = query.gte("start_date", new Date().toISOString());
+  if (tab === 'upcoming') {
+    // Events that haven't started yet
+    query = query.gt("start_date", now).order("start_date", { ascending: true });
+  } else if (tab === 'live') {
+    // Events currently in progress: started but not ended
+    query = query.lte("start_date", now).gte("end_date", now).order("start_date", { ascending: true });
+  } else if (tab === 'past') {
+    // Events that have already ended
+    query = query.lt("end_date", now).order("start_date", { ascending: false });
+  } else {
+    query = query.order("start_date", { ascending: true });
   }
 
   const { data, error } = await query;

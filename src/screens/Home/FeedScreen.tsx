@@ -62,7 +62,7 @@ export default function FeedScreen() {
       if (refresh) setIsRefreshing(true);
       else setIsLoading(true);
 
-      const eventsData = await getEvents(user?.id, undefined, true);
+      const eventsData = await getEvents(user?.id, undefined, 'upcoming');
       const liveEvents = eventsData.filter(event => {
         const now = new Date();
         const eventStart = new Date(event.start_date);
@@ -95,7 +95,7 @@ export default function FeedScreen() {
             .or(`requester_id.eq.${user.id},recipient_id.eq.${user.id}`);
 
           const connectionsCount = connectionsData?.length || 0;
-          
+
           if (connectionsError) {
             console.error('Connections count error:', connectionsError);
           }
@@ -262,12 +262,13 @@ export default function FeedScreen() {
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.actionCard}
-                onPress={() => navigation.navigate('TeamFormation' as any)}
+                onPress={() => navigation.navigate('MentorHub' as any)}
               >
-                <View style={[styles.actionIcon, { backgroundColor: '#f3e5f5' }]}>
-                  <MaterialIcons name="groups" size={24} color="#9333ea" />
+                <View style={[styles.actionIcon, { backgroundColor: '#ede9fe' }]}>
+                  <MaterialIcons name="school" size={24} color="#4F46E5" />
                 </View>
-                <Text style={styles.actionLabel}>Team Up</Text>
+                <Text style={styles.actionLabel}>Mentor Hub</Text>
+
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.actionCard}

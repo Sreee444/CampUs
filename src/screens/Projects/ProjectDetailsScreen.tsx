@@ -13,7 +13,7 @@ import {
   Alert,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../../navigation/types';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } from '../../theme';
@@ -36,6 +36,7 @@ import {
   cancelProjectInvite,
   removeTeamMember,
 } from '../../api/projects';
+import { getProjectChatId, ensureProjectChat } from '../../api/projectChat';
 import { ProjectTeam } from '../../types/database';
 import { UserAvatar } from '../../components/UserAvatar';
 import { ConfirmBottomSheet } from '../../components/ConfirmBottomSheet';
@@ -115,6 +116,10 @@ export default function ProjectDetailsScreen() {
   // Change leader
   const [isChangingLeader, setIsChangingLeader] = useState(false);
 
+  // Project mentorship chat
+  const [projectChatId, setProjectChatId] = useState<string | null>(null);
+  const [isOpeningProjectChat, setIsOpeningProjectChat] = useState(false);
+
   // Member action sheet (3-dot menu)
   const [memberActionTarget, setMemberActionTarget] = useState<any>(null);
 
@@ -128,14 +133,16 @@ export default function ProjectDetailsScreen() {
   const canManageTeam = isCreator || isAdmin;
   const canManageMembers = canManageTeam;
   const teamMembers = team?.members || [];
-  const hasCreatorInMembers = !!creatorId && teamMembers.some((member) => member.id === creatorId);
-  const effectiveMembersCount = Math.max(team?.members_count || 0, teamMembers.length) + (creatorId && !hasCreatorInMembers ? 1 : 0);
+  // Filter out advisors from team members list (they're shown in Project Mentor section)
+  const nonAdvisorMembers = teamMembers.filter((m: any) => m.member_role !== 'advisor');
+  const hasCreatorInMembers = !!creatorId && nonAdvisorMembers.some((member) => member.id === creatorId);
+  const effectiveMembersCount = nonAdvisorMembers.length + (creatorId && !hasCreatorInMembers ? 1 : 0);
   const safeMembersCount = Math.max(0, effectiveMembersCount);
   const safeMaxMembers = Math.max(0, Number(team?.max_members) || 0);
   const teamProgressPercent = safeMaxMembers > 0
     ? Math.min(100, Math.round((safeMembersCount / safeMaxMembers) * 100))
     : 0;
-  const displayMembers = hasCreatorInMembers || !team?.creator ? teamMembers : [team.creator, ...teamMembers];
+  const displayMembers = hasCreatorInMembers || !team?.creator ? nonAdvisorMembers : [team.creator, ...nonAdvisorMembers];
   const isMember = !!user?.id && (isCreator || teamMembers.some((member) => member.id === user?.id));
   const isTeamFull = safeMaxMembers > 0 ? safeMembersCount >= safeMaxMembers : false;
   const requiredRoles = useMemo(
@@ -166,6 +173,13 @@ export default function ProjectDetailsScreen() {
 
     loadTeamData();
   }, [teamId]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!teamId) return;
+      loadTeamData();
+    }, [teamId])
+  );
 
   const loadTeamData = async () => {
     try {
@@ -200,6 +214,15 @@ export default function ProjectDetailsScreen() {
         } catch (err) {
           console.error('Failed to load join requests', err);
         }
+      }
+
+      // Load project team chat ID (non-fatal)
+      try {
+        const chatId = await getProjectChatId(teamId);
+        setProjectChatId(chatId);
+      } catch (err) {
+        console.error('[ProjectDetails] Failed to load project chat ID:', err);
+        // Non-fatal — chat may not exist yet
       }
     } catch (err) {
       console.error('Failed to load team details', err);
@@ -1041,6 +1064,42 @@ export default function ProjectDetailsScreen() {
                 </TouchableOpacity>
               )}
               {renderJoinButton()}
+              {isMember && (
+                <TouchableOpacity
+                  style={[styles.inviteMembersButton, { backgroundColor: '#4F46E5', marginTop: 12 }]}
+                  onPress={async () => {
+                    if (isOpeningProjectChat) return;
+                    try {
+                      setIsOpeningProjectChat(true);
+                      let chatId = projectChatId;
+                      if (!chatId) {
+                        // Auto-create chat if it doesn't exist (for old projects)
+                        const memberIds = (team?.members || []).map((m) => m.id).filter(Boolean);
+                        if (team?.creator?.id) memberIds.push(team.creator.id);
+                        chatId = await ensureProjectChat(teamId, memberIds);
+                        setProjectChatId(chatId);
+                      }
+                      if (chatId) {
+                        navigation.navigate('ProjectChat', { chatId, teamName: team?.name || 'Project Chat' });
+                      }
+                    } catch (e: any) {
+                      console.error('[ProjectDetails] Failed to open Team Chat:', e);
+                      Toast.show({ type: 'error', text1: 'Could not open chat', text2: e?.message });
+                    } finally {
+                      setIsOpeningProjectChat(false);
+                    }
+                  }}
+                  disabled={isOpeningProjectChat}
+                >
+                  {isOpeningProjectChat
+                    ? <ActivityIndicator size="small" color="#fff" />
+                    : <>
+                      <MaterialIcons name="chat" size={18} color="#fff" />
+                      <Text style={styles.inviteMembersText}>Team Chat</Text>
+                    </>
+                  }
+                </TouchableOpacity>
+              )}
             </View>
           </View>
 
@@ -1178,6 +1237,45 @@ export default function ProjectDetailsScreen() {
               <MaterialIcons name="chevron-right" size={24} color={Colors.textSecondary} />
             </TouchableOpacity>
           </View>
+
+          {/* ── Project Mentor ── */}
+          {(team as any)?.mentor ? (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Project Mentor</Text>
+              <TouchableOpacity
+                style={styles.facultyCard}
+                onPress={() => navigation.navigate('PublicProfile', { userId: (team as any).mentor.id })}
+                activeOpacity={0.7}
+              >
+                <View style={styles.facultyInfo}>
+                  <UserAvatar
+                    uri={(team as any).mentor.avatar_url}
+                    name={(team as any).mentor.full_name || 'Mentor'}
+                    size={48}
+                    role={(team as any).mentor.role}
+                    showRing
+                  />
+                  <View>
+                    <Text style={styles.facultyName}>{(team as any).mentor.full_name || 'Mentor'}</Text>
+                    <Text style={styles.facultyRole}>{(team as any).mentor.department || (team as any).mentor.role || 'Mentor'}</Text>
+                  </View>
+                </View>
+                <MaterialIcons name="chevron-right" size={24} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+          ) : isCreator ? (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Project Mentor</Text>
+              <Text style={[styles.sectionSubtitle, { marginBottom: 8 }]}>No mentor assigned yet.</Text>
+              <TouchableOpacity
+                style={[styles.inviteMembersButton, { backgroundColor: '#4F46E5' }]}
+                onPress={() => (navigation as any).navigate('MentorHub', { prefillProjectId: teamId })}
+              >
+                <MaterialIcons name="school" size={18} color="#fff" />
+                <Text style={styles.inviteMembersText}>Find a Mentor</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
 
           {/* Team Members */}
           <View style={styles.section}>

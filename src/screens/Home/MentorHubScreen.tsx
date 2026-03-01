@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+// @ts-nocheck
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -9,578 +10,898 @@ import {
   TextInput,
   Modal,
   ActivityIndicator,
+  Animated,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
+import { RootStackParamList } from '../../navigation/types';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { UserAvatar } from '../../components/UserAvatar';
 import Toast from 'react-native-toast-message';
-import { recommendMentor } from '../../api/ai';
 import {
-  getIncomingMentorRequests,
-  getMentorProfiles,
-  getMentorshipSessions,
-  getOutgoingMentorRequests,
-  requestMentor,
-  updateMentorRequestStatus,
+  getMentors,
+  createMentorshipRequest,
+  getMyMentorshipRequests,
+  updateMentorshipRequestStatus,
+  getMentorshipConversations,
 } from '../../api/mentors';
+import { assignMentor } from '../../api/projects';
+import { ensureMentorshipChat } from '../../api/mentorshipChat';
 import { supabase } from '../../api/supabase';
+import { Mentor, MentorshipPurpose } from '../../types/database';
+
+type Nav = StackNavigationProp<RootStackParamList, 'MentorHub'>;
+type Route = RouteProp<RootStackParamList, 'MentorHub'>;
+
+const PURPOSES: { key: MentorshipPurpose; label: string; icon: string; helper: string }[] = [
+  { key: 'career', label: 'Career', icon: 'work', helper: 'Resume review, placements, internships' },
+  { key: 'academic', label: 'Academic', icon: 'school', helper: 'Subject-level guidance and doubt clearing' },
+  { key: 'skill', label: 'Skill', icon: 'bolt', helper: 'Skill-building and portfolio growth' },
+  { key: 'project', label: 'Project', icon: 'folder-open', helper: 'Entire team will be added to mentorship chat' },
+  { key: 'startup', label: 'Startup', icon: 'rocket', helper: 'Business model and funding guidance' },
+];
+
+const ROLE_FILTERS = [
+  { key: 'All', label: 'All Roles' },
+  { key: 'alumni', label: 'Alumni' },
+  { key: 'faculty', label: 'Faculty' },
+  { key: 'senior', label: 'Senior' },
+];
+
+const ROLE_BADGE_COLORS: Record<string, { bg: string; text: string }> = {
+  alumni: { bg: '#EEF2FF', text: '#4F46E5' },
+  faculty: { bg: '#F3E8FF', text: '#7C3AED' },
+  senior: { bg: '#DBEAFE', text: '#1D4ED8' },
+};
+
+const STATUS_CONFIG: Record<string, { bg: string; text: string; label: string }> = {
+  pending: { bg: '#FEF3C7', text: '#F59E0B', label: 'Pending' },
+  accepted: { bg: '#D1FAE5', text: '#10B981', label: 'Active' },
+  rejected: { bg: '#FEE2E2', text: '#EF4444', label: 'Rejected' },
+  closed: { bg: '#F3F4F6', text: '#9CA3AF', label: 'Closed' },
+};
+
+// Loading skeleton card
+function SkeletonCard({ Colors }: { Colors: any }) {
+  const opacity = useRef(new Animated.Value(0.4)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, { toValue: 1, duration: 700, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 0.4, duration: 700, useNativeDriver: true }),
+      ])
+    ).start();
+  }, []);
+  return (
+    <Animated.View style={{ opacity, backgroundColor: Colors.surface, borderRadius: 16, padding: 16, marginBottom: 10, borderWidth: 1, borderColor: Colors.border }}>
+      <View style={{ flexDirection: 'row', gap: 12, marginBottom: 12 }}>
+        <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: Colors.border }} />
+        <View style={{ flex: 1, gap: 8 }}>
+          <View style={{ height: 14, width: '60%', backgroundColor: Colors.border, borderRadius: 6 }} />
+          <View style={{ height: 11, width: '40%', backgroundColor: Colors.border, borderRadius: 6 }} />
+        </View>
+      </View>
+      <View style={{ flexDirection: 'row', gap: 6, marginBottom: 10 }}>
+        {[0, 1, 2].map(i => (
+          <View key={i} style={{ height: 22, width: 60, backgroundColor: Colors.border, borderRadius: 999 }} />
+        ))}
+      </View>
+      <View style={{ height: 38, backgroundColor: Colors.border, borderRadius: 8 }} />
+    </Animated.View>
+  );
+}
 
 export default function MentorHubScreen() {
-  const navigation = useNavigation();
+  const navigation = useNavigation<Nav>();
+  const route = useRoute<Route>();
   const { isDark } = useTheme();
   const { user, profile } = useAuth();
   const Colors = getColors(isDark);
-  const styles = createStyles(Colors);
+  const S = styles(Colors);
 
-  const [activeTab, setActiveTab] = useState<'find' | 'requests' | 'sessions'>('find');
+  const prefillProjectId = route.params?.prefillProjectId;
+
+  const tabAnim = useRef(new Animated.Value(0)).current;
+  const [activeTab, setActiveTab] = useState<'discover' | 'requests' | 'active'>('discover');
+  const [mentors, setMentors] = useState<Mentor[]>([]);
+  const [myRequests, setMyRequests] = useState<any[]>([]);
+  const [mentorshipConvs, setMentorshipConvs] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [mentors, setMentors] = useState<any[]>([]);
-  const [recommendedMentors, setRecommendedMentors] = useState<any[]>([]);
-  const [incomingRequests, setIncomingRequests] = useState<any[]>([]);
-  const [outgoingRequests, setOutgoingRequests] = useState<any[]>([]);
-  const [sessions, setSessions] = useState<any[]>([]);
 
-  const [requestModalOpen, setRequestModalOpen] = useState(false);
-  const [selectedMentor, setSelectedMentor] = useState<any>(null);
-  const [requestMessage, setRequestMessage] = useState('');
-  const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
+  // Filters
+  const [roleFilter, setRoleFilter] = useState('All');
+  const [availOnly, setAvailOnly] = useState(false);
 
-  const isMentor = Boolean(profile?.is_mentor);
-  const canMentor = profile?.role === 'alumni' || profile?.role === 'faculty';
+  // Modal
+  const [modalVisible, setModalVisible] = useState(false);
+  const [selectedMentor, setSelectedMentor] = useState<Mentor | null>(null);
+  const [purpose, setPurpose] = useState<MentorshipPurpose>('career');
+  const [description, setDescription] = useState('');
+  const [projectId, setProjectId] = useState<string | undefined>(prefillProjectId);
+  const [myProjects, setMyProjects] = useState<any[]>([]);
+  const [creatorProjectIds, setCreatorProjectIds] = useState<Set<string>>(new Set());
+  const [projectMentorMap, setProjectMentorMap] = useState<Record<string, string | null>>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // End mentorship
+  const [endingId, setEndingId] = useState<string | null>(null);
+  const [openingChatId, setOpeningChatId] = useState<string | null>(null);
+  const [assigningId, setAssigningId] = useState<string | null>(null);
+
+  const switchTab = (tab: 'discover' | 'requests' | 'active') => {
+    Animated.timing(tabAnim, { toValue: 0, duration: 100, useNativeDriver: true }).start(() => {
+      setActiveTab(tab);
+      Animated.timing(tabAnim, { toValue: 1, duration: 200, useNativeDriver: true }).start();
+    });
+  };
 
   useEffect(() => {
-    loadMentorData();
-  }, [user?.id]);
+    Animated.timing(tabAnim, { toValue: 1, duration: 250, useNativeDriver: true }).start();
+  }, []);
 
-  const loadMentorData = async () => {
+  // Faculty/alumni/senior mentors should use MentorDashboard; students (mentees) use MentorHub
+  useEffect(() => {
+    if (!profile?.role) return;
+    // faculty and alumni always go to dashboard
+    if (profile.role === 'faculty' || profile.role === 'alumni') {
+      navigation.replace('MentorDashboard');
+    }
+    // senior students who have a mentor profile go to dashboard too
+    // We check after data loads (mentorshipConvs from getMentors won't exist, but
+    // a simpler heuristic: if role is 'senior', navigate to dashboard so they can see requests)
+    if (profile.role === 'senior') {
+      navigation.replace('MentorDashboard');
+    }
+  }, [profile?.role, navigation]);
+
+  const loadData = useCallback(async () => {
     if (!user?.id) return;
     try {
-      setIsLoading(true);
-      const [mentorList, incoming, outgoing, sessionList] = await Promise.all([
-        getMentorProfiles(),
-        isMentor ? getIncomingMentorRequests(user.id) : Promise.resolve([]),
-        getOutgoingMentorRequests(user.id),
-        getMentorshipSessions(user.id),
+      console.log('[MentorHub] loadData - user:', user.id, '| roleFilter:', roleFilter, '| availOnly:', availOnly);
+      const [mentorList, requests, convs] = await Promise.all([
+        getMentors({
+          role: roleFilter === 'All' ? undefined : roleFilter,
+          available: availOnly || undefined,
+        }),
+        getMyMentorshipRequests(user.id),
+        getMentorshipConversations(user.id).catch(() => []),
       ]);
 
-      setMentors(mentorList || []);
-      setIncomingRequests(incoming || []);
-      setOutgoingRequests(outgoing || []);
-      setSessions(sessionList || []);
+      setMentors(mentorList);
+      setMyRequests(requests);
+      setMentorshipConvs(convs);
 
-      const recommendations = await recommendMentor(user.id);
-      const ids = recommendations.map((r: any) => r.id);
-      if (ids.length > 0) {
-        const { data } = await supabase
-          .from('profiles')
-          .select('id, full_name, department, avatar_url, role, areas_of_expertise')
-          .in('id', ids);
+      console.log('[MentorHub] loadData - mentors:', mentorList.length, '| requests:', requests.length, '| discoverBlocking:', 'disabled (purpose-level checks in API)');
 
-        const ranked = (data || []).map((mentor: any) => {
-          const match = recommendations.find((r: any) => r.id === mentor.id);
-          return { ...mentor, matchScore: match?.matchScore || 0 };
-        });
-        setRecommendedMentors(ranked);
+      // Load projects
+      const { data: createdProjects } = await supabase.from('project_teams').select('id, name').eq('created_by', user.id);
+      const { data: memberProjects } = await supabase.from('project_team_members').select('team_id, team:project_teams(id, name)').eq('user_id', user.id);
+      const seen = new Set<string>();
+      const all: any[] = [];
+      for (const p of [...(createdProjects || [])]) { if (!seen.has(p.id)) { seen.add(p.id); all.push(p); } }
+      for (const m of (memberProjects || [])) { const p = m.team; if (p && !seen.has(p.id)) { seen.add(p.id); all.push(p); } }
+      setMyProjects(all);
+      setCreatorProjectIds(new Set((createdProjects || []).map((p: any) => p.id)));
+
+      const projectIds = Array.from(
+        new Set(
+          (requests || [])
+            .filter((r: any) => r?.purpose === 'project' && !!r?.project_id)
+            .map((r: any) => r.project_id)
+        )
+      );
+
+      if (projectIds.length > 0) {
+        const { data: projectRows, error: projectsError } = await supabase
+          .from('project_teams')
+          .select('id, mentor_id')
+          .in('id', projectIds);
+
+        if (projectsError) {
+          console.error('[MentorHub] loadData - failed loading project mentor map:', projectsError);
+        } else {
+          const map: Record<string, string | null> = {};
+          for (const row of projectRows || []) {
+            map[row.id] = row.mentor_id || null;
+          }
+          setProjectMentorMap(map);
+          console.log('[MentorHub] loadData - projectMentorMap entries:', Object.keys(map).length);
+        }
       } else {
-        setRecommendedMentors([]);
+        setProjectMentorMap({});
       }
-    } catch (error) {
-      console.error('Mentor hub error:', error);
-      Toast.show({ type: 'error', text1: 'Failed to load mentors' });
+    } catch (e: any) {
+      console.error('[MentorHub] loadData failed:', e);
+      Toast.show({ type: 'error', text1: 'Failed to load mentors', text2: e?.message });
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [user?.id, roleFilter, availOnly]);
 
-  const openRequestModal = (mentor: any) => {
+  useEffect(() => { loadData(); }, [loadData]);
+
+  // Auto-open modal if project prefill
+  useEffect(() => {
+    if (prefillProjectId && !isLoading) {
+      setPurpose('project');
+      setProjectId(prefillProjectId);
+      // open modal with first available mentor if any
+    }
+  }, [prefillProjectId, isLoading]);
+
+  const openModal = (mentor: Mentor) => {
     setSelectedMentor(mentor);
-    setRequestMessage('');
-    setRequestModalOpen(true);
+    setPurpose(prefillProjectId ? 'project' : 'career');
+    setProjectId(prefillProjectId);
+    setDescription('');
+    setModalVisible(true);
   };
 
-  const submitMentorRequest = async () => {
+  const handleSubmit = async () => {
     if (!user?.id || !selectedMentor) return;
+    const requestPurpose: MentorshipPurpose = prefillProjectId ? 'project' : purpose;
+    const requestProjectId = prefillProjectId || projectId;
+    if (!description.trim()) { Toast.show({ type: 'error', text1: 'Please describe your mentorship goal' }); return; }
+    if (requestPurpose === 'project' && !requestProjectId) { Toast.show({ type: 'error', text1: 'Please select a project' }); return; }
     try {
-      setIsSubmittingRequest(true);
-      await requestMentor(selectedMentor.id, user.id, requestMessage.trim());
-      Toast.show({ type: 'success', text1: 'Request sent' });
-      setRequestModalOpen(false);
-      await loadMentorData();
-    } catch (error: any) {
+      console.log('[MentorHub] handleSubmit - mentor:', selectedMentor.id, '| purpose:', requestPurpose, '| project:', requestProjectId || 'none');
+      setIsSubmitting(true);
+      await createMentorshipRequest({
+        mentor_id: selectedMentor.id,
+        mentee_id: user.id,
+        purpose: requestPurpose,
+        project_id: requestPurpose === 'project' ? requestProjectId : undefined,
+        description: description.trim(),
+      });
+      Toast.show({ type: 'success', text1: '🎓 Request sent!', text2: 'You\'ll be notified when the mentor responds.' });
+      setModalVisible(false);
+      switchTab('requests');
+      await loadData();
+    } catch (e: any) {
+      console.error('[MentorHub] handleSubmit failed:', e);
+      Toast.show({ type: 'error', text1: 'Failed', text2: e?.message });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleEndMentorship = async (requestId: string) => {
+    try {
+      setEndingId(requestId);
+      await updateMentorshipRequestStatus(requestId, 'closed');
+      Toast.show({ type: 'success', text1: 'Mentorship ended' });
+      await loadData();
+    } catch (e: any) {
+      Toast.show({ type: 'error', text1: 'Failed', text2: e?.message });
+    } finally {
+      setEndingId(null);
+    }
+  };
+
+  const handleAssignMentorToProject = async (req: any) => {
+    if (!req?.project_id) {
+      Toast.show({ type: 'error', text1: 'Missing project', text2: 'Project not linked on this request.' });
+      return;
+    }
+
+    const mentorProfileId = req?.mentor?.profile?.id;
+    const mentorTableId = req?.mentor_id;
+
+    if (!mentorProfileId || !mentorTableId) {
+      Toast.show({ type: 'error', text1: 'Missing mentor details' });
+      return;
+    }
+
+    try {
+      console.log('[MentorHub] assignMentorToProject - requestId:', req.id, '| projectId:', req.project_id, '| mentorTableId:', mentorTableId, '| mentorProfileId:', mentorProfileId);
+      setAssigningId(req.id);
+      await assignMentor(req.project_id, mentorTableId, mentorProfileId);
+
+      const { data: verifyTeam, error: verifyErr } = await supabase
+        .from('project_teams')
+        .select('id, mentor_id')
+        .eq('id', req.project_id)
+        .maybeSingle();
+
+      if (verifyErr) {
+        console.error('[MentorHub] assignMentorToProject - verify failed:', verifyErr);
+      } else {
+        console.log('[MentorHub] assignMentorToProject - verify team mentor_id:', verifyTeam?.mentor_id || 'null');
+      }
+
+      Toast.show({ type: 'success', text1: 'Mentor assigned to project' });
+      await loadData();
+    } catch (e: any) {
+      console.error('[MentorHub] assignMentorToProject failed:', e);
       Toast.show({
         type: 'error',
-        text1: 'Failed to send request',
-        text2: error?.message || 'Please try again',
+        text1: 'Could not assign mentor',
+        text2: e?.message || 'Only project creator can assign mentor.',
       });
     } finally {
-      setIsSubmittingRequest(false);
+      setAssigningId(null);
     }
   };
 
-  const handleRequestAction = async (requestId: string, status: 'accepted' | 'rejected') => {
+  const getConvForRequest = (req: any) => {
+    return mentorshipConvs.find((c: any) => c.mentorship_id === req.id);
+  };
+
+  // Opens existing chat or creates one on-demand for any accepted mentorship
+  const openOrCreateChat = async (req: any) => {
+    if (openingChatId === req.id) return;
+    const conv = getConvForRequest(req);
+    if (conv) {
+      navigation.navigate('MentorshipChat', { chatId: conv.id });
+      return;
+    }
     try {
-      await updateMentorRequestStatus(requestId, status);
-      Toast.show({ type: 'success', text1: `Request ${status}` });
-      await loadMentorData();
-    } catch (error) {
-      Toast.show({ type: 'error', text1: 'Failed to update request' });
+      setOpeningChatId(req.id);
+      const mentorUserId = req.mentor?.profile?.id;
+      if (!mentorUserId || !user?.id) throw new Error('Missing user IDs');
+      const chatId = await ensureMentorshipChat(req.id, mentorUserId, user.id);
+      await loadData();
+      navigation.navigate('MentorshipChat', { chatId });
+    } catch (e: any) {
+      Toast.show({ type: 'error', text1: 'Could not open chat', text2: e?.message });
+    } finally {
+      setOpeningChatId(null);
     }
   };
 
-  const mentorTags = (areas?: string[]) =>
-    (areas || []).slice(0, 3).map((tag) => (
-      <View key={tag} style={styles.tag}>
-        <Text style={styles.tagText}>{tag}</Text>
-      </View>
-    ));
+  const pendingRequests = myRequests.filter((r) => r.status === 'pending');
+  const activeMentorships = myRequests.filter((r) => r.status === 'accepted');
+  const filteredMentors = mentors.filter((m) => {
+    if (roleFilter !== 'All' && m.role !== roleFilter) return false;
+    if (availOnly && !m.available) return false;
+    return true;
+  });
 
-  const hasSessions = sessions.length > 0;
-
-  if (isLoading) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <ActivityIndicator size="large" color={Colors.primary} />
-      </SafeAreaView>
-    );
-  }
+  const currentPurpose = PURPOSES.find(p => p.key === purpose);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+    <SafeAreaView style={S.container}>
+      {/* Header */}
+      <View style={S.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <MaterialIcons name="arrow-back" size={24} color={Colors.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Mentor Hub</Text>
-        <View style={{ width: 24 }} />
+        <View>
+          <Text style={S.headerTitle}>Mentorship Hub</Text>
+          <Text style={S.headerSub}>Connect · Learn · Grow</Text>
+        </View>
+        {profile?.role === 'faculty' || profile?.role === 'alumni' ? (
+          <TouchableOpacity onPress={() => navigation.navigate('MentorDashboard')}>
+            <View style={S.dashBtn}>
+              <MaterialIcons name="dashboard" size={18} color="#4F46E5" />
+            </View>
+          </TouchableOpacity>
+        ) : (
+          <View style={{ width: 34, height: 34 }} />
+        )}
       </View>
 
-      <View style={styles.tabsRow}>
-        {['find', 'requests', 'sessions'].map((tab) => (
+      {/* Mentorship Chats Banner */}
+      {mentorshipConvs.length > 0 && (
+        <TouchableOpacity
+          style={S.chatBanner}
+          onPress={() => navigation.navigate('MentorshipChatList')}
+          activeOpacity={0.8}
+        >
+          <View style={S.chatBannerLeft}>
+            <View style={S.chatBannerIcon}>
+              <MaterialIcons name="chat" size={18} color="#fff" />
+            </View>
+            <View>
+              <Text style={S.chatBannerTitle}>Mentorship Chats</Text>
+              <Text style={S.chatBannerSub}>{mentorshipConvs.length} active conversation{mentorshipConvs.length !== 1 ? 's' : ''}</Text>
+            </View>
+          </View>
+          <MaterialIcons name="chevron-right" size={20} color="#4F46E5" />
+        </TouchableOpacity>
+      )}
+
+      {/* Tabs */}
+      <View style={S.tabRow}>
+        {([
+          { key: 'discover', label: 'Discover', icon: 'explore' },
+          { key: 'requests', label: 'Requests', icon: 'send', count: pendingRequests.length },
+          { key: 'active', label: 'My Mentors', icon: 'people', count: activeMentorships.length },
+        ] as any[]).map((tab) => (
           <TouchableOpacity
-            key={tab}
-            style={[styles.tab, activeTab === tab && styles.tabActive]}
-            onPress={() => setActiveTab(tab as any)}
+            key={tab.key}
+            style={[S.tab, activeTab === tab.key && S.tabActive]}
+            onPress={() => switchTab(tab.key)}
           >
-            <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
-              {tab === 'find' ? 'Find' : tab === 'requests' ? 'Requests' : 'Sessions'}
-            </Text>
+            <View style={S.tabInner}>
+              <MaterialIcons name={tab.icon} size={14} color={activeTab === tab.key ? '#fff' : Colors.textSecondary} />
+              <Text style={[S.tabText, activeTab === tab.key && S.tabTextActive]}>{tab.label}</Text>
+              {!!tab.count && tab.count > 0 && (
+                <View style={S.tabBadge}><Text style={S.tabBadgeText}>{tab.count}</Text></View>
+              )}
+            </View>
           </TouchableOpacity>
         ))}
       </View>
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {activeTab === 'find' && (
-          <>
-            <Text style={styles.sectionTitle}>AI Recommended Mentors</Text>
-            {recommendedMentors.length === 0 ? (
-              <View style={styles.emptyState}>
-                <MaterialIcons name="person-search" size={40} color={Colors.textSecondary} />
-                <Text style={styles.emptyText}>Complete your profile for AI recommendations</Text>
-              </View>
-            ) : (
-              recommendedMentors.map((mentor) => (
-                <View key={mentor.id} style={styles.card}>
-                  <View style={styles.cardHeader}>
-                    <UserAvatar
-                      uri={mentor.avatar_url}
-                      name={mentor.full_name}
-                      role={mentor.role}
-                      size={44}
-                      showRing
-                    />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.cardTitle}>{mentor.full_name}</Text>
-                      <Text style={styles.cardSubtitle}>{mentor.department || 'Mentor'}</Text>
-                    </View>
-                    <View style={styles.scoreBadge}>
-                      <Text style={styles.scoreText}>{mentor.matchScore}</Text>
-                    </View>
-                  </View>
-                  <View style={styles.tagRow}>{mentorTags(mentor.areas_of_expertise)}</View>
-                  <TouchableOpacity
-                    style={styles.primaryButton}
-                    onPress={() => openRequestModal(mentor)}
-                  >
-                    <Text style={styles.primaryButtonText}>Request Mentorship</Text>
-                  </TouchableOpacity>
-                </View>
-              ))
-            )}
+      {/* Tab Content with fade animation */}
+      <Animated.View style={{ flex: 1, opacity: tabAnim }}>
 
-            <Text style={styles.sectionTitle}>All Mentors</Text>
-            {mentors.length === 0 ? (
-              <View style={styles.emptyState}>
-                <MaterialIcons name="school" size={40} color={Colors.textSecondary} />
-                <Text style={styles.emptyText}>No mentors available yet</Text>
+        {/* ── DISCOVER ── */}
+        {activeTab === 'discover' && (
+          <ScrollView style={S.scroll} contentContainerStyle={S.scrollContent} showsVerticalScrollIndicator={false}>
+            {/* Filter chips */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>
+              <View style={S.chipRow}>
+                {ROLE_FILTERS.map((r) => (
+                  <TouchableOpacity key={r.key} style={[S.chip, roleFilter === r.key && S.chipActive]} onPress={() => setRoleFilter(r.key)}>
+                    <Text style={[S.chipText, roleFilter === r.key && S.chipTextActive]}>{r.label}</Text>
+                  </TouchableOpacity>
+                ))}
+                <TouchableOpacity style={[S.chip, availOnly && S.chipActive]} onPress={() => setAvailOnly(p => !p)}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                    <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: availOnly ? '#fff' : '#10B981' }} />
+                    <Text style={[S.chipText, availOnly && S.chipTextActive]}>Available</Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+
+            {isLoading ? (
+              [0, 1, 2].map(i => <SkeletonCard key={i} Colors={Colors} />)
+            ) : filteredMentors.length === 0 ? (
+              <View style={S.empty}>
+                <MaterialIcons name="person-search" size={52} color={Colors.border} />
+                <Text style={S.emptyTitle}>No mentors found</Text>
+                <Text style={S.emptyText}>Try changing your filters</Text>
               </View>
             ) : (
-              mentors.map((mentor) => (
-                <View key={mentor.id} style={styles.card}>
-                  <View style={styles.cardHeader}>
-                    <UserAvatar
-                      uri={mentor.avatar_url}
-                      name={mentor.full_name}
-                      role={mentor.role}
-                      size={44}
-                      showRing
-                    />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.cardTitle}>{mentor.full_name}</Text>
-                      <Text style={styles.cardSubtitle}>{mentor.department || 'Mentor'}</Text>
-                    </View>
-                  </View>
-                  <View style={styles.tagRow}>{mentorTags(mentor.areas_of_expertise)}</View>
-                  <TouchableOpacity
-                    style={styles.secondaryButton}
-                    onPress={() => openRequestModal(mentor)}
-                  >
-                    <Text style={styles.secondaryButtonText}>Request Mentorship</Text>
-                  </TouchableOpacity>
-                </View>
+              filteredMentors.map((mentor) => (
+                <MentorCard
+                  key={mentor.id}
+                  mentor={mentor}
+                  Colors={Colors}
+                  S={S}
+                  onRequest={() => openModal(mentor)}
+                />
               ))
             )}
-          </>
+            <View style={{ height: 32 }} />
+          </ScrollView>
         )}
 
+        {/* ── REQUESTS ── */}
         {activeTab === 'requests' && (
-          <>
-            {isMentor && (
-              <>
-                <Text style={styles.sectionTitle}>Incoming Requests</Text>
-                {incomingRequests.length === 0 ? (
-                  <Text style={styles.emptyText}>No incoming requests</Text>
-                ) : (
-                  incomingRequests.map((req) => (
-                    <View key={req.id} style={styles.card}>
-                      <View style={styles.cardHeader}>
-                        <UserAvatar
-                          uri={req.mentee?.avatar_url}
-                          name={req.mentee?.full_name}
-                          role={req.mentee?.role}
-                          size={40}
-                        />
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.cardTitle}>{req.mentee?.full_name}</Text>
-                          <Text style={styles.cardSubtitle}>{req.message || 'Mentorship request'}</Text>
-                        </View>
-                      </View>
-                      <View style={styles.actionRow}>
-                        <TouchableOpacity
-                          style={styles.secondaryButton}
-                          onPress={() => handleRequestAction(req.id, 'rejected')}
-                        >
-                          <Text style={styles.secondaryButtonText}>Reject</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={styles.primaryButton}
-                          onPress={() => handleRequestAction(req.id, 'accepted')}
-                        >
-                          <Text style={styles.primaryButtonText}>Accept</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  ))
-                )}
-              </>
-            )}
-
-            <Text style={styles.sectionTitle}>Outgoing Requests</Text>
-            {outgoingRequests.length === 0 ? (
-              <Text style={styles.emptyText}>No outgoing requests</Text>
-            ) : (
-              outgoingRequests.map((req) => (
-                <View key={req.id} style={styles.card}>
-                  <View style={styles.cardHeader}>
-                    <UserAvatar
-                      uri={req.mentor?.avatar_url}
-                      name={req.mentor?.full_name}
-                      role={req.mentor?.role}
-                      size={40}
-                    />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.cardTitle}>{req.mentor?.full_name}</Text>
-                      <Text style={styles.cardSubtitle}>Status: {req.status}</Text>
-                    </View>
-                  </View>
-                </View>
-              ))
-            )}
-
-            {!isMentor && canMentor && (
-              <View style={styles.infoCard}>
-                <MaterialIcons name="info" size={18} color={Colors.primary} />
-                <Text style={styles.infoText}>
-                  Enable your mentor profile in Settings to receive requests.
-                </Text>
-              </View>
-            )}
-          </>
-        )}
-
-        {activeTab === 'sessions' && (
-          <>
-            <Text style={styles.sectionTitle}>Upcoming Sessions</Text>
-            {!hasSessions ? (
-              <View style={styles.emptyState}>
-                <MaterialIcons name="event" size={40} color={Colors.textSecondary} />
-                <Text style={styles.emptyText}>No scheduled sessions</Text>
+          <ScrollView style={S.scroll} contentContainerStyle={S.scrollContent} showsVerticalScrollIndicator={false}>
+            {pendingRequests.length === 0 ? (
+              <View style={S.empty}>
+                <MaterialIcons name="send" size={52} color={Colors.border} />
+                <Text style={S.emptyTitle}>No requests yet</Text>
+                <TouchableOpacity style={S.emptyBtn} onPress={() => switchTab('discover')}>
+                  <Text style={S.emptyBtnText}>Find a Mentor</Text>
+                </TouchableOpacity>
               </View>
             ) : (
-              sessions.map((session) => (
-                <View key={session.id} style={styles.card}>
-                  <View style={styles.cardHeader}>
-                    <UserAvatar
-                      uri={session.mentor?.avatar_url}
-                      name={session.mentor?.full_name}
-                      role={session.mentor?.role}
-                      size={40}
-                    />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.cardTitle}>
-                        {session.mentor?.full_name || 'Mentor'} & {session.mentee?.full_name || 'Mentee'}
-                      </Text>
-                      <Text style={styles.cardSubtitle}>
-                        {new Date(session.scheduled_at).toLocaleString()}
-                      </Text>
+              pendingRequests.map((req) => {
+                const sc = STATUS_CONFIG[req.status] || STATUS_CONFIG.pending;
+                const conv = getConvForRequest(req);
+                return (
+                  <View key={req.id} style={S.card}>
+                    <View style={S.cardRow}>
+                      <UserAvatar uri={req.mentor?.profile?.avatar_url} name={req.mentor?.profile?.full_name || 'Mentor'} size={44} showRing={false} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={S.cardTitle}>{req.mentor?.profile?.full_name || 'Mentor'}</Text>
+                        <Text style={S.cardSub}>{req.mentor?.role} · {req.mentor?.profile?.department || ''}</Text>
+                      </View>
+                      <View style={[S.statusBadge, { backgroundColor: sc.bg }]}>
+                        <Text style={[S.statusText, { color: sc.text }]}>{sc.label}</Text>
+                      </View>
+                    </View>
+                    <View style={S.purposeRow}>
+                      <View style={S.purposePillSmall}>
+                        <Text style={S.purposePillSmallText}>{req.purpose}</Text>
+                      </View>
+                      <Text style={S.descText} numberOfLines={2}>{req.description}</Text>
+                    </View>
+                    {req.status === 'accepted' && req.purpose !== 'project' && conv && (
+                      <TouchableOpacity
+                        style={S.openChatBtn}
+                        onPress={() => navigation.navigate('MentorshipChat', { chatId: conv.id })}
+                      >
+                        <MaterialIcons name="chat" size={15} color="#fff" />
+                        <Text style={S.openChatBtnText}>Open Chat</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                );
+              })
+            )}
+            <View style={{ height: 32 }} />
+          </ScrollView>
+        )}
+
+        {/* ── ACTIVE MENTORS ── */}
+        {activeTab === 'active' && (
+          <ScrollView style={S.scroll} contentContainerStyle={S.scrollContent} showsVerticalScrollIndicator={false}>
+            {activeMentorships.length === 0 ? (
+              <View style={S.empty}>
+                <MaterialIcons name="people" size={52} color={Colors.border} />
+                <Text style={S.emptyTitle}>No active mentors</Text>
+                <Text style={S.emptyText}>Accept a request to begin</Text>
+              </View>
+            ) : (
+              activeMentorships.map((req) => {
+                const conv = getConvForRequest(req);
+                const roleColors = ROLE_BADGE_COLORS[req.mentor?.role] || ROLE_BADGE_COLORS.alumni;
+                return (
+                  <View key={req.id} style={S.card}>
+                    <View style={S.cardRow}>
+                      <UserAvatar uri={req.mentor?.profile?.avatar_url} name={req.mentor?.profile?.full_name || 'Mentor'} size={48} showRing={false} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={S.cardTitle}>{req.mentor?.profile?.full_name || 'Mentor'}</Text>
+                        <Text style={S.cardSub}>{req.mentor?.profile?.department || ''}</Text>
+                      </View>
+                      <View style={[S.roleBadge, { backgroundColor: roleColors.bg }]}>
+                        <Text style={[S.roleText, { color: roleColors.text }]}>{req.mentor?.role}</Text>
+                      </View>
+                    </View>
+                    <View style={S.purposePillSmall}>
+                      <Text style={S.purposePillSmallText}>{req.purpose} mentorship</Text>
+                    </View>
+                    <View style={S.actionRow}>
+                      {req.purpose !== 'project' && (
+                        <TouchableOpacity
+                          style={S.openChatBtn}
+                          onPress={() => openOrCreateChat(req)}
+                          disabled={openingChatId === req.id}
+                        >
+                          {openingChatId === req.id
+                            ? <ActivityIndicator size="small" color="#fff" />
+                            : <><MaterialIcons name="chat" size={14} color="#fff" /><Text style={S.openChatBtnText}>Open Chat</Text></>
+                          }
+                        </TouchableOpacity>
+                      )}
+
+                      <TouchableOpacity
+                        style={S.endBtn}
+                        onPress={() => handleEndMentorship(req.id)}
+                        disabled={endingId === req.id}
+                      >
+                        {endingId === req.id
+                          ? <ActivityIndicator size="small" color="#4F46E5" />
+                          : <Text style={S.endBtnText}>End Mentorship</Text>
+                        }
+                      </TouchableOpacity>
+
+                      {req.purpose === 'project'
+                        && req.project_id
+                        && creatorProjectIds.has(req.project_id)
+                        && projectMentorMap[req.project_id] !== req?.mentor?.profile?.id && (
+                        <TouchableOpacity
+                          style={S.endBtn}
+                          onPress={() => handleAssignMentorToProject(req)}
+                          disabled={assigningId === req.id}
+                        >
+                          {assigningId === req.id
+                            ? <ActivityIndicator size="small" color="#4F46E5" />
+                            : <Text style={S.endBtnText}>Assign to Project</Text>
+                          }
+                        </TouchableOpacity>
+                      )}
                     </View>
                   </View>
-                </View>
-              ))
+                );
+              })
             )}
-          </>
+            <View style={{ height: 32 }} />
+          </ScrollView>
         )}
-      </ScrollView>
+      </Animated.View>
 
-      <Modal visible={requestModalOpen} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Request Mentorship</Text>
-              <TouchableOpacity onPress={() => setRequestModalOpen(false)}>
-                <MaterialIcons name="close" size={20} color={Colors.textSecondary} />
+      {/* ── Request Modal ── */}
+      <Modal visible={modalVisible} transparent animationType="slide" onRequestClose={() => setModalVisible(false)}>
+        <View style={S.modalOverlay}>
+          <ScrollView>
+            <View style={S.modalCard}>
+              <View style={S.modalHeader}>
+                <Text style={S.modalTitle}>Request Mentorship</Text>
+                <TouchableOpacity onPress={() => setModalVisible(false)}>
+                  <MaterialIcons name="close" size={22} color={Colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+
+              {selectedMentor && (
+                <View style={S.selectedMentorRow}>
+                  <UserAvatar uri={selectedMentor.profile?.avatar_url} name={selectedMentor.profile?.full_name || 'Mentor'} size={38} showRing={false} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={S.selectedMentorName}>{selectedMentor.profile?.full_name}</Text>
+                    <Text style={S.selectedMentorSub}>{selectedMentor.role} · {selectedMentor.profile?.department || ''}</Text>
+                  </View>
+                </View>
+              )}
+
+              <Text style={S.fieldLabel}>Purpose</Text>
+              <View style={S.purposePills}>
+                {PURPOSES.map((p) => (
+                  <TouchableOpacity
+                    key={p.key}
+                    style={[S.purposePill, purpose === p.key && S.purposePillActive]}
+                    onPress={() => {
+                      if (prefillProjectId) return;
+                      setPurpose(p.key);
+                      if (p.key !== 'project') setProjectId(undefined);
+                    }}
+                    disabled={!!prefillProjectId}
+                  >
+                    <MaterialIcons name={p.icon as any} size={13} color={purpose === p.key ? '#fff' : Colors.textSecondary} />
+                    <Text style={[S.purposePillText, purpose === p.key && { color: '#fff' }]}>{p.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              {!!prefillProjectId && (
+                <View style={S.helperBox}>
+                  <MaterialIcons name="lock" size={12} color="#6B7280" />
+                  <Text style={S.helperText}>From project flow, mentorship purpose is locked to Project.</Text>
+                </View>
+              )}
+              {/* Helper text */}
+              {currentPurpose && (
+                <View style={S.helperBox}>
+                  <MaterialIcons name="info-outline" size={12} color="#6B7280" />
+                  <Text style={S.helperText}>{currentPurpose.helper}</Text>
+                </View>
+              )}
+
+              {purpose === 'project' && (
+                <>
+                  <Text style={S.fieldLabel}>Select Project</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      {myProjects.length === 0
+                        ? <Text style={S.cardSub}>No projects found.</Text>
+                        : myProjects.map((proj: any) => (
+                          <TouchableOpacity
+                            key={proj.id}
+                            style={[S.chip, projectId === proj.id && S.chipActive]}
+                            onPress={() => setProjectId(proj.id)}
+                          >
+                            <Text style={[S.chipText, projectId === proj.id && S.chipTextActive]}>{proj.name}</Text>
+                          </TouchableOpacity>
+                        ))
+                      }
+                    </View>
+                  </ScrollView>
+                </>
+              )}
+
+              <Text style={S.fieldLabel}>Describe your goal</Text>
+              <TextInput
+                style={S.textArea}
+                placeholder="What do you hope to achieve from this mentorship?"
+                placeholderTextColor={Colors.textSecondary}
+                value={description}
+                onChangeText={setDescription}
+                multiline
+                textAlignVertical="top"
+              />
+
+              <TouchableOpacity style={[S.submitBtn, isSubmitting && { opacity: 0.6 }]} onPress={handleSubmit} disabled={isSubmitting}>
+                {isSubmitting ? <ActivityIndicator size="small" color="#fff" /> : <Text style={S.submitBtnText}>Send Request</Text>}
               </TouchableOpacity>
             </View>
-            <Text style={styles.modalLabel}>Message</Text>
-            <TextInput
-              style={styles.modalInput}
-              placeholder="Share your goals and what you need help with"
-              placeholderTextColor={Colors.textSecondary}
-              value={requestMessage}
-              onChangeText={setRequestMessage}
-              multiline
-            />
-            <TouchableOpacity
-              style={[styles.primaryButton, isSubmittingRequest && { opacity: 0.6 }]}
-              onPress={submitMentorRequest}
-              disabled={isSubmittingRequest}
-            >
-              <Text style={styles.primaryButtonText}>
-                {isSubmittingRequest ? 'Sending...' : 'Send Request'}
-              </Text>
-            </TouchableOpacity>
-          </View>
+          </ScrollView>
         </View>
       </Modal>
     </SafeAreaView>
   );
 }
 
-const createStyles = (Colors: ReturnType<typeof getColors>) =>
-  StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: Colors.background,
-    },
-    header: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingHorizontal: Spacing.md,
-      paddingVertical: Spacing.md,
-      borderBottomWidth: 1,
-      borderBottomColor: Colors.border,
-      backgroundColor: Colors.surface,
-    },
-    headerTitle: {
-      fontSize: FontSizes.lg,
-      fontWeight: FontWeights.bold,
-      color: Colors.text,
-    },
-    tabsRow: {
-      flexDirection: 'row',
-      gap: 8,
-      padding: Spacing.md,
-    },
-    tab: {
-      flex: 1,
-      alignItems: 'center',
-      paddingVertical: 10,
-      borderRadius: 12,
-      backgroundColor: Colors.card,
-      borderWidth: 1,
-      borderColor: Colors.border,
-    },
-    tabActive: {
-      backgroundColor: Colors.primary,
-      borderColor: Colors.primary,
-    },
-    tabText: {
-      fontSize: FontSizes.sm,
-      fontWeight: FontWeights.semibold,
-      color: Colors.textSecondary,
-    },
-    tabTextActive: {
-      color: '#ffffff',
-    },
-    content: {
-      padding: Spacing.md,
-      gap: Spacing.md,
-    },
-    sectionTitle: {
-      fontSize: FontSizes.md,
-      fontWeight: FontWeights.bold,
-      color: Colors.text,
-      marginTop: Spacing.md,
-      marginBottom: Spacing.sm,
-    },
-    card: {
-      backgroundColor: Colors.surface,
-      borderRadius: BorderRadius.lg,
-      padding: Spacing.md,
-      borderWidth: 1,
-      borderColor: Colors.border,
-      gap: 12,
-    },
-    cardHeader: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 12,
-    },
-    cardTitle: {
-      fontSize: FontSizes.md,
-      fontWeight: FontWeights.bold,
-      color: Colors.text,
-    },
-    cardSubtitle: {
-      fontSize: FontSizes.sm,
-      color: Colors.textSecondary,
-    },
-    tagRow: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: 8,
-    },
-    tag: {
-      backgroundColor: Colors.primary + '15',
-      paddingHorizontal: 10,
-      paddingVertical: 4,
-      borderRadius: 999,
-    },
-    tagText: {
-      fontSize: FontSizes.xs,
-      color: Colors.primary,
-      fontWeight: FontWeights.semibold,
-    },
-    primaryButton: {
-      backgroundColor: Colors.primary,
-      borderRadius: BorderRadius.md,
-      paddingVertical: 10,
-      alignItems: 'center',
-    },
-    primaryButtonText: {
-      color: '#ffffff',
-      fontWeight: FontWeights.bold,
-      fontSize: FontSizes.sm,
-    },
-    secondaryButton: {
-      borderWidth: 1,
-      borderColor: Colors.border,
-      borderRadius: BorderRadius.md,
-      paddingVertical: 10,
-      alignItems: 'center',
-      backgroundColor: Colors.card,
-      flex: 1,
-    },
-    secondaryButtonText: {
-      color: Colors.text,
-      fontWeight: FontWeights.semibold,
-    },
-    actionRow: {
-      flexDirection: 'row',
-      gap: 10,
-    },
-    scoreBadge: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
-      backgroundColor: Colors.primary + '15',
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    scoreText: {
-      color: Colors.primary,
-      fontWeight: FontWeights.bold,
-    },
-    emptyState: {
-      alignItems: 'center',
-      paddingVertical: 24,
-      gap: 8,
-    },
-    emptyText: {
-      textAlign: 'center',
-      color: Colors.textSecondary,
-    },
-    infoCard: {
-      flexDirection: 'row',
-      gap: 10,
-      padding: Spacing.md,
-      backgroundColor: Colors.primary + '15',
-      borderRadius: BorderRadius.md,
-      alignItems: 'center',
-    },
-    infoText: {
-      flex: 1,
-      color: Colors.primary,
-      fontSize: FontSizes.sm,
-    },
-    modalOverlay: {
-      flex: 1,
-      backgroundColor: 'rgba(15,23,42,0.4)',
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: Spacing.md,
-    },
-    modalCard: {
-      width: '100%',
-      backgroundColor: Colors.surface,
-      borderRadius: BorderRadius.lg,
-      padding: Spacing.md,
-      gap: 12,
-    },
-    modalHeader: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-    },
-    modalTitle: {
-      fontSize: FontSizes.md,
-      fontWeight: FontWeights.bold,
-      color: Colors.text,
-    },
-    modalLabel: {
-      fontSize: FontSizes.sm,
-      color: Colors.textSecondary,
-    },
-    modalInput: {
-      minHeight: 100,
-      borderWidth: 1,
-      borderColor: Colors.border,
-      borderRadius: BorderRadius.md,
-      padding: Spacing.sm,
-      textAlignVertical: 'top',
-      color: Colors.text,
-    },
-  });
+// ── Mentor Card Component ──────────────────────────────────────
+
+function MentorCard({ mentor, Colors, S, onRequest }: any) {
+  const name = mentor.profile?.full_name || 'Mentor';
+  const roleColors = ROLE_BADGE_COLORS[mentor.role] || ROLE_BADGE_COLORS.alumni;
+
+  // For now assume active_count = 0 since we don't have that join yet; disable if mentor.available=false
+  const isFull = mentor.max_mentees <= 0; // will be improved when count join is added
+  const isDisabled = !mentor.available || isFull;
+
+  let btnLabel = 'Request Mentorship';
+  if (!mentor.available) btnLabel = 'Unavailable';
+  else if (isFull) btnLabel = 'At Capacity';
+
+  return (
+    <View style={S.card}>
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
+        <UserAvatar uri={mentor.profile?.avatar_url} name={name} size={48} showRing={false} />
+        <View style={{ flex: 1 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <Text style={S.cardTitle}>{name}</Text>
+            <View style={[S.roleBadge, { backgroundColor: roleColors.bg }]}>
+              <Text style={[S.roleText, { color: roleColors.text }]}>{mentor.role}</Text>
+            </View>
+          </View>
+          <Text style={S.cardSub}>{mentor.profile?.department || mentor.department || ''}{mentor.company ? ` · ${mentor.company}` : ''}</Text>
+          {/* Capacity indicator */}
+          <Text style={[S.capacityText, isFull && { color: '#EF4444' }]}>
+            {`${mentor.max_mentees} slot${mentor.max_mentees !== 1 ? 's' : ''} available`}
+          </Text>
+        </View>
+        {/* Availability dot top-right */}
+        <View style={[S.availDotLg, { backgroundColor: mentor.available ? '#10B981' : '#CBD5E1' }]} />
+      </View>
+
+      {mentor.expertise_tags?.length > 0 && (
+        <View style={S.tagRow}>
+          {mentor.expertise_tags.slice(0, 5).map((tag: string) => (
+            <View key={tag} style={S.tag}>
+              <Text style={S.tagText}>{tag}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+
+      <TouchableOpacity
+        style={[S.requestBtn, isDisabled && S.requestBtnDisabled]}
+        onPress={isDisabled ? undefined : onRequest}
+        disabled={isDisabled}
+        activeOpacity={isDisabled ? 1 : 0.8}
+      >
+        <Text style={[S.requestBtnText, isDisabled && { color: Colors.textSecondary }]}>{btnLabel}</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+// ── Styles ────────────────────────────────────────────────────
+
+const styles = (Colors: any) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: Colors.background },
+  header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: Spacing.md, paddingVertical: 12,
+    backgroundColor: Colors.surface, borderBottomWidth: 1, borderBottomColor: Colors.border,
+  },
+  headerTitle: { fontSize: FontSizes.lg, fontWeight: FontWeights.bold, color: Colors.text },
+  headerSub: { fontSize: 10, color: Colors.textSecondary, marginTop: 1 },
+  dashBtn: {
+    width: 34, height: 34, borderRadius: 10, backgroundColor: '#EEF2FF',
+    alignItems: 'center', justifyContent: 'center',
+  },
+
+  chatBanner: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginHorizontal: Spacing.md, marginTop: 10, marginBottom: 2,
+    backgroundColor: '#EEF2FF', borderRadius: BorderRadius.lg,
+    padding: 12, borderWidth: 1, borderColor: '#C7D2FE',
+  },
+  chatBannerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  chatBannerIcon: {
+    width: 36, height: 36, borderRadius: 10, backgroundColor: '#4F46E5',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  chatBannerTitle: { fontSize: 13, fontWeight: '700', color: '#312E81' },
+  chatBannerSub: { fontSize: 11, color: '#4F46E5', marginTop: 1 },
+
+  tabRow: { flexDirection: 'row', paddingHorizontal: Spacing.md, paddingVertical: 10, gap: 6 },
+  tab: {
+    flex: 1, alignItems: 'center', paddingVertical: 9,
+    borderRadius: BorderRadius.lg, backgroundColor: Colors.card,
+    borderWidth: 1, borderColor: Colors.border,
+  },
+  tabActive: { backgroundColor: '#4F46E5', borderColor: '#4F46E5' },
+  tabInner: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  tabText: { fontSize: 11, fontWeight: FontWeights.semibold, color: Colors.textSecondary },
+  tabTextActive: { color: '#fff' },
+  tabBadge: {
+    backgroundColor: '#EF4444', borderRadius: 8, minWidth: 15, height: 15,
+    alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3,
+  },
+  tabBadgeText: { color: '#fff', fontSize: 9, fontWeight: '700' },
+
+  scroll: { flex: 1 },
+  scrollContent: { padding: Spacing.md, gap: 10 },
+
+  chipRow: { flexDirection: 'row', gap: 7, paddingBottom: 2 },
+  chip: {
+    paddingHorizontal: 14, paddingVertical: 7, borderRadius: 999,
+    backgroundColor: Colors.card, borderWidth: 1, borderColor: Colors.border,
+  },
+  chipActive: { backgroundColor: '#4F46E5', borderColor: '#4F46E5' },
+  chipText: { fontSize: 12, fontWeight: '600', color: Colors.textSecondary },
+  chipTextActive: { color: '#fff' },
+
+  card: {
+    backgroundColor: Colors.surface, borderRadius: BorderRadius.xl,
+    padding: Spacing.md, gap: 10,
+    borderWidth: 1, borderColor: Colors.border,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1,
+  },
+  cardRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  cardTitle: { fontSize: FontSizes.md, fontWeight: FontWeights.bold, color: Colors.text },
+  cardSub: { fontSize: 12, color: Colors.textSecondary, marginTop: 1 },
+
+  capacityText: { fontSize: 11, color: Colors.textSecondary, marginTop: 2, fontWeight: '500' },
+  availDotLg: { width: 10, height: 10, borderRadius: 5, marginTop: 4 },
+
+  roleBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 },
+  roleText: { fontSize: 10, fontWeight: '700', textTransform: 'capitalize' },
+
+  tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  tag: { backgroundColor: '#4F46E514', paddingHorizontal: 9, paddingVertical: 4, borderRadius: 999 },
+  tagText: { fontSize: 11, color: '#4F46E5', fontWeight: '600' },
+
+  requestBtn: {
+    backgroundColor: '#4F46E5', borderRadius: BorderRadius.md,
+    paddingVertical: 10, alignItems: 'center',
+  },
+  requestBtnDisabled: { backgroundColor: Colors.card, borderWidth: 1, borderColor: Colors.border },
+  requestBtnText: { color: '#fff', fontWeight: FontWeights.bold, fontSize: FontSizes.sm },
+
+  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
+  statusText: { fontSize: 11, fontWeight: '700' },
+  purposeRow: { gap: 4 },
+  purposePillSmall: { backgroundColor: '#EEF2FF', paddingHorizontal: 9, paddingVertical: 3, borderRadius: 999, alignSelf: 'flex-start' },
+  purposePillSmallText: { fontSize: 10, color: '#4F46E5', fontWeight: '700', textTransform: 'capitalize' },
+  descText: { fontSize: 13, color: Colors.textSecondary, lineHeight: 18 },
+
+  actionRow: { flexDirection: 'row', gap: 8 },
+  openChatBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5,
+    backgroundColor: '#4F46E5', borderRadius: BorderRadius.md, paddingVertical: 9,
+  },
+  openChatBtnText: { color: '#fff', fontWeight: FontWeights.bold, fontSize: 12 },
+  endBtn: {
+    flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 9,
+    borderWidth: 1.5, borderColor: '#4F46E5', borderRadius: BorderRadius.md,
+  },
+  endBtnText: { color: '#4F46E5', fontWeight: FontWeights.semibold, fontSize: 12 },
+
+  empty: { alignItems: 'center', paddingVertical: 48, gap: 8 },
+  emptyTitle: { fontSize: FontSizes.md, fontWeight: FontWeights.bold, color: Colors.text },
+  emptyText: { color: Colors.textSecondary, fontSize: 13 },
+  emptyBtn: {
+    marginTop: 10, backgroundColor: '#4F46E5',
+    paddingHorizontal: 24, paddingVertical: 10, borderRadius: BorderRadius.md,
+  },
+  emptyBtnText: { color: '#fff', fontWeight: FontWeights.bold },
+
+  // Modal
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', justifyContent: 'flex-end' },
+  modalCard: {
+    backgroundColor: Colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    padding: Spacing.lg, gap: 14,
+  },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  modalTitle: { fontSize: FontSizes.lg, fontWeight: FontWeights.bold, color: Colors.text },
+
+  selectedMentorRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    padding: 12, backgroundColor: '#4F46E510', borderRadius: BorderRadius.lg,
+  },
+  selectedMentorName: { fontSize: FontSizes.sm, fontWeight: FontWeights.bold, color: Colors.text },
+  selectedMentorSub: { fontSize: 11, color: Colors.textSecondary },
+
+  fieldLabel: { fontSize: FontSizes.sm, fontWeight: FontWeights.semibold, color: Colors.text },
+  purposePills: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+  purposePill: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999,
+    borderWidth: 1, borderColor: Colors.border, backgroundColor: Colors.card,
+  },
+  purposePillActive: { backgroundColor: '#4F46E5', borderColor: '#4F46E5' },
+  purposePillText: { fontSize: 12, fontWeight: '600', color: Colors.textSecondary },
+
+  helperBox: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 2 },
+  helperText: { fontSize: 11, color: '#6B7280', fontStyle: 'italic', lineHeight: 16 },
+
+  textArea: {
+    borderWidth: 1, borderColor: Colors.border, borderRadius: BorderRadius.md,
+    padding: Spacing.sm, minHeight: 90, color: Colors.text, fontSize: FontSizes.sm,
+  },
+  submitBtn: { backgroundColor: '#4F46E5', borderRadius: BorderRadius.md, paddingVertical: 14, alignItems: 'center' },
+  submitBtnText: { color: '#fff', fontWeight: FontWeights.bold, fontSize: FontSizes.md },
+});

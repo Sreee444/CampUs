@@ -657,3 +657,36 @@ export type ConversationUnreadCount = {
   unread_count: number;
   last_unread_at: string;
 };
+
+// --- Structured Mentorship System ---
+
+export type MentorRole = 'alumni' | 'faculty' | 'senior';
+export type MentorshipPurpose = 'career' | 'academic' | 'skill' | 'project' | 'startup';
+export type MentorshipStatus = 'pending' | 'accepted' | 'rejected' | 'closed';
+
+export type Mentor = {
+  id: string;
+  user_id: string;
+  role: MentorRole;
+  expertise_tags: string[];
+  department?: string;
+  company?: string;
+  available: boolean;
+  max_mentees: number;
+  created_at: string;
+  profile?: Profile;
+};
+
+export type StructuredMentorshipRequest = {
+  id: string;
+  mentor_id: string;
+  mentee_id: string;
+  purpose: MentorshipPurpose;
+  project_id?: string;
+  description: string;
+  status: MentorshipStatus;
+  created_at: string;
+  updated_at: string;
+  mentor?: Mentor & { profile?: Profile };
+  mentee?: Profile;
+};

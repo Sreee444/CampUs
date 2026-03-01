@@ -50,6 +50,11 @@ import AdminBroadcastScreen from '../screens/Admin/AdminBroadcastScreen';
 import AdminAnalyticsScreen from '../screens/Admin/AdminAnalyticsScreen';
 import AdminDiscussionsScreen from '../screens/Admin/AdminDiscussionsScreen';
 import AdminAuditScreen from '../screens/Admin/AdminAuditScreen';
+import MentorHubScreen from '../screens/Home/MentorHubScreen';
+import MentorDashboardScreen from '../screens/Home/MentorDashboardScreen';
+import MentorshipChatScreen from '../screens/Home/MentorshipChatScreen';
+import MentorshipChatListScreen from '../screens/Home/MentorshipChatListScreen';
+import ProjectChatScreen from '../screens/Projects/ProjectChatScreen';
 import AIInsightsScreen from '../screens/Admin/AIInsightsScreen';
 import AISuggestionsScreen from '../screens/Home/AISuggestionsScreen';
 import TeamInvitationsScreen from '../screens/Home/TeamInvitationsScreen';
@@ -358,6 +363,31 @@ export default function RootNavigator() {
             <Stack.Screen
               name="AdminAudit"
               component={AdminAuditScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="MentorHub"
+              component={MentorHubScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="MentorDashboard"
+              component={MentorDashboardScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="MentorshipChatList"
+              component={MentorshipChatListScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="MentorshipChat"
+              component={MentorshipChatScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="ProjectChat"
+              component={ProjectChatScreen}
               options={{ animationEnabled: true }}
             />
           </>

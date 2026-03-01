@@ -1,14 +1,59 @@
+
 // @ts-nocheck
 import { supabase } from "./supabase";
 import { ProjectTeam, ProjectTeamMember } from "../types/database";
+import { ensureProjectChat, addParticipantToProjectChat, getProjectChatId } from './projectChat';
+
+// ─── Helper Functions ──────────────────────────────────────
+
+// Fetch team members with role info
+const fetchTeamMembersWithRole = async (teamId: string) => {
+  const { data, error } = await supabase
+    .from("project_team_members")
+    .select(`
+      *,
+      user: profiles!project_team_members_user_id_fkey(*)
+    `)
+    .eq("team_id", teamId);
+
+  if (error) throw error;
+  return (data || []).map((m: any) => ({ ...m.user, member_role: m.role }));
+};
+
+// Ensure mentor is team member with advisor role
+const ensureMentorIsAdvisor = async (teamId: string, mentorUserId: string) => {
+  const { data: existingMembers, error: lookupError } = await supabase
+    .from('project_team_members')
+    .select('id, role')
+    .eq('team_id', teamId)
+    .eq('user_id', mentorUserId)
+    .order('joined_at', { ascending: false });
+
+  if (lookupError) throw lookupError;
+
+  const existingMember = (existingMembers || [])[0] || null;
+
+  if (!existingMember) {
+    await supabase
+      .from('project_team_members')
+      .insert({ team_id: teamId, user_id: mentorUserId, role: 'advisor' });
+  } else if (existingMember.role !== 'advisor') {
+    await supabase
+      .from('project_team_members')
+      .update({ role: 'advisor' })
+      .eq('id', existingMember.id);
+  }
+};
+
+// ─── Project Team Queries ──────────────────────────────────────
 
 // Get all project teams
 export const getProjectTeams = async (userId?: string, recruiting = true) => {
   let query = supabase
     .from("project_teams")
     .select(`
-      *,
-      creator:profiles!project_teams_created_by_fkey(*)
+  *,
+  creator: profiles!project_teams_created_by_fkey(*)
     `)
     .order("created_at", { ascending: false });
 
@@ -19,36 +64,20 @@ export const getProjectTeams = async (userId?: string, recruiting = true) => {
   const { data, error } = await query;
   if (error) throw error;
 
-  // Get members count for each team
+  // Get members data for each team
   const teamsWithData = await Promise.all(
     (data || []).map(async (team: any) => {
-      const [membersCount, members, isMember] = await Promise.all([
-        supabase
-          .from("project_team_members")
-          .select("id", { count: "exact", head: true })
-          .eq("team_id", team.id),
-        supabase
-          .from("project_team_members")
-          .select(`
-            *,
-            user:profiles!project_team_members_user_id_fkey(*)
-          `)
-          .eq("team_id", team.id),
-        userId
-          ? supabase
-            .from("project_team_members")
-            .select("id")
-            .eq("team_id", team.id)
-            .eq("user_id", userId)
-            .single()
-          : Promise.resolve({ data: null }),
-      ]);
+      const members = await fetchTeamMembersWithRole(team.id);
+      
+      const isMemberCheck = userId
+        ? members.some(m => m.id === userId)
+        : false;
 
       return {
         ...team,
-        members_count: membersCount.count || 0,
-        members: members.data?.map((m: any) => m.user) || [],
-        is_member: !!isMember.data,
+        members,
+        members_count: members.length,
+        is_member: isMemberCheck,
       };
     })
   );
@@ -62,26 +91,21 @@ export const getProjectTeam = async (teamId: string) => {
     .from("project_teams")
     .select(`
       *,
-      creator:profiles!project_teams_created_by_fkey(*)
-    `)
+      creator: profiles!project_teams_created_by_fkey(*),
+        mentor: profiles!project_teams_mentor_id_fkey(id, full_name, avatar_url, department, role)
+          `)
     .eq("id", teamId)
     .single();
 
   if (error) throw error;
 
   // Get members
-  const { data: members } = await supabase
-    .from("project_team_members")
-    .select(`
-      *,
-      user:profiles!project_team_members_user_id_fkey(*)
-    `)
-    .eq("team_id", teamId);
+  const members = await fetchTeamMembersWithRole(teamId);
 
   return {
     ...data as any,
-    members: members?.map((m: any) => m.user) || [],
-    members_count: members?.length || 0,
+    members,
+    members_count: members.length,
   } as ProjectTeam;
 };
 
@@ -98,12 +122,18 @@ export const createProjectTeam = async (teamData: Partial<ProjectTeam>) => {
 
   // Add creator as member
   if (data && teamData.created_by) {
-    // @ts-ignore - Supabase type inference issue
     await supabase.from("project_team_members").insert({
       team_id: (data as any).id,
       user_id: teamData.created_by,
       role: "leader",
     });
+
+    // Auto-create project team chat and add creator
+    try {
+      await ensureProjectChat((data as any).id, [teamData.created_by]);
+    } catch (chatErr) {
+      console.error('[Projects] Failed to create project chat:', chatErr);
+    }
   }
 
   return data as ProjectTeam;
@@ -179,6 +209,16 @@ export const joinProjectTeam = async (teamId: string, userId: string) => {
 
   if (error) throw error;
 
+  // Add the new member to the project chat
+  try {
+    const chatId = await getProjectChatId(teamId);
+    if (chatId) {
+      await addParticipantToProjectChat(chatId, userId);
+    }
+  } catch (chatErr) {
+    console.error('[Projects] Failed to add member to chat:', chatErr);
+  }
+
   // Check if team is now full, and if so, close recruiting
   const newMemberCount = (count || 0) + 1;
   if (team.max_members && newMemberCount >= team.max_members) {
@@ -204,9 +244,9 @@ export const getUserTeams = async (userId: string) => {
   const { data, error } = await supabase
     .from("project_team_members")
     .select(`
-      *,
-      team:project_teams(*)
-    `)
+            *,
+            team: project_teams(*)
+              `)
     .eq("user_id", userId);
 
   if (error) throw error;
@@ -218,9 +258,9 @@ export const getTeamMembers = async (teamId: string) => {
   const { data, error } = await supabase
     .from("project_team_members")
     .select(`
-      *,
-      user:profiles!project_team_members_user_id_fkey(*)
-    `)
+              *,
+              user: profiles!project_team_members_user_id_fkey(*)
+                `)
     .eq("team_id", teamId);
 
   if (error) throw error;
@@ -232,9 +272,9 @@ export const searchTeamsBySkills = async (skills: string[]) => {
   const { data, error } = await supabase
     .from("project_teams")
     .select(`
-      *,
-      creator:profiles!project_teams_created_by_fkey(*)
-    `)
+                *,
+                creator: profiles!project_teams_created_by_fkey(*)
+                  `)
     .overlaps("required_skills", skills)
     .eq("is_recruiting", true);
 
@@ -242,30 +282,32 @@ export const searchTeamsBySkills = async (skills: string[]) => {
   return data as ProjectTeam[];
 };
 
-// Assign mentor to project (Faculty/Alumni only)
-export const assignMentor = async (teamId: string, mentorId: string) => {
-  // Update team with mentor
-  // @ts-ignore - Supabase type inference issue
-  const { data, error } = await supabase
-    .from("project_teams")
-    .update({ mentor_id: mentorId } as any)
-    .eq("id", teamId)
-    .select()
-    .single();
+// Assign a mentor to a project team
+export const assignMentor = async (
+  teamId: string,
+  mentorId: string,
+  mentorUserId: string
+) => {
+  // Update the project team with the mentor_id
+  const { error: teamError } = await supabase
+    .from('project_teams')
+    .update({ mentor_id: mentorUserId })
+    .eq('id', teamId);
 
-  if (error) throw error;
+  if (teamError) throw teamError;
 
-  // Add mentor as team advisor
-  // @ts-ignore - Supabase type inference issue
-  await supabase
-    .from("project_team_members")
-    .insert({
-      team_id: teamId,
-      user_id: mentorId,
-      role: "mentor",
-    } as any);
+  // Add the mentor to the project chat
+  try {
+    const chatId = await getProjectChatId(teamId);
+    if (chatId) {
+      await addParticipantToProjectChat(chatId, mentorUserId);
+    }
+  } catch (chatErr) {
+    console.error('[Projects] Failed to add mentor to chat:', chatErr);
+  }
 
-  return data;
+  // Ensure they are a team advisor member
+  await ensureMentorIsAdvisor(teamId, mentorUserId);
 };
 
 // Remove mentor from project
@@ -283,7 +325,7 @@ export const removeMentor = async (teamId: string, mentorId: string) => {
     .delete()
     .eq("team_id", teamId)
     .eq("user_id", mentorId)
-    .eq("role", "mentor");
+    .in("role", ["mentor", "advisor"]);
 };
 
 // Update project status (Students can update, Faculty can override)
@@ -331,14 +373,14 @@ export const getProjectsByRole = async (
   let query = supabase
     .from("project_teams")
     .select(`
-      *,
-      creator:profiles!project_teams_created_by_fkey(*),
-      mentor:profiles!project_teams_mentor_id_fkey(*)
+                  *,
+                  creator: profiles!project_teams_created_by_fkey(*),
+                    mentor: profiles!project_teams_mentor_id_fkey(*)
     `);
 
   if (userRole === 'student') {
     // Students see: their projects + recruiting projects
-    query = query.or(`created_by.eq.${userId},is_recruiting.eq.true`);
+    query = query.or(`created_by.eq.${ userId }, is_recruiting.eq.true`);
   } else if (userRole === 'faculty' || userRole === 'alumni') {
     // Faculty/Alumni see: all projects (for mentorship)
     // No filter - they can mentor any project
@@ -349,36 +391,20 @@ export const getProjectsByRole = async (
   const { data, error } = await query;
   if (error) throw error;
 
-  // Get members data for each team (same pattern as getProjectTeams)
+  // Get members data for each team
   const teamsWithData = await Promise.all(
     (data || []).map(async (team: any) => {
-      const [membersCount, members, isMember] = await Promise.all([
-        supabase
-          .from("project_team_members")
-          .select("id", { count: "exact", head: true })
-          .eq("team_id", team.id),
-        supabase
-          .from("project_team_members")
-          .select(`
-            *,
-            user:profiles!project_team_members_user_id_fkey(*)
-          `)
-          .eq("team_id", team.id),
-        userId
-          ? supabase
-            .from("project_team_members")
-            .select("id")
-            .eq("team_id", team.id)
-            .eq("user_id", userId)
-            .single()
-          : Promise.resolve({ data: null }),
-      ]);
+      const members = await fetchTeamMembersWithRole(team.id);
+      
+      const isMemberCheck = userId
+        ? members.some(m => m.id === userId)
+        : false;
 
       return {
         ...team,
-        members_count: membersCount.count || 0,
-        members: members.data?.map((m: any) => m.user) || [],
-        is_member: !!isMember.data,
+        members,
+        members_count: members.length,
+        is_member: isMemberCheck,
       };
     })
   );
@@ -391,35 +417,23 @@ export const getMentoredProjects = async (mentorId: string) => {
   const { data, error } = await supabase
     .from("project_teams")
     .select(`
-      *,
-      creator:profiles!project_teams_created_by_fkey(*)
-    `)
+    *,
+    creator: profiles!project_teams_created_by_fkey(*)
+      `)
     .eq("mentor_id", mentorId)
     .order("created_at", { ascending: false });
 
   if (error) throw error;
 
-  // Get members data for each team (same pattern as getProjectTeams)
+  // Get members data for each team
   const teamsWithData = await Promise.all(
     (data || []).map(async (team: any) => {
-      const [membersCount, members] = await Promise.all([
-        supabase
-          .from("project_team_members")
-          .select("id", { count: "exact", head: true })
-          .eq("team_id", team.id),
-        supabase
-          .from("project_team_members")
-          .select(`
-            *,
-            user:profiles!project_team_members_user_id_fkey(*)
-          `)
-          .eq("team_id", team.id),
-      ]);
+      const members = await fetchTeamMembersWithRole(team.id);
 
       return {
         ...team,
-        members_count: membersCount.count || 0,
-        members: members.data?.map((m: any) => m.user) || [],
+        members,
+        members_count: members.length,
       };
     })
   );
@@ -464,9 +478,9 @@ export const sendJoinRequest = async (teamId: string, userId: string, message?: 
       status: "pending",
     })
     .select(`
-      *,
-      user:profiles!project_team_join_requests_user_id_fkey(*)
-    `)
+        *,
+        user: profiles!project_team_join_requests_user_id_fkey(*)
+          `)
     .single();
 
   if (error) throw error;
@@ -525,7 +539,7 @@ export const sendProjectInvite = async (teamId: string, userId: string, invitedB
     throw new Error("Team is full");
   }
 
-  const inviteMessage = `[INVITE] Invited by ${invitedBy || "team leader"}`;
+  const inviteMessage = `[INVITE] Invited by ${ invitedBy || "team leader" } `;
 
   const { data, error } = await supabase
     .from("project_team_join_requests")
@@ -535,7 +549,7 @@ export const sendProjectInvite = async (teamId: string, userId: string, invitedB
       message: inviteMessage,
       status: "pending",
     })
-    .select(`*`)
+    .select(`* `)
     .single();
 
   if (error) throw error;
@@ -582,8 +596,8 @@ export const getTeamJoinRequests = async (teamId: string) => {
   const { data, error } = await supabase
     .from("project_team_join_requests")
     .select(`
-      *,
-      user:profiles!project_team_join_requests_user_id_fkey(*)
+  *,
+  user: profiles!project_team_join_requests_user_id_fkey(*)
     `)
     .eq("team_id", teamId)
     .eq("status", "pending")
@@ -607,6 +621,16 @@ export const acceptJoinRequest = async (requestId: string, teamId: string, userI
 
   if (data && !data.success) {
     throw new Error(data.error || "Failed to accept request");
+  }
+
+  // Add the new member to the project chat
+  try {
+    const chatId = await getProjectChatId(teamId);
+    if (chatId) {
+      await addParticipantToProjectChat(chatId, userId);
+    }
+  } catch (chatErr) {
+    console.error('[Projects] Failed to add member to chat:', chatErr);
   }
 
   return true;

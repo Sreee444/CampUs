@@ -57,6 +57,11 @@ export type RootStackParamList = {
   TeamInvitations: undefined;
   NotificationDetails: { notificationId: string };
   AdminAudit: undefined;
+  MentorHub: undefined;
+  MentorDashboard: undefined;
+  MentorshipChatList: undefined;
+  MentorshipChat: { chatId: string };
+  ProjectChat: { chatId: string; teamName: string };
 };
 
 declare global {
