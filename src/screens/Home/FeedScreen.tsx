@@ -87,6 +87,17 @@ const getFileIcon = (url: string): keyof typeof MaterialIcons.glyphMap => {
   return 'insert-drive-file';
 };
 
+const getFileTypeLabel = (url: string) => {
+  const ext = getFileExtension(url);
+  if (ext === 'pdf') return 'PDF';
+  if (ext === 'doc' || ext === 'docx') return 'DOC';
+  if (ext === 'xls' || ext === 'xlsx' || ext === 'csv') return 'SHEET';
+  if (ext === 'ppt' || ext === 'pptx') return 'SLIDES';
+  if (ext === 'txt') return 'TEXT';
+  if (ext === 'zip' || ext === 'rar' || ext === '7z') return 'ZIP';
+  return (ext || 'FILE').toUpperCase();
+};
+
 const getEmbeddedPreviewUrl = (url: string) => {
   return `https://docs.google.com/gview?embedded=1&url=${encodeURIComponent(url)}`;
 };
@@ -801,13 +812,16 @@ export default function FeedScreen() {
                         ) : (
                           <View style={styles.fileAttachmentRow}>
                             <View style={styles.fileBadge}>
-                              <MaterialIcons name={getFileIcon(attachmentUrl)} size={20} color="#64748b" />
-                              <View style={{ flex: 1 }}>
-                                <Text style={styles.fileAttachmentName} numberOfLines={1}>
+                              <View style={styles.filePreviewPanel}>
+                                <MaterialIcons name={getFileIcon(attachmentUrl)} size={42} color="#475569" />
+                                <View style={styles.fileTypeChipLarge}>
+                                  <Text style={styles.fileTypeChipLargeText}>{getFileTypeLabel(attachmentUrl)}</Text>
+                                </View>
+                                <Text style={styles.filePreviewFileName} numberOfLines={2}>
                                   {getFileNameFromUrl(attachmentUrl)}
                                 </Text>
                                 <Text style={styles.fileAttachmentMeta}>
-                                  {(getFileExtension(attachmentUrl) || 'file').toUpperCase()} • Tap to preview
+                                  Tap to preview
                                 </Text>
                               </View>
                             </View>
@@ -1433,15 +1447,21 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   fileBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
     flex: 1,
     backgroundColor: '#ffffff',
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    padding: 8,
+    overflow: 'hidden',
+  },
+  filePreviewPanel: {
+    width: '100%',
+    minHeight: 170,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 16,
+    backgroundColor: '#f8fafc',
   },
   fileAttachmentName: {
     flex: 1,
@@ -1449,10 +1469,33 @@ const styles = StyleSheet.create({
     color: '#334155',
     fontWeight: '600',
   },
+  filePreviewFileName: {
+    marginTop: 10,
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: 'center',
+    color: '#334155',
+    fontWeight: '700',
+  },
   fileAttachmentMeta: {
     fontSize: 11,
     color: '#64748b',
-    marginTop: 2,
+    marginTop: 6,
+  },
+  fileTypeChipLarge: {
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: 'rgba(13,148,136,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(13,148,136,0.25)',
+  },
+  fileTypeChipLargeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#0d9488',
+    letterSpacing: 0.4,
   },
   downloadButton: {
     flexDirection: 'row',
