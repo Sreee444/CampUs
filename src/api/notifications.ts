@@ -130,13 +130,21 @@ export const createNotification = async (notificationData: {
 
   if (error) throw error;
 
-  // ALWAYS attempt to send push notification if we have the necessary data
+  // Only schedule a local notification if this device belongs to the target user.
+  // Otherwise, creators of notifications for other users would see those alerts locally.
   if (notificationData.user_id && notificationData.title && notificationData.body) {
-    await sendPushNotification(
-      notificationData.user_id,
-      notificationData.title,
-      notificationData.body
-    );
+    const {
+      data: { user: currentUser },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (!authError && currentUser?.id === notificationData.user_id) {
+      await sendPushNotification(
+        notificationData.user_id,
+        notificationData.title,
+        notificationData.body
+      );
+    }
   }
 
   return data as Notification;

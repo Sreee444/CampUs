@@ -99,7 +99,11 @@ export default function AISuggestionsScreen() {
         }
     }, [user?.id]);
 
-    useFocusEffect(loadSuggestions);
+    useFocusEffect(
+        useCallback(() => {
+            void loadSuggestions();
+        }, [loadSuggestions])
+    );
 
     const markViewed = async (id: string) => {
         await supabase.from('ai_suggestions').update({ status: 'viewed' }).eq('id', id);

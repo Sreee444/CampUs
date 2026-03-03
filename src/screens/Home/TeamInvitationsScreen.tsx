@@ -93,7 +93,11 @@ export default function TeamInvitationsScreen() {
         }
     }, [user?.id]);
 
-    useFocusEffect(loadInvitations);
+    useFocusEffect(
+        useCallback(() => {
+            void loadInvitations();
+        }, [loadInvitations])
+    );
 
     const handleAccept = async (inv: Invitation) => {
         if (!user?.id) return;
