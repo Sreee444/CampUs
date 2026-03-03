@@ -451,13 +451,15 @@ export default function ProjectDetailsScreen() {
       // Try to send notifications (don't fail if this fails)
       try {
         // Notify team creator
-        await createNotification({
-          user_id: creatorId,
-          title: 'New Join Request',
-          body: `${profile?.full_name || user?.email || 'Someone'} wants to join ${team.name}`,
-          type: 'project_request',
-          related_id: teamId,
-        });
+        if (creatorId) {
+          await createNotification({
+            user_id: creatorId,
+            title: 'New Join Request',
+            body: `${profile?.full_name || user?.email || 'Someone'} wants to join ${team.name}`,
+            type: 'project_request',
+            related_id: teamId,
+          });
+        }
 
         // Notify all admins
         await notifyAdmins(
@@ -608,13 +610,15 @@ export default function ProjectDetailsScreen() {
       setIsHandlingInvite(true);
       await acceptProjectInvite(joinRequestStatus.id, teamId, user.id);
 
-      await createNotification({
-        user_id: creatorId,
-        title: 'Invite Accepted',
-        body: `${profile?.full_name || user.email || 'A user'} accepted the invite to ${team.name}`,
-        type: 'project_update',
-        related_id: teamId,
-      });
+      if (creatorId) {
+        await createNotification({
+          user_id: creatorId,
+          title: 'Invite Accepted',
+          body: `${profile?.full_name || user.email || 'A user'} accepted the invite to ${team.name}`,
+          type: 'project_update',
+          related_id: teamId,
+        });
+      }
 
       Toast.show({ type: 'success', text1: 'Invitation accepted' });
       await loadTeamData();
@@ -635,13 +639,15 @@ export default function ProjectDetailsScreen() {
       setIsHandlingInvite(true);
       await rejectProjectInvite(joinRequestStatus.id);
 
-      await createNotification({
-        user_id: creatorId,
-        title: 'Invite Declined',
-        body: `${profile?.full_name || user?.email || 'A user'} declined the invite to ${team.name}`,
-        type: 'project_update',
-        related_id: teamId,
-      });
+      if (creatorId) {
+        await createNotification({
+          user_id: creatorId,
+          title: 'Invite Declined',
+          body: `${profile?.full_name || user?.email || 'A user'} declined the invite to ${team.name}`,
+          type: 'project_update',
+          related_id: teamId,
+        });
+      }
 
       Toast.show({ type: 'info', text1: 'Invitation declined' });
       await loadTeamData();
@@ -800,13 +806,15 @@ export default function ProjectDetailsScreen() {
       // Try to send notifications (don't fail if this fails)
       try {
         // Notify team creator
-        await createNotification({
-          user_id: creatorId,
-          title: 'Team Member Left',
-          body: `${profile?.full_name || user?.email || 'A member'} left ${team.name}`,
-          type: 'project_update',
-          related_id: teamId,
-        });
+        if (creatorId) {
+          await createNotification({
+            user_id: creatorId,
+            title: 'Team Member Left',
+            body: `${profile?.full_name || user?.email || 'A member'} left ${team.name}`,
+            type: 'project_update',
+            related_id: teamId,
+          });
+        }
 
         // Notify admins
         await notifyAdmins(
@@ -1149,7 +1157,7 @@ export default function ProjectDetailsScreen() {
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Required Skills</Text>
               <View style={styles.skillsRow}>
-                {team.required_skills?.map((skill) => (
+                {(team?.required_skills ?? []).map((skill) => (
                   <View key={skill} style={styles.skillChip}>
                     <Text style={styles.skillText}>{skill}</Text>
                   </View>
