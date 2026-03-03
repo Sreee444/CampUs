@@ -157,7 +157,12 @@ export const getConversations = async (userId: string) => {
           .select("id", { count: "exact", head: true })
           .eq("conversation_id", conversation.id)
           .eq("is_deleted", false)
-          .neq("sender_id", userId),
+          .neq("sender_id", userId)
+          .not(
+            "id",
+            "in",
+            `(SELECT message_id FROM message_reads WHERE user_id = '${userId}')`
+          ),
       ]);
 
       return {
@@ -1816,17 +1821,43 @@ export const getUnreadConversations = async (userId: string) => {
 
   const convIds = conversations?.map((c: any) => c.conversation_id) || [];
 
+  if (convIds.length === 0) return [];
+
+  const { data: messages, error: messagesError } = await supabase
+    .from("messages")
+    .select("conversation_id")
+    .in("conversation_id", convIds)
+    .neq("sender_id", userId)
+    .eq("is_deleted", false)
+    .not(
+      "id",
+      "in",
+      `(SELECT message_id FROM message_reads WHERE user_id = '${userId}')`
+    );
+
+  if (messagesError) throw messagesError;
+
+  const unreadByConversation = (messages || []).reduce((acc: Record<string, number>, message: any) => {
+    const key = message.conversation_id;
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+
+  const unreadConversationIds = Object.keys(unreadByConversation);
+
+  if (unreadConversationIds.length === 0) return [];
+
   const { data, error } = await supabase
     .from("conversations")
-    .select(`
-      *,
-      unread_count:messages(count)
-    `)
-    .in("id", convIds)
-    .neq("unread_count", 0);
+    .select("*")
+    .in("id", unreadConversationIds);
 
   if (error) throw error;
-  return data;
+
+  return (data || []).map((conversation: any) => ({
+    ...conversation,
+    unread_count: unreadByConversation[conversation.id] || 0,
+  }));
 };
 
 export const getUnreadCount = async (userId: string) => {
