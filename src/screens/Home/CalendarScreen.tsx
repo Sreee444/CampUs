@@ -158,7 +158,7 @@ export default function CalendarScreen() {
       setIsLoading(true);
       
       // Load events with user ID for personalized results
-      const eventData = await getEvents(user.id, undefined, false);
+      const eventData = await getEvents(user.id, undefined, 'all');
       setEvents(eventData || []);
       setFilteredEvents(eventData || []);
       

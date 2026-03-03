@@ -208,7 +208,6 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       backgroundColor: Colors.card,
       maxHeight: 200,
       zIndex: 40,
-      elevation: 8,
       ...Shadows.sm,
     },
     dropdownListScroll: {
