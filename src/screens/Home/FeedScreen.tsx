@@ -575,21 +575,21 @@ export default function FeedScreen() {
       >
         {/* Quick Stats */}
         <View style={styles.statsContainer}>
-          <TouchableOpacity style={styles.statCardButton} onPress={() => navigation.navigate('Projects' as any)}>
+          <TouchableOpacity style={styles.statCardButton} activeOpacity={1} onPress={() => navigation.navigate('Projects' as any)}>
             <LinearGradient colors={['#e0f7fa', '#ccfbfb']} style={styles.statCard}>
               <MaterialIcons name="folder-open" size={26} color="#0d9488" />
               <Text style={styles.statNumber}>{stats.projects}</Text>
               <Text style={styles.statLabel}>Projects</Text>
             </LinearGradient>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.statCardButton} onPress={() => navigation.navigate('Events' as any)}>
+          <TouchableOpacity style={styles.statCardButton} activeOpacity={1} onPress={() => navigation.navigate('Events' as any)}>
             <LinearGradient colors={['#f3e5f5', '#ecdcf7']} style={styles.statCard}>
               <MaterialIcons name="event" size={26} color="#9333ea" />
               <Text style={styles.statNumber}>{stats.events}</Text>
               <Text style={styles.statLabel}>Events</Text>
             </LinearGradient>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.statCardButton} onPress={() => navigation.navigate('AllUsers' as any)}>
+          <TouchableOpacity style={styles.statCardButton} activeOpacity={1} onPress={() => navigation.navigate('AllUsers' as any)}>
             <LinearGradient colors={['#fff5e6', '#ffe0cc']} style={styles.statCard}>
               <MaterialIcons name="people-outline" size={26} color="#ea580c" />
               <Text style={styles.statNumber}>{stats.connections}</Text>
@@ -606,6 +606,7 @@ export default function FeedScreen() {
             <View style={styles.quickActionsRow}>
               <TouchableOpacity
                 style={styles.actionCard}
+                activeOpacity={1}
                 onPress={() => navigation.navigate('Calendar' as any)}
               >
                 <View style={[styles.actionIcon, { backgroundColor: '#e0f7fa' }]}>
@@ -615,6 +616,7 @@ export default function FeedScreen() {
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.actionCard}
+                activeOpacity={1}
                 onPress={() => navigation.navigate('MentorHub' as any)}
               >
                 <View style={[styles.actionIcon, { backgroundColor: '#ede9fe' }]}>
@@ -625,6 +627,7 @@ export default function FeedScreen() {
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.actionCard}
+                activeOpacity={1}
                 onPress={() => navigation.navigate('Discussions' as any)}
               >
                 <View style={[styles.actionIcon, { backgroundColor: '#ede9fe' }]}>
@@ -634,6 +637,7 @@ export default function FeedScreen() {
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.actionCard}
+                activeOpacity={1}
                 onPress={() => navigation.navigate('AllUsers' as any)}
               >
                 <View style={[styles.actionIcon, { backgroundColor: '#fef3c7' }]}>
@@ -647,6 +651,7 @@ export default function FeedScreen() {
             <View style={styles.quickActionsRow}>
               <TouchableOpacity
                 style={styles.actionCard}
+                activeOpacity={1}
                 onPress={() => navigation.navigate('CreateEvent' as any)}
               >
                 <View style={[styles.actionIcon, { backgroundColor: '#fecaca' }]}>
@@ -656,6 +661,7 @@ export default function FeedScreen() {
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.actionCard}
+                activeOpacity={1}
                 onPress={() => navigation.navigate('CreateProject' as any)}
               >
                 <View style={[styles.actionIcon, { backgroundColor: '#c7f0d8' }]}>
@@ -665,6 +671,7 @@ export default function FeedScreen() {
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.actionCard}
+                activeOpacity={1}
                 onPress={() => navigation.navigate('EventDiscussion' as any)}
               >
                 <View style={[styles.actionIcon, { backgroundColor: '#dbeafe' }]}>
@@ -674,6 +681,7 @@ export default function FeedScreen() {
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.actionCard}
+                activeOpacity={1}
                 onPress={() => navigation.navigate('AIInsights' as any)}
               >
                 <View style={[styles.actionIcon, { backgroundColor: '#e9d5ff' }]}>
@@ -1127,6 +1135,8 @@ const styles = StyleSheet.create({
   },
   statCardButton: {
     flex: 1,
+    borderRadius: 18,
+    overflow: 'hidden',
   },
   statCard: {
     aspectRatio: 1,
