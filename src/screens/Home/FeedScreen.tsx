@@ -579,21 +579,27 @@ export default function FeedScreen() {
       >
         {/* Quick Stats */}
         <View style={styles.statsContainer}>
-          <LinearGradient colors={['#e0f7fa', '#ccfbfb']} style={styles.statCard}>
-            <MaterialIcons name="folder-open" size={22} color="#0d9488" />
-            <Text style={styles.statNumber}>{stats.projects}</Text>
-            <Text style={styles.statLabel}>Projects</Text>
-          </LinearGradient>
-          <LinearGradient colors={['#f3e5f5', '#ecdcf7']} style={styles.statCard}>
-            <MaterialIcons name="event" size={22} color="#9333ea" />
-            <Text style={styles.statNumber}>{stats.events}</Text>
-            <Text style={styles.statLabel}>Events</Text>
-          </LinearGradient>
-          <LinearGradient colors={['#fff5e6', '#ffe0cc']} style={styles.statCard}>
-            <MaterialIcons name="people-outline" size={22} color="#ea580c" />
-            <Text style={styles.statNumber}>{stats.connections}</Text>
-            <Text style={styles.statLabel}>Connects</Text>
-          </LinearGradient>
+          <TouchableOpacity style={styles.statCardButton} activeOpacity={1} onPress={() => navigation.navigate('Projects' as any)}>
+            <LinearGradient colors={['#e0f7fa', '#ccfbfb']} style={styles.statCard}>
+              <MaterialIcons name="folder-open" size={26} color="#0d9488" />
+              <Text style={styles.statNumber}>{stats.projects}</Text>
+              <Text style={styles.statLabel}>Projects</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.statCardButton} activeOpacity={1} onPress={() => navigation.navigate('Events' as any)}>
+            <LinearGradient colors={['#f3e5f5', '#ecdcf7']} style={styles.statCard}>
+              <MaterialIcons name="event" size={26} color="#9333ea" />
+              <Text style={styles.statNumber}>{stats.events}</Text>
+              <Text style={styles.statLabel}>Events</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.statCardButton} activeOpacity={1} onPress={() => navigation.navigate('AllUsers' as any)}>
+            <LinearGradient colors={['#fff5e6', '#ffe0cc']} style={styles.statCard}>
+              <MaterialIcons name="people-outline" size={26} color="#ea580c" />
+              <Text style={styles.statNumber}>{stats.connections}</Text>
+              <Text style={styles.statLabel}>Connects</Text>
+            </LinearGradient>
+          </TouchableOpacity>
         </View>
 
         {/* Quick Actions */}
@@ -604,38 +610,42 @@ export default function FeedScreen() {
             <View style={styles.quickActionsRow}>
               <TouchableOpacity
                 style={styles.actionCard}
+                activeOpacity={1}
                 onPress={() => navigation.navigate('Calendar' as any)}
               >
                 <View style={[styles.actionIcon, { backgroundColor: '#e0f7fa' }]}>
-                  <MaterialIcons name="calendar-month" size={24} color="#0d9488" />
+                  <MaterialIcons name="calendar-month" size={22} color="#0d9488" />
                 </View>
                 <Text style={styles.actionLabel}>Calendar</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.actionCard}
+                activeOpacity={1}
                 onPress={() => navigation.navigate('MentorHub' as any)}
               >
                 <View style={[styles.actionIcon, { backgroundColor: '#ede9fe' }]}>
-                  <MaterialIcons name="school" size={24} color="#4F46E5" />
+                  <MaterialIcons name="school" size={22} color="#4F46E5" />
                 </View>
                 <Text style={styles.actionLabel}>Mentor Hub</Text>
 
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.actionCard}
+                activeOpacity={1}
                 onPress={() => navigation.navigate('Discussions' as any)}
               >
                 <View style={[styles.actionIcon, { backgroundColor: '#ede9fe' }]}>
-                  <MaterialIcons name="forum" size={24} color="#7c3aed" />
+                  <MaterialIcons name="forum" size={22} color="#7c3aed" />
                 </View>
                 <Text style={styles.actionLabel}>Discuss</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.actionCard}
+                activeOpacity={1}
                 onPress={() => navigation.navigate('AllUsers' as any)}
               >
                 <View style={[styles.actionIcon, { backgroundColor: '#fef3c7' }]}>
-                  <MaterialIcons name="people" size={24} color="#d97706" />
+                  <MaterialIcons name="people" size={22} color="#d97706" />
                 </View>
                 <Text style={styles.actionLabel}>Connect</Text>
               </TouchableOpacity>
@@ -654,10 +664,11 @@ export default function FeedScreen() {
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.actionCard}
+                activeOpacity={1}
                 onPress={() => navigation.navigate('CreateProject' as any)}
               >
                 <View style={[styles.actionIcon, { backgroundColor: '#c7f0d8' }]}>
-                  <MaterialIcons name="work-outline" size={24} color="#059669" />
+                  <MaterialIcons name="work-outline" size={22} color="#059669" />
                 </View>
                 <Text style={styles.actionLabel}>+ Project</Text>
               </TouchableOpacity>
@@ -672,10 +683,11 @@ export default function FeedScreen() {
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.actionCard}
+                activeOpacity={1}
                 onPress={() => navigation.navigate('AIInsights' as any)}
               >
                 <View style={[styles.actionIcon, { backgroundColor: '#e9d5ff' }]}>
-                  <MaterialIcons name="insights" size={24} color="#a855f7" />
+                  <MaterialIcons name="insights" size={22} color="#a855f7" />
                 </View>
                 <Text style={styles.actionLabel}>AI Stats</Text>
               </TouchableOpacity>
@@ -1177,7 +1189,6 @@ export default function FeedScreen() {
         visible={showDeleteDialog}
         title="Delete Post"
         message="Are you sure you want to delete this post? This action cannot be undone."
-        variant="danger"
         confirmText="Delete"
         cancelText="Cancel"
         onConfirm={confirmDeletePost}
@@ -1260,32 +1271,38 @@ const styles = StyleSheet.create({
   },
   statsContainer: {
     flexDirection: 'row',
-    paddingHorizontal: 20,
-    paddingVertical: 20,
-    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 18,
+    gap: 10,
+  },
+  statCardButton: {
+    flex: 1,
+    borderRadius: 18,
+    overflow: 'hidden',
   },
   statCard: {
-    flex: 1,
-    borderRadius: 16,
-    padding: 14,
+    aspectRatio: 1,
+    borderRadius: 18,
+    padding: 10,
+    paddingVertical: 12,
     alignItems: 'center',
-    gap: 4,
+    justifyContent: 'space-between',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.06,
-    shadowRadius: 4,
+    shadowRadius: 5,
     elevation: 2,
   },
   statNumber: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '700',
     color: '#111818',
-    marginTop: 4,
+    lineHeight: 28,
   },
   statLabel: {
-    fontSize: 11,
+    fontSize: 10,
     color: '#64748b',
-    fontWeight: '500',
+    fontWeight: '600',
   },
   section: {
     paddingHorizontal: 20,
@@ -1309,23 +1326,23 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   quickActionsGrid: {
-    gap: 14,
+    gap: 12,
   },
   quickActionsRow: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 10,
     justifyContent: 'space-between',
   },
   actionCard: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'flex-start',
-    gap: 6,
+    gap: 5,
   },
   actionIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 16,
+    width: 52,
+    height: 52,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
@@ -1335,11 +1352,11 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   actionLabel: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '600',
     color: '#374151',
     textAlign: 'center',
-    lineHeight: 14,
+    lineHeight: 12,
   },
   aiSuggestion: {
     flexDirection: 'row',
