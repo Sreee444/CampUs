@@ -23,6 +23,7 @@ import { getCleanDiscussionTitle } from '../../utils/discussionHelpers';
 import { addEventDiscussion, deleteEventDiscussionThread, getEvent } from '../../api/events';
 import { createDiscussionTopic, getDiscussionTopics, deleteDiscussionTopic } from '../../api/discussions';
 import Toast from 'react-native-toast-message';
+import { isAdminRole } from '../../utils/roles';
 
 type EventDiscussionScreenNavigationProp = StackNavigationProp<RootStackParamList, 'EventDetails'>;
 type EventDiscussionScreenRouteProp = RouteProp<RootStackParamList, 'EventDetails'>;
@@ -151,7 +152,7 @@ export default function EventDiscussionScreen() {
     if (!user?.id || !event) return;
 
     // Check if user has permission to delete
-    const isAdmin = profile?.role === 'admin';
+    const isAdmin = isAdminRole(profile?.role);
     const isEventCreator = event.created_by === user.id;
 
     if (!isAdmin && !isEventCreator) {
@@ -313,7 +314,7 @@ export default function EventDiscussionScreen() {
                   </Text>
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  {(profile?.role === 'admin' || event?.created_by === user?.id) && (
+                  {(isAdminRole(profile?.role) || event?.created_by === user?.id) && (
                     <TouchableOpacity onPress={() => handleDeleteDiscussion(preEventDiscussion.id, 'pre')}>
                       <MaterialIcons name="delete" size={20} color={Colors.error || '#ef4444'} />
                     </TouchableOpacity>
@@ -381,7 +382,7 @@ export default function EventDiscussionScreen() {
                   </Text>
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  {(profile?.role === 'admin' || event?.created_by === user?.id) && (
+                  {(isAdminRole(profile?.role) || event?.created_by === user?.id) && (
                     <TouchableOpacity onPress={() => handleDeleteDiscussion(postEventDiscussion.id, 'post')}>
                       <MaterialIcons name="delete" size={20} color={Colors.error || '#ef4444'} />
                     </TouchableOpacity>

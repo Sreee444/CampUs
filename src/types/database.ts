@@ -1,6 +1,8 @@
 // Database Types for CAMPUS App
 
-export type UserRole = 'student' | 'alumni' | 'faculty' | 'admin';
+export type UserRole = 'student' | 'alumni' | 'faculty' | 'admin' | 'developer';
+
+export type FacultyDesignation = 'hod' | 'professor' | 'assistant_professor' | 'lab_instructor';
 
 export type UserStatus = 'online' | 'away' | 'offline';
 
@@ -15,6 +17,7 @@ export type Profile = {
 
   // Academic Info
   department?: string;
+  faculty_designation?: FacultyDesignation;
   specialization?: string;
   section?: 'A' | 'B' | 'C' | 'D';
   year_of_admission?: number;
@@ -489,6 +492,8 @@ export type UserBan = {
   user_id: string;
   banned_by: string;
   reason: string;
+  is_permanent?: boolean;
+  banned_until?: string;
   ban_until?: string;
   created_at: string;
 };

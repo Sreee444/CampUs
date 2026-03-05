@@ -22,6 +22,7 @@ import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../../../navigation/types';
 import { useAuth } from '../../../contexts/AuthContext';
+import { isFacultyOrAdminRole } from '../../../utils/roles';
 import { supabase } from '../../../api/supabase';
 import { createInterCampusEventDirect } from '../api/intercampus';
 import { buildInterCampusDetailsDescription } from '../utils/eventDetails';
@@ -115,7 +116,7 @@ export default function CreateInterCampusEventScreen() {
     participation_cap: '',
   });
 
-  const canCreateDirect = profile?.role === 'faculty' || profile?.role === 'admin';
+  const canCreateDirect = isFacultyOrAdminRole(profile?.role);
 
   const setField = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));

@@ -31,6 +31,8 @@ import {
 } from '../../utils/semanticColors';
 import { supabase } from '../../api/supabase';
 import Toast from 'react-native-toast-message';
+import { canCreateMentorProjects } from '../../utils/roles';
+import { useRealtimeRefresh } from '../../hooks/useRealtimeRefresh';
 
 type ProjectsScreenNavigationProp = CompositeNavigationProp<
   BottomTabNavigationProp<MainTabParamList, 'Projects'>,
@@ -54,7 +56,7 @@ export default function ProjectsScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTab, setSelectedTab] = useState<'all' | 'my' | 'mentoring'>('all');
 
-  const isFacultyOrAlumni = profile?.role === 'faculty' || profile?.role === 'alumni';
+  const isFacultyOrAlumni = canCreateMentorProjects(profile?.role);
   const isStudent = profile?.role === 'student';
 
   const [refreshing, setRefreshing] = useState(false);
@@ -106,13 +108,26 @@ export default function ProjectsScreen() {
     }, [loadProjects, user?.id, profile?.role])
   );
 
+  useRealtimeRefresh({
+    enabled: Boolean(user?.id && profile?.role),
+    tables: [
+      'project_teams',
+      'project_team_members',
+      'project_team_join_requests',
+      'profiles',
+    ],
+    onChange: () => {
+      loadProjects(false);
+    },
+  });
+
   const onRefresh = React.useCallback(() => {
     setRefreshing(true);
     loadProjects(false);
   }, [loadProjects]);
 
   const canCreateProject = profile && [
-    'student', 'faculty', 'alumni', 'admin'
+    'student', 'faculty', 'alumni', 'admin', 'developer'
   ].includes(profile.role);
 
   const applySearch = () => {

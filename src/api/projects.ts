@@ -367,7 +367,7 @@ export const featureProject = async (teamId: string, featured: boolean) => {
 
 // Get projects by role-based filters
 export const getProjectsByRole = async (
-  userRole: 'student' | 'faculty' | 'alumni' | 'admin',
+  userRole: 'student' | 'faculty' | 'alumni' | 'admin' | 'developer',
   userId: string
 ) => {
   let query = supabase
@@ -381,7 +381,7 @@ export const getProjectsByRole = async (
   if (userRole === 'student') {
     // Students see: their projects + recruiting projects
     query = query.or(`created_by.eq.${ userId }, is_recruiting.eq.true`);
-  } else if (userRole === 'faculty' || userRole === 'alumni') {
+  } else if (userRole === 'faculty' || userRole === 'alumni' || userRole === 'developer') {
     // Faculty/Alumni see: all projects (for mentorship)
     // No filter - they can mentor any project
   }
