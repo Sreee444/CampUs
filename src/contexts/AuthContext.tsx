@@ -13,6 +13,9 @@ export type AuthUser = {
 type AuthContextValue = {
   user: AuthUser;
   profile: Profile | null;
+  isBanned: boolean;
+  banReason: string | null;
+  banUntil: string | null;
   setUser: (user: AuthUser) => void;
   setProfile: (profile: Profile | null) => void;
   isAuthenticated: boolean;
@@ -26,9 +29,26 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 // Minimum splash screen display time in milliseconds
 const MINIMUM_SPLASH_TIME = 3000; // 3 seconds
 
+const isTransientNetworkError = (error: any) => {
+  const message = String(error?.message || '').toLowerCase();
+  const name = String(error?.name || '').toLowerCase();
+  return (
+    name.includes('abort') ||
+    message.includes('aborterror') ||
+    message.includes('network request failed') ||
+    message.includes("failed to construct 'response'") ||
+    message.includes('status provided (0)') ||
+    message.includes('fetch failed') ||
+    message.includes('failed to fetch')
+  );
+};
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [isBanned, setIsBanned] = useState(false);
+  const [banReason, setBanReason] = useState<string | null>(null);
+  const [banUntil, setBanUntil] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const startTimeRef = React.useRef<number>(Date.now());
 
@@ -45,6 +65,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } else {
           setUser(null);
           setProfile(null);
+          setIsBanned(false);
+          setBanReason(null);
+          setBanUntil(null);
         }
         // Ensure minimum splash time before hiding
         const elapsedTime = Date.now() - startTimeRef.current;
@@ -71,6 +94,84 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [user?.id]);
 
+  // Keep authenticated user profile in sync with realtime updates.
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const channel = supabase
+      .channel(`profile:${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'profiles',
+          filter: `id=eq.${user.id}`,
+        },
+        () => {
+          loadProfile(user.id);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id]);
+
+  // Keep ban state in sync with realtime updates.
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const channel = supabase
+      .channel(`user_bans:${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'user_bans',
+          filter: `user_id=eq.${user.id}`,
+        },
+        () => {
+          loadProfile(user.id);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id]);
+
+  const getActiveBanForUser = async (userId: string) => {
+    const { data, error } = await supabase
+      .from('user_bans')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      return null;
+    }
+
+    const rows = data || [];
+    const active = rows.find((ban: any) => {
+      const until = ban?.banned_until ?? ban?.ban_until ?? null;
+      if (ban?.is_permanent === true) return true;
+      if (!until) return false;
+      const untilTs = new Date(until).getTime();
+      return !Number.isNaN(untilTs) && untilTs > Date.now();
+    }) as any;
+
+    if (!active) return null;
+
+    return {
+      reason: active.reason || 'Your account has been suspended by an administrator.',
+      until: active.banned_until ?? active.ban_until ?? null,
+    };
+  };
+
   const loadUserSession = async () => {
     try {
       const currentUser = await getCurrentUser();
@@ -80,7 +181,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (error: any) {
       // Ignore abort errors
-      if (error?.message?.includes('AbortError') || error?.name === 'AbortError') {
+      if (isTransientNetworkError(error)) {
         return;
       }
       console.error('Error loading session:', error);
@@ -97,8 +198,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const userProfile = await getProfile(userId);
       if (!userProfile) {
         setProfile(null);
+        setIsBanned(false);
+        setBanReason(null);
+        setBanUntil(null);
         return;
       }
+
+      const activeBan = await getActiveBanForUser(userId);
+      setIsBanned(Boolean(activeBan || userProfile.is_suspended));
+      setBanReason(activeBan?.reason ?? null);
+      setBanUntil(activeBan?.until ?? null);
 
       if (userProfile.year_of_admission) {
         const computed = calculateAcademicFields(userProfile.year_of_admission);
@@ -123,7 +232,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setProfile(userProfile);
     } catch (error: any) {
       // Ignore abort errors (happens when component unmounts or request is cancelled)
-      if (error?.message?.includes('AbortError') || error?.name === 'AbortError') {
+      if (isTransientNetworkError(error)) {
         return;
       }
       console.error('Error loading profile:', error);
@@ -141,9 +250,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await supabase.auth.signOut();
       setUser(null);
       setProfile(null);
+      setIsBanned(false);
+      setBanReason(null);
+      setBanUntil(null);
     } catch (error: any) {
       // Ignore abort errors (common on web during hot reload)
-      if (error?.message?.includes('AbortError') || error?.message?.includes('aborted') || error?.name === 'AbortError') {
+      if (isTransientNetworkError(error)) {
         return;
       }
       console.error('Error signing out:', error);
@@ -154,6 +266,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     () => ({
       user,
       profile,
+      isBanned,
+      banReason,
+      banUntil,
       setUser,
       setProfile,
       isAuthenticated: Boolean(user),
@@ -161,7 +276,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signOut: handleSignOut,
       refreshProfile,
     }),
-    [user, profile, isLoading]
+    [user, profile, isBanned, banReason, banUntil, isLoading]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, SafeAreaView,
+  View, Text, StyleSheet, SafeAreaView,
   ScrollView, Platform, ActivityIndicator,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -8,6 +8,8 @@ import { useNavigation } from '@react-navigation/native';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { getEngagementMetrics, EngagementMetrics, TimeRange } from '../../api/admin';
+import AdminHeader from '../../components/admin/AdminHeader';
+import AdminFilterChips from '../../components/admin/AdminFilterChips';
 
 const TIME_RANGE_TABS: { label: string; value: TimeRange }[] = [
   { label: '7 Days', value: '7d' },
@@ -48,31 +50,18 @@ export default function AdminAnalyticsScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors.background }]}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={24} color={Colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.title, { color: Colors.text }]}>Analytics</Text>
-        <TouchableOpacity onPress={() => loadMetrics(timeRange)} style={styles.backBtn}>
-          <MaterialIcons name="refresh" size={22} color={Colors.primary} />
-        </TouchableOpacity>
-      </View>
+      <AdminHeader
+        title="Analytics"
+        subtitle="Usage, growth and engagement trends"
+        onBack={() => navigation.goBack()}
+        onRefresh={() => loadMetrics(timeRange)}
+      />
 
-      {/* Time Range Tabs */}
-      <View style={[styles.tabBar, { backgroundColor: Colors.surface }]}>
-        {TIME_RANGE_TABS.map((tab) => (
-          <TouchableOpacity
-            key={tab.value}
-            style={[styles.tab, timeRange === tab.value && { backgroundColor: Colors.primary }]}
-            onPress={() => setTimeRange(tab.value)}
-          >
-            <Text style={[styles.tabText, { color: timeRange === tab.value ? '#fff' : Colors.textSecondary }]}>
-              {tab.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+      <AdminFilterChips<TimeRange>
+        selected={timeRange}
+        onSelect={setTimeRange}
+        options={TIME_RANGE_TABS.map((tab) => ({ label: tab.label, value: tab.value }))}
+      />
 
       {isLoading ? (
         <View style={styles.loadingWrap}>
@@ -181,12 +170,6 @@ export default function AdminAnalyticsScreen() {
 const createStyles = (Colors: any) =>
   StyleSheet.create({
     container: { flex: 1, ...(Platform.OS === 'web' && { height: '100vh', width: '100vw' } as any) },
-    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: Spacing.md, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: Colors.border },
-    backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-    title: { fontSize: FontSizes.lg, fontWeight: FontWeights.bold },
-    tabBar: { flexDirection: 'row', margin: Spacing.md, borderRadius: BorderRadius.lg, padding: 4, gap: 4 },
-    tab: { flex: 1, paddingVertical: 8, borderRadius: BorderRadius.md, alignItems: 'center' },
-    tabText: { fontSize: FontSizes.sm, fontWeight: FontWeights.semibold },
     loadingWrap: { flex: 1, alignItems: 'center', paddingTop: Spacing.xl, gap: 12 },
     loadingText: { fontSize: FontSizes.sm, marginBottom: 12 },
     skeletonCard: { width: '90%', height: 70, borderRadius: BorderRadius.lg, opacity: 0.4 },

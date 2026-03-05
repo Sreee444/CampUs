@@ -15,6 +15,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import Toast from 'react-native-toast-message';
+import { isFacultyOrAdminRole } from '../../utils/roles';
 import { RootStackParamList } from '../../navigation/types';
 import { useTheme } from '../../contexts/ThemeContext';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } from '../../theme';
@@ -78,7 +79,7 @@ export default function DiscussionTopicScreen() {
     onConfirm: () => void;
   }>({ visible: false, title: '', message: '', onConfirm: () => {} });
 
-  const isFacultyOrAdmin = profile?.role === 'faculty' || profile?.role === 'admin';
+  const isFacultyOrAdmin = isFacultyOrAdminRole(profile?.role);
   const isTopicCreator = topic?.created_by === user?.id;
 
   useEffect(() => {

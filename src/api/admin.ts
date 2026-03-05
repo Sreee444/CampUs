@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import { Profile, Report, UserBan } from "../types/database";
+import { canModerateAcademic } from "../utils/roles";
 
 export type TimeRange = '7d' | '30d' | '90d';
 
@@ -48,7 +49,7 @@ export const getAllUsers = async (filters?: {
 
 export const changeUserRole = async (
   userId: string,
-  newRole: "student" | "faculty" | "alumni" | "admin"
+  newRole: "student" | "faculty" | "alumni" | "admin" | "developer"
 ) => {
   const { data, error } = await (supabase as any)
     .from("profiles")
@@ -67,25 +68,43 @@ export const toggleUserBan = async (
   reason: string,
   banUntil?: string
 ): Promise<{ success: boolean; action: 'banned' | 'unbanned'; data?: UserBan }> => {
-  // Find any active ban (temporary or permanent)
-  const { data: existing } = await supabase
-    .from('user_bans')
-    .select('id, is_permanent, banned_until')
-    .eq('user_id', userId)
-    .or(`is_permanent.eq.true,banned_until.gt.${new Date().toISOString()}`);
+  const isBanActive = (ban: any) => {
+    const until = ban?.banned_until ?? ban?.ban_until ?? null;
+    if (ban?.is_permanent === true) return true;
+    if (!until) return false;
+    const untilTs = new Date(until).getTime();
+    return !Number.isNaN(untilTs) && untilTs > Date.now();
+  };
 
-  if (existing && existing.length > 0) {
+  // Find any active ban (temporary or permanent)
+  const { data: existing, error: existingError } = await supabase
+    .from('user_bans')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+
+  if (existingError) throw existingError;
+  const activeBans = (existing || []).filter(isBanActive);
+
+  if (activeBans.length > 0) {
     // Remove all active bans for this user
     const { error } = await supabase
       .from('user_bans')
       .delete()
-      .in('id', existing.map((b: any) => b.id));
+      .in('id', activeBans.map((b: any) => b.id));
     if (error) throw error;
+
+    // Keep profiles table in sync for fast guards.
+    await (supabase as any)
+      .from('profiles')
+      .update({ is_suspended: false })
+      .eq('id', userId);
+
     return { success: true, action: 'unbanned' };
   }
 
   // Create new ban
-  const { data, error } = await (supabase as any)
+  let createResult = await (supabase as any)
     .from('user_bans')
     .insert({
       user_id: userId,
@@ -97,7 +116,31 @@ export const toggleUserBan = async (
     .select()
     .single();
 
+  // Backward compatibility for schemas using ban_until instead of banned_until.
+  if (createResult.error) {
+    createResult = await (supabase as any)
+      .from('user_bans')
+      .insert({
+        user_id: userId,
+        banned_by,
+        reason,
+        ban_until: banUntil ?? null,
+        is_permanent: !banUntil,
+      })
+      .select()
+      .single();
+  }
+
+  const { data, error } = createResult;
+
   if (error) throw error;
+
+  // Keep profiles table in sync for fast guards.
+  await (supabase as any)
+    .from('profiles')
+    .update({ is_suspended: true })
+    .eq('id', userId);
+
   return { success: true, action: 'banned', data: data as UserBan };
 };
 
@@ -105,10 +148,19 @@ export const getActiveBans = async (): Promise<UserBan[]> => {
   const { data, error } = await supabase
     .from("user_bans")
     .select("*")
-    .or(`is_permanent.eq.true,banned_until.gt.${new Date().toISOString()}`);
+    .order('created_at', { ascending: false });
 
   if (error) throw error;
-  return (data as UserBan[]) || [];
+
+  const active = ((data as UserBan[]) || []).filter((ban: any) => {
+    const until = ban?.banned_until ?? ban?.ban_until ?? null;
+    if (ban?.is_permanent === true) return true;
+    if (!until) return false;
+    const untilTs = new Date(until).getTime();
+    return !Number.isNaN(untilTs) && untilTs > Date.now();
+  });
+
+  return active;
 };
 
 // ===== MODERATION =====
@@ -135,7 +187,7 @@ export const approvePost = async (
   moderatorRole: string
 ) => {
   // Only admin/faculty can approve
-  if (!["admin", "faculty"].includes(moderatorRole)) {
+  if (!canModerateAcademic(moderatorRole)) {
     throw new Error("Unauthorized: Only admin/faculty can approve posts");
   }
 
@@ -289,7 +341,7 @@ export const getEngagementMetrics = async (
   ]);
 
   // Users by role
-  const roles = ['student', 'faculty', 'alumni', 'admin'];
+  const roles = ['student', 'faculty', 'alumni', 'admin', 'developer'];
   const roleResults = await Promise.all(
     roles.map((role) =>
       supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('role', role)
@@ -396,13 +448,24 @@ export type AdminLogAction =
   | 'topic_locked'
   | 'topic_pinned';
 
+export type AdminAuditLog = {
+  id: string;
+  admin_id: string;
+  action: AdminLogAction | string;
+  target_user_id: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  admin?: { full_name?: string | null; avatar_url?: string | null } | null;
+  target_user?: { full_name?: string | null; avatar_url?: string | null } | null;
+};
+
 export const insertAdminLog = async (
   adminId: string,
   action: AdminLogAction,
   targetUserId: string | null,
   metadata?: Record<string, unknown>
 ): Promise<void> => {
-  // Best-effort — don't throw if admin_logs table doesn't exist yet
+  // Best-effort insert. Keep app flow alive but surface useful diagnostics.
   try {
     await (supabase as any).from('admin_logs').insert({
       admin_id: adminId,
@@ -411,28 +474,71 @@ export const insertAdminLog = async (
       metadata: metadata ?? {},
       created_at: new Date().toISOString(),
     });
-  } catch (_) {
-    // Table may not exist yet — silently skip
+  } catch (error: any) {
+    console.warn('insertAdminLog failed:', error?.message || error);
   }
 };
 
 export const getAdminLogs = async (
   filter?: { action?: AdminLogAction; page?: number }
-): Promise<any[]> => {
+): Promise<AdminAuditLog[]> => {
   const pageSize = 30;
   const from = ((filter?.page ?? 0)) * pageSize;
 
   let query = supabase
     .from('admin_logs')
-    .select('*, admin:profiles!admin_logs_admin_id_fkey(full_name, avatar_url)')
+    .select('*, admin:profiles!admin_logs_admin_id_fkey(full_name, avatar_url), target_user:profiles!admin_logs_target_user_id_fkey(full_name, avatar_url)')
     .order('created_at', { ascending: false })
     .range(from, from + pageSize - 1);
 
   if (filter?.action) query = (query as any).eq('action', filter.action);
 
   const { data, error } = await query;
-  if (error) throw error;
-  return data ?? [];
+  if (!error) return (data as AdminAuditLog[]) ?? [];
+
+  // Fallback for databases where FK relation alias differs or join metadata is absent.
+  let fallbackQuery = supabase
+    .from('admin_logs')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .range(from, from + pageSize - 1);
+
+  if (filter?.action) fallbackQuery = (fallbackQuery as any).eq('action', filter.action);
+
+  const { data: fallbackData, error: fallbackError } = await fallbackQuery;
+  if (fallbackError) throw fallbackError;
+
+  const rows = (fallbackData ?? []) as AdminAuditLog[];
+  const profileIds = Array.from(
+    new Set(
+      rows
+        .flatMap((r) => [r.admin_id, r.target_user_id])
+        .filter((id): id is string => typeof id === 'string' && id.length > 0)
+    )
+  );
+  if (!profileIds.length) return rows;
+
+  const { data: profiles } = await supabase
+    .from('profiles')
+    .select('id, full_name, avatar_url')
+    .in('id', profileIds);
+
+  const profileMap = new Map((profiles ?? []).map((p: any) => [p.id, p]));
+  return rows.map((row) => ({
+    ...row,
+    admin: profileMap.get(row.admin_id)
+      ? {
+          full_name: profileMap.get(row.admin_id).full_name,
+          avatar_url: profileMap.get(row.admin_id).avatar_url,
+        }
+      : null,
+    target_user: row.target_user_id && profileMap.get(row.target_user_id)
+      ? {
+          full_name: profileMap.get(row.target_user_id).full_name,
+          avatar_url: profileMap.get(row.target_user_id).avatar_url,
+        }
+      : null,
+  }));
 };
 
 export const softDeletePost = async (postId: string): Promise<{ success: boolean }> => {

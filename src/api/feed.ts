@@ -3,6 +3,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { supabase } from "./supabase";
 import { Database } from '../types/database';
 import { FeedPost, PostComment, PostLike, PostType } from "../types/database";
+import { canModerateAcademic, isAdminRole } from "../utils/roles";
 
 const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'heic'];
 
@@ -95,7 +96,7 @@ export const getFeedPosts = async (
 
   const legacyAcademicPosts = (legacyAcademicResult.data || []).filter((post: any) => {
     const role = post?.author?.role;
-    return role === 'admin' || role === 'faculty';
+    return canModerateAcademic(role);
   });
 
   const postMap = new Map<string, any>();
@@ -196,7 +197,7 @@ export const createAcademicPost = async (
   if (profileError) throw profileError;
 
   const role = (authorProfile as any)?.role;
-  if (role !== 'admin' && role !== 'faculty') {
+  if (!canModerateAcademic(role)) {
     throw new Error('Only admin and faculty can post in academic feed');
   }
 
@@ -263,7 +264,7 @@ export const deleteAcademicPost = async (postId: string, requesterId: string) =>
   if (requesterError) throw requesterError;
 
   const isOwner = (post as any)?.author_id === requesterId;
-  const isAdmin = (requester as any)?.role === 'admin';
+  const isAdmin = isAdminRole((requester as any)?.role);
 
   if (!isOwner && !isAdmin) {
     throw new Error('Only admin or post owner can delete this post');

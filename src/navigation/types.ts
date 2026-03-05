@@ -10,8 +10,7 @@ export type MainTabParamList = {
 
 export type RootStackParamList = {
   Login: undefined;
-  Signup: undefined;
-  VerifyEmail: { email: string };
+  Banned: undefined;
   CompleteProfile: undefined;
   ResetPassword: undefined;
   MainTabs: NavigatorScreenParams<MainTabParamList> | undefined;
@@ -20,7 +19,7 @@ export type RootStackParamList = {
   EditProfile: undefined;
   AcademicDetails: undefined;
   SkillsInterests: undefined;
-  ChangePassword: undefined;
+  ChangePassword: { forceChange?: boolean } | undefined;
   LinkedAccounts: undefined;
   Notifications: undefined;
   NotificationSettings: undefined;

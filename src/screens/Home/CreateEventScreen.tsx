@@ -18,6 +18,7 @@ import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { MaterialIcons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
+import { isAdminRole } from '../../utils/roles';
 import { RootStackParamList } from '../../navigation/types';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../api/supabase';
@@ -147,7 +148,7 @@ export default function CreateEventScreen() {
   // Check if user can create events
   const canCreateEvent = profile && (
     profile.role === 'faculty' ||
-    profile.role === 'admin' ||
+    isAdminRole(profile.role) ||
     profile.is_club_coordinator ||
     profile.is_volunteer
   );

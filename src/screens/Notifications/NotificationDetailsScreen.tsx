@@ -31,9 +31,13 @@ export default function NotificationDetailsScreen() {
                     .from('notifications')
                     .select('*')
                     .eq('id', notificationId)
-                    .single();
+                    .maybeSingle();
 
                 if (err) throw err;
+                if (!data) {
+                    setError('Notification not found or already removed.');
+                    return;
+                }
                 setNotification(data);
 
                 // Mark as read

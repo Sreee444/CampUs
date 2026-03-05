@@ -21,6 +21,7 @@ import { supabase } from '../../api/supabase';
 import { EventStatus } from '../../components/CountdownTimer';
 import { scheduleEventReminder, createEventReminder } from '../../api/eventReminders';
 import Toast from 'react-native-toast-message';
+import { isAdminRole } from '../../utils/roles';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ConfirmBottomSheet } from '../../components/ConfirmBottomSheet';
 import { createNotification } from '../../api/notifications';
@@ -316,7 +317,7 @@ export default function EventDetailsScreen() {
       const { data: admins } = await supabase
         .from('profiles')
         .select('id')
-        .eq('role', 'admin');
+        .in('role', ['admin', 'developer']);
 
       if (admins) {
         // Insert notifications directly to avoid type mismatch
@@ -726,7 +727,7 @@ export default function EventDetailsScreen() {
   const registrationOpen = isUpcoming && new Date(event.registration_deadline) > now;
   const canRegister = registrationOpen && eligibility.isEligible;
   const isCreator = user?.id === event.created_by;
-  const isAdmin = profile?.role === 'admin';
+  const isAdmin = isAdminRole(profile?.role);
   const canManageEvent = isCreator || isAdmin;
   const eligibilityType = (event as any)?.eligibility_type || 'college';
   const eligibleDepartments = ((event as any)?.eligible_departments || []) as string[];

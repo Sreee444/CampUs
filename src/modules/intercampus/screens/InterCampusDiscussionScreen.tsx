@@ -16,6 +16,7 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import Toast from 'react-native-toast-message';
 import { RootStackParamList } from '../../../navigation/types';
 import { useAuth } from '../../../contexts/AuthContext';
+import { isFacultyOrAdminRole } from '../../../utils/roles';
 import {
   createInterCampusDiscussion,
   createInterCampusDiscussionReply,
@@ -41,7 +42,7 @@ export default function InterCampusDiscussionScreen() {
   const [newTopicTitle, setNewTopicTitle] = useState('');
   const [newReply, setNewReply] = useState('');
 
-  const isModerator = profile?.role === 'admin' || profile?.role === 'faculty';
+  const isModerator = isFacultyOrAdminRole(profile?.role);
 
   const loadDiscussions = useCallback(async () => {
     try {

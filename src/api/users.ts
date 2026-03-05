@@ -2,6 +2,20 @@
 import { supabase } from "./supabase";
 import { Profile } from "../types/database";
 
+const isTransientNetworkError = (error: any) => {
+  const message = String(error?.message || '').toLowerCase();
+  const name = String(error?.name || '').toLowerCase();
+  return (
+    name.includes('abort') ||
+    message.includes('aborterror') ||
+    message.includes('network request failed') ||
+    message.includes("failed to construct 'response'") ||
+    message.includes('status provided (0)') ||
+    message.includes('fetch failed') ||
+    message.includes('failed to fetch')
+  );
+};
+
 // Get all users (with filters)
 export const getUsers = async (filters?: {
   role?: string;
@@ -54,10 +68,10 @@ export const getUserById = async (userId: string) => {
     .from("profiles")
     .select("*")
     .eq("id", userId)
-    .single();
+    .maybeSingle();
 
   if (error) throw error;
-  return data as Profile;
+  return data as Profile | null;
 };
 
 // Search users
@@ -104,12 +118,12 @@ export const updateLastActive = async (userId: string) => {
       .eq("id", userId);
 
     // Ignore abort errors (happens when component unmounts or request is cancelled)
-    if (error && !error.message?.includes('AbortError')) {
+    if (error && !isTransientNetworkError(error)) {
       console.error('Update last active error:', error);
     }
   } catch (error: any) {
     // Silently ignore abort errors
-    if (!error?.message?.includes('AbortError') && error?.name !== 'AbortError') {
+    if (!isTransientNetworkError(error)) {
       console.error('Update last active error:', error);
     }
   }

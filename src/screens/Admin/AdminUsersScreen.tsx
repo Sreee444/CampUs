@@ -14,6 +14,9 @@ import { UserAvatar } from '../../components/UserAvatar';
 import { useAuth } from '../../contexts/AuthContext';
 import { RootStackParamList } from '../../navigation/types';
 import Toast from 'react-native-toast-message';
+import { isAdminRole } from '../../utils/roles';
+import AdminHeader from '../../components/admin/AdminHeader';
+import AdminFilterChips from '../../components/admin/AdminFilterChips';
 
 type NavProp = StackNavigationProp<RootStackParamList>;
 
@@ -25,6 +28,7 @@ const BAN_DURATIONS = [
 ];
 
 const Page_SIZE = 20;
+type RoleFilter = 'all' | 'student' | 'faculty' | 'alumni' | 'admin' | 'developer';
 
 export default function AdminUsersScreen() {
   const navigation = useNavigation<NavProp>();
@@ -39,6 +43,7 @@ export default function AdminUsersScreen() {
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>('all');
   const [bannedIds, setBannedIds] = useState<string[]>([]);
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
@@ -54,8 +59,7 @@ export default function AdminUsersScreen() {
   const [banReason, setBanReason] = useState('');
   const [banDays, setBanDays] = useState<number | null>(7);
 
-  const isAdmin = adminProfile?.role === 'admin';
-  const isFaculty = adminProfile?.role === 'faculty';
+  const isAdmin = isAdminRole(adminProfile?.role);
 
   const loadUsers = useCallback(async (p = 0, reset = false) => {
     try {
@@ -86,6 +90,16 @@ export default function AdminUsersScreen() {
   }, [selectedRole]);
 
   useEffect(() => { loadUsers(0, true); }, [selectedRole]);
+
+  const summaryCards = [
+    { label: 'Loaded', value: users.length, color: Colors.text },
+    { label: 'Banned', value: users.filter((u) => bannedIds.includes(u.id)).length, color: '#ef4444' },
+    { label: 'Student', value: users.filter((u) => u.role === 'student').length, color: '#3b82f6' },
+    { label: 'Faculty', value: users.filter((u) => u.role === 'faculty').length, color: '#8b5cf6' },
+    { label: 'Alumni', value: users.filter((u) => u.role === 'alumni').length, color: '#f59e0b' },
+    { label: 'Admin', value: users.filter((u) => u.role === 'admin').length, color: Colors.primary },
+    { label: 'Developer', value: users.filter((u) => u.role === 'developer').length, color: '#0f766e' },
+  ];
 
   // Client-side search filter
   useEffect(() => {
@@ -120,12 +134,12 @@ export default function AdminUsersScreen() {
 
   const handleConfirmBan = async () => {
     if (!selectedUser || !user?.id) return;
-    if (!banReason.trim()) {
+    const isBanned = bannedIds.includes(selectedUser.id);
+
+    if (!isBanned && !banReason.trim()) {
       Toast.show({ type: 'error', text1: 'Ban reason is required' });
       return;
     }
-
-    const isBanned = bannedIds.includes(selectedUser.id);
 
     try {
       setIsProcessing(true);
@@ -186,13 +200,24 @@ export default function AdminUsersScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors.background }]}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={24} color={Colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.title, { color: Colors.text }]}>User Management</Text>
-        <View style={{ width: 40 }} />
+      <AdminHeader
+        title="User Management"
+        subtitle="Role assignment, profile access and ban controls"
+        count={filteredUsers.length}
+        onBack={() => navigation.goBack()}
+        onRefresh={() => loadUsers(0, true)}
+      />
+
+      <View style={styles.summaryRow}>
+        {summaryCards.map((card) => (
+          <View
+            key={card.label}
+            style={[styles.summaryCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}
+          >
+            <Text style={[styles.summaryLabel, { color: Colors.textSecondary }]}>{card.label}</Text>
+            <Text style={[styles.summaryValue, { color: card.color }]}>{card.value}</Text>
+          </View>
+        ))}
       </View>
 
       {/* Search */}
@@ -214,23 +239,21 @@ export default function AdminUsersScreen() {
         )}
       </View>
 
-      {/* Role tabs */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.roleScroll}>
-        {['All', 'student', 'faculty', 'alumni', 'admin'].map((r) => {
-          const active = (selectedRole === null && r === 'All') || selectedRole === r;
-          return (
-            <TouchableOpacity
-              key={r}
-              style={[styles.roleChip, active && { backgroundColor: Colors.primary, borderColor: Colors.primary }]}
-              onPress={() => setSelectedRole(r === 'All' ? null : r)}
-            >
-              <Text style={[styles.roleChipText, { color: active ? '#fff' : Colors.text }]}>
-                {r === 'All' ? 'All' : r.charAt(0).toUpperCase() + r.slice(1)}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
+      <AdminFilterChips<RoleFilter>
+        selected={roleFilter}
+        onSelect={(value) => {
+          setRoleFilter(value);
+          setSelectedRole(value === 'all' ? null : value);
+        }}
+        options={[
+          { label: 'All', value: 'all' },
+          { label: 'Student', value: 'student' },
+          { label: 'Faculty', value: 'faculty' },
+          { label: 'Alumni', value: 'alumni' },
+          { label: 'Admin', value: 'admin' },
+          { label: 'Developer', value: 'developer' },
+        ]}
+      />
 
       {isLoading ? (
         <View style={styles.center}>
@@ -285,7 +308,7 @@ export default function AdminUsersScreen() {
                       {/* Change Role */}
                       <Text style={[styles.sheetSectionLabel, { color: Colors.textSecondary }]}>Change Role</Text>
                       <View style={styles.roleGrid}>
-                        {['student', 'faculty', 'alumni', 'admin'].map((role) => (
+                        {['student', 'faculty', 'alumni', 'admin', 'developer'].map((role) => (
                           <TouchableOpacity
                             key={role}
                             style={[
@@ -419,14 +442,12 @@ export default function AdminUsersScreen() {
 
 const createStyles = (Colors: any) => StyleSheet.create({
   container: { flex: 1, ...(Platform.OS === 'web' && { height: '100vh', width: '100vw' } as any) },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: Spacing.md, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: Colors.border },
-  backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  title: { fontSize: FontSizes.lg, fontWeight: FontWeights.bold },
+  summaryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, paddingHorizontal: Spacing.md, paddingTop: Spacing.sm, paddingBottom: 2 },
+  summaryCard: { width: '31%', borderRadius: BorderRadius.lg, borderWidth: 1, alignItems: 'center', paddingVertical: 10, paddingHorizontal: 8 },
+  summaryLabel: { fontSize: FontSizes.xs, marginBottom: 2 },
+  summaryValue: { fontSize: FontSizes.md, fontWeight: FontWeights.bold },
   searchBar: { flexDirection: 'row', alignItems: 'center', marginHorizontal: Spacing.md, marginVertical: 10, paddingHorizontal: 12, borderRadius: BorderRadius.lg, borderWidth: 1, gap: 8 },
   searchInput: { flex: 1, paddingVertical: 11, fontSize: FontSizes.sm },
-  roleScroll: { paddingHorizontal: Spacing.md, marginBottom: 8 },
-  roleChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: BorderRadius.full, borderWidth: 1, borderColor: Colors.border, backgroundColor: Colors.surface, marginRight: 8 },
-  roleChipText: { fontSize: FontSizes.sm, fontWeight: FontWeights.medium },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 10 },
   emptyText: { fontSize: FontSizes.md },
   listContent: { paddingHorizontal: Spacing.md, paddingBottom: 24 },

@@ -11,7 +11,7 @@ import {
   Platform,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../../navigation/types';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights } from '../../theme';
@@ -20,9 +20,11 @@ import { Toast } from '../../components/Toast';
 import { updatePassword } from '../../api/auth';
 
 type ChangePasswordScreenNavigationProp = StackNavigationProp<RootStackParamList, 'ChangePassword'>;
+type ChangePasswordScreenRouteProp = RouteProp<RootStackParamList, 'ChangePassword'>;
 
 export default function ChangePasswordScreen() {
   const navigation = useNavigation<ChangePasswordScreenNavigationProp>();
+  const route = useRoute<ChangePasswordScreenRouteProp>();
   const { isDark } = useTheme();
   const Colors = getColors(isDark);
   const styles = createStyles(Colors);
@@ -35,9 +37,10 @@ export default function ChangePasswordScreen() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [toast, setToast] = useState<{ visible: boolean; message: string; type: 'success' | 'info' | 'warning' | 'error' }>({ visible: false, message: '', type: 'success' });
+  const isForcedChange = Boolean(route.params?.forceChange);
 
   const handleChangePassword = async () => {
-    if (!currentPassword || !newPassword || !confirmPassword) {
+    if ((!isForcedChange && !currentPassword) || !newPassword || !confirmPassword) {
       setToast({ visible: true, message: 'Please fill all fields', type: 'error' });
       return;
     }
@@ -59,8 +62,14 @@ export default function ChangePasswordScreen() {
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
-      
-      setTimeout(() => navigation.goBack(), 2000);
+
+      setTimeout(() => {
+        if (isForcedChange) {
+          navigation.replace('MainTabs', { screen: 'Home' });
+        } else {
+          navigation.goBack();
+        }
+      }, 1200);
     } catch (error: any) {
       console.error('Change password error:', error);
       setToast({ 
@@ -76,35 +85,48 @@ export default function ChangePasswordScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          <MaterialIcons name="arrow-back-ios" size={20} color={Colors.text} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Change Password</Text>
+        {isForcedChange ? <View style={{ width: 60 }} /> : (
+          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+            <MaterialIcons name="arrow-back-ios" size={20} color={Colors.text} />
+          </TouchableOpacity>
+        )}
+        <Text style={styles.headerTitle}>{isForcedChange ? 'Set New Password' : 'Change Password'}</Text>
         <View style={{ width: 60 }} />
       </View>
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         <View style={styles.form}>
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Current Password</Text>
-            <View style={styles.passwordContainer}>
-              <TextInput
-                style={styles.passwordInput}
-                value={currentPassword}
-                onChangeText={setCurrentPassword}
-                placeholder="Enter current password"
-                secureTextEntry={!showCurrent}
-                autoCapitalize="none"
-              />
-              <TouchableOpacity onPress={() => setShowCurrent(!showCurrent)}>
-                <MaterialIcons
-                  name={showCurrent ? 'visibility' : 'visibility-off'}
-                  size={20}
-                  color="#94a3b8"
-                />
-              </TouchableOpacity>
+          {isForcedChange && (
+            <View style={styles.forceInfoBox}>
+              <MaterialIcons name="lock-reset" size={20} color={Colors.primary} />
+              <Text style={[styles.forceInfoText, { color: Colors.textSecondary }]}> 
+                Your account is using the default password. Please set a new password to continue.
+              </Text>
             </View>
-          </View>
+          )}
+
+          {!isForcedChange && (
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Current Password</Text>
+              <View style={styles.passwordContainer}>
+                <TextInput
+                  style={styles.passwordInput}
+                  value={currentPassword}
+                  onChangeText={setCurrentPassword}
+                  placeholder="Enter current password"
+                  secureTextEntry={!showCurrent}
+                  autoCapitalize="none"
+                />
+                <TouchableOpacity onPress={() => setShowCurrent(!showCurrent)}>
+                  <MaterialIcons
+                    name={showCurrent ? 'visibility' : 'visibility-off'}
+                    size={20}
+                    color="#94a3b8"
+                  />
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
 
           <View style={styles.inputGroup}>
             <Text style={styles.label}>New Password</Text>
@@ -164,9 +186,11 @@ export default function ChangePasswordScreen() {
             )}
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.forgotButton}>
+          {!isForcedChange && (
+            <TouchableOpacity style={styles.forgotButton} onPress={() => navigation.navigate('ResetPassword')}>
             <Text style={styles.forgotButtonText}>Forgot current password?</Text>
-          </TouchableOpacity>
+            </TouchableOpacity>
+          )}
         </View>
       </ScrollView>
 
@@ -213,6 +237,21 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   inputGroup: {
     gap: 8,
+  },
+  forceInfoBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: Colors.card,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: BorderRadius.md,
+    padding: 12,
+  },
+  forceInfoText: {
+    flex: 1,
+    fontSize: FontSizes.sm,
+    lineHeight: 19,
   },
   label: {
     fontSize: FontSizes.sm,

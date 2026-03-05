@@ -24,6 +24,10 @@ import {
 } from '../../api/admin';
 import { supabase } from '../../api/supabase';
 import Toast from 'react-native-toast-message';
+import AdminHeader from '../../components/admin/AdminHeader';
+import AdminFilterChips from '../../components/admin/AdminFilterChips';
+
+type TopicFilter = 'all' | 'pinned' | 'locked' | 'active';
 
 export default function AdminDiscussionsScreen() {
   const navigation = useNavigation();
@@ -36,6 +40,7 @@ export default function AdminDiscussionsScreen() {
   const [selectedTopic, setSelectedTopic] = useState<any>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<TopicFilter>('all');
 
   useEffect(() => {
     loadTopics();
@@ -176,20 +181,43 @@ export default function AdminDiscussionsScreen() {
     );
   }
 
+  const filteredTopics = topics.filter((topic) => {
+    if (filter === 'all') return true;
+    if (filter === 'pinned') return !!topic.is_pinned;
+    if (filter === 'locked') return !!topic.is_locked;
+    return !topic.is_locked;
+  });
+
+  const counts = {
+    all: topics.length,
+    pinned: topics.filter((t) => t.is_pinned).length,
+    locked: topics.filter((t) => t.is_locked).length,
+    active: topics.filter((t) => !t.is_locked).length,
+  };
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors.background }]}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <MaterialIcons name="arrow-back" size={24} color={Colors.text} />
-        </TouchableOpacity>
-        <Text style={styles.title}>Discussion Moderation</Text>
-        <View style={styles.badge}>
-          <Text style={styles.badgeText}>{topics.length}</Text>
-        </View>
-      </View>
+      <AdminHeader
+        title="Discussion Moderation"
+        subtitle="Pin, lock and manage conversation threads"
+        count={filteredTopics.length}
+        onBack={() => navigation.goBack()}
+        onRefresh={loadTopics}
+      />
+
+      <AdminFilterChips<TopicFilter>
+        selected={filter}
+        onSelect={setFilter}
+        options={[
+          { label: 'All', value: 'all', count: counts.all },
+          { label: 'Pinned', value: 'pinned', count: counts.pinned },
+          { label: 'Locked', value: 'locked', count: counts.locked },
+          { label: 'Active', value: 'active', count: counts.active },
+        ]}
+      />
 
       <FlatList
-        data={topics}
+        data={filteredTopics}
         renderItem={renderTopicItem}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
@@ -338,34 +366,6 @@ const createStyles = (Colors: any, isDark: boolean) =>
       flex: 1,
       backgroundColor: Colors.background,
       ...(Platform.OS === 'web' && { height: '100vh', width: '100vw' } as any),
-    },
-    header: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingHorizontal: Spacing.md,
-      paddingVertical: Spacing.md,
-      borderBottomWidth: 1,
-      borderBottomColor: Colors.border,
-    },
-    title: {
-      fontSize: FontSizes.lg,
-      fontWeight: FontWeights.bold,
-      color: Colors.text,
-      flex: 1,
-      textAlign: 'center',
-    },
-    badge: {
-      backgroundColor: Colors.primary,
-      borderRadius: BorderRadius.full,
-      width: 28,
-      height: 28,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    badgeText: {
-      color: '#fff',
-      fontSize: FontSizes.sm,
     },
     listContent: {
       padding: Spacing.md,

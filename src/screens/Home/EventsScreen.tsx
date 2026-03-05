@@ -26,6 +26,7 @@ import { CountdownTimer, EventStatus } from '../../components/CountdownTimer';
 import { ConfirmBottomSheet } from '../../components/ConfirmBottomSheet';
 import { supabase } from '../../api/supabase';
 import Toast from 'react-native-toast-message';
+import { isAdminRole } from '../../utils/roles';
 import {
   SEMANTIC_COLORS,
   getRegistrationColor,
@@ -33,6 +34,7 @@ import {
   getRegistrationButtonState,
 } from '../../utils/semanticColors';
 import { evaluateEventEligibility } from '../../utils/eventEligibility';
+import { useRealtimeRefresh } from '../../hooks/useRealtimeRefresh';
 
 type EventsScreenNavigationProp = CompositeNavigationProp<
   BottomTabNavigationProp<MainTabParamList, 'Events'>,
@@ -93,6 +95,14 @@ export default function EventsScreen() {
     loadEvents();
   }, [user?.id, activeTab]);
 
+  useRealtimeRefresh({
+    enabled: Boolean(user?.id),
+    tables: ['events', 'event_registrations', 'event_reminders'],
+    onChange: () => {
+      loadEvents(true);
+    },
+  });
+
   // DB already filtered by tab — only apply category filter client-side
   const filteredEvents = events.filter((event) => {
     return selectedCategory === 'All' || event.event_type === selectedCategory;
@@ -125,7 +135,7 @@ export default function EventsScreen() {
 
   const canDeleteEvent = (event: any) => {
     if (!user?.id) return false;
-    return user.id === event.created_by || profile?.role === 'admin';
+    return user.id === event.created_by || isAdminRole(profile?.role);
   };
 
   const handleDeleteEvent = async () => {

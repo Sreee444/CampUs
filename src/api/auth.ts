@@ -1,11 +1,25 @@
 import { supabase } from "./supabase";
-import { Profile, UserRole } from "../types/database";
+import { Profile } from "../types/database";
 import * as WebBrowser from 'expo-web-browser';
 import { makeRedirectUri } from 'expo-auth-session';
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 
 WebBrowser.maybeCompleteAuthSession();
+
+const isTransientNetworkError = (error: any) => {
+  const message = String(error?.message || '').toLowerCase();
+  const name = String(error?.name || '').toLowerCase();
+  return (
+    name.includes('abort') ||
+    message.includes('aborterror') ||
+    message.includes('network request failed') ||
+    message.includes("failed to construct 'response'") ||
+    message.includes('status provided (0)') ||
+    message.includes('fetch failed') ||
+    message.includes('failed to fetch')
+  );
+};
 
 // Sign in with Google
 export const signInWithGoogle = async () => {
@@ -67,54 +81,6 @@ export const signInWithGoogle = async () => {
   }
 };
 
-// Sign up new user
-export const signUp = async (
-  email: string,
-  password: string,
-  fullName: string,
-  role: string,
-  profileData?: {
-    department?: string;
-    specialization?: string;
-    section?: 'A' | 'B' | 'C' | 'D';
-    year_of_admission?: number;
-    year?: number;
-    semester?: number;
-    batch?: string;
-    roll_number?: string;
-    academic_status?: 'active' | 'graduated';
-    bio?: string;
-    skills?: string[];
-    interests?: string[];
-  }
-) => {
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: {
-      data: {
-        full_name: fullName,
-        role,
-        department: profileData?.department,
-        specialization: profileData?.specialization,
-        section: profileData?.section,
-        year_of_admission: profileData?.year_of_admission,
-        year: profileData?.year,
-        semester: profileData?.semester,
-        batch: profileData?.batch,
-        roll_number: profileData?.roll_number,
-        academic_status: profileData?.academic_status,
-        bio: profileData?.bio,
-        skills: profileData?.skills,
-        interests: profileData?.interests,
-      },
-      emailRedirectTo: undefined,
-    }
-  });
-  if (error) throw error;
-  return data;
-};
-
 // Sign in existing user
 export const signIn = async (email: string, password: string) => {
   const { data, error } = await supabase.auth.signInWithPassword({
@@ -145,42 +111,15 @@ export const getCurrentSession = async () => {
   return session;
 };
 
-// Note: Profile creation is now handled by Supabase trigger (handle_new_user)
-// This function is kept for backward compatibility only
-export const createProfile = async (
-  userId: string,
-  email: string,
-  role: UserRole,
-  fullName?: string
-) => {
-  const { data, error } = await supabase
-    .from("profiles")
-    .insert({
-      id: userId,
-      email,
-      role,
-      full_name: fullName,
-    } as any) // Type assertion until database types are generated
-    .select()
-    .single();
-
-  if (error) {
-    console.error("Error creating profile:", error);
-    throw new Error(error.message || "Failed to create profile");
-  }
-
-  return data as Profile;
-};
-
 // Get user profile
 export const getProfile = async (userId: string): Promise<Profile | null> => {
   const { data, error } = await supabase
     .from("profiles")
     .select("*")
     .eq("id", userId)
-    .single();
+    .maybeSingle();
 
-  if (error && error.code !== 'PGRST116') throw error;
+  if (error) throw error;
   return data;
 };
 
@@ -204,14 +143,41 @@ export const updateProfile = async (
 // Reset password
 export const resetPassword = async (email: string) => {
   const { error } = await supabase.auth.resetPasswordForEmail(email);
-  if (error) throw error;
+  if (error) {
+    const msg = String(error.message || '').toLowerCase();
+    if (msg.includes('rate limit') || msg.includes('email rate limit exceeded')) {
+      throw new Error('Too many reset attempts. Please wait 60 seconds and try again.');
+    }
+    throw error;
+  }
 };
 
 // Update password
 export const updatePassword = async (newPassword: string) => {
-  const { error } = await supabase.auth.updateUser({
+  const {
+    data: { session },
+    error: sessionError,
+  } = await supabase.auth.getSession();
+
+  if (sessionError) throw sessionError;
+  if (!session) {
+    throw new Error('Session expired. Please log in again.');
+  }
+
+  // Avoid indefinite loading if network/auth endpoint hangs.
+  const updatePromise = supabase.auth.updateUser({
     password: newPassword,
   });
+
+  const timeoutPromise = new Promise<{ error: Error }>((resolve) => {
+    setTimeout(() => {
+      resolve({
+        error: new Error('Password update timed out. Please check your internet and try again.'),
+      });
+    }, 15000);
+  });
+
+  const { error } = await Promise.race([updatePromise, timeoutPromise]);
   if (error) throw error;
 };
 

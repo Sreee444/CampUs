@@ -13,6 +13,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../../../navigation/types';
 import { useAuth } from '../../../contexts/AuthContext';
+import { isAdminRole, isFacultyOrAdminRole } from '../../../utils/roles';
 import { useInterCampusEvents } from '../hooks/useInterCampusEvents';
 import InterCampusEventCard from '../components/InterCampusEventCard';
 import InterCampusState from '../components/InterCampusState';
@@ -38,7 +39,7 @@ export default function InterCampusHomeScreen() {
   const [loadingMine, setLoadingMine] = useState(false);
   const [submissions, setSubmissions] = useState<InterCampusEventSubmission[]>([]);
   const [loadingSubmissions, setLoadingSubmissions] = useState(false);
-  const canCreateDirect = profile?.role === 'faculty' || profile?.role === 'admin';
+  const canCreateDirect = isFacultyOrAdminRole(profile?.role);
 
   const teamEvents = useMemo(
     () => events.filter((item) => item.participation_type === 'team'),
@@ -96,7 +97,7 @@ export default function InterCampusHomeScreen() {
             <Text style={styles.subtitle}>Verified external college events</Text>
           </View>
           <View style={styles.headerActions}>
-            {(profile?.role === 'faculty' || profile?.role === 'admin') && (
+            {isFacultyOrAdminRole(profile?.role) && (
               <TouchableOpacity
                 style={styles.headerActionBtn}
                 onPress={() => navigation.navigate('FacultyInterCampusDashboard')}
@@ -104,7 +105,7 @@ export default function InterCampusHomeScreen() {
                 <MaterialIcons name="fact-check" size={18} color="#0f172a" />
               </TouchableOpacity>
             )}
-            {profile?.role === 'admin' && (
+            {isAdminRole(profile?.role) && (
               <TouchableOpacity
                 style={styles.headerActionBtn}
                 onPress={() => navigation.navigate('AdminInterCampusManagement')}

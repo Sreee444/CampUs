@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -10,10 +10,18 @@ import { useAuth } from './src/contexts/AuthContext';
 import { StyleSheet, AppState } from 'react-native';
 import { registerForPushNotifications, subscribeToNotifications } from './src/api/notifications';
 import { updateUserStatus } from './src/api/chat';
+import { BroadcastBanner } from './src/components/BroadcastBanner';
 
 function AppContent() {
   const { isDark } = useTheme();
   const { user } = useAuth();
+  const [broadcastBanner, setBroadcastBanner] = useState<{
+    title: string;
+    message: string;
+    imageUrl?: string | null;
+    visible: boolean;
+  }>({ title: '', message: '', imageUrl: null, visible: false });
+  const broadcastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     // Register for push notifications
@@ -52,6 +60,26 @@ function AppContent() {
     // Global listener for new notifications
     const channel = subscribeToNotifications(user.id, (notification: any) => {
       console.log('Real-time notification received:', notification);
+
+      if (notification?.type === 'broadcast') {
+        if (broadcastTimerRef.current) {
+          clearTimeout(broadcastTimerRef.current);
+        }
+
+        setBroadcastBanner({
+          visible: true,
+          title: notification.title || 'Campus Broadcast',
+          message: notification.body || notification.message || 'New announcement received.',
+          imageUrl: notification.image_url || null,
+        });
+
+        broadcastTimerRef.current = setTimeout(() => {
+          setBroadcastBanner((prev) => ({ ...prev, visible: false }));
+        }, 6000);
+
+        return;
+      }
+
       Toast.show({
         type: 'info',
         text1: notification.title || 'New Notification',
@@ -64,14 +92,31 @@ function AppContent() {
     });
 
     return () => {
+      if (broadcastTimerRef.current) {
+        clearTimeout(broadcastTimerRef.current);
+      }
       channel.unsubscribe();
     };
   }, [user?.id]);
+
+  const handleCloseBroadcastBanner = () => {
+    if (broadcastTimerRef.current) {
+      clearTimeout(broadcastTimerRef.current);
+    }
+    setBroadcastBanner((prev) => ({ ...prev, visible: false }));
+  };
 
   return (
     <>
       <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
         <RootNavigator />
+        <BroadcastBanner
+          visible={broadcastBanner.visible}
+          title={broadcastBanner.title}
+          message={broadcastBanner.message}
+          imageUrl={broadcastBanner.imageUrl}
+          onClose={handleCloseBroadcastBanner}
+        />
       </SafeAreaView>
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <Toast />

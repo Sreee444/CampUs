@@ -17,6 +17,10 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { getPendingPosts, approvePost, rejectPost } from '../../api/admin';
 import { useAuth } from '../../contexts/AuthContext';
 import Toast from 'react-native-toast-message';
+import AdminHeader from '../../components/admin/AdminHeader';
+import AdminFilterChips from '../../components/admin/AdminFilterChips';
+
+type ModerationFilter = 'all' | 'announcement' | 'exam' | 'general';
 
 export default function AdminModerationScreen() {
   const navigation = useNavigation();
@@ -28,6 +32,7 @@ export default function AdminModerationScreen() {
   const [posts, setPosts] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<ModerationFilter>('all');
 
   useEffect(() => {
     loadPendingPosts();
@@ -157,20 +162,42 @@ export default function AdminModerationScreen() {
     );
   }
 
+  const filteredPosts = posts.filter((post) => {
+    if (filter === 'all') return true;
+    if (filter === 'general') return !post.post_type || post.post_type === 'general';
+    return post.post_type === filter;
+  });
+
+  const counts = {
+    all: posts.length,
+    announcement: posts.filter((p) => p.post_type === 'announcement').length,
+    exam: posts.filter((p) => p.post_type === 'exam').length,
+    general: posts.filter((p) => !p.post_type || p.post_type === 'general').length,
+  };
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors.background }]}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <MaterialIcons name="arrow-back" size={24} color={Colors.text} />
-        </TouchableOpacity>
-        <Text style={styles.title}>Content Moderation</Text>
-        <View style={styles.badge}>
-          <Text style={styles.badgeText}>{posts.length}</Text>
-        </View>
-      </View>
+      <AdminHeader
+        title="Content Moderation"
+        subtitle="Review queued posts before publishing"
+        count={filteredPosts.length}
+        onBack={() => navigation.goBack()}
+        onRefresh={loadPendingPosts}
+      />
+
+      <AdminFilterChips<ModerationFilter>
+        selected={filter}
+        onSelect={setFilter}
+        options={[
+          { label: 'All', value: 'all', count: counts.all },
+          { label: 'Announcements', value: 'announcement', count: counts.announcement },
+          { label: 'Exam', value: 'exam', count: counts.exam },
+          { label: 'General', value: 'general', count: counts.general },
+        ]}
+      />
 
       <FlatList
-        data={posts}
+        data={filteredPosts}
         renderItem={renderPostItem}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
@@ -192,35 +219,6 @@ const createStyles = (Colors: any, isDark: boolean) =>
       flex: 1,
       backgroundColor: Colors.background,
       ...(Platform.OS === 'web' && { height: '100vh', width: '100vw' } as any),
-    },
-    header: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingHorizontal: Spacing.md,
-      paddingVertical: Spacing.md,
-      borderBottomWidth: 1,
-      borderBottomColor: Colors.border,
-    },
-    title: {
-      fontSize: FontSizes.lg,
-      fontWeight: FontWeights.bold,
-      color: Colors.text,
-      flex: 1,
-      textAlign: 'center',
-    },
-    badge: {
-      backgroundColor: Colors.primary,
-      borderRadius: BorderRadius.full,
-      width: 28,
-      height: 28,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    badgeText: {
-      color: '#fff',
-      fontSize: FontSizes.sm,
-      fontWeight: FontWeights.bold,
     },
     listContent: {
       padding: Spacing.md,
