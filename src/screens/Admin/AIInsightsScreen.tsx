@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
-  TouchableOpacity,
   StyleSheet,
   SafeAreaView,
   ScrollView,
@@ -16,6 +15,8 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { predictEngagementRisk, scoreDiscussionQuality } from '../../api/ai';
 import { getDiscussionTopics } from '../../api/discussions';
 import Toast from 'react-native-toast-message';
+import AdminHeader from '../../components/admin/AdminHeader';
+import AdminFilterChips from '../../components/admin/AdminFilterChips';
 
 export default function AIInsightsScreen() {
   const { isDark } = useTheme();
@@ -203,56 +204,20 @@ export default function AIInsightsScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors.background }]}>
       <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.title}>AI Insights</Text>
-          <Text style={styles.subtitle}>Community health & engagement metrics</Text>
-        </View>
+        <AdminHeader
+          title="AI Insights"
+          subtitle="Community health and quality signals"
+          onRefresh={loadAIInsights}
+        />
 
-        {/* Tab Selector */}
-        <View style={styles.tabContainer}>
-          <TouchableOpacity
-            style={[
-              styles.tab,
-              selectedTab === 'engagement' && [
-                styles.tabActive,
-                { backgroundColor: Colors.primary },
-              ],
-            ]}
-            onPress={() => setSelectedTab('engagement')}
-          >
-            <MaterialIcons name="trending-up" size={18} color={selectedTab === 'engagement' ? '#fff' : Colors.textSecondary} />
-            <Text
-              style={[
-                styles.tabText,
-                selectedTab === 'engagement' && styles.tabTextActive,
-              ]}
-            >
-              Engagement
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.tab,
-              selectedTab === 'discussions' && [
-                styles.tabActive,
-                { backgroundColor: Colors.primary },
-              ],
-            ]}
-            onPress={() => setSelectedTab('discussions')}
-          >
-            <MaterialIcons name="forum" size={18} color={selectedTab === 'discussions' ? '#fff' : Colors.textSecondary} />
-            <Text
-              style={[
-                styles.tabText,
-                selectedTab === 'discussions' && styles.tabTextActive,
-              ]}
-            >
-              Discussions
-            </Text>
-          </TouchableOpacity>
-        </View>
+        <AdminFilterChips<'engagement' | 'discussions'>
+          selected={selectedTab}
+          onSelect={setSelectedTab}
+          options={[
+            { label: 'Engagement', value: 'engagement', count: riskUsers.length },
+            { label: 'Discussions', value: 'discussions', count: discussionScores.length },
+          ]}
+        />
 
         {/* Content */}
         <View style={styles.content}>
@@ -307,55 +272,6 @@ const createStyles = (Colors: any, isDark: boolean) =>
       flex: 1,
       backgroundColor: Colors.background,
       ...(Platform.OS === 'web' && { height: '100vh', width: '100vw' } as any),
-    },
-    header: {
-      paddingHorizontal: Spacing.lg,
-      paddingVertical: Spacing.lg,
-      backgroundColor: Colors.surface,
-      borderBottomWidth: 1,
-      borderBottomColor: Colors.border,
-    },
-    title: {
-      fontSize: FontSizes.xxl,
-      fontWeight: FontWeights.bold,
-      color: Colors.text,
-      marginBottom: 4,
-    },
-    subtitle: {
-      fontSize: FontSizes.sm,
-      color: Colors.textSecondary,
-    },
-    tabContainer: {
-      flexDirection: 'row',
-      gap: Spacing.sm,
-      paddingHorizontal: Spacing.lg,
-      paddingVertical: Spacing.md,
-      backgroundColor: Colors.surface,
-      borderBottomWidth: 1,
-      borderBottomColor: Colors.border,
-    },
-    tab: {
-      flex: 1,
-      flexDirection: 'row',
-      paddingVertical: Spacing.md,
-      paddingHorizontal: Spacing.md,
-      borderRadius: BorderRadius.lg,
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: Spacing.sm,
-      borderWidth: 1,
-      borderColor: Colors.border,
-    },
-    tabActive: {
-      borderColor: Colors.primary,
-    },
-    tabText: {
-      fontSize: FontSizes.sm,
-      fontWeight: FontWeights.semibold,
-      color: Colors.textSecondary,
-    },
-    tabTextActive: {
-      color: '#fff',
     },
     content: {
       paddingHorizontal: Spacing.lg,

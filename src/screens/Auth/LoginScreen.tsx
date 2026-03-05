@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -23,6 +23,8 @@ import { RootStackParamList } from '../../navigation/types';
 import { signIn } from '../../api/auth';
 import { supabase } from '../../api/supabase';
 
+const DEFAULT_PASSWORD = '123456';
+
 // Required for Expo WebBrowser OAuth session completion
 WebBrowser.maybeCompleteAuthSession();
 
@@ -35,6 +37,7 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const mustChangePasswordRef = useRef(false);
 
   // 🔍 TEMPORARY DEBUG — check this in Metro console, then remove
   const redirectUrl = AuthSession.makeRedirectUri({ scheme: 'campusapp', path: 'auth/callback' });
@@ -70,11 +73,22 @@ export default function LoginScreen() {
     try {
       const { data } = await supabase
         .from('profiles')
-        .select('full_name, department')
+        .select('full_name, department, is_suspended')
         .eq('id', userId)
-        .single();
+        .maybeSingle();
 
-      const profile = data as { full_name: string | null; department: string | null } | null;
+      const profile = data as { full_name: string | null; department: string | null; is_suspended?: boolean } | null;
+
+      if (profile?.is_suspended) {
+        return;
+      }
+
+      // Enforce password update on first login with the seeded default password.
+      if (mustChangePasswordRef.current) {
+        mustChangePasswordRef.current = false;
+        navigation.replace('ChangePassword', { forceChange: true });
+        return;
+      }
 
       // If profile is incomplete (new users via Google OAuth), send to CompleteProfile
       if (!profile?.full_name || !profile?.department) {
@@ -182,10 +196,12 @@ export default function LoginScreen() {
     }
     try {
       setIsLoading(true);
+      mustChangePasswordRef.current = password.trim() === DEFAULT_PASSWORD;
       await signIn(email.trim(), password);
       Toast.show({ type: 'success', text1: 'Welcome back!' });
       // onAuthStateChange listener will handle navigation
     } catch (error: any) {
+      mustChangePasswordRef.current = false;
       Toast.show({
         type: 'error',
         text1: 'Login failed',
@@ -315,10 +331,10 @@ export default function LoginScreen() {
           {/* Footer */}
           <View style={styles.footer}>
             <Text style={styles.footerText}>
-              Don't have an account?{' '}
-              <Text style={styles.footerLink} onPress={() => navigation.navigate('Signup')}>
-                Join now
-              </Text>
+              Accounts are created by admin. Use your assigned campus email and password.
+            </Text>
+            <Text style={styles.termsText}>
+              By logging in, you agree to our Terms of Service and Privacy Policy.
             </Text>
           </View>
         </ScrollView>
@@ -504,6 +520,15 @@ const styles = StyleSheet.create({
   footerText: {
     fontSize: 14,
     color: '#64748b',
+    textAlign: 'center',
+  },
+  termsText: {
+    marginTop: 10,
+    fontSize: 11,
+    color: '#94a3b8',
+    textAlign: 'center',
+    maxWidth: 300,
+    lineHeight: 16,
   },
   footerLink: {
     color: '#111818',

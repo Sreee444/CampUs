@@ -15,6 +15,7 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import Toast from 'react-native-toast-message';
 import { RootStackParamList } from '../../../navigation/types';
 import { useAuth } from '../../../contexts/AuthContext';
+import { isFacultyOrAdminRole } from '../../../utils/roles';
 import {
   closeInterCampusTeamPost,
   createInterCampusTeamPost,
@@ -44,7 +45,7 @@ export default function InterCampusTeamUpScreen() {
   const [teamSizeNeeded, setTeamSizeNeeded] = useState('');
   const [replyInputs, setReplyInputs] = useState<Record<string, string>>({});
 
-  const isModerator = profile?.role === 'admin' || profile?.role === 'faculty';
+  const isModerator = isFacultyOrAdminRole(profile?.role);
 
   const loadData = useCallback(async () => {
     try {

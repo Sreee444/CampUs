@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -25,6 +25,15 @@ export default function ResetPasswordScreen() {
   const navigation = useNavigation<ResetPasswordScreenNavigationProp>();
   const [email, setEmail] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = setInterval(() => {
+      setCooldown((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [cooldown]);
 
   const handleReset = async () => {
     if (!email.trim()) {
@@ -32,12 +41,25 @@ export default function ResetPasswordScreen() {
       return;
     }
 
+    if (cooldown > 0) {
+      Toast.show({
+        type: 'info',
+        text1: 'Please wait before retrying',
+        text2: `Try again in ${cooldown}s`,
+      });
+      return;
+    }
+
     try {
       setIsSending(true);
       await resetPassword(email.trim());
       Toast.show({ type: 'success', text1: 'Reset link sent' });
+      setCooldown(60);
       navigation.navigate('Login');
     } catch (error: any) {
+      if (String(error?.message || '').toLowerCase().includes('wait 60 seconds')) {
+        setCooldown(60);
+      }
       Toast.show({
         type: 'error',
         text1: 'Could not send reset link',
@@ -127,12 +149,16 @@ export default function ResetPasswordScreen() {
                 style={styles.resetButton}
                 onPress={handleReset}
                 activeOpacity={0.9}
-                disabled={isSending}
+                disabled={isSending || cooldown > 0}
               >
                 <Text style={styles.resetButtonText}>
-                  {isSending ? 'Sending...' : 'Send Reset Link'}
+                  {isSending ? 'Sending...' : cooldown > 0 ? `Retry in ${cooldown}s` : 'Send Reset Link'}
                 </Text>
               </TouchableOpacity>
+
+              <Text style={styles.rateLimitNote}>
+                If you see "rate limit exceeded", wait one minute before trying again.
+              </Text>
             </View>
 
             {/* Footer */}
@@ -295,6 +321,12 @@ const styles = StyleSheet.create({
     fontWeight: FontWeights.bold,
     color: Colors.primaryContent,
     letterSpacing: 0.5,
+  },
+  rateLimitNote: {
+    marginTop: 10,
+    fontSize: FontSizes.xs,
+    color: '#64748b',
+    textAlign: 'center',
   },
   footer: {
     marginTop: 'auto',

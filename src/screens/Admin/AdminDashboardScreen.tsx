@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -7,7 +7,6 @@ import {
   SafeAreaView,
   ScrollView,
   Platform,
-  ActivityIndicator,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -17,14 +16,23 @@ import { getColors, Spacing, BorderRadius, FontSizes, FontWeights } from '../../
 import { useTheme } from '../../contexts/ThemeContext';
 import { getEngagementMetrics } from '../../api/admin';
 import Loader from '../../components/Loader';
+import AdminHeader from '../../components/admin/AdminHeader';
 
 type AdminDashboardScreenNavigationProp = StackNavigationProp<RootStackParamList>;
+
+type ModuleItem = {
+  title: string;
+  icon: string;
+  description: string;
+  screen: keyof RootStackParamList | string;
+  color: string;
+};
 
 export default function AdminDashboardScreen() {
   const navigation = useNavigation<AdminDashboardScreenNavigationProp>();
   const { isDark } = useTheme();
   const Colors = getColors(isDark);
-  const styles = createStyles(Colors, isDark);
+  const styles = createStyles(Colors);
 
   const [metrics, setMetrics] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -44,75 +52,95 @@ export default function AdminDashboardScreen() {
     }
   };
 
-  const adminMenuItems = [
+  const coreModules: ModuleItem[] = [
     {
       title: 'User Management',
       icon: 'people',
-      description: 'Manage users, roles & bans',
+      description: 'Roles, bans, and access operations',
       screen: 'AdminUsers',
       color: '#3b82f6',
     },
     {
-      title: 'Moderate Content',
+      title: 'Content Moderation',
       icon: 'fact-check',
-      description: 'Approve/reject posts',
+      description: 'Approve and reject feed content',
       screen: 'AdminModeration',
       color: '#10b981',
     },
     {
-      title: 'Reports & Bans',
+      title: 'Reports Center',
       icon: 'warning',
-      description: 'View reports & actions',
+      description: 'Escalations and abuse handling',
       screen: 'AdminReports',
       color: '#ef4444',
     },
     {
-      title: 'Discussions',
+      title: 'Discussion Control',
       icon: 'forum',
-      description: 'Moderate discussions',
+      description: 'Pin and lock discussions',
       screen: 'AdminDiscussions',
       color: '#8b5cf6',
     },
     {
-      title: 'Broadcast',
-      icon: 'notification-important',
-      description: 'Send announcements',
+      title: 'InterCampus Management',
+      icon: 'public',
+      description: 'External event moderation suite',
+      screen: 'AdminInterCampusManagement',
+      color: '#0f766e',
+    },
+  ];
+
+  const intelligenceModules: ModuleItem[] = [
+    {
+      title: 'Broadcast Studio',
+      icon: 'campaign',
+      description: 'Send announcements by audience',
       screen: 'AdminBroadcast',
       color: '#f59e0b',
     },
     {
       title: 'Analytics',
-      icon: 'show-chart',
-      description: 'Engagement metrics',
+      icon: 'bar-chart',
+      description: 'Platform engagement and usage',
       screen: 'AdminAnalytics',
       color: '#06b6d4',
     },
     {
       title: 'AI Insights',
       icon: 'auto-awesome',
-      description: 'Engagement & quality analysis',
+      description: 'Risk and quality signal analysis',
       screen: 'AIInsights',
       color: '#ec4899',
     },
     {
       title: 'Audit Log',
       icon: 'history',
-      description: 'Admin actions & changes',
+      description: 'Trace every admin action',
       screen: 'AdminAudit',
       color: '#64748b',
     },
-    {
-      title: 'InterCampus Management',
-      icon: 'public',
-      description: 'Moderate external events',
-      screen: 'AdminInterCampusManagement',
-      color: '#0f766e',
-    },
+  ];
+
+  const quickActions = [
+    { label: 'Open Users', icon: 'manage-accounts', screen: 'AdminUsers' },
+    { label: 'View Reports', icon: 'report-problem', screen: 'AdminReports' },
+    { label: 'Broadcast', icon: 'notifications-active', screen: 'AdminBroadcast' },
+    { label: 'Audit', icon: 'rule-folder', screen: 'AdminAudit' },
   ];
 
   const handleNavigate = (screen: string) => {
     navigation.navigate(screen as any);
   };
+
+  const roleBreakdown = useMemo(() => {
+    if (!metrics?.usersByRole || !metrics?.totalUsers) return [];
+    const entries = Object.entries(metrics.usersByRole) as Array<[string, number]>;
+    return entries.map(([role, count]) => ({
+      role,
+      count,
+      percent: Math.round((count / Math.max(metrics.totalUsers, 1)) * 100),
+    }));
+  }, [metrics]);
 
   if (isLoading || !metrics) {
     return <Loader />;
@@ -120,202 +148,288 @@ export default function AdminDashboardScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors.background }]}>
-      <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.title}>Admin Panel</Text>
-          <Text style={styles.subtitle}>Campus Management Center</Text>
+      <AdminHeader
+        title="Admin Command Center"
+        subtitle="Operations, moderation, and intelligence modules"
+        onRefresh={loadMetrics}
+      />
+
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: Spacing.xxl }}>
+        <View style={[styles.heroCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}>
+          <View style={styles.heroTop}>
+            <View>
+              <Text style={[styles.heroKicker, { color: Colors.textSecondary }]}>SYSTEM STATUS</Text>
+              <Text style={[styles.heroTitle, { color: Colors.text }]}>All admin systems are active</Text>
+            </View>
+            <View style={styles.livePill}>
+              <View style={styles.liveDot} />
+              <Text style={styles.liveText}>LIVE</Text>
+            </View>
+          </View>
+
+          <View style={styles.statsGrid}>
+            <View style={[styles.statCard, { borderColor: Colors.border, backgroundColor: Colors.background }]}>
+              <Text style={[styles.statValue, { color: '#3b82f6' }]}>{metrics.totalUsers}</Text>
+              <Text style={[styles.statLabel, { color: Colors.textSecondary }]}>Users</Text>
+            </View>
+            <View style={[styles.statCard, { borderColor: Colors.border, backgroundColor: Colors.background }]}>
+              <Text style={[styles.statValue, { color: '#10b981' }]}>{metrics.totalPosts}</Text>
+              <Text style={[styles.statLabel, { color: Colors.textSecondary }]}>Posts</Text>
+            </View>
+            <View style={[styles.statCard, { borderColor: Colors.border, backgroundColor: Colors.background }]}>
+              <Text style={[styles.statValue, { color: '#f59e0b' }]}>{metrics.totalEvents}</Text>
+              <Text style={[styles.statLabel, { color: Colors.textSecondary }]}>Events</Text>
+            </View>
+            <View style={[styles.statCard, { borderColor: Colors.border, backgroundColor: Colors.background }]}>
+              <Text style={[styles.statValue, { color: '#8b5cf6' }]}>{metrics.totalTeams}</Text>
+              <Text style={[styles.statLabel, { color: Colors.textSecondary }]}>Teams</Text>
+            </View>
+          </View>
         </View>
 
-        {/* Quick Stats */}
-        <View style={styles.statsGrid}>
-          <View style={[styles.statCard, { borderLeftColor: '#3b82f6' }]}>
-            <Text style={styles.statValue}>{metrics.totalUsers}</Text>
-            <Text style={styles.statLabel}>Total Users</Text>
-          </View>
-          <View style={[styles.statCard, { borderLeftColor: '#10b981' }]}>
-            <Text style={styles.statValue}>{metrics.totalPosts}</Text>
-            <Text style={styles.statLabel}>Posts</Text>
-          </View>
-          <View style={[styles.statCard, { borderLeftColor: '#f59e0b' }]}>
-            <Text style={styles.statValue}>{metrics.totalEvents}</Text>
-            <Text style={styles.statLabel}>Events</Text>
-          </View>
-          <View style={[styles.statCard, { borderLeftColor: '#8b5cf6' }]}>
-            <Text style={styles.statValue}>{metrics.totalTeams}</Text>
-            <Text style={styles.statLabel}>Teams</Text>
-          </View>
-        </View>
-
-        {/* User Distribution */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>User Distribution</Text>
-          <View style={styles.distributionList}>
-            {Object.entries(metrics.usersByRole).map(([role, count]: [string, any]) => (
-              <View key={role} style={styles.distributionItem}>
-                <Text style={styles.distributionRole}>
-                  {role.charAt(0).toUpperCase() + role.slice(1)}
-                </Text>
-                <View style={styles.distributionBar}>
-                  <View
-                    style={[
-                      styles.distributionFill,
-                      { width: `${Math.min((count / metrics.totalUsers) * 100, 100)}%` },
-                    ]}
-                  />
-                </View>
-                <Text style={styles.distributionCount}>{count}</Text>
-              </View>
-            ))}
-          </View>
-        </View>
-
-        {/* Menu Items */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Management</Text>
-          <View style={styles.menuGrid}>
-            {adminMenuItems.map((item, index) => (
+          <Text style={[styles.sectionTitle, { color: Colors.text }]}>Quick Actions</Text>
+          <View style={styles.quickGrid}>
+            {quickActions.map((action) => (
               <TouchableOpacity
-                key={index}
-                style={styles.menuCard}
-                onPress={() => handleNavigate(item.screen)}
-                activeOpacity={0.7}
+                key={action.label}
+                style={[styles.quickActionCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}
+                onPress={() => handleNavigate(action.screen)}
+                activeOpacity={0.85}
               >
-                <View style={[styles.iconContainer, { backgroundColor: item.color + '20' }]}>
-                  <MaterialIcons name={item.icon as any} size={28} color={item.color} />
-                </View>
-                <Text style={styles.menuTitle}>{item.title}</Text>
-                <Text style={styles.menuDescription}>{item.description}</Text>
+                <MaterialIcons name={action.icon as any} size={18} color={Colors.primary} />
+                <Text style={[styles.quickLabel, { color: Colors.text }]}>{action.label}</Text>
               </TouchableOpacity>
             ))}
           </View>
         </View>
 
-        <View style={{ height: Spacing.xxl }} />
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: Colors.text }]}>Role Distribution</Text>
+          <View style={[styles.distributionCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}>
+            {roleBreakdown.map((item) => (
+              <View key={item.role} style={styles.distributionItem}>
+                <Text style={[styles.distributionRole, { color: Colors.text }]}>
+                  {item.role.charAt(0).toUpperCase() + item.role.slice(1)}
+                </Text>
+                <View style={[styles.distributionBar, { backgroundColor: Colors.border }]}>
+                  <View style={[styles.distributionFill, { width: `${Math.max(item.percent, 4)}%` }]} />
+                </View>
+                <Text style={[styles.distributionCount, { color: Colors.textSecondary }]}>
+                  {item.count} ({item.percent}%)
+                </Text>
+              </View>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: Colors.text }]}>Management Modules</Text>
+          <View style={styles.menuGrid}>
+            {coreModules.map((item) => (
+              <TouchableOpacity
+                key={item.title}
+                style={[styles.menuCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}
+                onPress={() => handleNavigate(item.screen)}
+                activeOpacity={0.85}
+              >
+                <View style={[styles.iconContainer, { backgroundColor: item.color + '18' }]}>
+                  <MaterialIcons name={item.icon as any} size={24} color={item.color} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.menuTitle, { color: Colors.text }]}>{item.title}</Text>
+                  <Text style={[styles.menuDescription, { color: Colors.textSecondary }]}>{item.description}</Text>
+                </View>
+                <MaterialIcons name="arrow-forward" size={18} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: Colors.text }]}>Intelligence and Communications</Text>
+          <View style={styles.menuGrid}>
+            {intelligenceModules.map((item) => (
+              <TouchableOpacity
+                key={item.title}
+                style={[styles.menuCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}
+                onPress={() => handleNavigate(item.screen)}
+                activeOpacity={0.85}
+              >
+                <View style={[styles.iconContainer, { backgroundColor: item.color + '18' }]}>
+                  <MaterialIcons name={item.icon as any} size={24} color={item.color} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.menuTitle, { color: Colors.text }]}>{item.title}</Text>
+                  <Text style={[styles.menuDescription, { color: Colors.textSecondary }]}>{item.description}</Text>
+                </View>
+                <MaterialIcons name="arrow-forward" size={18} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-const createStyles = (Colors: any, isDark: boolean) =>
+const createStyles = (Colors: any) =>
   StyleSheet.create({
     container: {
       flex: 1,
       backgroundColor: Colors.background,
       ...(Platform.OS === 'web' && { height: '100vh', width: '100vw' } as any),
     },
-    header: {
-      paddingHorizontal: Spacing.lg,
-      paddingVertical: Spacing.lg,
-      backgroundColor: Colors.surface,
-      borderBottomWidth: 1,
-      borderBottomColor: Colors.border,
+    heroCard: {
+      marginHorizontal: Spacing.md,
+      marginTop: Spacing.sm,
+      borderRadius: BorderRadius.xl,
+      borderWidth: 1,
+      padding: Spacing.md,
+      gap: Spacing.md,
     },
-    title: {
-      fontSize: FontSizes.xxl,
+    heroTop: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      gap: 10,
+    },
+    heroKicker: {
+      fontSize: FontSizes.xs,
       fontWeight: FontWeights.bold,
-      color: Colors.text,
-      marginBottom: 4,
+      letterSpacing: 0.7,
+      marginBottom: 3,
     },
-    subtitle: {
-      fontSize: FontSizes.sm,
-      color: Colors.textSecondary,
+    heroTitle: {
+      fontSize: FontSizes.md,
+      fontWeight: FontWeights.bold,
+    },
+    livePill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      backgroundColor: '#dcfce7',
+      borderRadius: BorderRadius.full,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+    },
+    liveDot: {
+      width: 7,
+      height: 7,
+      borderRadius: 4,
+      backgroundColor: '#16a34a',
+    },
+    liveText: {
+      fontSize: 11,
+      color: '#166534',
+      fontWeight: FontWeights.bold,
+      letterSpacing: 0.4,
     },
     statsGrid: {
       flexDirection: 'row',
       flexWrap: 'wrap',
-      padding: Spacing.md,
-      gap: Spacing.md,
+      gap: Spacing.sm,
     },
     statCard: {
-      flex: 1,
-      minWidth: '45%',
-      backgroundColor: Colors.surface,
+      width: '48%',
+      borderWidth: 1,
       borderRadius: BorderRadius.lg,
-      borderLeftWidth: 4,
-      padding: Spacing.md,
+      paddingVertical: 10,
       alignItems: 'center',
     },
     statValue: {
-      fontSize: FontSizes.xxl,
+      fontSize: FontSizes.xl,
       fontWeight: FontWeights.bold,
-      color: Colors.text,
-      marginBottom: 4,
     },
     statLabel: {
       fontSize: FontSizes.xs,
-      color: Colors.textSecondary,
-      textAlign: 'center',
+      marginTop: 2,
     },
     section: {
-      paddingHorizontal: Spacing.lg,
-      paddingVertical: Spacing.md,
+      paddingHorizontal: Spacing.md,
+      paddingTop: Spacing.lg,
     },
     sectionTitle: {
-      fontSize: FontSizes.lg,
+      fontSize: FontSizes.md,
       fontWeight: FontWeights.bold,
-      color: Colors.text,
-      marginBottom: Spacing.md,
+      marginBottom: Spacing.sm,
     },
-    distributionList: {
-      gap: Spacing.md,
+    quickGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: Spacing.sm,
+    },
+    quickActionCard: {
+      width: '48%',
+      borderWidth: 1,
+      borderRadius: BorderRadius.lg,
+      paddingVertical: 12,
+      paddingHorizontal: 10,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    quickLabel: {
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.semibold,
+    },
+    distributionCard: {
+      borderWidth: 1,
+      borderRadius: BorderRadius.lg,
+      padding: Spacing.md,
+      gap: Spacing.sm,
     },
     distributionItem: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: Spacing.md,
+      gap: 8,
     },
     distributionRole: {
+      width: 74,
       fontSize: FontSizes.sm,
       fontWeight: FontWeights.semibold,
-      color: Colors.text,
-      width: 70,
     },
     distributionBar: {
       flex: 1,
-      height: 8,
-      backgroundColor: Colors.border,
+      height: 10,
       borderRadius: BorderRadius.full,
       overflow: 'hidden',
     },
     distributionFill: {
       height: '100%',
-      backgroundColor: '#3b82f6',
+      backgroundColor: '#0ea5e9',
+      borderRadius: BorderRadius.full,
     },
     distributionCount: {
-      fontSize: FontSizes.sm,
-      color: Colors.textSecondary,
-      width: 30,
+      width: 74,
       textAlign: 'right',
+      fontSize: FontSizes.xs,
+      fontWeight: FontWeights.medium,
     },
     menuGrid: {
-      gap: Spacing.md,
+      gap: Spacing.sm,
     },
     menuCard: {
-      backgroundColor: Colors.surface,
+      borderWidth: 1,
       borderRadius: BorderRadius.lg,
       padding: Spacing.md,
       flexDirection: 'row',
       alignItems: 'center',
-      gap: Spacing.md,
-      borderWidth: 1,
-      borderColor: Colors.border,
+      gap: Spacing.sm,
     },
     iconContainer: {
-      width: 56,
-      height: 56,
-      borderRadius: BorderRadius.lg,
+      width: 44,
+      height: 44,
+      borderRadius: BorderRadius.md,
       alignItems: 'center',
       justifyContent: 'center',
     },
     menuTitle: {
-      fontSize: FontSizes.md,
-      fontWeight: FontWeights.semibold,
-      color: Colors.text,
-      flex: 1,
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.bold,
+      marginBottom: 1,
     },
     menuDescription: {
       fontSize: FontSizes.xs,
-      color: Colors.textSecondary,
     },
   });

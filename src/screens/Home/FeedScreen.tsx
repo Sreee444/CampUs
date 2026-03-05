@@ -30,6 +30,7 @@ import { UserAvatar } from '../../components/UserAvatar';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import { LinearGradient } from 'expo-linear-gradient';
 import Toast from 'react-native-toast-message';
+import { canModerateAcademic, isAdminRole } from '../../utils/roles';
 import { WebView } from 'react-native-webview';
 import { getNotifications } from '../../api/notifications';
 import { getPendingReceivedRequests } from '../../api/connections';
@@ -47,6 +48,7 @@ import {
   uploadPostImage,
 } from '../../api/feed';
 import { FeedPost, PostComment } from '../../types/database';
+import { useRealtimeRefresh } from '../../hooks/useRealtimeRefresh';
 
 function getGreeting() {
   const hour = new Date().getHours();
@@ -150,7 +152,7 @@ export default function FeedScreen() {
 
   const menuPost = academicPosts.find((p) => p.id === menuPostId);
 
-  const canPostAcademic = profile?.role === 'admin' || profile?.role === 'faculty';
+  const canPostAcademic = canModerateAcademic(profile?.role);
 
   const loadAcademicFeed = async () => {
     if (!user?.id) return;
@@ -252,6 +254,24 @@ export default function FeedScreen() {
   useEffect(() => {
     loadFeedData();
   }, [user?.id]);
+
+  useRealtimeRefresh({
+    enabled: Boolean(user?.id),
+    tables: [
+      'feed_posts',
+      'post_likes',
+      'post_comments',
+      'events',
+      'event_registrations',
+      'project_teams',
+      'connections',
+      'notifications',
+      'team_requests',
+    ],
+    onChange: () => {
+      loadFeedData(true);
+    },
+  });
 
   useFocusEffect(
     React.useCallback(() => {
@@ -494,7 +514,7 @@ export default function FeedScreen() {
   const canDeletePost = (post: FeedPost) => {
     if (!user?.id) return false;
     const isOwner = post.author_id === user.id;
-    const isAdmin = profile?.role === 'admin';
+    const isAdmin = isAdminRole(profile?.role);
     return isOwner || isAdmin;
   };
 

@@ -21,6 +21,7 @@ import { DEPARTMENT_OPTIONS } from '../../../constants/academic';
 import { uploadPostAttachment, uploadPostImage } from '../../../api/feed';
 import { createFeedPost } from '../api/feed';
 import { FeedPostType, FeedVisibility } from '../types/feed';
+import { canModerateAcademic } from '../../../utils/roles';
 
 type Nav = StackNavigationProp<RootStackParamList, 'CreateFeed'>;
 
@@ -35,7 +36,7 @@ export default function CreateFeedScreen() {
   const navigation = useNavigation<Nav>();
   const { user, profile } = useAuth();
   const role = (profile?.role || '').toLowerCase();
-  const canCreateFeed = role === 'admin' || role === 'faculty';
+  const canCreateFeed = canModerateAcademic(role);
 
   const [content, setContent] = useState('');
   const [type, setType] = useState<FeedPostType>('general');

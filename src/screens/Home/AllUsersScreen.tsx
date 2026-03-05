@@ -35,6 +35,7 @@ const ROLE_FILTERS = [
   { label: 'Students', value: 'student' },
   { label: 'Faculty', value: 'faculty' },
   { label: 'Alumni', value: 'alumni' },
+  { label: 'Developers', value: 'developer' },
 ];
 
 export default function AllUsersScreen() {

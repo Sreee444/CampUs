@@ -7,6 +7,7 @@ const ROLE_COLORS: Record<string, string> = {
     faculty: '#8b5cf6',
     alumni: '#f59e0b',
     admin: '#dc2626',
+    developer: '#1d4ed8',
 };
 
 const ROLE_BG: Record<string, string> = {
@@ -14,6 +15,7 @@ const ROLE_BG: Record<string, string> = {
     faculty: '#f3e5f5',
     alumni: '#fff8e1',
     admin: '#fee2e2',
+    developer: '#dbeafe',
 };
 
 interface UserAvatarProps {

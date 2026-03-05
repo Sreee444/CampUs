@@ -18,6 +18,10 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { getReports, updateReportStatus, toggleUserBan } from '../../api/admin';
 import { useAuth } from '../../contexts/AuthContext';
 import Toast from 'react-native-toast-message';
+import AdminHeader from '../../components/admin/AdminHeader';
+import AdminFilterChips from '../../components/admin/AdminFilterChips';
+
+type ReportFilter = 'all' | 'pending' | 'reviewing' | 'resolved';
 
 export default function AdminReportsScreen() {
   const navigation = useNavigation();
@@ -30,7 +34,7 @@ export default function AdminReportsScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedReport, setSelectedReport] = useState<any>(null);
   const [modalVisible, setModalVisible] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<ReportFilter>('all');
 
   useEffect(() => {
     loadReports();
@@ -38,7 +42,7 @@ export default function AdminReportsScreen() {
 
   const loadReports = async () => {
     try {
-      const data = await getReports(statusFilter ? { status: statusFilter } : undefined);
+      const data = await getReports(statusFilter === 'all' ? undefined : { status: statusFilter });
       setReports(data);
     } catch (error) {
       console.error('Error loading reports:', error);
@@ -81,6 +85,13 @@ export default function AdminReportsScreen() {
     if (reasonLower.includes('abuse')) return '#ef4444';
     if (reasonLower.includes('harassment')) return '#f59e0b';
     return Colors.primary;
+  };
+
+  const summary = {
+    all: reports.length,
+    pending: reports.filter((r) => r.status === 'pending').length,
+    reviewing: reports.filter((r) => r.status === 'reviewing').length,
+    resolved: reports.filter((r) => r.status === 'resolved').length,
   };
 
   const renderReportItem = ({ item }: { item: any }) => (
@@ -141,41 +152,39 @@ export default function AdminReportsScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors.background }]}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <MaterialIcons name="arrow-back" size={24} color={Colors.text} />
-        </TouchableOpacity>
-        <Text style={styles.title}>Reports</Text>
-        <View style={styles.badge}>
-          <Text style={styles.badgeText}>{reports.length}</Text>
+      <AdminHeader
+        title="Reports"
+        subtitle="Escalations, abuse and moderation actions"
+        count={reports.length}
+        onBack={() => navigation.goBack()}
+        onRefresh={loadReports}
+      />
+
+      <View style={styles.summaryRow}>
+        <View style={[styles.summaryCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}>
+          <Text style={[styles.summaryLabel, { color: Colors.textSecondary }]}>Pending</Text>
+          <Text style={[styles.summaryValue, { color: '#f59e0b' }]}>{summary.pending}</Text>
+        </View>
+        <View style={[styles.summaryCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}>
+          <Text style={[styles.summaryLabel, { color: Colors.textSecondary }]}>Reviewing</Text>
+          <Text style={[styles.summaryValue, { color: '#3b82f6' }]}>{summary.reviewing}</Text>
+        </View>
+        <View style={[styles.summaryCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}>
+          <Text style={[styles.summaryLabel, { color: Colors.textSecondary }]}>Resolved</Text>
+          <Text style={[styles.summaryValue, { color: '#10b981' }]}>{summary.resolved}</Text>
         </View>
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
-        {['All', 'pending', 'reviewing', 'resolved'].map((status) => (
-          <TouchableOpacity
-            key={status}
-            style={[
-              styles.filterChip,
-              (statusFilter === null && status === 'All') || statusFilter === status
-                ? styles.filterChipActive
-                : null,
-            ]}
-            onPress={() => setStatusFilter(status === 'All' ? null : status)}
-          >
-            <Text
-              style={[
-                styles.filterChipText,
-                (statusFilter === null && status === 'All') || statusFilter === status
-                  ? styles.filterChipTextActive
-                  : null,
-              ]}
-            >
-              {status.charAt(0).toUpperCase() + status.slice(1)}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+      <AdminFilterChips<ReportFilter>
+        selected={statusFilter}
+        onSelect={setStatusFilter}
+        options={[
+          { label: 'All', value: 'all', count: summary.all },
+          { label: 'Pending', value: 'pending', count: summary.pending },
+          { label: 'Reviewing', value: 'reviewing', count: summary.reviewing },
+          { label: 'Resolved', value: 'resolved', count: summary.resolved },
+        ]}
+      />
 
       <FlatList
         data={reports}
@@ -271,59 +280,28 @@ const createStyles = (Colors: any, isDark: boolean) =>
       backgroundColor: Colors.background,
       ...(Platform.OS === 'web' && { height: '100vh', width: '100vw' } as any),
     },
-    header: {
+    summaryRow: {
       flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
+      gap: Spacing.sm,
       paddingHorizontal: Spacing.md,
-      paddingVertical: Spacing.md,
-      borderBottomWidth: 1,
-      borderBottomColor: Colors.border,
+      paddingTop: Spacing.sm,
+      paddingBottom: 2,
     },
-    title: {
+    summaryCard: {
+      flex: 1,
+      borderWidth: 1,
+      borderRadius: BorderRadius.lg,
+      paddingVertical: 10,
+      paddingHorizontal: 10,
+      alignItems: 'center',
+    },
+    summaryLabel: {
+      fontSize: FontSizes.xs,
+      marginBottom: 3,
+    },
+    summaryValue: {
       fontSize: FontSizes.lg,
       fontWeight: FontWeights.bold,
-      color: Colors.text,
-      flex: 1,
-      textAlign: 'center',
-    },
-    badge: {
-      backgroundColor: '#ef4444',
-      borderRadius: BorderRadius.full,
-      width: 28,
-      height: 28,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    badgeText: {
-      color: '#fff',
-      fontSize: FontSizes.sm,
-      fontWeight: FontWeights.bold,
-    },
-    filterScroll: {
-      paddingHorizontal: Spacing.md,
-      paddingVertical: Spacing.md,
-    },
-    filterChip: {
-      paddingHorizontal: Spacing.md,
-      paddingVertical: Spacing.sm,
-      borderRadius: BorderRadius.full,
-      backgroundColor: Colors.surface,
-      borderWidth: 1,
-      borderColor: Colors.border,
-      marginRight: Spacing.sm,
-    },
-    filterChipActive: {
-      backgroundColor: Colors.primary,
-      borderColor: Colors.primary,
-    },
-    filterChipText: {
-      fontSize: FontSizes.sm,
-      color: Colors.text,
-      fontWeight: FontWeights.medium,
-    },
-    filterChipTextActive: {
-      color: '#fff',
     },
     listContent: {
       paddingHorizontal: Spacing.md,

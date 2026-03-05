@@ -15,6 +15,7 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import Toast from 'react-native-toast-message';
 import { RootStackParamList } from '../../../navigation/types';
 import { useAuth } from '../../../contexts/AuthContext';
+import { isAdminRole } from '../../../utils/roles';
 import {
   approveInterCampusSubmission,
   deleteInterCampusDiscussionReply,
@@ -49,7 +50,7 @@ export default function AdminInterCampusManagementScreen() {
   const [replies, setReplies] = useState<any[]>([]);
   const [interestSample, setInterestSample] = useState<any[]>([]);
 
-  const isAdmin = profile?.role === 'admin';
+  const isAdmin = isAdminRole(profile?.role);
 
   const loadData = useCallback(async () => {
     try {

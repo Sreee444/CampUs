@@ -20,6 +20,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { getDiscussionTopics, pinDiscussionTopic } from '../../api/discussions';
 import { DiscussionTopic } from '../../types/database';
 import { getCleanDiscussionTitle } from '../../utils/discussionHelpers';
+import { isFacultyOrAdminRole } from '../../utils/roles';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 
@@ -56,7 +57,7 @@ export default function DiscussionsScreen() {
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
 
-  const isFacultyOrAdmin = profile?.role === 'faculty' || profile?.role === 'admin';
+  const isFacultyOrAdmin = isFacultyOrAdminRole(profile?.role);
 
   useFocusEffect(
     React.useCallback(() => {

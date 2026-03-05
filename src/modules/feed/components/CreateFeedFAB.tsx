@@ -5,6 +5,7 @@ import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../../../navigation/types';
 import { useAuth } from '../../../contexts/AuthContext';
+import { canModerateAcademic } from '../../../utils/roles';
 
 type Nav = StackNavigationProp<RootStackParamList>;
 
@@ -26,7 +27,7 @@ export default function CreateFeedFAB({ position = 'bottom-right', style }: Prop
   const { profile } = useAuth();
 
   const role = (profile?.role || '').toLowerCase();
-  const canCreateFeed = role === 'faculty' || role === 'admin';
+  const canCreateFeed = canModerateAcademic(role);
 
   if (!canCreateFeed) {
     return null;

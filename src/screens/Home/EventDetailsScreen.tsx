@@ -24,6 +24,7 @@ import { supabase } from '../../api/supabase';
 import { EventStatus } from '../../components/CountdownTimer';
 import { scheduleEventReminder, createEventReminder } from '../../api/eventReminders';
 import Toast from 'react-native-toast-message';
+import { isAdminRole } from '../../utils/roles';
 import { ConfirmBottomSheet } from '../../components/ConfirmBottomSheet';
 import { createNotification } from '../../api/notifications';
 import { loadMyTeamState, cancelJoinRequest, acceptInvite, rejectInvite } from '../../utils/teamActions';
@@ -65,7 +66,6 @@ export default function EventDetailsScreen() {
   const [showRegisterConfirm, setShowRegisterConfirm] = useState(false);
   const [showUnregisterConfirm, setShowUnregisterConfirm] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
-  const isAdmin = (profile as any)?.role === 'admin';
 
   // Team state
   const [teamState, setTeamState] = useState<any>(null);
@@ -182,7 +182,7 @@ export default function EventDetailsScreen() {
   /* ─── NOTIFICATIONS ─── */
   const notifyAdmins = async (body: string) => {
     try {
-      const { data: admins } = await supabase.from('profiles').select('id').eq('role', 'admin') as any;
+      const { data: admins } = await supabase.from('profiles').select('id').in('role', ['admin', 'developer']) as any;
       if (admins) {
         for (const a of admins) {
           await createNotification({ user_id: a.id, type: 'event', title: 'Event Registration', body });
@@ -350,7 +350,7 @@ export default function EventDetailsScreen() {
   const canRegister = regOpen && eligibility.isEligible && !isEnded &&
     (!event.max_participants || event.registrations_count < event.max_participants);
   const isCreator = user?.id === event.created_by;
-  const canManage = isCreator || isAdmin;
+  const canManage = isCreator || isAdminRole((profile as any)?.role);
   const eligType = (event as any)?.eligibility_type || 'college';
   const eligDepts = ((event as any)?.eligible_departments || []) as string[];
   const eligYears = (((event as any)?.eligible_years || []) as number[]).slice().sort((a: number, b: number) => a - b);

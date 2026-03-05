@@ -20,10 +20,12 @@ import { RootStackParamList, MainTabParamList } from '../../navigation/types';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
+import { isAdminRole, isFacultyOrAdminRole } from '../../utils/roles';
 import { getUserStats } from '../../api/users';
 import { LinearGradient } from 'expo-linear-gradient';
 import { UserAvatar } from '../../components/UserAvatar';
 import Toast from 'react-native-toast-message';
+import { useRealtimeRefresh } from '../../hooks/useRealtimeRefresh';
 
 type ProfileScreenNavigationProp = CompositeNavigationProp<
   BottomTabNavigationProp<MainTabParamList, 'Profile'>,
@@ -46,6 +48,14 @@ export default function ProfileScreen() {
       loadStats();
     }
   }, [user]);
+
+  useRealtimeRefresh({
+    enabled: Boolean(user?.id),
+    tables: ['profiles', 'connections', 'project_team_members', 'event_registrations'],
+    onChange: () => {
+      loadStats();
+    },
+  });
 
   const loadStats = async () => {
     try {
@@ -182,7 +192,7 @@ export default function ProfileScreen() {
           </View>
         )}
 
-        {(profile?.role === 'faculty' || profile?.role === 'admin') && (
+        {isFacultyOrAdminRole(profile?.role) && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>InterCampus Tools</Text>
 
@@ -258,7 +268,7 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
 
-        {profile?.role === 'admin' && (
+        {isAdminRole(profile?.role) && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Admin Tools</Text>
 

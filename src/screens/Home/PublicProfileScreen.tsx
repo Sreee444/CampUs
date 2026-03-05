@@ -54,6 +54,7 @@ const ROLE_CONFIG: Record<string, { color: string; icon: string; label: string; 
   faculty:  { color: '#f59e0b', icon: 'person',         label: 'Faculty', gradient: ['#f59e0b', '#ef4444'] },
   alumni:   { color: '#10b981', icon: 'workspace-premium', label: 'Alumni', gradient: ['#10b981', '#0891b2'] },
   admin:    { color: '#ef4444', icon: 'shield',          label: 'Admin',  gradient: ['#ef4444', '#7c3aed'] },
+  developer:{ color: '#0f172a', icon: 'code',            label: 'Developer', gradient: ['#0f172a', '#1d4ed8'] },
 };
 
 export default function PublicProfileScreen() {

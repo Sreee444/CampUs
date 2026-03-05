@@ -14,6 +14,8 @@ import { sendBroadcastMessage, getRecipientCount } from '../../api/admin';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../api/supabase';
 import Toast from 'react-native-toast-message';
+import AdminHeader from '../../components/admin/AdminHeader';
+import AdminFilterChips from '../../components/admin/AdminFilterChips';
 
 const TARGET_ROLES = [
   { label: 'Everyone', value: 'all' },
@@ -21,6 +23,7 @@ const TARGET_ROLES = [
   { label: 'Faculty', value: 'faculty' },
   { label: 'Alumni', value: 'alumni' },
   { label: 'Admins', value: 'admin' },
+  { label: 'Developers', value: 'developer' },
 ];
 
 export default function AdminBroadcastScreen() {
@@ -170,32 +173,21 @@ export default function AdminBroadcastScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors.background }]}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={24} color={Colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.title, { color: Colors.text }]}>Broadcast Center</Text>
-        <View style={{ width: 40 }} />
-      </View>
+      <AdminHeader
+        title="Broadcast Center"
+        subtitle="Announcements and alerts by audience"
+        onBack={() => navigation.goBack()}
+      />
 
       <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
         {/* Target Audience */}
         <Text style={[styles.label, { color: Colors.text }]}>Target Audience</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.roleScroll}>
-          {TARGET_ROLES.map((r) => (
-            <TouchableOpacity
-              key={r.value}
-              style={[styles.roleChip, targetRole === r.value && { backgroundColor: Colors.primary, borderColor: Colors.primary }]}
-              onPress={() => setTargetRole(r.value)}
-            >
-              <Text style={[styles.roleChipText, { color: targetRole === r.value ? '#fff' : Colors.text }]}>
-                {r.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+        <AdminFilterChips<string>
+          selected={targetRole}
+          onSelect={setTargetRole}
+          options={TARGET_ROLES.map((r) => ({ label: r.label, value: r.value }))}
+        />
 
         {/* Recipient count preview */}
         <View style={[styles.recipientRow, { backgroundColor: Colors.surface }]}>
@@ -346,14 +338,8 @@ export default function AdminBroadcastScreen() {
 
 const createStyles = (Colors: any) => StyleSheet.create({
   container: { flex: 1, ...(Platform.OS === 'web' && { height: '100vh', width: '100vw' } as any) },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: Spacing.md, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: Colors.border },
-  backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  title: { fontSize: FontSizes.lg, fontWeight: FontWeights.bold },
   scroll: { flex: 1, padding: Spacing.md },
   label: { fontSize: 13, fontWeight: '600', marginBottom: 8, marginTop: 16 },
-  roleScroll: { marginBottom: 10 },
-  roleChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: BorderRadius.full, borderWidth: 1, borderColor: Colors.border, backgroundColor: Colors.surface, marginRight: 8 },
-  roleChipText: { fontSize: FontSizes.sm, fontWeight: FontWeights.medium },
   recipientRow: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, borderRadius: BorderRadius.lg, marginBottom: 10 },
   recipientText: { fontSize: FontSizes.md, fontWeight: FontWeights.semibold },
   input: { borderRadius: BorderRadius.lg, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12, fontSize: FontSizes.md },

@@ -8,8 +8,7 @@ import { useAuth } from '../contexts/AuthContext';
 // Import screens
 import SplashScreen from '../screens/SplashScreen';
 import LoginScreen from '../screens/Auth/LoginScreen';
-import SignupScreen from '../screens/Auth/SignupScreen';
-import VerifyEmailScreen from '../screens/Auth/VerifyEmailScreen';
+import BannedScreen from '../screens/Auth/BannedScreen';
 import CompleteProfileScreen from '../screens/Auth/CompleteProfileScreen';
 import ResetPasswordScreen from '../screens/Auth/ResetPasswordScreen';
 import SettingsScreen from '../screens/Settings/SettingsScreen';
@@ -74,7 +73,7 @@ import { MainTabNavigator } from './MainTabNavigator';
 const Stack = createStackNavigator<RootStackParamList>();
 
 export default function RootNavigator() {
-  const { isAuthenticated, isLoading, profile } = useAuth();
+  const { isAuthenticated, isLoading, profile, isBanned } = useAuth();
   const navigationRef = useRef<any>(null);
 
   // Navigate based on auth and profile state changes
@@ -85,16 +84,23 @@ export default function RootNavigator() {
       // Determine where user should be
       let targetRoute: keyof RootStackParamList | null = null;
 
-      // Role is now set during signup, so skip RoleSelection
-      if (!profile || !profile.full_name) {
+      // Profile completion gate
+      if (isBanned) {
+        targetRoute = 'Banned';
+      } else if (!profile || !profile.full_name) {
         targetRoute = 'CompleteProfile';
       } else {
         targetRoute = 'MainTabs';
       }
 
       // Only navigate if we're not already at the target and not on a nested screen
-      const onboardingScreens = ['CompleteProfile', 'Login', 'Signup'];
-      if (targetRoute && currentRoute && onboardingScreens.includes(currentRoute) && currentRoute !== targetRoute) {
+      const onboardingScreens = ['CompleteProfile', 'Login'];
+      const shouldForceBanned = targetRoute === 'Banned' && currentRoute !== 'Banned';
+      const shouldExitBanned = currentRoute === 'Banned' && targetRoute !== 'Banned';
+      const shouldHandleOnboarding =
+        !!targetRoute && !!currentRoute && onboardingScreens.includes(currentRoute) && currentRoute !== targetRoute;
+
+      if ((shouldForceBanned || shouldExitBanned || shouldHandleOnboarding) && targetRoute) {
         navigationRef.current.reset({
           index: 0,
           routes: [{
@@ -106,7 +112,7 @@ export default function RootNavigator() {
         });
       }
     }
-  }, [isAuthenticated, isLoading, profile?.full_name]);
+  }, [isAuthenticated, isLoading, profile?.full_name, isBanned]);
 
   // Show splash screen while checking auth
   if (isLoading) {
@@ -116,7 +122,8 @@ export default function RootNavigator() {
   // Determine initial route based on auth and profile state
   const getInitialRoute = (): keyof RootStackParamList => {
     if (!isAuthenticated) return 'Login';
-    // Role is set during signup, so go straight to CompleteProfile if name is missing
+    if (isBanned) return 'Banned';
+    // Go to CompleteProfile if name is missing
     if (!profile || !profile.full_name) return 'CompleteProfile';
     return 'MainTabs';
   };
@@ -142,25 +149,23 @@ export default function RootNavigator() {
               options={{ animationEnabled: true }}
             />
             <Stack.Screen
-              name="Signup"
-              component={SignupScreen}
-              options={{ animationEnabled: true }}
-            />
-            <Stack.Screen
-              name="VerifyEmail"
-              component={VerifyEmailScreen}
-              options={{ animationEnabled: true }}
-            />
-            <Stack.Screen
               name="ResetPassword"
               component={ResetPasswordScreen}
               options={{ animationEnabled: true }}
             />
           </>
+        ) : isBanned ? (
+          <>
+            <Stack.Screen
+              name="Banned"
+              component={BannedScreen}
+              options={{ animationEnabled: true, gestureEnabled: false }}
+            />
+          </>
         ) : (
           // App Stack
           <>
-            {/* RoleSelection removed - role is now set during signup */}
+            {/* RoleSelection removed */}
             <Stack.Screen
               name="CompleteProfile"
               component={CompleteProfileScreen}

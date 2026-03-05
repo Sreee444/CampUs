@@ -21,6 +21,7 @@ import {
   ConnectionSuggestion,
 } from "../types/database";
 import { moderateText } from "./ai";
+import { isAdminRole } from '../utils/roles';
 
 // ===== CONNECTIONS (Friend Requests) =====
 
@@ -932,7 +933,7 @@ export const canFacultySupervise = async (
   facultyId: string,
   facultyRole: string
 ): Promise<boolean> => {
-  if (facultyRole !== 'faculty' && facultyRole !== 'admin') {
+  if (facultyRole !== 'faculty' && !isAdminRole(facultyRole)) {
     return false;
   }
 
@@ -945,7 +946,7 @@ export const canFacultySupervise = async (
   if (!conversation) return false;
 
   // Admin can supervise any group conversation
-  if (facultyRole === 'admin') {
+  if (isAdminRole(facultyRole)) {
     return conversation.is_group;
   }
 

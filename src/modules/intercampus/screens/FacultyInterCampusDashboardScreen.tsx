@@ -15,6 +15,7 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import Toast from 'react-native-toast-message';
 import { RootStackParamList } from '../../../navigation/types';
 import { useAuth } from '../../../contexts/AuthContext';
+import { isFacultyOrAdminRole } from '../../../utils/roles';
 import {
   approveInterCampusSubmission,
   getInterCampusPendingSubmissions,
@@ -33,7 +34,7 @@ export default function FacultyInterCampusDashboardScreen() {
   const [notesById, setNotesById] = useState<Record<string, string>>({});
   const [capById, setCapById] = useState<Record<string, string>>({});
 
-  const canModerate = profile?.role === 'faculty' || profile?.role === 'admin';
+  const canModerate = isFacultyOrAdminRole(profile?.role);
 
   const loadData = useCallback(async () => {
     try {
