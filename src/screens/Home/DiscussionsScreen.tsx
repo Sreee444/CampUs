@@ -247,53 +247,78 @@ type TopicCardProps = {
 function TopicCard({ topic, onPress, onPin, canPin, Colors, styles }: TopicCardProps) {
   const categoryColor = categoryColors[topic.category];
   const iconName = categoryIcons[topic.category];
+  const replyCount = topic.replies_count || 0;
+  const hasReplies = replyCount > 0;
 
   return (
-    <TouchableOpacity style={[styles.topicCard, { borderColor: Colors.border }]} onPress={onPress}>
+    <TouchableOpacity 
+      style={[styles.topicCard, { borderColor: Colors.border }]} 
+      onPress={onPress}
+      activeOpacity={0.7}
+    >
+      {/* Category & Pin Header */}
       <View style={styles.topicHeader}>
-        <View style={[styles.categoryBadge, { backgroundColor: categoryColor + '15' }]}>
-          <MaterialIcons name={iconName as any} size={16} color={categoryColor} />
+        <View style={[styles.categoryBadge, { backgroundColor: categoryColor + '20' }]}>
+          <View style={[styles.categoryIconWrap, { backgroundColor: categoryColor }]}>
+            <MaterialIcons name={iconName as any} size={14} color="#fff" />
+          </View>
           <Text style={[styles.categoryBadgeText, { color: categoryColor }]}>
             {topic.category.charAt(0).toUpperCase() + topic.category.slice(1)}
           </Text>
         </View>
-        {canPin && (
-          <TouchableOpacity onPress={onPin} style={styles.pinButton}>
-            <MaterialIcons
-              name={topic.is_pinned ? 'push-pin' : 'push-pin'}
-              size={18}
-              color={topic.is_pinned ? Colors.primary : Colors.textSecondary}
-            />
-          </TouchableOpacity>
-        )}
+        
+        <View style={styles.topicHeaderRight}>
+          {topic.is_locked && (
+            <View style={styles.lockedBadgeInline}>
+              <MaterialIcons name="lock" size={14} color="#ef4444" />
+            </View>
+          )}
+          {canPin && (
+            <TouchableOpacity onPress={onPin} style={styles.pinButton}>
+              <MaterialIcons
+                name="push-pin"
+                size={18}
+                color={topic.is_pinned ? Colors.primary : Colors.textSecondary}
+              />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
-      <Text style={[styles.topicTitle, { color: Colors.text }]}>{getCleanDiscussionTitle(topic.title)}</Text>
+      {/* Topic Title */}
+      <Text style={[styles.topicTitle, { color: Colors.text }]} numberOfLines={2}>
+        {getCleanDiscussionTitle(topic.title)}
+      </Text>
 
-      <View style={styles.topicFooter}>
-        <View style={styles.topicMeta}>
-          <MaterialIcons name="person-outline" size={16} color={Colors.textSecondary} />
-          <Text style={[styles.topicMetaText, { color: Colors.textSecondary }]}>
+      {/* Author & Time Row */}
+      <View style={styles.authorRow}>
+        <View style={styles.avatarCircle}>
+          <MaterialIcons name="account-circle" size={32} color={categoryColor} />
+        </View>
+        <View style={styles.authorInfo}>
+          <Text style={[styles.authorName, { color: Colors.text }]} numberOfLines={1}>
             {topic.creator?.full_name || 'User'}
           </Text>
-        </View>
-        <View style={styles.topicMeta}>
-          <MaterialIcons name="chat-bubble-outline" size={16} color={Colors.textSecondary} />
-          <Text style={[styles.topicMetaText, { color: Colors.textSecondary }]}>
-            {topic.replies_count || 0} replies
+          <Text style={[styles.topicTime, { color: Colors.textSecondary }]}>
+            {dayjs(topic.created_at).fromNow()}
           </Text>
         </View>
-        <Text style={[styles.topicTime, { color: Colors.textSecondary }]}>
-          {dayjs(topic.created_at).fromNow()}
-        </Text>
       </View>
 
-      {topic.is_locked && (
-        <View style={styles.lockedBadge}>
-          <MaterialIcons name="lock" size={14} color="#ef4444" />
-          <Text style={styles.lockedText}>Locked</Text>
+      {/* Reply Count Badge */}
+      <View style={styles.topicFooter}>
+        <View style={[styles.replyBadge, hasReplies && styles.replyBadgeActive]}>
+          <MaterialIcons 
+            name="chat-bubble" 
+            size={16} 
+            color={hasReplies ? categoryColor : Colors.textSecondary} 
+          />
+          <Text style={[styles.replyCount, hasReplies && { color: categoryColor }]}>
+            {replyCount} {replyCount === 1 ? 'Reply' : 'Replies'}
+          </Text>
         </View>
-      )}
+        <MaterialIcons name="chevron-right" size={20} color={Colors.textSecondary} />
+      </View>
     </TouchableOpacity>
   );
 }
@@ -407,48 +432,108 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     },
     topicCard: {
       backgroundColor: '#ffffff',
-      borderRadius: BorderRadius.lg,
-      padding: Spacing.md,
-      marginBottom: 12,
+      borderRadius: 16,
+      padding: 16,
+      marginBottom: 16,
       shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.05,
-      shadowRadius: 4,
-      elevation: 1,
-      position: 'relative',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.12,
+      shadowRadius: 12,
+      elevation: 5,
+      borderWidth: 1,
+      borderColor: 'rgba(0,0,0,0.05)',
     },
     topicHeader: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      marginBottom: 12,
+      marginBottom: 14,
+    },
+    topicHeaderRight: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
     },
     categoryBadge: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 6,
-      paddingHorizontal: 10,
-      paddingVertical: 6,
-      borderRadius: BorderRadius.md,
+      gap: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 7,
+      borderRadius: 20,
+    },
+    categoryIconWrap: {
+      width: 24,
+      height: 24,
+      borderRadius: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     categoryBadgeText: {
-      fontSize: 12,
-      fontWeight: FontWeights.semibold,
+      fontSize: 13,
+      fontWeight: '700',
+      letterSpacing: 0.3,
     },
     pinButton: {
-      padding: 4,
+      padding: 6,
+      borderRadius: 12,
+      backgroundColor: 'rgba(0,0,0,0.03)',
     },
     topicTitle: {
-      fontSize: FontSizes.md,
-      fontWeight: FontWeights.semibold,
-      marginBottom: 12,
-      lineHeight: 22,
+      fontSize: 17,
+      fontWeight: '700',
+      marginBottom: 14,
+      lineHeight: 24,
+      color: '#111827',
+    },
+    authorRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      marginBottom: 14,
+    },
+    avatarCircle: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      overflow: 'hidden',
+      backgroundColor: 'rgba(0,0,0,0.03)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    authorInfo: {
+      flex: 1,
+    },
+    authorName: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: '#1f2937',
+      marginBottom: 2,
     },
     topicFooter: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 16,
-      flexWrap: 'wrap',
+      justifyContent: 'space-between',
+      paddingTop: 12,
+      borderTopWidth: 1,
+      borderTopColor: 'rgba(0,0,0,0.06)',
+    },
+    replyBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 16,
+      backgroundColor: 'rgba(0,0,0,0.04)',
+    },
+    replyBadgeActive: {
+      backgroundColor: 'rgba(0,0,0,0.06)',
+    },
+    replyCount: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: '#6b7280',
     },
     topicMeta: {
       flexDirection: 'row',
@@ -460,19 +545,12 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     },
     topicTime: {
       fontSize: 12,
-      marginLeft: 'auto',
+      color: '#9ca3af',
     },
-    lockedBadge: {
-      position: 'absolute',
-      top: 12,
-      right: 12,
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 4,
-      paddingHorizontal: 8,
-      paddingVertical: 4,
+    lockedBadgeInline: {
+      padding: 6,
       backgroundColor: '#fee2e2',
-      borderRadius: BorderRadius.sm,
+      borderRadius: 12,
     },
     lockedText: {
       fontSize: 11,

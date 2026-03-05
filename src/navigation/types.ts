@@ -62,6 +62,19 @@ export type RootStackParamList = {
   MentorshipChatList: undefined;
   MentorshipChat: { chatId: string };
   ProjectChat: { chatId: string; teamName: string };
+  InterCampusHome: undefined;
+  InterCampusSubmitEvent: undefined;
+  InterCampusEventDetails: { eventId: string };
+  InterCampusFestDetails: { festName: string; collegeName: string };
+  InterCampusTeamUp: { eventId: string };
+  InterCampusDiscussion: { eventId: string };
+  MySubmittedEvents: undefined;
+  FacultyInterCampusDashboard: undefined;
+  AdminInterCampusManagement: undefined;
+  CreateInterCampusEvent: undefined;
+  AcademicFeed: undefined;
+  FeedDetails: { postId: string; focusComment?: boolean; focusAttachment?: boolean; attachmentIndex?: number };
+  CreateFeed: undefined;
 };
 
 declare global {

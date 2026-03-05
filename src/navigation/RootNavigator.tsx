@@ -58,6 +58,17 @@ import ProjectChatScreen from '../screens/Projects/ProjectChatScreen';
 import AIInsightsScreen from '../screens/Admin/AIInsightsScreen';
 import AISuggestionsScreen from '../screens/Home/AISuggestionsScreen';
 import TeamInvitationsScreen from '../screens/Home/TeamInvitationsScreen';
+import InterCampusHomeScreen from '../modules/intercampus/screens/InterCampusHomeScreen';
+import InterCampusSubmitEventScreen from '../modules/intercampus/screens/InterCampusSubmitEventScreen';
+import InterCampusEventDetailsScreen from '../modules/intercampus/screens/InterCampusEventDetailsScreen';
+import InterCampusFestDetailsScreen from '../modules/intercampus/screens/InterCampusFestDetailsScreen';
+import InterCampusTeamUpScreen from '../modules/intercampus/screens/InterCampusTeamUpScreen';
+import InterCampusDiscussionScreen from '../modules/intercampus/screens/InterCampusDiscussionScreen';
+import MySubmittedEventsScreen from '../modules/intercampus/screens/MySubmittedEventsScreen';
+import FacultyInterCampusDashboardScreen from '../modules/intercampus/screens/FacultyInterCampusDashboardScreen';
+import AdminInterCampusManagementScreen from '../modules/intercampus/screens/AdminInterCampusManagementScreen';
+import CreateInterCampusEventScreen from '../modules/intercampus/screens/CreateInterCampusEventScreen';
+import { AcademicFeedScreen, FeedDetailsScreen, CreateFeedScreen } from '../modules/feed';
 import { MainTabNavigator } from './MainTabNavigator';
 
 const Stack = createStackNavigator<RootStackParamList>();
@@ -388,6 +399,71 @@ export default function RootNavigator() {
             <Stack.Screen
               name="ProjectChat"
               component={ProjectChatScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="InterCampusHome"
+              component={InterCampusHomeScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="InterCampusSubmitEvent"
+              component={InterCampusSubmitEventScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="InterCampusEventDetails"
+              component={InterCampusEventDetailsScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="InterCampusFestDetails"
+              component={InterCampusFestDetailsScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="InterCampusTeamUp"
+              component={InterCampusTeamUpScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="InterCampusDiscussion"
+              component={InterCampusDiscussionScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="MySubmittedEvents"
+              component={MySubmittedEventsScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="FacultyInterCampusDashboard"
+              component={FacultyInterCampusDashboardScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="AdminInterCampusManagement"
+              component={AdminInterCampusManagementScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="CreateInterCampusEvent"
+              component={CreateInterCampusEventScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="AcademicFeed"
+              component={AcademicFeedScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="FeedDetails"
+              component={FeedDetailsScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="CreateFeed"
+              component={CreateFeedScreen}
               options={{ animationEnabled: true }}
             />
           </>

@@ -101,6 +101,13 @@ export default function AdminDashboardScreen() {
       screen: 'AdminAudit',
       color: '#64748b',
     },
+    {
+      title: 'InterCampus Management',
+      icon: 'public',
+      description: 'Moderate external events',
+      screen: 'AdminInterCampusManagement',
+      color: '#0f766e',
+    },
   ];
 
   const handleNavigate = (screen: string) => {

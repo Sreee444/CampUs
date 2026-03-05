@@ -182,6 +182,23 @@ export default function ProfileScreen() {
           </View>
         )}
 
+        {(profile?.role === 'faculty' || profile?.role === 'admin') && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>InterCampus Tools</Text>
+
+            <TouchableOpacity style={styles.actionItem} onPress={() => navigation.navigate('FacultyInterCampusDashboard')}>
+              <View style={[styles.actionIcon, { backgroundColor: '#dcfce7' }]}>
+                <MaterialIcons name="fact-check" size={20} color="#047857" />
+              </View>
+              <View style={styles.actionInfo}>
+                <Text style={styles.actionTitle}>InterCampus Dashboard</Text>
+                <Text style={styles.actionSubtitle}>Verify or reject external submissions</Text>
+              </View>
+              <MaterialIcons name="arrow-forward-ios" size={16} color="#94a3b8" />
+            </TouchableOpacity>
+          </View>
+        )}
+
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Quick Actions</Text>
 

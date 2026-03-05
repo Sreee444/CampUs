@@ -14,6 +14,7 @@ import {
   Alert,
   Linking,
   Modal,
+  Dimensions,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -26,6 +27,7 @@ import { getProfile } from '../../api/auth';
 import { supabase } from '../../api/supabase';
 import { EventFeedItem } from '../../components/EventFeedItem';
 import { UserAvatar } from '../../components/UserAvatar';
+import ConfirmDialog from '../../components/ConfirmDialog';
 import { LinearGradient } from 'expo-linear-gradient';
 import Toast from 'react-native-toast-message';
 import { WebView } from 'react-native-webview';
@@ -142,6 +144,11 @@ export default function FeedScreen() {
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [previewFile, setPreviewFile] = useState<{ url: string; sourceUrl: string; name: string } | null>(null);
   const [filePreviewError, setFilePreviewError] = useState(false);
+  const [menuPostId, setMenuPostId] = useState<string | null>(null);
+  const [deletePostId, setDeletePostId] = useState<string | null>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+
+  const menuPost = academicPosts.find((p) => p.id === menuPostId);
 
   const canPostAcademic = profile?.role === 'admin' || profile?.role === 'faculty';
 
@@ -493,32 +500,29 @@ export default function FeedScreen() {
 
   const handleDeletePost = (post: FeedPost) => {
     if (!user?.id) return;
+    setDeletePostId(post.id);
+    setShowDeleteDialog(true);
+    setMenuPostId(null);
+  };
 
-    Alert.alert(
-      'Delete post',
-      'Are you sure you want to delete this post?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteAcademicPost(post.id, user.id);
-              setAcademicPosts((prev) => prev.filter((item) => item.id !== post.id));
-              Toast.show({ type: 'success', text1: 'Post deleted' });
-            } catch (error: any) {
-              console.error('Delete post error:', error);
-              Toast.show({
-                type: 'error',
-                text1: 'Failed to delete post',
-                text2: error?.message || 'Please try again',
-              });
-            }
-          },
-        },
-      ]
-    );
+  const confirmDeletePost = async () => {
+    if (!deletePostId || !user?.id) return;
+
+    try {
+      await deleteAcademicPost(deletePostId, user.id);
+      setAcademicPosts((prev) => prev.filter((item) => item.id !== deletePostId));
+      Toast.show({ type: 'success', text1: 'Post deleted' });
+    } catch (error: any) {
+      console.error('Delete post error:', error);
+      Toast.show({
+        type: 'error',
+        text1: 'Failed to delete post',
+        text2: error?.message || 'Please try again',
+      });
+    } finally {
+      setShowDeleteDialog(false);
+      setDeletePostId(null);
+    }
   };
 
   const firstName = profile?.full_name?.split(' ')[0] || user?.email?.split('@')[0] || 'Student';
@@ -641,12 +645,12 @@ export default function FeedScreen() {
             <View style={styles.quickActionsRow}>
               <TouchableOpacity
                 style={styles.actionCard}
-                onPress={() => navigation.navigate('CreateEvent' as any)}
+                onPress={() => navigation.navigate('InterCampusHome' as any)}
               >
                 <View style={[styles.actionIcon, { backgroundColor: '#fecaca' }]}>
-                  <MaterialIcons name="event" size={24} color="#dc2626" />
+                  <MaterialIcons name="public" size={24} color="#dc2626" />
                 </View>
-                <Text style={styles.actionLabel}>+ Event</Text>
+                <Text style={styles.actionLabel}>InterCampus</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.actionCard}
@@ -659,12 +663,12 @@ export default function FeedScreen() {
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.actionCard}
-                onPress={() => navigation.navigate('EventDiscussion' as any)}
+                onPress={() => navigation.navigate('AcademicFeed' as any)}
               >
-                <View style={[styles.actionIcon, { backgroundColor: '#dbeafe' }]}>
-                  <MaterialIcons name="event-note" size={24} color="#0284c7" />
+                <View style={[styles.actionIcon, { backgroundColor: '#d1e7dd' }]}>
+                  <MaterialIcons name="newspaper" size={24} color="#0f766e" />
                 </View>
-                <Text style={styles.actionLabel}>Collab</Text>
+                <Text style={styles.actionLabel}>Feed</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.actionCard}
@@ -680,13 +684,13 @@ export default function FeedScreen() {
         </View>
 
         {/* Academic Feed */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
+        <View style={styles.eventsSection}>
+          <View style={[styles.sectionHeader, { paddingHorizontal: 20 }]}>
             <Text style={styles.sectionTitle}>Academic Feed</Text>
           </View>
 
           {canPostAcademic && (
-            <View style={styles.postComposerCard}>
+            <View style={[styles.postComposerCard, { marginHorizontal: 20 }]}>
               <TextInput
                 style={styles.postComposerInput}
                 placeholder="Share an academic update..."
@@ -748,7 +752,7 @@ export default function FeedScreen() {
           )}
 
           {!canPostAcademic && (
-            <View style={styles.readOnlyNote}>
+            <View style={[styles.readOnlyNote, { marginHorizontal: 20 }]}>
               <MaterialIcons name="info-outline" size={18} color="#64748b" />
               <Text style={styles.readOnlyNoteText}>
                 Academic posts are shared by admin and faculty. You can still like and comment.
@@ -759,134 +763,139 @@ export default function FeedScreen() {
           {isLoadingPosts ? (
             <ActivityIndicator color="#13ecec" style={{ marginVertical: 16 }} />
           ) : academicPosts.length === 0 ? (
-            <View style={styles.emptyCard}>
+            <View style={[styles.emptyCard, { marginHorizontal: 20 }]}>
               <MaterialIcons name="campaign" size={30} color="#cbd5e1" />
               <Text style={styles.emptyText}>No academic posts yet</Text>
             </View>
           ) : (
-            academicPosts.map((post) => (
-              <View key={post.id} style={styles.academicPostCard}>
-                <View style={styles.postHeaderRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.postAuthorName}>{post.author?.full_name || 'Faculty'}</Text>
-                    <Text style={styles.postMetaText}>
-                      {(post.author?.role || 'faculty').toUpperCase()} • {formatPostTime(post.created_at)}
-                    </Text>
-                  </View>
-                  <View style={styles.postHeaderActions}>
-                    <MaterialIcons name="school" size={18} color="#0d9488" />
-                    {canDeletePost(post) && (
-                      <TouchableOpacity style={styles.postDeleteBtn} onPress={() => handleDeletePost(post)}>
-                        <MaterialIcons name="delete-outline" size={18} color="#ef4444" />
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.eventsScrollContent}
+              decelerationRate="fast"
+              snapToInterval={Dimensions.get('window').width - 26}
+              snapToAlignment="start"
+            >
+              {academicPosts.slice(0, 3).map((post, index) => {
+                const feedGradients: [string, string][] = [
+                  ['#1e3a5f', '#2d5a87'],
+                  ['#4a1942', '#6b2d6b'],
+                  ['#1a4731', '#2d6b4e'],
+                ];
+                const gradientColors = feedGradients[index % feedGradients.length];
+                return (
+                  <TouchableOpacity
+                    key={post.id}
+                    activeOpacity={0.9}
+                    onPress={() => handleToggleComments(post.id)}
+                    style={styles.feedCardHorizontal}
+                  >
+                    <LinearGradient
+                      colors={gradientColors}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.feedCardGradient}
+                    >
+                      {/* Header row */}
+                      <View style={styles.eventCardTopRow}>
+                        <View style={styles.feedAuthorRow}>
+                          <View style={styles.feedAuthorAvatar}>
+                            <MaterialIcons name="school" size={18} color="#ffffff" />
+                          </View>
+                          <View>
+                            <Text style={styles.feedAuthorName}>{post.author?.full_name || 'Faculty'}</Text>
+                            <Text style={styles.feedAuthorMeta}>
+                              {(post.author?.role || 'faculty').toUpperCase()} • {formatPostTime(post.created_at)}
+                            </Text>
+                          </View>
+                        </View>
+                        {/* 3-dot menu */}
+                        <TouchableOpacity
+                          style={styles.feedDotMenu}
+                          onPress={() => setMenuPostId(post.id)}
+                        >
+                          <MaterialIcons name="more-vert" size={20} color="rgba(255,255,255,0.8)" />
+                        </TouchableOpacity>
+                      </View>
 
-                {!!post.content && <Text style={styles.postContentText}>{post.content}</Text>}
+                      {/* Content */}
+                      {!!post.content && (
+                        <Text style={styles.feedContentText} numberOfLines={3}>{post.content}</Text>
+                      )}
 
-                {!!post.images?.length && (
-                  <View style={styles.postAttachmentsWrap}>
-                    {post.images.map((attachmentUrl, idx) => (
-                      <TouchableOpacity
-                        key={`${post.id}_${idx}`}
-                        style={styles.attachmentCard}
-                        activeOpacity={0.9}
-                        onPress={() => {
-                          if (isImageAttachment(attachmentUrl) && !failedImageAttachments[attachmentUrl]) {
-                            setPreviewImageUrl(attachmentUrl);
-                          } else {
-                            handlePreviewFile(attachmentUrl);
-                          }
-                        }}
-                      >
-                        {isImageAttachment(attachmentUrl) && !failedImageAttachments[attachmentUrl] ? (
-                          <Image
-                            source={{ uri: attachmentUrl }}
-                            style={styles.postImage}
-                            resizeMode="cover"
-                            onError={() =>
-                              setFailedImageAttachments((prev) => ({ ...prev, [attachmentUrl]: true }))
+                      {/* Attachment indicator */}
+                      {!!post.images?.length && (
+                        <View style={styles.feedImageIndicator}>
+                          <MaterialIcons name="image" size={14} color="rgba(255,255,255,0.7)" />
+                          <Text style={styles.feedImageCount}>{post.images.length} attachment{post.images.length > 1 ? 's' : ''}</Text>
+                        </View>
+                      )}
+
+                      {/* Actions */}
+                      <View style={styles.feedActionsRow}>
+                        <TouchableOpacity style={styles.feedActionBtn} onPress={() => handleToggleLike(post)}>
+                          <MaterialIcons
+                            name={post.is_liked ? 'favorite' : 'favorite-border'}
+                            size={16}
+                            color={post.is_liked ? '#ef4444' : 'rgba(255,255,255,0.7)'}
+                          />
+                          <Text style={styles.feedActionText}>{post.likes_count || 0}</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity style={styles.feedActionBtn} onPress={() => navigation.navigate('FeedDetails' as any, { postId: post.id, focusComment: true })}>
+                          <MaterialIcons name="comment" size={16} color="rgba(255,255,255,0.7)" />
+                          <Text style={styles.feedActionText}>{post.comments_count || 0}</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity style={styles.feedActionBtn} onPress={() => navigation.navigate('FeedDetails' as any, { postId: post.id })}>
+                          <MaterialIcons name="open-in-new" size={16} color="rgba(255,255,255,0.7)" />
+                          <Text style={styles.feedActionText}>View</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </LinearGradient>
+
+                    {/* Expanded comments */}
+                    {expandedPostId === post.id && (
+                      <View style={styles.feedExpandedComments}>
+                        {(commentsByPost[post.id] || []).map((comment) => (
+                          <View key={comment.id} style={styles.commentRow}>
+                            <Text style={styles.commentAuthor}>{comment.user?.full_name || 'User'}</Text>
+                            <Text style={styles.commentText}>{comment.content}</Text>
+                          </View>
+                        ))}
+                        <View style={styles.commentInputRow}>
+                          <TextInput
+                            style={styles.commentInput}
+                            placeholder="Write a comment..."
+                            placeholderTextColor="#94a3b8"
+                            value={commentInputs[post.id] || ''}
+                            onChangeText={(value) =>
+                              setCommentInputs((prev) => ({ ...prev, [post.id]: value }))
                             }
                           />
-                        ) : (
-                          <View style={styles.fileAttachmentRow}>
-                            <View style={styles.fileBadge}>
-                              <View style={styles.filePreviewPanel}>
-                                <MaterialIcons name={getFileIcon(attachmentUrl)} size={42} color="#475569" />
-                                <View style={styles.fileTypeChipLarge}>
-                                  <Text style={styles.fileTypeChipLargeText}>{getFileTypeLabel(attachmentUrl)}</Text>
-                                </View>
-                                <Text style={styles.filePreviewFileName} numberOfLines={2}>
-                                  {getFileNameFromUrl(attachmentUrl)}
-                                </Text>
-                                <Text style={styles.fileAttachmentMeta}>
-                                  Tap to preview
-                                </Text>
-                              </View>
-                            </View>
-                          </View>
-                        )}
-
-                        <TouchableOpacity
-                          style={styles.downloadButton}
-                          onPress={(event: any) => {
-                            event?.stopPropagation?.();
-                            handleOpenAttachment(attachmentUrl);
-                          }}
-                        >
-                          <MaterialIcons name="download" size={16} color="#0d9488" />
-                          <Text style={styles.downloadButtonText}>Download</Text>
-                        </TouchableOpacity>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                )}
-
-                <View style={styles.postActionsRow}>
-                  <TouchableOpacity style={styles.postActionBtn} onPress={() => handleToggleLike(post)}>
-                    <MaterialIcons
-                      name={post.is_liked ? 'favorite' : 'favorite-border'}
-                      size={18}
-                      color={post.is_liked ? '#ef4444' : '#64748b'}
-                    />
-                    <Text style={styles.postActionText}>{post.likes_count || 0}</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity style={styles.postActionBtn} onPress={() => handleToggleComments(post.id)}>
-                    <MaterialIcons name="comment" size={18} color="#64748b" />
-                    <Text style={styles.postActionText}>{post.comments_count || 0}</Text>
-                  </TouchableOpacity>
-                </View>
-
-                {expandedPostId === post.id && (
-                  <View style={styles.commentsWrap}>
-                    {(commentsByPost[post.id] || []).map((comment) => (
-                      <View key={comment.id} style={styles.commentRow}>
-                        <Text style={styles.commentAuthor}>{comment.user?.full_name || 'User'}</Text>
-                        <Text style={styles.commentText}>{comment.content}</Text>
+                          <TouchableOpacity onPress={() => handleAddComment(post.id)}>
+                            <MaterialIcons name="send" size={18} color="#0d9488" />
+                          </TouchableOpacity>
+                        </View>
                       </View>
-                    ))}
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
 
-                    <View style={styles.commentInputRow}>
-                      <TextInput
-                        style={styles.commentInput}
-                        placeholder="Write a comment..."
-                        placeholderTextColor="#94a3b8"
-                        value={commentInputs[post.id] || ''}
-                        onChangeText={(value) =>
-                          setCommentInputs((prev) => ({ ...prev, [post.id]: value }))
-                        }
-                      />
-                      <TouchableOpacity onPress={() => handleAddComment(post.id)}>
-                        <MaterialIcons name="send" size={18} color="#0d9488" />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                )}
-              </View>
-            ))
+              {/* See All card at end of scroll */}
+              <TouchableOpacity
+                style={styles.feedSeeAllCard}
+                onPress={() => navigation.navigate('AcademicFeed' as any)}
+              >
+                <View style={styles.feedSeeAllCardInner}>
+                  <MaterialIcons name="arrow-forward" size={32} color="#0d9488" />
+                  <Text style={styles.feedSeeAllCardText}>See All Feeds</Text>
+                </View>
+              </TouchableOpacity>
+            </ScrollView>
           )}
+
         </View>
 
         {/* AI Suggestion */}
@@ -904,8 +913,8 @@ export default function FeedScreen() {
         </View>
 
         {/* Upcoming Events */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
+        <View style={styles.eventsSection}>
+          <View style={[styles.sectionHeader, { paddingHorizontal: 20 }]}>
             <Text style={styles.sectionTitle}>Upcoming Events</Text>
             <TouchableOpacity onPress={() => navigation.navigate('Events' as any)}>
               <Text style={styles.seeAllText}>See All</Text>
@@ -915,46 +924,83 @@ export default function FeedScreen() {
           {isLoading ? (
             <ActivityIndicator color="#13ecec" style={{ marginVertical: 16 }} />
           ) : upcomingEvents.length === 0 ? (
-            <View style={styles.emptyCard}>
+            <View style={[styles.emptyCard, { marginHorizontal: 20 }]}>
               <MaterialIcons name="event-busy" size={32} color="#cbd5e1" />
               <Text style={styles.emptyText}>No upcoming events</Text>
             </View>
-          ) : upcomingEvents.map((event) => (
-            <TouchableOpacity
-              key={event.id}
-              style={styles.eventCard}
-              onPress={() => navigation.navigate('EventDetails' as any, { eventId: event.id })}
+          ) : (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.eventsScrollContent}
+              decelerationRate="fast"
+              snapToInterval={Dimensions.get('window').width - 26}
+              snapToAlignment="start"
             >
-              <View style={styles.eventDateBadge}>
-                <Text style={styles.eventDateDay}>
-                  {new Date(event.start_date).getDate()}
-                </Text>
-                <Text style={styles.eventDateMonth}>
-                  {new Date(event.start_date).toLocaleString('default', { month: 'short' })}
-                </Text>
-              </View>
-              <View style={styles.eventInfo}>
-                <Text style={styles.eventTitle} numberOfLines={1}>{event.title}</Text>
-                <View style={styles.eventMeta}>
-                  <MaterialIcons name="access-time" size={13} color="#94a3b8" />
-                  <Text style={styles.eventMetaText}>
-                    {new Date(event.start_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </Text>
-                  {event.location && (
-                    <>
-                      <MaterialIcons name="place" size={13} color="#94a3b8" />
-                      <Text style={styles.eventMetaText} numberOfLines={1}>{event.location}</Text>
-                    </>
-                  )}
-                </View>
-              </View>
-              <MaterialIcons name="chevron-right" size={20} color="#cbd5e1" />
-            </TouchableOpacity>
-          ))}
+              {upcomingEvents.map((event, index) => {
+                const gradientColors: [string, string] = index % 3 === 0
+                  ? ['#0d9488', '#14b8a6']
+                  : index % 3 === 1
+                    ? ['#6366f1', '#818cf8']
+                    : ['#f59e0b', '#fbbf24'];
+                return (
+                  <TouchableOpacity
+                    key={event.id}
+                    activeOpacity={0.85}
+                    onPress={() => navigation.navigate('EventDetails' as any, { eventId: event.id })}
+                    style={styles.eventCardHorizontal}
+                  >
+                    <LinearGradient
+                      colors={gradientColors}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.eventCardGradient}
+                    >
+                      <View style={styles.eventCardTopRow}>
+                        <View style={styles.eventDateBadgeNew}>
+                          <Text style={styles.eventDateDayNew}>
+                            {new Date(event.start_date).getDate()}
+                          </Text>
+                          <Text style={styles.eventDateMonthNew}>
+                            {new Date(event.start_date).toLocaleString('default', { month: 'short' }).toUpperCase()}
+                          </Text>
+                        </View>
+                        <View style={styles.eventCardChip}>
+                          <MaterialIcons name="event" size={12} color="#ffffff" />
+                          <Text style={styles.eventCardChipText}>Event</Text>
+                        </View>
+                      </View>
+
+                      <Text style={styles.eventTitleNew} numberOfLines={2}>{event.title}</Text>
+
+                      <View style={styles.eventCardBottom}>
+                        <View style={styles.eventMetaRow}>
+                          <MaterialIcons name="access-time" size={14} color="rgba(255,255,255,0.85)" />
+                          <Text style={styles.eventMetaTextNew}>
+                            {new Date(event.start_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </Text>
+                        </View>
+                        {event.location ? (
+                          <View style={styles.eventMetaRow}>
+                            <MaterialIcons name="place" size={14} color="rgba(255,255,255,0.85)" />
+                            <Text style={styles.eventMetaTextNew} numberOfLines={1}>{event.location}</Text>
+                          </View>
+                        ) : null}
+                      </View>
+
+                      <View style={styles.eventCardArrow}>
+                        <MaterialIcons name="arrow-forward" size={18} color="rgba(255,255,255,0.7)" />
+                      </View>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          )}
         </View>
 
         <View style={{ height: 32 }} />
-      </ScrollView>
+      </ScrollView >
 
       <Modal
         visible={!!previewImageUrl}
@@ -1043,9 +1089,108 @@ export default function FeedScreen() {
           )}
         </View>
       </Modal>
-    </SafeAreaView>
+
+      {/* Post Options Modal */}
+      <Modal
+        visible={!!menuPostId}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMenuPostId(null)}
+      >
+        <TouchableOpacity
+          style={styles.optionsOverlay}
+          activeOpacity={1}
+          onPress={() => setMenuPostId(null)}
+        >
+          <View style={styles.optionsSheet}>
+            <View style={styles.optionsHandle} />
+            <Text style={styles.optionsTitle}>Post Options</Text>
+
+            {/* View Post */}
+            <TouchableOpacity
+              style={styles.optionItem}
+              onPress={() => {
+                setMenuPostId(null);
+                if (menuPost) navigation.navigate('FeedDetails' as any, { postId: menuPost.id });
+              }}
+            >
+              <View style={[styles.optionIcon, { backgroundColor: '#f0fdfa' }]}>
+                <MaterialIcons name="open-in-new" size={20} color="#0d9488" />
+              </View>
+              <View style={styles.optionTextWrap}>
+                <Text style={styles.optionLabel}>View Post</Text>
+                <Text style={styles.optionSub}>Open full post details</Text>
+              </View>
+              <MaterialIcons name="chevron-right" size={20} color="#94a3b8" />
+            </TouchableOpacity>
+
+            {/* Report */}
+            <TouchableOpacity
+              style={styles.optionItem}
+              onPress={() => {
+                setMenuPostId(null);
+                Toast.show({ type: 'info', text1: 'Report submitted' });
+              }}
+            >
+              <View style={[styles.optionIcon, { backgroundColor: '#fef3c7' }]}>
+                <MaterialIcons name="flag" size={20} color="#f59e0b" />
+              </View>
+              <View style={styles.optionTextWrap}>
+                <Text style={styles.optionLabel}>Report Post</Text>
+                <Text style={styles.optionSub}>Flag inappropriate content</Text>
+              </View>
+              <MaterialIcons name="chevron-right" size={20} color="#94a3b8" />
+            </TouchableOpacity>
+
+            {/* Delete — only if user can */}
+            {menuPost && canDeletePost(menuPost) && (
+              <TouchableOpacity
+                style={styles.optionItem}
+                onPress={() => {
+                  setMenuPostId(null);
+                  handleDeletePost(menuPost);
+                }}
+              >
+                <View style={[styles.optionIcon, { backgroundColor: '#fee2e2' }]}>
+                  <MaterialIcons name="delete-outline" size={20} color="#ef4444" />
+                </View>
+                <View style={styles.optionTextWrap}>
+                  <Text style={[styles.optionLabel, { color: '#ef4444' }]}>Delete Post</Text>
+                  <Text style={styles.optionSub}>Permanently remove this post</Text>
+                </View>
+                <MaterialIcons name="chevron-right" size={20} color="#94a3b8" />
+              </TouchableOpacity>
+            )}
+
+            {/* Cancel */}
+            <TouchableOpacity
+              style={styles.optionCancelBtn}
+              onPress={() => setMenuPostId(null)}
+            >
+              <Text style={styles.optionCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      <ConfirmDialog
+        visible={showDeleteDialog}
+        title="Delete Post"
+        message="Are you sure you want to delete this post? This action cannot be undone."
+        variant="danger"
+        confirmText="Delete"
+        cancelText="Cancel"
+        onConfirm={confirmDeletePost}
+        onCancel={() => {
+          setShowDeleteDialog(false);
+          setDeletePostId(null);
+        }}
+      />
+    </SafeAreaView >
   );
 }
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const styles = StyleSheet.create({
   container: {
@@ -1238,59 +1383,102 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: 12,
   },
-  eventCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 10,
-    gap: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 1,
+  eventsSection: {
+    marginTop: 24,
+    marginBottom: 8,
   },
-  eventDateBadge: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: 'rgba(19,236,236,0.12)',
+  eventsScrollContent: {
+    paddingHorizontal: 20,
+    gap: 14,
+    paddingRight: 28,
+  },
+  eventCardHorizontal: {
+    width: Dimensions.get('window').width - 40,
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  eventCardGradient: {
+    borderRadius: 20,
+    padding: 18,
+    minHeight: 160,
+    justifyContent: 'space-between',
+  },
+  eventCardTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  eventDateBadgeNew: {
+    width: 52,
+    height: 52,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.25)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  eventDateDay: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#0d9488',
-    lineHeight: 18,
+  eventDateDayNew: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#ffffff',
+    lineHeight: 24,
   },
-  eventDateMonth: {
+  eventDateMonthNew: {
     fontSize: 10,
-    fontWeight: '500',
-    color: '#0d9488',
-    textTransform: 'uppercase',
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.9)',
+    letterSpacing: 1,
   },
-  eventInfo: {
-    flex: 1,
-  },
-  eventTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#111818',
-    marginBottom: 4,
-    overflow: 'hidden',
-  },
-  eventMeta: {
+  eventCardChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    flexWrap: 'wrap',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
   },
-  eventMetaText: {
+  eventCardChipText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#ffffff',
+  },
+  eventTitleNew: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#ffffff',
+    marginTop: 12,
+    lineHeight: 22,
+  },
+  eventCardBottom: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    marginTop: 10,
+  },
+  eventMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  eventMetaTextNew: {
     fontSize: 12,
-    color: '#94a3b8',
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.85)',
+  },
+  eventCardArrow: {
+    position: 'absolute',
+    bottom: 18,
+    right: 18,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   postComposerCard: {
     backgroundColor: '#ffffff',
@@ -1299,6 +1487,152 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.06)',
     gap: 10,
+  },
+  feedCardHorizontal: {
+    width: Dimensions.get('window').width - 40,
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  feedCardVertical: {
+    marginBottom: 16,
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  feedDotMenu: {
+    padding: 4,
+  },
+  feedSeeAllBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 14,
+    backgroundColor: '#f0fdfa',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#ccfbf1',
+    marginTop: 8,
+    marginBottom: 20,
+  },
+  feedSeeAllText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0d9488',
+  },
+  feedSeeAllCard: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#f0fdfa',
+    borderWidth: 2,
+    borderColor: '#0d9488',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    marginLeft: 8,
+  },
+  feedSeeAllCardInner: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  feedSeeAllCardText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#0d9488',
+  },
+  feedCardGradient: {
+    borderRadius: 20,
+    padding: 18,
+    minHeight: 200,
+    height: 200,
+    justifyContent: 'flex-start',
+    overflow: 'hidden',
+  },
+  feedAuthorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  feedAuthorAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  feedAuthorName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+  feedAuthorMeta: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.7)',
+    marginTop: 2,
+  },
+  feedContentText: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.95)',
+    lineHeight: 20,
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  feedImageIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(0,0,0,0.15)',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  feedImageCount: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.9)',
+  },
+  feedActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    marginTop: 'auto',
+    paddingTop: 16,
+  },
+  feedActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 4,
+  },
+  feedActionText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#ffffff',
+  },
+  feedExpandedComments: {
+    backgroundColor: '#ffffff',
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    padding: 16,
+    marginTop: -10,
+    paddingTop: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.06)',
+    borderTopWidth: 0,
   },
   postComposerInput: {
     minHeight: 70,
@@ -1663,5 +1997,74 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 13,
     fontWeight: '700',
+  },
+
+  // Post Options Modal
+  optionsOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  optionsSheet: {
+    backgroundColor: '#ffffff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingBottom: 36,
+    paddingTop: 12,
+  },
+  optionsHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#cbd5e1',
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  optionsTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#0f172a',
+    marginBottom: 16,
+  },
+  optionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+    gap: 14,
+  },
+  optionIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  optionTextWrap: {
+    flex: 1,
+  },
+  optionLabel: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  optionSub: {
+    fontSize: 12,
+    color: '#94a3b8',
+    marginTop: 2,
+  },
+  optionCancelBtn: {
+    marginTop: 16,
+    paddingVertical: 14,
+    backgroundColor: '#f1f5f9',
+    borderRadius: 14,
+    alignItems: 'center',
+  },
+  optionCancelText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#64748b',
   },
 });

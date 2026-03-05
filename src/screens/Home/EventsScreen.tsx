@@ -314,21 +314,40 @@ export default function EventsScreen() {
             )}
           </View>
         ) : (
-          filteredEvents.map((event) => (
+          filteredEvents.map((event) => {
+            const eventTypeColors: { [key: string]: { bg: string; color: string; icon: string } } = {
+              workshop: { bg: '#fef3c7', color: '#d97706', icon: 'build' },
+              seminar: { bg: '#dbeafe', color: '#2563eb', icon: 'lightbulb' },
+              hackathon: { bg: '#fce7f3', color: '#db2777', icon: 'code' },
+              competition: { bg: '#fee2e2', color: '#dc2626', icon: 'emoji-events' },
+              fest: { bg: '#e0e7ff', color: '#6366f1', icon: 'celebration' },
+              other: { bg: '#e5e7eb', color: '#6b7280', icon: 'event' },
+            };
+            const typeStyle = eventTypeColors[event.event_type] || eventTypeColors.other;
+            
+            return (
             <TouchableOpacity
               key={event.id}
               style={styles.eventCard}
               onPress={() => navigation.navigate('EventDetails', { eventId: event.id })}
+              activeOpacity={0.7}
             >
               {/* Event Poster/Notice */}
               {event.banner_image ? (
-                <Image source={{ uri: event.banner_image }} style={{ width: '100%', height: 160, borderRadius: 10, marginBottom: 8 }} resizeMode="cover" />
+                <Image 
+                  source={{ uri: event.banner_image }} 
+                  style={styles.eventBanner} 
+                  resizeMode="cover" 
+                />
               ) : null}
 
-              {/* Event Header */}
+              {/* Event Header with Category & Actions */}
               <View style={styles.eventHeader}>
-                <View style={styles.eventTypeContainer}>
-                  <Text style={styles.eventTypeText}>
+                <View style={[styles.eventTypeBadge, { backgroundColor: typeStyle.bg }]}>
+                  <View style={[styles.eventTypeIconWrap, { backgroundColor: typeStyle.color }]}>
+                    <MaterialIcons name={typeStyle.icon as any} size={14} color="#fff" />
+                  </View>
+                  <Text style={[styles.eventTypeText, { color: typeStyle.color }]}>
                     {event.event_type.toUpperCase()}
                   </Text>
                 </View>
@@ -353,46 +372,69 @@ export default function EventsScreen() {
               </View>
 
               {/* Event Title & Description */}
-              <Text style={styles.eventTitle}>{event.title}</Text>
-              <Text style={styles.eventDescription} numberOfLines={2}>
+              <Text style={styles.eventTitle} numberOfLines={2}>{event.title}</Text>
+              <Text style={styles.eventDescription} numberOfLines={3}>
                 {event.description}
               </Text>
 
+              {/* Eligibility Info */}
               {(() => {
                 const eligibleDepartments = (event.eligible_departments || []) as string[];
                 const eligibleYears = ((event.eligible_years || []) as number[]).slice().sort((a, b) => a - b);
                 const eligibilityType = event.eligibility_type || 'college';
-                const label = eligibilityType === 'college' ? 'Open to all' : 'Restricted';
+                const isOpenToAll = eligibilityType === 'college';
                 return (
-                  <View style={styles.eligibilityCard}>
+                  <View style={[styles.eligibilityCard, isOpenToAll && styles.eligibilityCardOpen]}>
                     <View style={styles.eligibilityHeader}>
-                      <MaterialIcons name="verified-user" size={14} color="#6366f1" />
-                      <Text style={styles.eligibilityTitle}>{label}</Text>
+                      <View style={[styles.eligibilityIconWrap, isOpenToAll && styles.eligibilityIconOpen]}>
+                        <MaterialIcons 
+                          name={isOpenToAll ? 'public' : 'verified-user'} 
+                          size={14} 
+                          color={isOpenToAll ? '#10b981' : '#6366f1'} 
+                        />
+                      </View>
+                      <Text style={[styles.eligibilityTitle, isOpenToAll && styles.eligibilityTitleOpen]}>
+                        {isOpenToAll ? '🌍 Open to All' : '🔒 Restricted Access'}
+                      </Text>
                     </View>
-                    <Text style={styles.eligibilityText} numberOfLines={1}>
-                      Departments: {eligibleDepartments.length ? eligibleDepartments.join(', ') : 'All'}
-                    </Text>
-                    <Text style={styles.eligibilityText} numberOfLines={1}>
-                      Years: {eligibleYears.length ? eligibleYears.map((y) => `Year ${y}`).join(', ') : 'All'}
-                    </Text>
+                    {!isOpenToAll && (
+                      <View style={styles.eligibilityDetails}>
+                        <View style={styles.eligibilityRow}>
+                          <Text style={styles.eligibilityLabel}>Departments:</Text>
+                          <Text style={styles.eligibilityValue} numberOfLines={1}>
+                            {eligibleDepartments.length ? eligibleDepartments.join(', ') : 'All'}
+                          </Text>
+                        </View>
+                        <View style={styles.eligibilityRow}>
+                          <Text style={styles.eligibilityLabel}>Years:</Text>
+                          <Text style={styles.eligibilityValue} numberOfLines={1}>
+                            {eligibleYears.length ? eligibleYears.map((y) => `Year ${y}`).join(', ') : 'All'}
+                          </Text>
+                        </View>
+                      </View>
+                    )}
                   </View>
                 );
               })()}
 
               {/* Event Details */}
-              <View style={styles.eventDetails}>
+              <View style={styles.eventDetailsSection}>
                 <View style={styles.eventDetailRow}>
-                  <MaterialIcons name="schedule" size={16} color={SEMANTIC_COLORS.textSecondary} />
+                  <View style={styles.detailIconWrap}>
+                    <MaterialIcons name="schedule" size={16} color="#f59e0b" />
+                  </View>
                   <Text style={styles.eventDetailText}>
                     {formatEventDate(event.start_date)}
                   </Text>
                 </View>
                 <View style={styles.eventDetailRow}>
-                  <MaterialIcons
-                    name={event.is_online ? "laptop" : "location-on"}
-                    size={16}
-                    color={SEMANTIC_COLORS.textSecondary}
-                  />
+                  <View style={styles.detailIconWrap}>
+                    <MaterialIcons
+                      name={event.is_online ? "laptop" : "location-on"}
+                      size={16}
+                      color="#3b82f6"
+                    />
+                  </View>
                   <Text style={styles.eventDetailText}>
                     {event.is_online ? "Online Event" : event.venue}
                   </Text>
@@ -503,7 +545,8 @@ export default function EventsScreen() {
                 );
               })()}
             </TouchableOpacity>
-          ))
+          );
+          })
         )}
 
         <View style={{ height: 100 }} />
@@ -605,42 +648,69 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     fontWeight: FontWeights.semibold,
     color: '#fff',
   },
-  eventTypeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 8,
-    marginBottom: 4,
-  },
-  eventTypeText: {
-    fontSize: 12,
-    color: Colors.primary,
-    fontWeight: FontWeights.medium,
-    marginLeft: 4,
-  },
   eventDescription: {
-    fontSize: FontSizes.sm,
-    color: Colors.textSecondary,
-    marginBottom: 8,
+    fontSize: 14,
+    color: '#6b7280',
+    marginBottom: 14,
+    lineHeight: 20,
   },
   eligibilityCard: {
-    backgroundColor: '#f8faff',
+    backgroundColor: '#f8f9ff',
     borderWidth: 1,
     borderColor: '#e0e7ff',
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    marginBottom: 8,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 14,
+  },
+  eligibilityCardOpen: {
+    backgroundColor: '#f0fdf4',
+    borderColor: '#d1fae5',
   },
   eligibilityHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginBottom: 4,
+    gap: 8,
+  },
+  eligibilityIconWrap: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#e0e7ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  eligibilityIconOpen: {
+    backgroundColor: '#d1fae5',
   },
   eligibilityTitle: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
     color: '#4f46e5',
+    letterSpacing: 0.3,
+  },
+  eligibilityTitleOpen: {
+    color: '#047857',
+  },
+  eligibilityDetails: {
+    marginTop: 10,
+    gap: 6,
+  },
+  eligibilityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  eligibilityLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#4f46e5',
+    width: 90,
+  },
+  eligibilityValue: {
+    flex: 1,
+    fontSize: 12,
+    color: '#475569',
   },
   eligibilityText: {
     fontSize: 11,
@@ -756,22 +826,50 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   eventCard: {
     backgroundColor: '#ffffff',
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
-    marginBottom: 12,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 2,
-    borderLeftWidth: 4,
-    borderLeftColor: '#fda4af',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 5,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
     overflow: 'hidden',
+  },
+  eventBanner: {
+    width: '100%',
+    height: 180,
+    borderRadius: 12,
+    marginBottom: 14,
   },
   eventHeader: {
     flexDirection: 'row',
-    gap: 12,
-    marginBottom: 12,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  eventTypeBadge: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    gap: 8,
+  },
+  eventTypeIconWrap: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  eventTypeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
   eventHeaderRight: {
     flexDirection: 'row',
@@ -779,9 +877,9 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     gap: 8,
   },
   menuButton: {
-    padding: 6,
-    borderRadius: BorderRadius.sm,
-    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    padding: 8,
+    borderRadius: 12,
+    backgroundColor: '#fee2e2',
   },
   dateBox: {
     width: 60,
@@ -806,11 +904,11 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     flex: 1,
   },
   eventTitle: {
-    fontSize: FontSizes.md,
-    fontWeight: FontWeights.semibold,
-    color: '#111818',
-    marginBottom: 8,
-    overflow: 'hidden',
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 10,
+    lineHeight: 24,
   },
   eventDetail: {
     flexDirection: 'row',
@@ -819,21 +917,29 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     marginBottom: 4,
     flexShrink: 1,
   },
-  eventDetails: {
-    gap: 4,
-    marginBottom: 8,
+  eventDetailsSection: {
+    gap: 8,
+    marginBottom: 12,
   },
   eventDetailRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 10,
     flexShrink: 1,
   },
+  detailIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.04)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   eventDetailText: {
-    fontSize: 12,
-    color: '#64748b',
     flex: 1,
-    flexShrink: 1,
+    fontSize: 13,
+    color: '#374151',
+    fontWeight: '500',
   },
   eventFooter: {
     flexDirection: 'row',
@@ -887,18 +993,18 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: BorderRadius.full,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
     alignSelf: 'flex-start',
   },
   registrationText: {
-    fontSize: 12,
-    fontWeight: FontWeights.bold,
+    fontSize: 13,
+    fontWeight: '700',
   },
   registrationLabel: {
-    fontSize: 11,
-    fontWeight: FontWeights.medium,
+    fontSize: 12,
+    fontWeight: '600',
   },
   registerButton: {
     borderRadius: BorderRadius.md,

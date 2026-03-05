@@ -40,6 +40,13 @@ dayjs.extend(relativeTime);
 type NavigationProp = StackNavigationProp<RootStackParamList, 'DiscussionTopic'>;
 type RouteParams = RouteProp<RootStackParamList, 'DiscussionTopic'>;
 
+const categoryIcons: { [key: string]: string } = {
+  academic: 'school',
+  doubt: 'help-outline',
+  project: 'folder-open',
+  general: 'forum',
+};
+
 const categoryColors: { [key: string]: string } = {
   academic: '#3b82f6',
   doubt: '#f59e0b',
@@ -320,7 +327,14 @@ export default function DiscussionTopicScreen() {
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
           {/* Topic Header */}
           <View style={styles.topicCard}>
-            <View style={[styles.categoryBadge, { backgroundColor: categoryColor + '15' }]}>
+            <View style={[styles.categoryBadge, { backgroundColor: categoryColor + '20' }]}>
+              <View style={[styles.categoryIconWrap, { backgroundColor: categoryColor }]}>
+                <MaterialIcons 
+                  name={categoryIcons[topic.category] as any} 
+                  size={16} 
+                  color="#fff" 
+                />
+              </View>
               <Text style={[styles.categoryText, { color: categoryColor }]}>
                 {topic.category.charAt(0).toUpperCase() + topic.category.slice(1)}
               </Text>
@@ -328,26 +342,38 @@ export default function DiscussionTopicScreen() {
 
             <Text style={styles.title}>{getCleanDiscussionTitle(topic.title)}</Text>
 
-            <View style={styles.topicMeta}>
-              <MaterialIcons name="person-outline" size={16} color={Colors.textSecondary} />
-              <Text style={styles.metaText}>{topic.creator?.full_name || 'User'}</Text>
-              <Text style={styles.metaDot}>•</Text>
-              <Text style={styles.metaText}>{dayjs(topic.created_at).fromNow()}</Text>
+            <View style={styles.topicMetaRow}>
+              <View style={styles.authorCard}>
+                <View style={[styles.authorAvatar, { backgroundColor: categoryColor + '20' }]}>
+                  <MaterialIcons name="account-circle" size={40} color={categoryColor} />
+                </View>
+                <View style={styles.authorDetails}>
+                  <Text style={styles.authorLabel}>Created by</Text>
+                  <Text style={styles.authorNameText}>{topic.creator?.full_name || 'User'}</Text>
+                  <View style={styles.timeRow}>
+                    <MaterialIcons name="schedule" size={14} color={Colors.textSecondary} />
+                    <Text style={styles.metaText}>{dayjs(topic.created_at).fromNow()}</Text>
+                  </View>
+                </View>
+              </View>
             </View>
 
             {topic.is_locked && (
               <View style={styles.lockedBanner}>
-                <MaterialIcons name="lock" size={16} color="#ef4444" />
-                <Text style={styles.lockedText}>This discussion is locked</Text>
+                <MaterialIcons name="lock" size={18} color="#ef4444" />
+                <Text style={styles.lockedText}>🔒 This discussion is locked</Text>
               </View>
             )}
           </View>
 
           {/* Replies */}
           <View style={styles.repliesSection}>
-            <Text style={styles.repliesHeader}>
-              {replies.length} {replies.length === 1 ? 'Reply' : 'Replies'}
-            </Text>
+            <View style={styles.repliesSectionHeader}>
+              <MaterialIcons name="forum" size={20} color={Colors.primary} />
+              <Text style={styles.repliesHeader}>
+                {replies.length} {replies.length === 1 ? 'Reply' : 'Replies'}
+              </Text>
+            </View>
 
             {replies.map((reply) => {
               const canDelete = reply.user_id === user?.id || isFacultyOrAdmin || isTopicCreator;
@@ -373,8 +399,8 @@ export default function DiscussionTopicScreen() {
               >
                 {reply.is_solution && (
                   <View style={styles.solutionBadge}>
-                    <MaterialIcons name="check-circle" size={16} color="#10b981" />
-                    <Text style={styles.solutionText}>Solution</Text>
+                    <MaterialIcons name="check-circle" size={18} color="#10b981" />
+                    <Text style={styles.solutionText}>✓ Marked as Solution</Text>
                   </View>
                 )}
 
@@ -388,40 +414,47 @@ export default function DiscussionTopicScreen() {
                     }}
                     activeOpacity={0.7}
                   >
-                    <MaterialIcons name="account-circle" size={32} color={Colors.textSecondary} />
-                    <View style={{ flex: 1 }}>
+                    <View style={[styles.replyAvatar, { backgroundColor: categoryColor + '20' }]}>
+                      <MaterialIcons name="account-circle" size={44} color={categoryColor} />
+                    </View>
+                    <View style={styles.replyAuthorInfo}>
                       <Text style={styles.authorName}>{reply.user?.full_name || 'User'}</Text>
-                      <Text style={styles.replyTime}>{dayjs(reply.created_at).fromNow()}</Text>
+                      <View style={styles.replyTimeRow}>
+                        <MaterialIcons name="schedule" size={12} color={Colors.textSecondary} />
+                        <Text style={styles.replyTime}>{dayjs(reply.created_at).fromNow()}</Text>
+                      </View>
                     </View>
                   </TouchableOpacity>
 
-                  {canMarkSolution && (
-                    <TouchableOpacity
-                      onPress={() => {
-                        console.log('Mark solution clicked for reply:', reply.id);
-                        handleMarkSolution(reply.id);
-                      }}
-                      style={styles.actionButton}
-                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                      activeOpacity={0.6}
-                    >
-                      <MaterialIcons name="check-circle" size={20} color={Colors.primary} />
-                    </TouchableOpacity>
-                  )}
+                  <View style={styles.actionsRow}>
+                    {canMarkSolution && (
+                      <TouchableOpacity
+                        onPress={() => {
+                          console.log('Mark solution clicked for reply:', reply.id);
+                          handleMarkSolution(reply.id);
+                        }}
+                        style={[styles.actionButton, styles.actionButtonPrimary]}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        activeOpacity={0.6}
+                      >
+                        <MaterialIcons name="check-circle-outline" size={20} color={Colors.primary} />
+                      </TouchableOpacity>
+                    )}
 
-                  {canDelete && (
-                    <TouchableOpacity
-                      onPress={() => {
-                        console.log('Delete button clicked for reply:', reply.id);
-                        handleDeleteReply(reply.id);
-                      }}
-                      style={styles.actionButton}
-                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                      activeOpacity={0.6}
-                    >
-                      <MaterialIcons name="delete-outline" size={20} color="#ef4444" />
-                    </TouchableOpacity>
-                  )}
+                    {canDelete && (
+                      <TouchableOpacity
+                        onPress={() => {
+                          console.log('Delete button clicked for reply:', reply.id);
+                          handleDeleteReply(reply.id);
+                        }}
+                        style={[styles.actionButton, styles.actionButtonDanger]}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        activeOpacity={0.6}
+                      >
+                        <MaterialIcons name="delete-outline" size={20} color="#ef4444" />
+                      </TouchableOpacity>
+                    )}
+                  </View>
                 </View>
 
                 <Text style={styles.replyContent}>{reply.content}</Text>
@@ -513,27 +546,85 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     },
     topicCard: {
       backgroundColor: Colors.card,
-      padding: Spacing.md,
-      borderBottomWidth: 1,
-      borderBottomColor: Colors.border,
+      padding: 20,
+      marginBottom: 16,
+      borderRadius: 16,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.1,
+      shadowRadius: 12,
+      elevation: 4,
     },
     categoryBadge: {
       alignSelf: 'flex-start',
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-      borderRadius: BorderRadius.full,
-      marginBottom: 12,
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+      borderRadius: 20,
+      marginBottom: 16,
+      gap: 8,
+    },
+    categoryIconWrap: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     categoryText: {
-      fontSize: 12,
-      fontWeight: FontWeights.semibold,
+      fontSize: 13,
+      fontWeight: '700',
+      letterSpacing: 0.3,
     },
     title: {
-      fontSize: FontSizes.xl,
-      fontWeight: FontWeights.bold,
+      fontSize: 22,
+      fontWeight: '800',
       color: Colors.text,
-      marginBottom: 12,
-      lineHeight: 28,
+      marginBottom: 16,
+      lineHeight: 30,
+    },
+    topicMetaRow: {
+      marginTop: 4,
+    },
+    authorCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      padding: 12,
+      backgroundColor: Colors.surface,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: Colors.border,
+    },
+    authorAvatar: {
+      width: 48,
+      height: 48,
+      borderRadius: 24,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    authorDetails: {
+      flex: 1,
+    },
+    authorLabel: {
+      fontSize: 11,
+      color: Colors.textSecondary,
+      marginBottom: 2,
+      textTransform: 'uppercase',
+      fontWeight: '600',
+      letterSpacing: 0.5,
+    },
+    authorNameText: {
+      fontSize: 15,
+      fontWeight: '700',
+      color: Colors.text,
+      marginBottom: 4,
+    },
+    timeRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
     },
     topicMeta: {
       flexDirection: 'row',
@@ -551,89 +642,132 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     lockedBanner: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 8,
-      marginTop: 12,
-      padding: Spacing.sm,
+      gap: 10,
+      marginTop: 16,
+      padding: 14,
       backgroundColor: '#fee2e2',
-      borderRadius: BorderRadius.md,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: '#ef4444',
     },
     lockedText: {
-      fontSize: 13,
+      fontSize: 14,
       color: '#ef4444',
-      fontWeight: FontWeights.medium,
+      fontWeight: '700',
     },
     repliesSection: {
       padding: Spacing.md,
     },
+    repliesSectionHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      marginBottom: 16,
+      paddingBottom: 12,
+      borderBottomWidth: 2,
+      borderBottomColor: Colors.border,
+    },
     repliesHeader: {
-      fontSize: FontSizes.md,
-      fontWeight: FontWeights.semibold,
+      fontSize: 18,
+      fontWeight: '800',
       color: Colors.text,
-      marginBottom: Spacing.md,
     },
     replyCard: {
       backgroundColor: Colors.card,
-      borderRadius: BorderRadius.lg,
-      padding: Spacing.md,
-      marginBottom: 12,
+      borderRadius: 14,
+      padding: 16,
+      marginBottom: 14,
       borderWidth: 1,
       borderColor: Colors.border,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.08,
+      shadowRadius: 8,
+      elevation: 3,
     },
     replyCardSolution: {
       borderColor: '#10b981',
       borderWidth: 2,
-      backgroundColor: '#10b98105',
+      backgroundColor: '#ecfdf5',
     },
     solutionBadge: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 6,
+      gap: 8,
       alignSelf: 'flex-start',
-      paddingHorizontal: 10,
-      paddingVertical: 4,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
       backgroundColor: '#d1fae5',
-      borderRadius: BorderRadius.full,
-      marginBottom: 12,
+      borderRadius: 20,
+      marginBottom: 14,
     },
     solutionText: {
-      fontSize: 11,
+      fontSize: 12,
       color: '#047857',
-      fontWeight: FontWeights.semibold,
+      fontWeight: '700',
+      letterSpacing: 0.3,
     },
     replyHeader: {
       flexDirection: 'row',
       alignItems: 'flex-start',
       justifyContent: 'space-between',
-      marginBottom: 12,
-      gap: 8,
+      marginBottom: 14,
+      gap: 12,
     },
     replyAuthor: {
       flex: 1,
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 8,
+      gap: 12,
     },
-    authorName: {
-      fontSize: FontSizes.sm,
-      fontWeight: FontWeights.semibold,
-      color: Colors.text,
-    },
-    replyTime: {
-      fontSize: 11,
-      color: Colors.textSecondary,
-      marginTop: 2,
-    },
-    actionButton: {
-      padding: 8,
-      minWidth: 32,
-      minHeight: 32,
+    replyAvatar: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
       alignItems: 'center',
       justifyContent: 'center',
     },
-    replyContent: {
-      fontSize: FontSizes.sm,
+    replyAuthorInfo: {
+      flex: 1,
+    },
+    authorName: {
+      fontSize: 15,
+      fontWeight: '700',
       color: Colors.text,
-      lineHeight: 20,
+      marginBottom: 4,
+    },
+    replyTimeRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+    },
+    replyTime: {
+      fontSize: 12,
+      color: Colors.textSecondary,
+    },
+    actionsRow: {
+      flexDirection: 'row',
+      gap: 8,
+    },
+    actionButton: {
+      padding: 8,
+      minWidth: 36,
+      minHeight: 36,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: 10,
+      backgroundColor: 'rgba(0,0,0,0.04)',
+    },
+    actionButtonPrimary: {
+      backgroundColor: Colors.primary + '15',
+    },
+    actionButtonDanger: {
+      backgroundColor: '#fee2e2',
+    },
+    replyContent: {
+      fontSize: 15,
+      color: Colors.text,
+      lineHeight: 22,
     },
     replyInputContainer: {
       flexDirection: 'row',
