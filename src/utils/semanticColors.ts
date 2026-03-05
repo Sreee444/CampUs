@@ -100,18 +100,21 @@ export function getRegistrationColor(count: number, max: number | null): {
  */
 export function getTeamFillColor(percentage: number): string {
   if (percentage === 0) {
-    return SEMANTIC_COLORS.draft;
+    return SEMANTIC_COLORS.draft;    // gray
   }
   if (percentage >= 100) {
-    return SEMANTIC_COLORS.danger;
+    return '#dc2626';                // red — full
   }
   if (percentage >= 75) {
-    return SEMANTIC_COLORS.success;
+    return '#ea580c';                // orange — high warning
   }
-  if (percentage >= 40) {
-    return SEMANTIC_COLORS.warning;
+  if (percentage >= 50) {
+    return '#f59e0b';                // amber — warning
   }
-  return SEMANTIC_COLORS.info;
+  if (percentage >= 25) {
+    return '#0ea5e9';                // sky — moderate
+  }
+  return '#3b82f6';                  // blue — low fill
 }
 
 /**
@@ -242,7 +245,7 @@ export function getRegistrationButtonState(
   if (deadline < now) {
     return {
       color: '#FFFFFF',
-      bg: SEMANTIC_COLORS.danger,
+      bg: '#dc2626',
       label: 'Registration Closed',
       icon: 'block',
       disabled: true,

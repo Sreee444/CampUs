@@ -54,6 +54,7 @@ export default function EventsScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<'upcoming' | 'live' | 'past'>('upcoming');
   const [eventToDelete, setEventToDelete] = useState<any>(null);
+  const [showEventMenu, setShowEventMenu] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -126,6 +127,11 @@ export default function EventsScreen() {
   const canDeleteEvent = (event: any) => {
     if (!user?.id) return false;
     return user.id === event.created_by || profile?.role === 'admin';
+  };
+
+  const openEventMenu = (event: any) => {
+    setEventToDelete(event);
+    setShowEventMenu(true);
   };
 
   const handleDeleteEvent = async () => {
@@ -344,10 +350,8 @@ export default function EventsScreen() {
               {/* Event Header with Category & Actions */}
               <View style={styles.eventHeader}>
                 <View style={[styles.eventTypeBadge, { backgroundColor: typeStyle.bg }]}>
-                  <View style={[styles.eventTypeIconWrap, { backgroundColor: typeStyle.color }]}>
-                    <MaterialIcons name={typeStyle.icon as any} size={14} color="#fff" />
-                  </View>
-                  <Text style={[styles.eventTypeText, { color: typeStyle.color }]}>
+                  <MaterialIcons name={typeStyle.icon as any} size={14} color={typeStyle.color} />
+                  <Text style={[styles.eventTypeText, { color: typeStyle.color }]}> 
                     {event.event_type.toUpperCase()}
                   </Text>
                 </View>
@@ -361,11 +365,10 @@ export default function EventsScreen() {
                       style={styles.menuButton}
                       onPress={(e) => {
                         e.stopPropagation();
-                        setEventToDelete(event);
-                        setShowDeleteConfirm(true);
+                        openEventMenu(event);
                       }}
                     >
-                      <MaterialIcons name="delete-outline" size={20} color="#ef4444" />
+                      <MaterialIcons name="more-vert" size={20} color="#6b7280" />
                     </TouchableOpacity>
                   )}
                 </View>
@@ -373,46 +376,30 @@ export default function EventsScreen() {
 
               {/* Event Title & Description */}
               <Text style={styles.eventTitle} numberOfLines={2}>{event.title}</Text>
-              <Text style={styles.eventDescription} numberOfLines={3}>
-                {event.description}
-              </Text>
+              {!!event.description && (
+                <Text style={styles.eventDescription} numberOfLines={2}>
+                  {event.description}
+                </Text>
+              )}
 
-              {/* Eligibility Info */}
+              {/* Compact Eligibility */}
               {(() => {
                 const eligibleDepartments = (event.eligible_departments || []) as string[];
                 const eligibleYears = ((event.eligible_years || []) as number[]).slice().sort((a, b) => a - b);
                 const eligibilityType = event.eligibility_type || 'college';
                 const isOpenToAll = eligibilityType === 'college';
+                const depts = eligibleDepartments.length ? eligibleDepartments.join(', ') : 'All Departments';
+                const years = eligibleYears.length ? eligibleYears.map((y) => `Year ${y}`).join(', ') : 'All Years';
                 return (
-                  <View style={[styles.eligibilityCard, isOpenToAll && styles.eligibilityCardOpen]}>
-                    <View style={styles.eligibilityHeader}>
-                      <View style={[styles.eligibilityIconWrap, isOpenToAll && styles.eligibilityIconOpen]}>
-                        <MaterialIcons 
-                          name={isOpenToAll ? 'public' : 'verified-user'} 
-                          size={14} 
-                          color={isOpenToAll ? '#10b981' : '#6366f1'} 
-                        />
-                      </View>
-                      <Text style={[styles.eligibilityTitle, isOpenToAll && styles.eligibilityTitleOpen]}>
-                        {isOpenToAll ? '🌍 Open to All' : '🔒 Restricted Access'}
-                      </Text>
-                    </View>
-                    {!isOpenToAll && (
-                      <View style={styles.eligibilityDetails}>
-                        <View style={styles.eligibilityRow}>
-                          <Text style={styles.eligibilityLabel}>Departments:</Text>
-                          <Text style={styles.eligibilityValue} numberOfLines={1}>
-                            {eligibleDepartments.length ? eligibleDepartments.join(', ') : 'All'}
-                          </Text>
-                        </View>
-                        <View style={styles.eligibilityRow}>
-                          <Text style={styles.eligibilityLabel}>Years:</Text>
-                          <Text style={styles.eligibilityValue} numberOfLines={1}>
-                            {eligibleYears.length ? eligibleYears.map((y) => `Year ${y}`).join(', ') : 'All'}
-                          </Text>
-                        </View>
-                      </View>
-                    )}
+                  <View style={styles.eligibilityCompact}>
+                    <MaterialIcons
+                      name={isOpenToAll ? 'public' : 'verified-user'}
+                      size={14}
+                      color={isOpenToAll ? '#16a34a' : '#4f46e5'}
+                    />
+                    <Text style={styles.eligibilityCompactText} numberOfLines={1}>
+                      {isOpenToAll ? 'Open to all students' : `${depts} • ${years}`}
+                    </Text>
                   </View>
                 );
               })()}
@@ -539,7 +526,7 @@ export default function EventsScreen() {
                       <Text style={styles.blockedText}>{eligibility.reason || 'Not eligible for this event.'}</Text>
                     )}
                     {!blockedByEligibility && isRegClosed && !event.is_registered && (
-                      <Text style={styles.blockedText}>Registration is closed for this event.</Text>
+                      <Text style={[styles.blockedText, { color: '#991b1b' }]}>Registration is closed for this event.</Text>
                     )}
                   </View>
                 );
@@ -551,6 +538,47 @@ export default function EventsScreen() {
 
         <View style={{ height: 100 }} />
       </ScrollView>
+
+      <Modal
+        visible={showEventMenu}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowEventMenu(false)}
+      >
+        <TouchableOpacity
+          activeOpacity={1}
+          style={styles.menuOverlay}
+          onPress={() => setShowEventMenu(false)}
+        >
+          <View style={styles.menuSheet}>
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => {
+                setShowEventMenu(false);
+                if (eventToDelete?.id) {
+                  navigation.navigate('EventDetails', { eventId: eventToDelete.id });
+                }
+              }}
+            >
+              <MaterialIcons name="visibility" size={18} color="#374151" />
+              <Text style={styles.menuItemText}>View details</Text>
+            </TouchableOpacity>
+
+            {eventToDelete && canDeleteEvent(eventToDelete) && (
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={() => {
+                  setShowEventMenu(false);
+                  setShowDeleteConfirm(true);
+                }}
+              >
+                <MaterialIcons name="delete-outline" size={18} color="#dc2626" />
+                <Text style={styles.menuDeleteText}>Delete event</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {/* Delete Confirmation */}
       <ConfirmBottomSheet
@@ -593,13 +621,13 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     gap: 8,
   },
   addButton: {
-    backgroundColor: '#fb7185',
+    backgroundColor: '#4f46e5',
     borderRadius: BorderRadius.md,
     paddingVertical: 8,
     paddingHorizontal: 16,
     alignItems: 'center',
     marginLeft: 8,
-    shadowColor: '#fb7185',
+    shadowColor: '#4f46e5',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
@@ -649,68 +677,28 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     color: '#fff',
   },
   eventDescription: {
-    fontSize: 14,
-    color: '#6b7280',
-    marginBottom: 14,
-    lineHeight: 20,
-  },
-  eligibilityCard: {
-    backgroundColor: '#f8f9ff',
-    borderWidth: 1,
-    borderColor: '#e0e7ff',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 14,
-  },
-  eligibilityCardOpen: {
-    backgroundColor: '#f0fdf4',
-    borderColor: '#d1fae5',
-  },
-  eligibilityHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  eligibilityIconWrap: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#e0e7ff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  eligibilityIconOpen: {
-    backgroundColor: '#d1fae5',
-  },
-  eligibilityTitle: {
     fontSize: 13,
-    fontWeight: '700',
-    color: '#4f46e5',
-    letterSpacing: 0.3,
+    color: '#6b7280',
+    marginBottom: 10,
+    lineHeight: 18,
   },
-  eligibilityTitleOpen: {
-    color: '#047857',
-  },
-  eligibilityDetails: {
-    marginTop: 10,
-    gap: 6,
-  },
-  eligibilityRow: {
+  eligibilityCompact: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    marginBottom: 10,
   },
-  eligibilityLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#4f46e5',
-    width: 90,
-  },
-  eligibilityValue: {
+  eligibilityCompactText: {
     flex: 1,
     fontSize: 12,
     color: '#475569',
+    fontWeight: '500',
   },
   eligibilityText: {
     fontSize: 11,
@@ -765,8 +753,8 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     borderColor: 'rgba(255,255,255,0.8)',
   },
   categoryChipActive: {
-    backgroundColor: '#fb7185',
-    borderColor: '#fb7185',
+    backgroundColor: '#4f46e5',
+    borderColor: '#4f46e5',
   },
   categoryText: {
     fontSize: FontSizes.sm,
@@ -790,7 +778,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   tabActive: {
     borderBottomWidth: 2,
-    borderBottomColor: '#fb7185',
+    borderBottomColor: '#4f46e5',
   },
   tabText: {
     fontSize: FontSizes.sm,
@@ -798,7 +786,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     color: '#64748b',
   },
   tabTextActive: {
-    color: '#fb7185',
+    color: '#4f46e5',
     fontWeight: FontWeights.semibold,
   },
   scrollView: {
@@ -826,9 +814,9 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   eventCard: {
     backgroundColor: '#ffffff',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.12,
@@ -840,31 +828,23 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   eventBanner: {
     width: '100%',
-    height: 180,
-    borderRadius: 12,
-    marginBottom: 14,
+    height: 150,
+    borderRadius: 10,
+    marginBottom: 10,
   },
   eventHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 14,
+    marginBottom: 10,
   },
   eventTypeBadge: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 20,
-    gap: 8,
-  },
-  eventTypeIconWrap: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 14,
+    gap: 6,
   },
   eventTypeText: {
     fontSize: 12,
@@ -877,9 +857,12 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     gap: 8,
   },
   menuButton: {
-    padding: 8,
-    borderRadius: 12,
-    backgroundColor: '#fee2e2',
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f3f4f6',
   },
   dateBox: {
     width: 60,
@@ -904,11 +887,11 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     flex: 1,
   },
   eventTitle: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '700',
     color: '#111827',
-    marginBottom: 10,
-    lineHeight: 24,
+    marginBottom: 8,
+    lineHeight: 22,
   },
   eventDetail: {
     flexDirection: 'row',
@@ -918,26 +901,26 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     flexShrink: 1,
   },
   eventDetailsSection: {
-    gap: 8,
-    marginBottom: 12,
+    gap: 6,
+    marginBottom: 10,
   },
   eventDetailRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
     flexShrink: 1,
   },
   detailIconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
+    width: 26,
+    height: 26,
+    borderRadius: 8,
     backgroundColor: 'rgba(0,0,0,0.04)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   eventDetailText: {
     flex: 1,
-    fontSize: 13,
+    fontSize: 12,
     color: '#374151',
     fontWeight: '500',
   },
@@ -970,8 +953,8 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   premiumTimerContainer: {
     backgroundColor: SEMANTIC_COLORS.warningLight,
     borderRadius: BorderRadius.md,
-    padding: 10,
-    marginTop: 12,
+    padding: 8,
+    marginTop: 8,
     marginBottom: 8,
     borderLeftWidth: 3,
     borderLeftColor: SEMANTIC_COLORS.warning,
@@ -1008,12 +991,12 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   registerButton: {
     borderRadius: BorderRadius.md,
-    paddingVertical: 12,
+    paddingVertical: 11,
     paddingHorizontal: 20,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 12,
+    marginTop: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -1021,7 +1004,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     elevation: 2,
   },
   disabledButton: {
-    opacity: 0.6,
+    opacity: 1,
     shadowOpacity: 0,
     elevation: 0,
   },
@@ -1033,5 +1016,37 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     marginTop: 6,
     fontSize: 11,
     color: '#b45309',
+  },
+  menuOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.25)',
+    justifyContent: 'flex-end',
+    padding: 16,
+  },
+  menuSheet: {
+    backgroundColor: '#ffffff',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    overflow: 'hidden',
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
+  },
+  menuItemText: {
+    fontSize: 15,
+    color: '#111827',
+    fontWeight: '500',
+  },
+  menuDeleteText: {
+    fontSize: 15,
+    color: '#dc2626',
+    fontWeight: '600',
   },
 });

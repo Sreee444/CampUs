@@ -40,7 +40,7 @@ import { getProjectChatId, ensureProjectChat } from '../../api/projectChat';
 import { ProjectTeam } from '../../types/database';
 import { UserAvatar } from '../../components/UserAvatar';
 import { ConfirmBottomSheet } from '../../components/ConfirmBottomSheet';
-import { getProjectStatusColor, PROJECT_STATUS_OPTIONS } from '../../utils/semanticColors';
+import { getProjectStatusColor, getTeamFillColor, PROJECT_STATUS_OPTIONS } from '../../utils/semanticColors';
 import { createNotification } from '../../api/notifications';
 import { supabase } from '../../api/supabase';
 import { computeMatchScore, detectSkillRoles, ParticipantWithMatch, sortByMatch } from '../../utils/matchingUtils';
@@ -126,6 +126,7 @@ export default function ProjectDetailsScreen() {
   // Join request confirmation
   const [showJoinConfirmation, setShowJoinConfirmation] = useState(false);
   const [showDeleteProjectConfirmation, setShowDeleteProjectConfirmation] = useState(false);
+  const [showProjectMenu, setShowProjectMenu] = useState(false);
 
   const creatorId = team?.creator?.id ?? team?.created_by;
   const isCreator = user?.id === creatorId;
@@ -142,6 +143,7 @@ export default function ProjectDetailsScreen() {
   const teamProgressPercent = safeMaxMembers > 0
     ? Math.min(100, Math.round((safeMembersCount / safeMaxMembers) * 100))
     : 0;
+  const teamFillColor = getTeamFillColor(teamProgressPercent);
   const displayMembers = hasCreatorInMembers || !team?.creator ? nonAdvisorMembers : [team.creator, ...nonAdvisorMembers];
   const isMember = !!user?.id && (isCreator || teamMembers.some((member) => member.id === user?.id));
   const isTeamFull = safeMaxMembers > 0 ? safeMembersCount >= safeMaxMembers : false;
@@ -872,6 +874,9 @@ export default function ProjectDetailsScreen() {
     }
   };
 
+  const currentStatus = team?.status || 'planning';
+  const statusInfo = getProjectStatusColor(currentStatus);
+
   const renderJoinButton = () => {
     if (!user?.id) return null;
 
@@ -957,7 +962,7 @@ export default function ProjectDetailsScreen() {
 
     return (
       <TouchableOpacity
-        style={styles.joinButton}
+        style={[styles.joinButton, { backgroundColor: statusInfo.color }]}
         onPress={() => setShowJoinRequestModal(true)}
       >
         <MaterialIcons name="group-add" size={18} color="#fff" />
@@ -965,9 +970,6 @@ export default function ProjectDetailsScreen() {
       </TouchableOpacity>
     );
   };
-
-  const currentStatus = team?.status || 'planning';
-  const statusInfo = getProjectStatusColor(currentStatus);
 
   const filteredInviteCandidates = useMemo(() => {
     const query = inviteSearch.trim().toLowerCase();
@@ -1002,7 +1004,13 @@ export default function ProjectDetailsScreen() {
         <Text style={styles.headerTitle} numberOfLines={1}>
           {team?.name || 'Project Details'}
         </Text>
-        <View style={{ width: 40 }} />
+        {canManageTeam ? (
+          <TouchableOpacity style={styles.headerMenuBtn} onPress={() => setShowProjectMenu(true)}>
+            <MaterialIcons name="more-vert" size={24} color={Colors.text} />
+          </TouchableOpacity>
+        ) : (
+          <View style={{ width: 40 }} />
+        )}
       </View>
 
       {isLoading ? (
@@ -1023,18 +1031,32 @@ export default function ProjectDetailsScreen() {
                 <Text style={styles.category}>{team?.category || 'General'}</Text>
                 {team?.is_ai_generated && (
                   <View style={styles.aiBadge}>
-                    <MaterialIcons name="auto-awesome" size={12} color="#fb7185" />
+                    <MaterialIcons name="auto-awesome" size={12} color="#4f46e5" />
                     <Text style={styles.aiText}>AI</Text>
                   </View>
                 )}
               </View>
 
-              <View style={[styles.statusBadge, { backgroundColor: statusInfo.bg }]}>
-                <View style={[styles.statusDot, { backgroundColor: statusInfo.color }]} />
-                <Text style={[styles.statusText, { color: statusInfo.color }]}>
-                  {currentStatus.charAt(0).toUpperCase() + currentStatus.slice(1).replace(/-/g, ' ')}
-                </Text>
-              </View>
+              {canManageTeam ? (
+                <TouchableOpacity
+                  style={[styles.statusBadge, { backgroundColor: statusInfo.bg }]}
+                  onPress={() => setShowStatusModal(true)}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.statusDot, { backgroundColor: statusInfo.color }]} />
+                  <Text style={[styles.statusText, { color: statusInfo.color }]}>
+                    {currentStatus.charAt(0).toUpperCase() + currentStatus.slice(1).replace(/-/g, ' ')}
+                  </Text>
+                  <MaterialIcons name="keyboard-arrow-down" size={16} color={statusInfo.color} />
+                </TouchableOpacity>
+              ) : (
+                <View style={[styles.statusBadge, { backgroundColor: statusInfo.bg }]}>
+                  <View style={[styles.statusDot, { backgroundColor: statusInfo.color }]} />
+                  <Text style={[styles.statusText, { color: statusInfo.color }]}>
+                    {currentStatus.charAt(0).toUpperCase() + currentStatus.slice(1).replace(/-/g, ' ')}
+                  </Text>
+                </View>
+              )}
             </View>
 
             <Text style={styles.projectTitle}>{team?.name}</Text>
@@ -1043,45 +1065,51 @@ export default function ProjectDetailsScreen() {
             </Text>
 
             {/* Action Buttons */}
-            <View style={styles.actionButtons}>
-              {canManageTeam && (
+            {canManageTeam && (
+              <View style={styles.actionButtons}>
                 <TouchableOpacity
-                  style={styles.changeStatusButton}
+                  style={[styles.actionBtn, { borderColor: statusInfo.color }]}
                   onPress={() => setShowStatusModal(true)}
                 >
-                  <MaterialIcons name="swap-horiz" size={18} color="#fb7185" />
-                  <Text style={styles.changeStatusText}>Change Status</Text>
+                  <MaterialIcons name="swap-horiz" size={16} color={statusInfo.color} />
+                  <Text style={[styles.actionBtnText, { color: statusInfo.color }]}>Status</Text>
                 </TouchableOpacity>
-              )}
-              {canManageTeam && (
                 <TouchableOpacity
-                  style={styles.editProjectButton}
+                  style={[styles.actionBtn, { borderColor: '#4f46e5' }]}
                   onPress={handleOpenEditProject}
                 >
-                  <MaterialIcons name="edit" size={18} color="#fb7185" />
-                  <Text style={styles.editProjectText}>Edit Project</Text>
+                  <MaterialIcons name="edit" size={16} color="#4f46e5" />
+                  <Text style={[styles.actionBtnText, { color: '#4f46e5' }]}>Edit</Text>
                 </TouchableOpacity>
-              )}
-              {canManageTeam && (
                 <TouchableOpacity
-                  style={styles.deleteProjectButton}
+                  style={[styles.actionBtn, { borderColor: '#4f46e5' }]}
+                  onPress={() => setShowInviteModal(true)}
+                >
+                  <MaterialIcons name="person-add" size={16} color="#4f46e5" />
+                  <Text style={[styles.actionBtnText, { color: '#4f46e5' }]}>Invite</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.actionBtn, { borderColor: '#dc2626' }]}
                   onPress={() => setShowDeleteProjectConfirmation(true)}
                 >
-                  <MaterialIcons name="delete-outline" size={18} color="#ef4444" />
-                  <Text style={styles.deleteProjectText}>Delete Project</Text>
+                  <MaterialIcons name="delete-outline" size={16} color="#dc2626" />
+                  <Text style={[styles.actionBtnText, { color: '#dc2626' }]}>Delete</Text>
                 </TouchableOpacity>
-              )}
+              </View>
+            )}
+
+            {/* Role-based action row */}
+            <View style={styles.roleActions}>
               {renderJoinButton()}
               {isMember && (
                 <TouchableOpacity
-                  style={[styles.inviteMembersButton, { backgroundColor: '#4F46E5', marginTop: 12 }]}
+                  style={[styles.teamChatButton, { backgroundColor: statusInfo.color }]}
                   onPress={async () => {
                     if (isOpeningProjectChat) return;
                     try {
                       setIsOpeningProjectChat(true);
                       let chatId = projectChatId;
                       if (!chatId) {
-                        // Auto-create chat if it doesn't exist (for old projects)
                         const memberIds = (team?.members || []).map((m) => m.id).filter(Boolean);
                         if (team?.creator?.id) memberIds.push(team.creator.id);
                         chatId = await ensureProjectChat(teamId, memberIds);
@@ -1103,7 +1131,7 @@ export default function ProjectDetailsScreen() {
                     ? <ActivityIndicator size="small" color="#fff" />
                     : <>
                       <MaterialIcons name="chat" size={18} color="#fff" />
-                      <Text style={styles.inviteMembersText}>Team Chat</Text>
+                      <Text style={styles.teamChatBtnText}>Team Chat</Text>
                     </>
                   }
                 </TouchableOpacity>
@@ -1114,7 +1142,7 @@ export default function ProjectDetailsScreen() {
           {/* Stats Cards */}
           <View style={styles.statsContainer}>
             <View style={styles.statCard}>
-              <MaterialIcons name="group" size={24} color="#fb7185" />
+              <MaterialIcons name="group" size={24} color={statusInfo.color} />
               <Text style={styles.statValue}>{safeMembersCount}</Text>
               <Text style={styles.statLabel}>Members</Text>
             </View>
@@ -1137,7 +1165,7 @@ export default function ProjectDetailsScreen() {
             <View style={styles.progressSection}>
               <View style={styles.progressHeader}>
                 <Text style={styles.progressLabel}>Team Progress</Text>
-                <Text style={styles.progressValue}>{teamProgressPercent}%</Text>
+                <Text style={[styles.progressValue, { color: teamFillColor }]}>{teamProgressPercent}%</Text>
               </View>
               <View style={styles.progressBar}>
                 <View
@@ -1145,6 +1173,7 @@ export default function ProjectDetailsScreen() {
                     styles.progressFill,
                     {
                       width: `${teamProgressPercent}%`,
+                      backgroundColor: teamFillColor,
                     },
                   ]}
                 />
@@ -1264,7 +1293,7 @@ export default function ProjectDetailsScreen() {
                     showRing
                   />
                   <View>
-                    <Text style={styles.facultyName}>{(team as any).mentor.full_name || 'Mentor'}</Text>
+                    <Text style={styles.mentorName}>{(team as any).mentor.full_name || 'Mentor'}</Text>
                     <Text style={styles.facultyRole}>{(team as any).mentor.department || (team as any).mentor.role || 'Mentor'}</Text>
                   </View>
                 </View>
@@ -1344,48 +1373,33 @@ export default function ProjectDetailsScreen() {
             </View>
           </View>
 
-          {/* Invite Members */}
-          {isCreator && (
+          {/* Invite Members — pending invites only (button moved to header actions) */}
+          {isCreator && pendingInvites.length > 0 && (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Invite Members</Text>
-              <Text style={styles.sectionSubtitle}>
-                Invite students to join your project and see how well they match your required skills.
-              </Text>
-              <TouchableOpacity
-                style={styles.inviteMembersButton}
-                onPress={() => setShowInviteModal(true)}
-              >
-                <MaterialIcons name="person-add" size={18} color="#fff" />
-                <Text style={styles.inviteMembersText}>Invite People</Text>
-              </TouchableOpacity>
-              {pendingInvites.length > 0 && (
-                <View style={styles.pendingInvites}>
-                  <Text style={styles.pendingInvitesTitle}>Pending Invites</Text>
-                  {pendingInvites.slice(0, 3).map((invite) => (
-                    <View key={invite.id} style={styles.pendingInviteItem}>
-                      <UserAvatar
-                        uri={invite.user.avatar_url}
-                        name={invite.user.full_name || invite.user.email}
-                        size={36}
-                        role={invite.user.role}
-                        showRing
-                      />
-                      <View style={styles.pendingInviteInfo}>
-                        <Text style={styles.pendingInviteName}>
-                          {invite.user.full_name || invite.user.email}
-                        </Text>
-                        <Text style={styles.pendingInviteMeta}>Invitation sent</Text>
-                      </View>
-                      <TouchableOpacity
-                        style={styles.cancelInviteButton}
-                        onPress={() => handleCancelInvite(invite)}
-                      >
-                        <MaterialIcons name="close" size={16} color="#ef4444" />
-                      </TouchableOpacity>
-                    </View>
-                  ))}
+              <Text style={styles.sectionTitle}>Pending Invites</Text>
+              {pendingInvites.slice(0, 3).map((invite) => (
+                <View key={invite.id} style={styles.pendingInviteItem}>
+                  <UserAvatar
+                    uri={invite.user.avatar_url}
+                    name={invite.user.full_name || invite.user.email}
+                    size={36}
+                    role={invite.user.role}
+                    showRing
+                  />
+                  <View style={styles.pendingInviteInfo}>
+                    <Text style={styles.pendingInviteName}>
+                      {invite.user.full_name || invite.user.email}
+                    </Text>
+                    <Text style={styles.pendingInviteMeta}>Invitation sent</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.cancelInviteButton}
+                    onPress={() => handleCancelInvite(invite)}
+                  >
+                    <MaterialIcons name="close" size={16} color="#ef4444" />
+                  </TouchableOpacity>
                 </View>
-              )}
+              ))}
             </View>
           )}
 
@@ -1424,7 +1438,7 @@ export default function ProjectDetailsScreen() {
                       {status.label}
                     </Text>
                   </View>
-                  {isActive && <MaterialIcons name="check" size={20} color="#fb7185" />}
+                  {isActive && <MaterialIcons name="check" size={20} color="#4f46e5" />}
                 </TouchableOpacity>
               );
             })}
@@ -1716,7 +1730,7 @@ export default function ProjectDetailsScreen() {
         message={`Send your request to join ${team?.name}? The team creator will review and respond to your request.`}
         confirmText={isSendingRequest ? 'Sending...' : 'Send Request'}
         cancelText="Go Back"
-        confirmColor="#fb7185"
+        confirmColor="#4f46e5"
         icon="send"
       />
 
@@ -1767,6 +1781,71 @@ export default function ProjectDetailsScreen() {
               <Text style={[styles.memberActionItemText, { color: '#ef4444' }]}>Remove from Team</Text>
             </TouchableOpacity>
           </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Project Menu (3-dot) */}
+      <Modal
+        visible={showProjectMenu}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowProjectMenu(false)}
+      >
+        <TouchableOpacity
+          activeOpacity={1}
+          style={styles.projectMenuOverlay}
+          onPress={() => setShowProjectMenu(false)}
+        >
+          <View style={styles.projectMenuSheet}>
+            <View style={styles.modalHandle} />
+            <Text style={[styles.modalTitle, { marginBottom: 12 }]}>Project Options</Text>
+            <TouchableOpacity
+              style={styles.projectMenuItem}
+              onPress={() => {
+                setShowProjectMenu(false);
+                setShowStatusModal(true);
+              }}
+            >
+              <View style={[styles.projectMenuIcon, { backgroundColor: statusInfo.bg }]}>  
+                <MaterialIcons name="swap-horiz" size={20} color={statusInfo.color} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.projectMenuItemText}>Change Status</Text>
+                <Text style={styles.projectMenuItemSub}>Currently: {currentStatus.replace(/-/g, ' ')}</Text>
+              </View>
+              <MaterialIcons name="chevron-right" size={20} color="#9ca3af" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.projectMenuItem}
+              onPress={() => {
+                setShowProjectMenu(false);
+                handleOpenEditProject();
+              }}
+            >
+              <View style={[styles.projectMenuIcon, { backgroundColor: '#eef2ff' }]}>
+                <MaterialIcons name="edit" size={20} color="#4f46e5" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.projectMenuItemText}>Edit Project</Text>
+                <Text style={styles.projectMenuItemSub}>Name, description, members</Text>
+              </View>
+              <MaterialIcons name="chevron-right" size={20} color="#9ca3af" />
+            </TouchableOpacity>
+            <View style={styles.projectMenuDivider} />
+            <TouchableOpacity
+              style={styles.projectMenuItem}
+              onPress={() => {
+                setShowProjectMenu(false);
+                setShowDeleteProjectConfirmation(true);
+              }}
+            >
+              <View style={[styles.projectMenuIcon, { backgroundColor: '#fee2e2' }]}>
+                <MaterialIcons name="delete-outline" size={20} color="#dc2626" />
+              </View>
+              <Text style={[styles.projectMenuItemText, { color: '#dc2626', flex: 1 }]}>Delete Project</Text>
+              <MaterialIcons name="chevron-right" size={20} color="#9ca3af" />
+            </TouchableOpacity>
+          </View>
         </TouchableOpacity>
       </Modal>
 
@@ -1859,7 +1938,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     category: {
       fontSize: FontSizes.xs,
       fontWeight: FontWeights.bold,
-      color: '#fb7185',
+      color: '#4f46e5',
       letterSpacing: 1.2,
       textTransform: 'uppercase',
     },
@@ -1870,12 +1949,12 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       paddingHorizontal: 8,
       paddingVertical: 2,
       borderRadius: BorderRadius.full,
-      backgroundColor: '#ffe4e6',
+      backgroundColor: '#eef2ff',
     },
     aiText: {
       fontSize: FontSizes.xs,
       fontWeight: FontWeights.semibold,
-      color: '#fb7185',
+      color: '#4f46e5',
     },
     statusBadge: {
       flexDirection: 'row',
@@ -1911,56 +1990,50 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     actionButtons: {
       flexDirection: 'row',
       flexWrap: 'wrap',
+      gap: 8,
+      marginTop: Spacing.md,
+    },
+    actionBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 5,
+      paddingHorizontal: 14,
+      paddingVertical: 9,
+      borderRadius: BorderRadius.full,
+      borderWidth: 1.5,
+      backgroundColor: 'transparent',
+      flexGrow: 1,
+      flexBasis: '40%',
+    },
+    actionBtnText: {
+      fontSize: FontSizes.xs,
+      fontWeight: FontWeights.semibold,
+    },
+    roleActions: {
+      flexDirection: 'row',
       gap: Spacing.sm,
       marginTop: Spacing.sm,
     },
-    changeStatusButton: {
+    teamChatButton: {
+      flex: 1,
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 6,
-      paddingHorizontal: 16,
-      paddingVertical: 10,
+      justifyContent: 'center',
+      gap: 8,
+      paddingVertical: 12,
       borderRadius: BorderRadius.lg,
-      borderWidth: 1.5,
-      borderColor: '#fb7185',
-      backgroundColor: 'transparent',
     },
-    changeStatusText: {
+    teamChatBtnText: {
       fontSize: FontSizes.sm,
       fontWeight: FontWeights.semibold,
-      color: '#fb7185',
+      color: '#fff',
     },
-    editProjectButton: {
-      flexDirection: 'row',
+    headerMenuBtn: {
+      width: 40,
+      height: 40,
       alignItems: 'center',
-      gap: 6,
-      paddingHorizontal: 16,
-      paddingVertical: 10,
-      borderRadius: BorderRadius.lg,
-      borderWidth: 1.5,
-      borderColor: '#fb7185',
-      backgroundColor: 'transparent',
-    },
-    editProjectText: {
-      fontSize: FontSizes.sm,
-      fontWeight: FontWeights.semibold,
-      color: '#fb7185',
-    },
-    deleteProjectButton: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-      paddingHorizontal: 16,
-      paddingVertical: 10,
-      borderRadius: BorderRadius.lg,
-      borderWidth: 1.5,
-      borderColor: '#ef4444',
-      backgroundColor: 'transparent',
-    },
-    deleteProjectText: {
-      fontSize: FontSizes.sm,
-      fontWeight: FontWeights.semibold,
-      color: '#ef4444',
+      justifyContent: 'center',
     },
     joinButton: {
       flex: 1,
@@ -1970,7 +2043,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       gap: 6,
       paddingVertical: 10,
       borderRadius: BorderRadius.lg,
-      backgroundColor: '#fb7185',
+      backgroundColor: '#4f46e5',
     },
     joinButtonText: {
       fontSize: FontSizes.sm,
@@ -2083,7 +2156,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     progressValue: {
       fontSize: FontSizes.sm,
       fontWeight: FontWeights.bold,
-      color: '#fb7185',
+      color: '#4f46e5',
     },
     progressBar: {
       height: 10,
@@ -2093,7 +2166,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     },
     progressFill: {
       height: '100%',
-      backgroundColor: '#fb7185',
+      backgroundColor: '#4f46e5',
       borderRadius: 5,
     },
 
@@ -2124,7 +2197,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       width: 24,
       height: 24,
       borderRadius: 12,
-      backgroundColor: '#fb7185',
+      backgroundColor: '#4f46e5',
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -2228,6 +2301,11 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       fontSize: FontSizes.md,
       fontWeight: FontWeights.semibold,
       color: Colors.text,
+    },
+    mentorName: {
+      fontSize: FontSizes.md,
+      fontWeight: FontWeights.semibold,
+      color: '#0369a1',
     },
     facultyRole: {
       fontSize: FontSizes.sm,
@@ -2435,7 +2513,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       marginBottom: Spacing.xs,
     },
     statusOptionActive: {
-      backgroundColor: '#ffe4e6',
+      backgroundColor: '#eef2ff',
     },
     statusOptionLeft: {
       flexDirection: 'row',
@@ -2454,7 +2532,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     },
     statusOptionLabelActive: {
       fontWeight: FontWeights.semibold,
-      color: '#fb7185',
+      color: '#4f46e5',
     },
     joinInput: {
       backgroundColor: Colors.card,
@@ -2686,7 +2764,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       flex: 1,
       paddingVertical: 14,
       borderRadius: BorderRadius.lg,
-      backgroundColor: '#fb7185',
+      backgroundColor: '#4f46e5',
       alignItems: 'center',
     },
     joinModalSendText: {
@@ -2735,5 +2813,48 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       height: 1,
       backgroundColor: Colors.border,
       marginVertical: 2,
+    },
+
+    // Project Menu (3-dot)
+    projectMenuOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.4)',
+      justifyContent: 'flex-end',
+    },
+    projectMenuSheet: {
+      backgroundColor: Colors.surface,
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
+      padding: Spacing.lg,
+      paddingBottom: Spacing.xl,
+    },
+    projectMenuItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 14,
+      paddingVertical: 14,
+      paddingHorizontal: 4,
+    },
+    projectMenuIcon: {
+      width: 40,
+      height: 40,
+      borderRadius: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    projectMenuItemText: {
+      fontSize: FontSizes.md,
+      fontWeight: FontWeights.semibold,
+      color: Colors.text,
+    },
+    projectMenuItemSub: {
+      fontSize: FontSizes.xs,
+      color: Colors.textSecondary,
+      marginTop: 2,
+    },
+    projectMenuDivider: {
+      height: 1,
+      backgroundColor: Colors.border,
+      marginVertical: 4,
     },
   });
