@@ -373,7 +373,7 @@ export default function ProjectsScreen() {
                         size={20}
                         showRing={false}
                       />
-                      <Text style={[styles.creatorText, { color: Colors.primary }]}>
+                      <Text style={[styles.creatorText, { color: '#0369a1' }]}>
                         Mentor: {project.mentor.full_name}
                       </Text>
                     </View>
@@ -479,10 +479,10 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#fb7185',
+    backgroundColor: '#4f46e5',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#fb7185',
+    shadowColor: '#4f46e5',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
@@ -503,7 +503,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     borderBottomColor: 'transparent',
   },
   tabActive: {
-    borderBottomColor: '#fb7185',
+    borderBottomColor: '#4f46e5',
   },
   tabText: {
     fontSize: FontSizes.sm,
@@ -511,7 +511,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     color: Colors.textSecondary,
   },
   tabTextActive: {
-    color: '#fb7185',
+    color: '#4f46e5',
     fontWeight: FontWeights.semibold,
   },
   searchSection: {
@@ -555,8 +555,8 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     borderColor: 'rgba(255,255,255,0.8)',
   },
   categoryChipActive: {
-    backgroundColor: '#fb7185',
-    borderColor: '#fb7185',
+    backgroundColor: '#4f46e5',
+    borderColor: '#4f46e5',
   },
   categoryText: {
     fontSize: FontSizes.sm,
@@ -703,7 +703,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   changeStatusText: {
     fontSize: FontSizes.sm,
     fontWeight: FontWeights.semibold,
-    color: '#fb7185',
+    color: '#4f46e5',
   },
   projectDescription: {
     fontSize: FontSizes.sm,
@@ -811,7 +811,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   viewButtonText: {
     fontSize: FontSizes.sm,
     fontWeight: FontWeights.medium,
-    color: '#fb7185',
+    color: '#4f46e5',
   },
   loadingWrapper: {
     flex: 1,

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
@@ -7,9 +7,12 @@ import {
   TouchableOpacity,
   StyleSheet,
   SafeAreaView,
-  Alert,
   Image,
   ActivityIndicator,
+  Animated,
+  Modal,
+  Pressable,
+  Platform,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -22,497 +25,219 @@ import { EventStatus } from '../../components/CountdownTimer';
 import { scheduleEventReminder, createEventReminder } from '../../api/eventReminders';
 import Toast from 'react-native-toast-message';
 import { isAdminRole } from '../../utils/roles';
-import { LinearGradient } from 'expo-linear-gradient';
 import { ConfirmBottomSheet } from '../../components/ConfirmBottomSheet';
 import { createNotification } from '../../api/notifications';
 import { loadMyTeamState, cancelJoinRequest, acceptInvite, rejectInvite } from '../../utils/teamActions';
 import { evaluateEventEligibility } from '../../utils/eventEligibility';
 
-type EventDetailsScreenNavigationProp = StackNavigationProp<RootStackParamList, 'EventDetails'>;
-type EventDetailsScreenRouteProp = RouteProp<RootStackParamList, 'EventDetails'>;
+type Nav = StackNavigationProp<RootStackParamList, 'EventDetails'>;
+type Route = RouteProp<RootStackParamList, 'EventDetails'>;
 
 interface EventDetails {
   id: string;
   title: string;
   description: string;
+  event_type: string;
   start_date: string;
   end_date: string;
+  registration_deadline: string;
   venue: string;
   is_online: boolean;
   meeting_link?: string;
-  event_type: string;
   max_participants: number;
-  registration_deadline: string;
   banner_image?: string;
   created_by: string;
-  organizers: string[];
   is_registered?: boolean;
   registrations_count: number;
-  organizer_profile?: {
-    full_name: string;
-    avatar_url?: string;
-  };
-  // Team fields
-  participation_type?: 'individual' | 'team';
-  max_team_size?: number;
-  min_team_size?: number;
-  eligible_departments?: string[];
-  eligible_years?: number[];
-  eligibility_type?: string;
+  organizer_profile?: { full_name: string };
 }
 
 export default function EventDetailsScreen() {
-  const navigation = useNavigation<EventDetailsScreenNavigationProp>();
-  const route = useRoute<EventDetailsScreenRouteProp>();
+  const navigation = useNavigation<Nav>();
+  const route = useRoute<Route>();
   const { user, profile } = useAuth();
+  const eventId = route.params?.eventId;
+
   const [event, setEvent] = useState<EventDetails | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRegistering, setIsRegistering] = useState(false);
-  const [showRegisterConfirmation, setShowRegisterConfirmation] = useState(false);
-  const [showUnregisterConfirmation, setShowUnregisterConfirmation] = useState(false);
-  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  // Team zone state
-  // Centralized team state
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showRegisterConfirm, setShowRegisterConfirm] = useState(false);
+  const [showUnregisterConfirm, setShowUnregisterConfirm] = useState(false);
+  const [menuVisible, setMenuVisible] = useState(false);
+
+  // Team state
   const [teamState, setTeamState] = useState<any>(null);
-  const [isCheckingTeam, setIsCheckingTeam] = useState(true);
-  const [isHandlingInvite, setIsHandlingInvite] = useState(false);
+  const [isCheckingTeam, setIsCheckingTeam] = useState(false);
   const [isLookingForTeam, setIsLookingForTeam] = useState(false);
-  const [isTogglingLookingForTeam, setIsTogglingLookingForTeam] = useState(false);
+  const [isTogglingLooking, setIsTogglingLooking] = useState(false);
+  const [isHandlingInvite, setIsHandlingInvite] = useState(false);
 
-  const { eventId } = route.params;
+  // Scroll animation for collapsing header
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const headerOpacity = scrollY.interpolate({
+    inputRange: [0, 80],
+    outputRange: [0, 1],
+    extrapolate: 'clamp',
+  });
 
+  /* ─── DATA LOADING ─── */
   const loadEventDetails = useCallback(async () => {
     try {
       setIsLoading(true);
-
-      const { data, error } = await supabase
+      const { data: ev, error } = await supabase
         .from('events')
-        .select(`
-          *,
-          organizer_profile:profiles!events_created_by_fkey(
-            full_name,
-            avatar_url
-          )
-        `)
+        .select('*, organizer_profile:profiles!events_created_by_fkey(full_name)')
         .eq('id', eventId)
         .single();
-
       if (error) throw error;
 
-      // Check if user is registered for this event
-      let isRegistered = false;
-      if (user?.id) {
-        const { data: registrationData, error: regError } = await supabase
+      if (user) {
+        const { data: reg } = await supabase
           .from('event_registrations')
           .select('id')
           .eq('event_id', eventId)
           .eq('user_id', user.id)
-          .neq('status', 'cancelled')
+          .eq('status', 'registered')
           .maybeSingle();
-
-        if (!regError && registrationData) {
-          isRegistered = true;
-        }
+        (ev as any).is_registered = !!reg;
       }
-
-      // Get participant count — no status filter for accurate total
-      const { count: participantCount } = await supabase
+      const { count } = await supabase
         .from('event_registrations')
         .select('*', { count: 'exact', head: true })
-        .eq('event_id', eventId);
-
-      console.log('Event registration check:', { isRegistered, userId: user?.id, eventId });
-
-      setEvent({
-        ...(data as any),
-        is_registered: isRegistered,
-        registrations_count: participantCount || 0,
-      } as EventDetails);
-    } catch (error) {
-      console.error('Failed to load event details:', error);
-      Toast.show({
-        type: 'error',
-        text1: 'Failed to load event',
-        text2: 'Please try again',
-      });
+        .eq('event_id', eventId)
+        .eq('status', 'registered');
+      (ev as any).registrations_count = count || 0;
+      setEvent(ev as any);
+    } catch {
+      Toast.show({ type: 'error', text1: 'Failed to load event' });
     } finally {
       setIsLoading(false);
     }
-  }, [eventId, user?.id]);
+  }, [eventId, user]);
 
-  // Load team status — ONLY from event_registrations with status='registered'
-  // This is the single source of truth. Always called via useFocusEffect.
-  // Centralized loader for team state
   const loadTeamStatus = useCallback(async () => {
-    if (!user?.id) return;
+    if (!user || !event?.is_registered || (event as any)?.participation_type !== 'team') return;
     try {
       setIsCheckingTeam(true);
-      const [state, scopedMembershipRes] = await Promise.all([
-        loadMyTeamState(eventId, user.id),
-        (supabase as any)
-          .from('event_team_members')
-          .select(`
-            team_id,
-            role,
-            status,
-            team:event_teams!inner(
-              id,
-              name,
-              event_id
-            )
-          `)
-          .eq('user_id', user.id)
-          .eq('status', 'active')
-          .eq('team.event_id', eventId)
-          .limit(1)
-          .maybeSingle(),
-      ]);
+      const state = await loadMyTeamState(eventId, user.id);
+      setTeamState(state);
 
-      const scopedTeamId = scopedMembershipRes?.data?.team_id ?? null;
-      const scopedTeamName = scopedMembershipRes?.data?.team?.name ?? null;
-      let teamMembersCount = 0;
-      if (scopedTeamId) {
-        const { count } = await (supabase as any)
-          .from('event_team_members')
-          .select('*', { count: 'exact', head: true })
-          .eq('team_id', scopedTeamId)
-          .eq('status', 'active');
-        teamMembersCount = count ?? 0;
-      }
-      setTeamState({
-        ...state,
-        teamId: scopedTeamId,
-        userTeamId: scopedTeamId,
-        teamName: scopedTeamName,
-        teamMembersCount,
-        isInTeam: !!scopedTeamId,
-      });
+      const { data: memberData } = await supabase
+        .from('event_team_members')
+        .select('team_id, event_teams!inner(event_id)')
+        .eq('user_id', user.id)
+        .eq('event_teams.event_id', eventId)
+        .limit(1) as any;
 
-      // Load looking_for_team flag
-      if (user?.id) {
-        const { data: regRow } = await (supabase as any)
-          .from('event_registrations')
-          .select('looking_for_team')
-          .eq('event_id', eventId)
-          .eq('user_id', user.id)
-          .maybeSingle();
-        setIsLookingForTeam(regRow?.looking_for_team ?? false);
+      if (memberData && memberData.length > 0) {
+        setTeamState((p: any) => ({ ...p, isInTeam: true, teamId: memberData[0].team_id }));
       }
+
+      const { data: regRow } = await supabase
+        .from('event_registrations')
+        .select('looking_for_team')
+        .eq('event_id', eventId)
+        .eq('user_id', user.id)
+        .eq('status', 'registered')
+        .maybeSingle() as any;
+      setIsLookingForTeam(regRow?.looking_for_team === true);
     } catch (err) {
-      console.error('Team status error:', err);
-      setTeamState(null);
+      console.error('Error loading team status:', err);
     } finally {
       setIsCheckingTeam(false);
     }
-  }, [eventId, user?.id]);
+  }, [user, event?.is_registered, eventId]);
 
-  // Initial event load (once)
-  useEffect(() => {
-    loadEventDetails();
-  }, [loadEventDetails]);
+  useFocusEffect(useCallback(() => { loadEventDetails(); }, [loadEventDetails]));
+  useEffect(() => { if (event) loadTeamStatus(); }, [event?.is_registered, loadTeamStatus]);
 
-  // useFocusEffect is the SOLE trigger for team status:
-  // runs on mount AND every time the user navigates back to this screen.
-  useFocusEffect(
-    useCallback(() => {
-      if (user?.id) {
-        loadTeamStatus();
-      }
-    }, [eventId, user?.id, loadTeamStatus])
-  );
-
-  // Prevent team state carry-over between events.
-  useEffect(() => {
-    setTeamState(null);
-    setIsCheckingTeam(true);
-  }, [eventId]);
-
-  const cleanupTeamOnEventLeave = useCallback(async (currentEventId: string, currentUserId: string) => {
-    const { data: membershipRow, error: membershipError } = await (supabase as any)
-      .from('event_team_members')
-      .select(`
-        team_id,
-        role,
-        team:event_teams!inner(
-          id,
-          event_id,
-          leader_id
-        )
-      `)
-      .eq('user_id', currentUserId)
-      .eq('status', 'active')
-      .eq('team.event_id', currentEventId)
-      .limit(1)
-      .maybeSingle();
-
-    if (membershipError) throw membershipError;
-    if (!membershipRow?.team_id) return;
-
-    const teamId = membershipRow.team_id as string;
-    const isLeader = membershipRow.role === 'leader' || membershipRow.team?.leader_id === currentUserId;
-
-    const { error: removeMembershipError } = await (supabase as any)
-      .from('event_team_members')
-      .delete()
-      .eq('team_id', teamId)
-      .eq('user_id', currentUserId);
-    if (removeMembershipError) throw removeMembershipError;
-
-    if (isLeader) {
-      const { error: clearTeamRegsError } = await (supabase as any)
-        .from('event_registrations')
-        .update({ team_id: null, looking_for_team: false })
-        .eq('event_id', currentEventId)
-        .eq('team_id', teamId);
-      if (clearTeamRegsError) throw clearTeamRegsError;
-
-      await (supabase as any)
-        .from('team_requests')
-        .delete()
-        .eq('event_id', currentEventId)
-        .eq('team_id', teamId);
-
-      await (supabase as any)
-        .from('event_team_members')
-        .delete()
-        .eq('team_id', teamId);
-
-      const { error: deleteTeamError } = await (supabase as any)
-        .from('event_teams')
-        .delete()
-        .eq('id', teamId)
-        .eq('event_id', currentEventId);
-      if (deleteTeamError) throw deleteTeamError;
-
-      return;
-    }
-
-    const { count: remainingMembers, error: remainingMembersError } = await (supabase as any)
-      .from('event_team_members')
-      .select('*', { count: 'exact', head: true })
-      .eq('team_id', teamId)
-      .eq('status', 'active');
-    if (remainingMembersError) throw remainingMembersError;
-
-    if ((remainingMembers ?? 0) === 0) {
-      await (supabase as any)
-        .from('team_requests')
-        .delete()
-        .eq('event_id', currentEventId)
-        .eq('team_id', teamId);
-
-      const { error: deleteEmptyTeamError } = await (supabase as any)
-        .from('event_teams')
-        .delete()
-        .eq('id', teamId)
-        .eq('event_id', currentEventId);
-      if (deleteEmptyTeamError) throw deleteEmptyTeamError;
-    }
-  }, []);
-
-  // Notify all admin users
-  const notifyAdmins = async (title: string, message: string) => {
+  /* ─── TEAM CLEANUP ─── */
+  const cleanupTeamOnEventLeave = async () => {
+    if (!user) return;
     try {
-      const { data: admins } = await supabase
-        .from('profiles')
-        .select('id')
-        .in('role', ['admin', 'developer']);
-
-      if (admins) {
-        // Insert notifications directly to avoid type mismatch
-        const notifications = admins.map((admin: { id: string }) => ({
-          user_id: admin.id,
-          title,
-          message,
-          type: 'event',
-          related_id: eventId,
-          is_read: false,
-          created_at: new Date().toISOString(),
-        }));
-
-        const { error } = await supabase
-          .from('notifications')
-          .insert(notifications as any);
-
-        if (error) throw error;
+      const { data: membership } = await supabase
+        .from('event_team_members')
+        .select('id, role, team_id, event_teams!inner(event_id)')
+        .eq('user_id', user.id)
+        .eq('event_teams.event_id', eventId)
+        .limit(1) as any;
+      if (!membership || membership.length === 0) return;
+      const { role, team_id } = membership[0];
+      await supabase.from('event_team_members').delete().eq('user_id', user.id).eq('team_id', team_id);
+      if (role === 'leader') {
+        const { data: remaining } = await supabase
+          .from('event_team_members').select('user_id').eq('team_id', team_id) as any;
+        if (!remaining || remaining.length === 0) {
+          await supabase.from('event_teams').delete().eq('id', team_id);
+        } else {
+          await (supabase.from('event_team_members') as any)
+            .update({ role: 'leader' }).eq('team_id', team_id).eq('user_id', remaining[0].user_id);
+        }
       }
-    } catch (error) {
-      console.error('Failed to notify admins:', error);
-    }
+    } catch (err) { console.error('Error cleaning up team on leave:', err); }
   };
 
-  const handleRegistration = async () => {
-    if (!user?.id || !event) return;
+  /* ─── NOTIFICATIONS ─── */
+  const notifyAdmins = async (body: string) => {
+    try {
+      const { data: admins } = await supabase.from('profiles').select('id').in('role', ['admin', 'developer']) as any;
+      if (admins) {
+        for (const a of admins) {
+          await createNotification({ user_id: a.id, type: 'event', title: 'Event Registration', body });
+        }
+      }
+    } catch (err) { console.error('Error notifying admins:', err); }
+  };
 
+  /* ─── REGISTRATION ─── */
+  const handleRegistration = async () => {
+    if (!user || !event) return;
     try {
       setIsRegistering(true);
-
       if (event.is_registered) {
-        // UNREGISTER — UPDATE status to 'cancelled', never DELETE the row
-        setShowUnregisterConfirmation(false);
-
-        if ((event as any)?.participation_type === 'team') {
-          await cleanupTeamOnEventLeave(eventId, user.id);
-        }
-
-        const { error } = await (supabase as any)
-          .from('event_registrations')
-          .update({
-            status: 'cancelled',
-            team_id: null,
-            looking_for_team: false,
-          })
-          .eq('event_id', eventId)
-          .eq('user_id', user.id);
-
-        if (error) {
-          console.error('Unregister error:', error);
-          throw error;
-        }
-
-        // Notify event creator
-        if (event.created_by) {
-          await createNotification({
-            user_id: event.created_by,
-            title: 'Event Unregistration',
-            body: `${profile?.full_name || user.email || 'Someone'} unregistered from ${event.title}`,
-            type: 'event_update',
-            related_id: eventId,
-          });
-        }
-
-        // Notify admins
-        await notifyAdmins(
-          'Event Unregistration',
-          `${profile?.full_name || user.email || 'A user'} unregistered from ${event.title}`
-        );
-
-        // Optimistically update UI immediately
-        setEvent({
-          ...event,
-          is_registered: false,
-          registrations_count: Math.max(0, (event.registrations_count || 1) - 1),
-        });
-        setTeamState(null);
-
-        // Refetch team state so UI reflects the cleared team association
-        loadTeamStatus();
-
-        Toast.show({
-          type: 'success',
-          text1: 'Unregistered successfully',
-        });
+        await cleanupTeamOnEventLeave();
+        await (supabase.from('event_registrations') as any)
+          .update({ status: 'cancelled' }).eq('event_id', eventId).eq('user_id', user.id);
+        Toast.show({ type: 'success', text1: 'Unregistered from event' });
+        await notifyAdmins((profile as any)?.full_name + ' unregistered from ' + event.title);
       } else {
-        // REGISTER — always include status='registered'
-        setShowRegisterConfirmation(false);
-
-        if (!eligibility.isEligible) {
-          throw new Error(eligibility.reason || 'You are not eligible to register for this event.');
-        }
-
-        const { error } = await (supabase as any)
-          .from('event_registrations')
-          .upsert({
-            event_id: eventId,
-            user_id: user.id,
-            status: 'registered',
-            team_id: null,
-            looking_for_team: false,
-          }, { onConflict: 'event_id,user_id' });
-
-        if (error) throw error;
-
-        // Notify event creator
-        if (event.created_by) {
-          await createNotification({
-            user_id: event.created_by,
-            title: 'New Event Registration',
-            body: `${profile?.full_name || user.email || 'Someone'} registered for ${event.title}`,
-            type: 'event_registration',
-            related_id: eventId,
-          });
-        }
-
-        // Notify admins
-        await notifyAdmins(
-          'Event Registration',
-          `${profile?.full_name || user.email || 'A user'} registered for ${event.title}`
+        await (supabase.from('event_registrations') as any).upsert(
+          { event_id: eventId, user_id: user.id, status: 'registered' },
+          { onConflict: 'event_id,user_id' }
         );
-
-        // Optimistically update UI immediately
-        setEvent({
-          ...event,
-          is_registered: true,
-          registrations_count: (event.registrations_count || 0) + 1,
-        });
-
-        // Reload team status after registering
-        await loadTeamStatus();
-
-        // Schedule reminder notification
+        Toast.show({ type: 'success', text1: 'Registered for event!' });
+        await notifyAdmins((profile as any)?.full_name + ' registered for ' + event.title);
         try {
-          await scheduleEventReminder(
-            eventId,
-            event.title,
-            event.start_date,
-            60 // 1 hour before
-          );
-
-          await createEventReminder(eventId, user.id, 60);
-
-          Toast.show({
-            type: 'success',
-            text1: 'Registered successfully!',
-            text2: 'You will get a reminder 1 hour before the event',
-          });
-        } catch (reminderError) {
-          console.error('Failed to schedule reminder:', reminderError);
-          Toast.show({
-            type: 'success',
-            text1: 'Registered successfully!',
-            text2: 'Could not schedule reminder notification',
-          });
-        }
+          const reminder = await createEventReminder(eventId, user.id, 60);
+          if (reminder) await scheduleEventReminder(eventId, event.title, event.start_date, 60);
+        } catch {}
       }
-    } catch (error: any) {
-      console.error('Registration error:', error);
-      Toast.show({
-        type: 'error',
-        text1: 'Registration failed',
-        text2: error.message || 'Please try again',
-      });
-      // Revert optimistic update on error
+      setShowRegisterConfirm(false);
+      setShowUnregisterConfirm(false);
       await loadEventDetails();
-    } finally {
-      setIsRegistering(false);
-    }
+    } catch (err: any) {
+      Toast.show({ type: 'error', text1: 'Registration failed', text2: err.message });
+    } finally { setIsRegistering(false); }
   };
 
-  const handleToggleLookingForTeam = async () => {
-    if (!user?.id) return;
+  const handleToggleLooking = async () => {
+    if (!user) return;
     try {
-      setIsTogglingLookingForTeam(true);
-      const next = !isLookingForTeam;
-      await (supabase as any)
-        .from('event_registrations')
-        .update({ looking_for_team: next })
-        .eq('event_id', eventId)
-        .eq('user_id', user.id);
-      setIsLookingForTeam(next);
-      Toast.show({
-        type: 'info',
-        text1: next ? 'Marked as looking for a team' : 'Removed from looking for team',
-      });
+      setIsTogglingLooking(true);
+      const v = !isLookingForTeam;
+      await (supabase.from('event_registrations') as any)
+        .update({ looking_for_team: v }).eq('event_id', eventId).eq('user_id', user.id);
+      setIsLookingForTeam(v);
+      Toast.show({ type: 'success', text1: v ? 'Marked as looking for a team' : 'Status removed' });
     } catch (err: any) {
-      Toast.show({ type: 'error', text1: 'Failed to update', text2: err?.message });
-    } finally {
-      setIsTogglingLookingForTeam(false);
-    }
+      Toast.show({ type: 'error', text1: 'Failed to update', text2: err.message });
+    } finally { setIsTogglingLooking(false); }
   };
 
   const handleAcceptInvite = async () => {
-    if (!user?.id || !teamState?.receivedInvite?.id || !teamState?.receivedInvite?.team_id) return;
+    if (!user || !teamState?.receivedInvite?.id) return;
     try {
       setIsHandlingInvite(true);
       await acceptInvite({
@@ -521,615 +246,435 @@ export default function EventDetailsScreen() {
         eventId,
         userId: user.id,
       });
-      Toast.show({ type: 'success', text1: 'Invitation accepted' });
+      Toast.show({ type: 'success', text1: 'Invitation accepted!' });
       await loadTeamStatus();
+      await loadEventDetails();
     } catch (err: any) {
       Toast.show({ type: 'error', text1: 'Failed to accept invite', text2: err.message });
-    } finally {
-      setIsHandlingInvite(false);
-    }
+    } finally { setIsHandlingInvite(false); }
   };
 
   const handleRejectInvite = async () => {
-    if (!teamState?.receivedInvite?.id) return;
+    if (!user || !teamState?.receivedInvite?.id) return;
     try {
       setIsHandlingInvite(true);
       await rejectInvite(teamState.receivedInvite.id);
-      Toast.show({ type: 'info', text1: 'Invitation rejected' });
+      Toast.show({ type: 'success', text1: 'Invitation rejected' });
       await loadTeamStatus();
     } catch (err: any) {
       Toast.show({ type: 'error', text1: 'Failed to reject invite', text2: err.message });
-    } finally {
-      setIsHandlingInvite(false);
-    }
+    } finally { setIsHandlingInvite(false); }
   };
 
-  const handleCancelPendingJoinRequest = async () => {
-    if (!user?.id || !teamState?.sentJoinRequest?.team_id) return;
+  const handleCancelJoinRequest = async () => {
+    if (!user || !teamState?.sentJoinRequest) return;
     try {
       await cancelJoinRequest({
         teamId: teamState.sentJoinRequest.team_id,
         requesterId: user.id,
         eventId,
       });
-      Toast.show({ type: 'info', text1: 'Request cancelled' });
+      Toast.show({ type: 'success', text1: 'Request cancelled' });
       await loadTeamStatus();
     } catch (err: any) {
       Toast.show({ type: 'error', text1: 'Failed to cancel request', text2: err.message });
     }
   };
 
-  // For team events: just navigate to the target screen
-  const handleRegisterAndNavigate = (
-    destination: 'CreateTeam' | 'JoinTeam'
-  ) => {
-    if (!event) return;
-    if (teamState?.isInTeam) {
-      Toast.show({
-        type: 'info',
-        text1: 'Already in a team',
-        text2: 'You are already in a team for this event.',
-      });
-      return;
-    }
-
-    if (destination === 'CreateTeam') {
-      navigation.navigate('CreateTeam', {
-        eventId,
-        maxTeamSize: (event as any)?.max_team_size ?? 5,
-      });
-    } else {
-      navigation.navigate('JoinTeam', { eventId });
-    }
+  const handleNavigateTeam = (screen: 'CreateTeam' | 'JoinTeam') => {
+    navigation.navigate(screen as any, { eventId, requiredRoles: (event as any)?.required_roles ?? [] });
   };
 
   const openMeetingLink = () => {
     if (event?.meeting_link) {
-      // You would typically use Linking.openURL here
-      Alert.alert(
-        'Join Meeting',
-        `Open meeting link?\n${event.meeting_link}`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Open', onPress: () => { } }, // Linking.openURL(event.meeting_link)
-        ]
-      );
+      const { Linking } = require('react-native');
+      Linking.openURL(event.meeting_link);
     }
   };
 
   const handleDeleteEvent = async () => {
-    if (!event || !user?.id) return;
-
+    if (!event) return;
     try {
       setIsDeleting(true);
-      setShowDeleteConfirmation(false);
-
-      // Delete all event registrations first
-      const { error: registrationsError } = await supabase
-        .from('event_registrations')
-        .delete()
-        .eq('event_id', eventId);
-
-      if (registrationsError) throw registrationsError;
-
-      // Delete event reminders
-      const { error: remindersError } = await supabase
-        .from('event_reminders')
-        .delete()
-        .eq('event_id', eventId);
-
-      if (remindersError) console.error('Error deleting reminders:', remindersError);
-
-      // Delete the event
-      const { error: eventError } = await supabase
-        .from('events')
-        .delete()
-        .eq('id', eventId);
-
-      if (eventError) throw eventError;
-
-      // Notify admins if creator is deleting
-      if (user.id === event.created_by && profile?.role !== 'admin') {
-        await notifyAdmins(
-          'Event Deleted',
-          `${profile?.full_name || user.email || 'A user'} deleted the event "${event.title}"`
-        );
-      }
-
-      Toast.show({
-        type: 'success',
-        text1: 'Event deleted successfully',
-        text2: 'All registrations have been cancelled',
-      });
-
-      // Navigate back to events list
+      await supabase.from('event_registrations').delete().eq('event_id', eventId);
+      await supabase.from('event_reminders').delete().eq('event_id', eventId);
+      const { error } = await supabase.from('events').delete().eq('id', eventId);
+      if (error) throw error;
+      Toast.show({ type: 'success', text1: 'Event deleted' });
       navigation.goBack();
-    } catch (error: any) {
-      console.error('Error deleting event:', error);
-      Toast.show({
-        type: 'error',
-        text1: 'Failed to delete event',
-        text2: error.message || 'Please try again',
-      });
-    } finally {
-      setIsDeleting(false);
-    }
+    } catch (err: any) {
+      Toast.show({ type: 'error', text1: 'Failed to delete event', text2: err.message });
+    } finally { setIsDeleting(false); setShowDeleteConfirm(false); }
   };
 
-  const formatEventDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      weekday: 'long',
-      month: 'long',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
-
-  const getDaysUntil = (dateStr: string) => {
-    const target = new Date(dateStr);
-    const now = new Date();
-    const diffTime = Math.abs(target.getTime() - now.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-    if (diffDays === 0) return 'Today';
-    if (diffDays === 1) return '1 day';
-    if (diffDays < 7) return `${diffDays} days`;
-    return target.toLocaleDateString();
-  };
+  /* ─── HELPERS ─── */
+  const fmtDate = (d: string) => new Date(d).toLocaleDateString('en-US', {
+    weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
+  });
+  const fmtTime = (d: string) => new Date(d).toLocaleTimeString('en-US', {
+    hour: '2-digit', minute: '2-digit',
+  });
+  const getDaysUntil = (d: string) => Math.ceil((new Date(d).getTime() - Date.now()) / 86400000);
 
   const eligibility = useMemo(() => {
-    if (!event) return { isEligible: true, reason: undefined };
-    return evaluateEventEligibility(
-      {
-        eligibility_type: (event as any)?.eligibility_type,
-        eligible_departments: (event as any)?.eligible_departments,
-        eligible_years: (event as any)?.eligible_years,
-      },
-      {
-        department: profile?.department,
-        year: profile?.year,
-      }
-    );
-  }, [
-    event?.eligibility_type,
-    JSON.stringify(event?.eligible_departments || []),
-    JSON.stringify(event?.eligible_years || []),
-    profile?.department,
-    profile?.year,
-  ]);
+    if (!event || !profile) return { isEligible: true, reason: '' };
+    return evaluateEventEligibility(event as any, profile as any);
+  }, [event, profile]);
 
+  /* ─── LOADING STATE ─── */
   if (isLoading || !event) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()}>
-            <MaterialIcons name="arrow-back" size={24} color="#000" />
+      <SafeAreaView style={s.container}>
+        <View style={s.nav}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={s.navIconBtn}>
+            <MaterialIcons name="arrow-back" size={22} color="#1f2937" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Event Details</Text>
-          <View style={{ width: 24 }} />
+          <Text style={s.navTitleCenter}>Event Details</Text>
+          <View style={s.navIconBtn} />
         </View>
-        <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Loading event details...</Text>
+        <View style={s.loadWrap}>
+          <ActivityIndicator size="large" color="#4f46e5" />
         </View>
       </SafeAreaView>
     );
   }
 
+  /* ─── COMPUTED ─── */
   const now = new Date();
-  const eventStart = new Date(event.start_date);
-  const eventEnd = new Date(event.end_date);
-  const isUpcoming = eventStart > now;
-  const isLive = eventStart <= now && eventEnd >= now;
-  const isEnded = eventEnd < now;
-  const registrationOpen = isUpcoming && new Date(event.registration_deadline) > now;
-  const canRegister = registrationOpen && eligibility.isEligible;
+  const start = new Date(event.start_date);
+  const end = new Date(event.end_date);
+  const isUpcoming = start > now;
+  const isLive = start <= now && end >= now;
+  const isEnded = end < now;
+  const regOpen = new Date(event.registration_deadline) > now;
+  const canRegister = regOpen && eligibility.isEligible && !isEnded &&
+    (!event.max_participants || event.registrations_count < event.max_participants);
   const isCreator = user?.id === event.created_by;
-  const isAdmin = isAdminRole(profile?.role);
-  const canManageEvent = isCreator || isAdmin;
-  const eligibilityType = (event as any)?.eligibility_type || 'college';
-  const eligibleDepartments = ((event as any)?.eligible_departments || []) as string[];
-  const eligibleYears = (((event as any)?.eligible_years || []) as number[]).slice().sort((a, b) => a - b);
-  const eligibilityText = eligibilityType === 'college' ? 'Open to all departments and years' : 'Restricted participation';
+  const canManage = isCreator || isAdminRole((profile as any)?.role);
+  const eligType = (event as any)?.eligibility_type || 'college';
+  const eligDepts = ((event as any)?.eligible_departments || []) as string[];
+  const eligYears = (((event as any)?.eligible_years || []) as number[]).slice().sort((a: number, b: number) => a - b);
+  const eligText = eligType === 'college' ? 'Open to all' : 'Restricted';
+  const statusLabel = isUpcoming ? 'Upcoming' : isLive ? 'Live Now' : 'Ended';
+  const statusColor = isUpcoming ? '#4f46e5' : isLive ? '#dc2626' : '#6b7280';
+  const days = getDaysUntil(event.start_date);
+
+  /* ─── 3-DOT MENU ─── */
+  const menuItems = [
+    { icon: 'share' as const, label: 'Share', onPress: () => setMenuVisible(false) },
+    ...(canManage ? [
+      { icon: 'edit' as const, label: 'Edit Event', onPress: () => { setMenuVisible(false); navigation.navigate('EditEvent', { eventId }); } },
+      { icon: 'delete-outline' as const, label: 'Delete Event', onPress: () => { setMenuVisible(false); setShowDeleteConfirm(true); }, danger: true },
+    ] : []),
+  ];
 
   return (
-    <SafeAreaView style={styles.container}>
-      <LinearGradient
-        colors={['#dff8f0', '#f2eefc']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.gradientHeader}
-      >
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.roundIconButton}>
-            <MaterialIcons name="arrow-back" size={22} color="#111827" />
-          </TouchableOpacity>
-          <View style={styles.headerCenter}>
-            <Text style={styles.headerTitleMain} numberOfLines={1}>{event.title}</Text>
-            <View style={styles.headerPills}>
-              <View style={styles.headerTypePill}>
-                <Text style={styles.headerTypePillText}>{event.event_type}</Text>
-              </View>
-              <View style={isUpcoming ? styles.headerUpcomingPill : styles.headerNeutralPill}>
-                <Text style={isUpcoming ? styles.headerUpcomingText : styles.headerNeutralText}>
-                  {isUpcoming ? 'Upcoming' : isLive ? 'Live' : 'Ended'}
-                </Text>
-              </View>
-            </View>
+    <SafeAreaView style={s.container}>
+      {/* ── NAVBAR ── */}
+      <View style={s.nav}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={s.navIconBtn}>
+          <MaterialIcons name="arrow-back" size={22} color="#1f2937" />
+        </TouchableOpacity>
+        <View style={s.navCenter}>
+          <Animated.Text style={[s.navTitleCenter, { opacity: headerOpacity }]} numberOfLines={1}>
+            {event.title}
+          </Animated.Text>
+        </View>
+        <TouchableOpacity style={s.navIconBtn} onPress={() => setMenuVisible(true)}>
+          <MaterialIcons name="more-vert" size={22} color="#1f2937" />
+        </TouchableOpacity>
+      </View>
+
+      {/* ── 3-DOT MENU MODAL ── */}
+      <Modal transparent visible={menuVisible} animationType="fade" onRequestClose={() => setMenuVisible(false)}>
+        <Pressable style={s.menuOverlay} onPress={() => setMenuVisible(false)}>
+          <View style={s.menuCard}>
+            {menuItems.map((item, i) => (
+              <TouchableOpacity key={i} style={s.menuItem} onPress={item.onPress} activeOpacity={0.7}>
+                <MaterialIcons name={item.icon} size={20} color={(item as any).danger ? '#ef4444' : '#374151'} />
+                <Text style={[s.menuLabel, (item as any).danger && { color: '#ef4444' }]}>{item.label}</Text>
+              </TouchableOpacity>
+            ))}
           </View>
-          <View style={styles.headerActions}>
-            <TouchableOpacity style={styles.roundIconButton}>
-              <MaterialIcons name="share" size={22} color="#111827" />
-            </TouchableOpacity>
-            {canManageEvent && (
-              <>
-                <TouchableOpacity
-                  style={[styles.roundIconButton, { backgroundColor: '#f3e8ff', marginRight: 8 }]}
-                  onPress={() => navigation.navigate('EditEvent', { eventId })}
-                >
-                  <MaterialIcons name="edit" size={20} color="#a855f7" />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.roundIconButton, { backgroundColor: '#fee2e2' }]}
-                  onPress={() => setShowDeleteConfirmation(true)}
-                >
-                  <MaterialIcons name="delete-outline" size={20} color="#ef4444" />
-                </TouchableOpacity>
-              </>
+        </Pressable>
+      </Modal>
+
+      {/* ── SCROLLABLE CONTENT ── */}
+      <Animated.ScrollView
+        style={s.scroll}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 100 }}
+        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: false })}
+        scrollEventThrottle={16}
+      >
+        {/* Banner */}
+        {event.banner_image ? (
+          <View style={s.banner}>
+            <Image source={{ uri: event.banner_image }} style={s.bannerImg} resizeMode="cover" />
+          </View>
+        ) : null}
+
+        {/* Title Block */}
+        <View style={s.titleWrap}>
+          <View style={s.pillRow}>
+            <View style={[s.pill, { backgroundColor: statusColor + '14' }]}>
+              {isLive && <View style={s.liveDot} />}
+              <Text style={[s.pillText, { color: statusColor }]}>{statusLabel}</Text>
+            </View>
+            <View style={s.pill}>
+              <Text style={s.pillText}>{event.event_type}</Text>
+            </View>
+            {(event as any)?.participation_type === 'team' && (
+              <View style={[s.pill, { backgroundColor: '#f3e8ff' }]}>
+                <Text style={[s.pillText, { color: '#7c3aed' }]}>Team</Text>
+              </View>
             )}
           </View>
+          <Text style={s.eventTitle}>{event.title}</Text>
+          {isUpcoming && days > 0 && days <= 7 && (
+            <Text style={s.countdown}>Starts in {days} day{days !== 1 ? 's' : ''}</Text>
+          )}
         </View>
-      </LinearGradient>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
-        {/* Event Banner/Poster */}
-        {event.banner_image && (
-          <View style={styles.bannerContainer}>
-            <Image
-              source={{ uri: event.banner_image }}
-              style={styles.bannerImage}
-              resizeMode="cover"
-            />
-            {/* Gradient overlay for better text visibility */}
-            <LinearGradient
-              colors={['transparent', 'rgba(0,0,0,0.7)']}
-              style={styles.bannerGradient}
-            />
+        {/* About */}
+        {event.description ? (
+          <View style={s.card}>
+            <Text style={s.cardHeader}>About</Text>
+            <Text style={s.bodyText}>{event.description}</Text>
           </View>
-        )}
+        ) : null}
 
-        {/* 1. Event Info Card */}
-        <View style={styles.saasCard}>
-          <View style={styles.eventHeader}>
-            <EventStatus startDate={event.start_date} endDate={event.end_date} />
-          </View>
+        {/* Details */}
+        <View style={s.card}>
+          <Text style={s.cardHeader}>Details</Text>
 
-          <Text style={styles.eventTitle}>{event.title}</Text>
-          <Text style={styles.description}>{event.description}</Text>
-
-          <View style={{ height: 12 }} />
-          <View style={styles.detailRow}>
-            <View style={[styles.iconBubble, { backgroundColor: '#e0f2fe' }]}>
-              <MaterialIcons name="event" size={18} color="#0284c7" />
-            </View>
-            <View style={styles.detailContent}>
-              <Text style={styles.detailLabel}>Date</Text>
-              <Text style={styles.detailText}>{formatEventDate(event.start_date)}</Text>
-            </View>
-          </View>
-
-          <View style={styles.detailRow}>
-            <View style={[styles.iconBubble, { backgroundColor: '#ede9fe' }]}>
-              <MaterialIcons name="schedule" size={18} color="#7c3aed" />
-            </View>
-            <View style={styles.detailContent}>
-              <Text style={styles.detailLabel}>Time</Text>
-              <Text style={styles.detailText}>{formatEventDate(event.end_date)}</Text>
-            </View>
-          </View>
-
-          <View style={styles.detailRow}>
-            <View style={[styles.iconBubble, { backgroundColor: '#fef3c7' }]}>
-              <MaterialIcons
-                name={event.is_online ? "laptop" : "location-on"}
-                size={18}
-                color="#b45309"
-              />
-            </View>
-            <View style={styles.detailContent}>
-              <Text style={styles.detailLabel}>{event.is_online ? "Meeting" : "Venue"}</Text>
-              <Text style={styles.detailText}>{event.is_online ? "Online Event" : event.venue}</Text>
-              {event.is_online && event.meeting_link && isLive && (
-                <TouchableOpacity onPress={openMeetingLink}>
-                  <Text style={styles.meetingLink}>Join Meeting</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          </View>
-
-          <View style={styles.detailRow}>
-            <View style={[styles.iconBubble, { backgroundColor: '#dcfce7' }]}>
-              <MaterialIcons name="people" size={18} color="#16a34a" />
-            </View>
-            <View style={styles.detailContent}>
-              <Text style={styles.detailLabel}>Participants</Text>
-              <Text style={styles.detailText}>
-                {event.registrations_count} / {event.max_participants || 'Unlimited'} registered
-              </Text>
-            </View>
-            {canManageEvent && event.registrations_count > 0 && (
-              <TouchableOpacity
-                style={styles.viewUsersButton}
-                onPress={() =>
-                  navigation.navigate('EventRegisteredUsers', {
-                    eventId,
-                    eventTitle: event.title,
-                  })
-                }
-              >
-                <Text style={styles.viewUsersText}>View All</Text>
-                <MaterialIcons name="arrow-forward" size={16} color="#6366f1" />
+          <InfoRow icon="calendar-today" label="Date" value={fmtDate(event.start_date)} />
+          <InfoRow icon="schedule" label="Time" value={fmtTime(event.start_date) + ' — ' + fmtTime(event.end_date)} />
+          <InfoRow
+            icon={event.is_online ? 'laptop' : 'location-on'}
+            label={event.is_online ? 'Mode' : 'Venue'}
+            value={event.is_online ? 'Online' : (event.venue || 'TBA')}
+          >
+            {event.is_online && event.meeting_link && isLive && (
+              <TouchableOpacity onPress={openMeetingLink}>
+                <Text style={s.link}>Join Meeting →</Text>
               </TouchableOpacity>
             )}
-          </View>
-
-          <View style={styles.detailRow}>
-            <View style={[styles.iconBubble, { backgroundColor: '#ede9fe' }]}>
-              <MaterialIcons name="verified-user" size={18} color="#6366f1" />
-            </View>
-            <View style={styles.detailContent}>
-              <Text style={styles.detailLabel}>Eligibility</Text>
-              <Text style={styles.detailText}>{eligibilityText}</Text>
-              <Text style={styles.metaText}>
-                Departments: {eligibleDepartments.length ? eligibleDepartments.join(', ') : 'All'}
+          </InfoRow>
+          <InfoRow icon="people-outline" label="Participants" value={event.registrations_count + ' / ' + (event.max_participants || '∞')}>
+            {canManage && event.registrations_count > 0 && (
+              <TouchableOpacity
+                style={s.chipBtn}
+                onPress={() => navigation.navigate('EventRegisteredUsers', { eventId, eventTitle: event.title })}
+              >
+                <Text style={s.chipBtnText}>View All</Text>
+              </TouchableOpacity>
+            )}
+          </InfoRow>
+          <InfoRow icon="verified-user" label="Eligibility" value={eligText}>
+            {eligType !== 'college' && (
+              <Text style={s.meta}>
+                {eligDepts.length ? 'Depts: ' + eligDepts.join(', ') : ''}{eligDepts.length && eligYears.length ? ' · ' : ''}
+                {eligYears.length ? 'Years: ' + eligYears.join(', ') : ''}
               </Text>
-              <Text style={styles.metaText}>
-                Years: {eligibleYears.length ? eligibleYears.map((y) => `Year ${y}`).join(', ') : 'All'}
-              </Text>
-            </View>
-          </View>
-
+            )}
+          </InfoRow>
           <TouchableOpacity
-            style={styles.detailRow}
-            onPress={() => {
-              if (event.created_by) {
-                navigation.navigate('PublicProfile', { userId: event.created_by });
-              }
-            }}
             activeOpacity={0.7}
+            onPress={() => event.created_by && navigation.navigate('PublicProfile', { userId: event.created_by })}
           >
-            <View style={[styles.iconBubble, { backgroundColor: '#ffe4e6' }]}>
-              <MaterialIcons name="person" size={18} color="#e11d48" />
-            </View>
-            <View style={styles.detailContent}>
-              <Text style={styles.detailLabel}>Organizer</Text>
-              <Text style={styles.detailText}>{event.organizer_profile?.full_name || 'Campus Team'}</Text>
-            </View>
-            <MaterialIcons name="chevron-right" size={20} color="#6b7280" />
+            <InfoRow icon="person-outline" label="Organizer" value={event.organizer_profile?.full_name || 'Campus Team'} chevron />
           </TouchableOpacity>
         </View>
 
-        {/* 2. Registration Card */}
-        <View style={styles.saasCard}>
-          <Text style={styles.sectionTitle}>Registration</Text>
+        {/* Registration */}
+        <View style={s.card}>
+          <Text style={s.cardHeader}>Registration</Text>
           {event.is_registered ? (
             <>
-              <View style={styles.registeredPill}>
-                <MaterialIcons name="check-circle" size={18} color="#16a34a" />
-                <Text style={styles.registeredText}>Registered Successfully</Text>
+              <View style={s.successChip}>
+                <MaterialIcons name="check-circle" size={16} color="#16a34a" />
+                <Text style={s.successChipText}>You're registered</Text>
               </View>
               <TouchableOpacity
-                style={[styles.outlineDangerButton, styles.roundButton, isRegistering && styles.registerButtonDisabled]}
-                onPress={() => setShowUnregisterConfirmation(true)}
+                style={[s.btnDangerOutline, isRegistering && s.btnOff]}
+                onPress={() => setShowUnregisterConfirm(true)}
                 disabled={isRegistering}
               >
-                <Text style={styles.outlineDangerButtonText}>
-                  {isRegistering ? 'Unregistering...' : 'Unregister'}
-                </Text>
+                <Text style={s.btnDangerOutlineText}>{isRegistering ? 'Processing...' : 'Unregister'}</Text>
               </TouchableOpacity>
             </>
           ) : (
             <>
               <TouchableOpacity
-                style={[styles.primaryButton, styles.roundButton, (!canRegister || isRegistering) && styles.registerButtonDisabled]}
-                onPress={() => setShowRegisterConfirmation(true)}
+                style={[s.btnFill, (!canRegister || isRegistering) && s.btnOff]}
+                onPress={() => setShowRegisterConfirm(true)}
                 disabled={!canRegister || isRegistering}
               >
-                <Text style={styles.primaryButtonText}>
-                  {isRegistering ? 'Registering...' : canRegister ? 'Register for Event' : "Can't Register"}
+                <Text style={s.btnFillText}>
+                  {isRegistering ? 'Processing...' : canRegister ? 'Register Now' : "Can't Register"}
                 </Text>
               </TouchableOpacity>
               {!canRegister && (
-                <Text style={styles.metaText}>
-                  {!registrationOpen
-                    ? 'Registration is closed for this event.'
-                    : (eligibility.reason || 'You are not eligible for this event.')}
+                <Text style={s.helper}>
+                  {!regOpen ? 'Registration closed.' : (eligibility.reason || 'Not eligible for this event.')}
                 </Text>
               )}
             </>
           )}
-          <Text style={styles.metaText}>
-            Registration deadline: {new Date(event.registration_deadline).toLocaleDateString()}
-          </Text>
+          <Text style={s.helper}>Deadline: {fmtDate(event.registration_deadline)}</Text>
         </View>
 
-        {/* 3. Team Participation Card */}
+        {/* Team Participation */}
         {(event as any)?.participation_type === 'team' && event.is_registered && (
-          <View style={styles.saasCard}>
+          <View style={s.card}>
+            <Text style={s.cardHeader}>Team Participation</Text>
             {isCheckingTeam ? (
-              <View style={styles.loadingInline}>
-                <ActivityIndicator size="small" color="#6366f1" />
-              </View>
+              <ActivityIndicator size="small" color="#4f46e5" style={{ marginVertical: 12 }} />
             ) : teamState?.isInTeam ? (
-              <>
-                <Text style={styles.sectionTitle}>Team Participation</Text>
-                <Text style={styles.metaTitle}>Your Team</Text>
-                <Text style={styles.metaTitle}>{teamState?.teamName || 'Team joined'}</Text>
-                <Text style={styles.metaText}>{teamState?.teamMembersCount ?? 0} members</Text>
+              <View style={s.sectionGap}>
+                <View style={s.teamRow}>
+                  <View style={s.teamAva}>
+                    <MaterialIcons name="groups" size={20} color="#4f46e5" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.teamLabel}>{teamState?.teamName || 'Your Team'}</Text>
+                    <Text style={s.meta}>{teamState?.teamMembersCount ?? 0} members</Text>
+                  </View>
+                </View>
                 <TouchableOpacity
-                  style={[styles.primaryButton, styles.roundButton]}
+                  style={s.btnFill}
                   onPress={() => navigation.navigate('TeamDetails', { teamId: teamState?.teamId, eventId })}
                 >
-                  <Text style={styles.primaryButtonText}>View My Team</Text>
+                  <Text style={s.btnFillText}>View My Team</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={styles.ghostButton}
+                  style={s.btnGhost}
                   onPress={() => navigation.navigate('TeamConnect', { eventId, requiredRoles: (event as any)?.required_roles ?? [], teamId: teamState?.teamId })}
                 >
-                  <Text style={styles.ghostButtonText}>Browse Members</Text>
+                  <Text style={s.btnGhostText}>Browse Members</Text>
                 </TouchableOpacity>
-              </>
+              </View>
             ) : teamState?.hasReceivedInvite ? (
-              <>
-                <Text style={styles.sectionTitle}>Team Participation</Text>
-                <View style={styles.inviteHighlight}>
-                  <Text style={styles.metaText}>You have a team invitation</Text>
+              <View style={s.sectionGap}>
+                <View style={s.infoBanner}>
+                  <MaterialIcons name="mail" size={16} color="#4f46e5" />
+                  <Text style={s.infoBannerText}>You have a team invitation</Text>
                 </View>
-                <View style={styles.inlineButtons}>
+                <View style={s.rowBtns}>
                   <TouchableOpacity
-                    style={[styles.primaryButton, styles.roundButton, styles.inlineButton, isHandlingInvite && styles.registerButtonDisabled]}
+                    style={[s.btnFill, { flex: 1 }, isHandlingInvite && s.btnOff]}
                     onPress={handleAcceptInvite}
                     disabled={isHandlingInvite}
                   >
-                    <Text style={styles.primaryButtonText}>Accept</Text>
+                    <Text style={s.btnFillText}>Accept</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.outlineButton, styles.roundButton, styles.inlineButton, isHandlingInvite && styles.registerButtonDisabled]}
+                    style={[s.btnOutline, { flex: 1 }, isHandlingInvite && s.btnOff]}
                     onPress={handleRejectInvite}
                     disabled={isHandlingInvite}
                   >
-                    <Text style={styles.outlineButtonText}>Reject</Text>
+                    <Text style={s.btnOutlineText}>Decline</Text>
                   </TouchableOpacity>
                 </View>
-                <TouchableOpacity
-                  style={styles.ghostButton}
-                  onPress={() => navigation.navigate('TeamConnect', { eventId, requiredRoles: (event as any)?.required_roles ?? [], teamId: teamState?.teamId })}
-                >
-                  <Text style={styles.ghostButtonText}>Browse Members</Text>
-                </TouchableOpacity>
-              </>
+              </View>
             ) : teamState?.hasSentJoinRequest ? (
-              <>
-                <Text style={styles.sectionTitle}>Team Participation</Text>
-                <Text style={styles.metaText}>Join request pending approval</Text>
-                <TouchableOpacity style={[styles.outlineButton, styles.roundButton]} onPress={handleCancelPendingJoinRequest}>
-                  <Text style={styles.outlineButtonText}>Cancel Request</Text>
+              <View style={s.sectionGap}>
+                <View style={s.warnBanner}>
+                  <MaterialIcons name="hourglass-empty" size={16} color="#92400e" />
+                  <Text style={s.warnBannerText}>Join request pending</Text>
+                </View>
+                <TouchableOpacity style={s.btnOutline} onPress={handleCancelJoinRequest}>
+                  <Text style={s.btnOutlineText}>Cancel Request</Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.ghostButton}
-                  onPress={() => navigation.navigate('TeamConnect', { eventId, requiredRoles: (event as any)?.required_roles ?? [], teamId: teamState?.teamId })}
-                >
-                  <Text style={styles.ghostButtonText}>Browse Members</Text>
-                </TouchableOpacity>
-              </>
+              </View>
             ) : (
-              <>
-                <Text style={styles.sectionTitle}>Team Participation</Text>
-                <Text style={styles.metaText}>You are not in a team yet.</Text>
-                {/* Looking for a team toggle */}
+              <View style={s.sectionGap}>
                 <TouchableOpacity
-                  style={[
-                    styles.outlineButton,
-                    styles.roundButton,
-                    {
-                      flexDirection: 'row', alignItems: 'center', gap: 8, justifyContent: 'center',
-                      borderColor: isLookingForTeam ? '#16a34a' : '#6366f1',
-                      marginBottom: 8
-                    },
-                    isTogglingLookingForTeam && styles.registerButtonDisabled,
-                  ]}
-                  onPress={handleToggleLookingForTeam}
-                  disabled={isTogglingLookingForTeam}
+                  style={[s.lookingBtn, isLookingForTeam && s.lookingActive, isTogglingLooking && s.btnOff]}
+                  onPress={handleToggleLooking}
+                  disabled={isTogglingLooking}
+                  activeOpacity={0.7}
                 >
                   <MaterialIcons
-                    name={isLookingForTeam ? 'group' : 'group-add'}
+                    name={isLookingForTeam ? 'check-circle' : 'group-add'}
                     size={18}
-                    color={isLookingForTeam ? '#16a34a' : '#6366f1'}
+                    color={isLookingForTeam ? '#16a34a' : '#4f46e5'}
                   />
-                  <Text style={[styles.outlineButtonText, { color: isLookingForTeam ? '#16a34a' : '#6366f1' }]}>
-                    {isTogglingLookingForTeam
-                      ? 'Updating...'
-                      : isLookingForTeam
-                        ? '✓ Looking for a Team'
-                        : 'Mark as Looking for a Team'}
+                  <Text style={[s.lookingText, isLookingForTeam && { color: '#16a34a' }]}>
+                    {isTogglingLooking ? 'Updating...' : isLookingForTeam ? 'Looking for Team' : 'Mark as Looking'}
                   </Text>
                 </TouchableOpacity>
-                <View style={styles.buttonStack}>
-                  <TouchableOpacity style={[styles.primaryButton, styles.roundButton]} onPress={() => handleRegisterAndNavigate('CreateTeam')}>
-                    <Text style={styles.primaryButtonText}>Create Team</Text>
+                <TouchableOpacity style={s.btnFill} onPress={() => handleNavigateTeam('CreateTeam')}>
+                  <Text style={s.btnFillText}>Create Team</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.btnOutline} onPress={() => handleNavigateTeam('JoinTeam')}>
+                  <Text style={s.btnOutlineText}>Join via Code</Text>
+                </TouchableOpacity>
+                <View style={s.ghostRow}>
+                  <TouchableOpacity style={s.btnGhost} onPress={() => navigation.navigate('BrowseTeams', { eventId })}>
+                    <Text style={s.btnGhostText}>Browse Teams</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={[styles.outlineButton, styles.roundButton]} onPress={() => handleRegisterAndNavigate('JoinTeam')}>
-                    <Text style={styles.outlineButtonText}>Join via Code</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.ghostButton} onPress={() => navigation.navigate('BrowseTeams', { eventId })}>
-                    <Text style={styles.ghostButtonText}>Browse Teams</Text>
-                  </TouchableOpacity>
+                  <View style={s.ghostDot} />
                   <TouchableOpacity
-                    style={styles.ghostButton}
+                    style={s.btnGhost}
                     onPress={() => navigation.navigate('TeamConnect', { eventId, requiredRoles: (event as any)?.required_roles ?? [], teamId: teamState?.teamId })}
                   >
-                    <Text style={styles.ghostButtonText}>Browse Members</Text>
+                    <Text style={s.btnGhostText}>Browse Members</Text>
                   </TouchableOpacity>
                 </View>
-              </>
+              </View>
             )}
           </View>
         )}
 
-        {/* 4. Discussion Card */}
-        <View style={styles.saasCard}>
-          <TouchableOpacity
-            style={styles.discussionButton}
-            onPress={() => navigation.navigate('EventDiscussion', { eventId })}
-          >
-            <MaterialIcons name="forum" size={20} color="#6366f1" />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.discussionButtonTitle}>Event Discussion</Text>
-              <Text style={styles.discussionButtonSubtitle}>
-                {isUpcoming ? 'Ask questions & prepare' : 'Share feedback and learnings'}
-              </Text>
-            </View>
-            <MaterialIcons name="chevron-right" size={24} color="#9ca3b8" />
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
+        {/* Discussion */}
+        <TouchableOpacity
+          style={s.discussionCard}
+          onPress={() => navigation.navigate('EventDiscussion', { eventId })}
+          activeOpacity={0.7}
+        >
+          <View style={s.discussionIcon}>
+            <MaterialIcons name="forum" size={18} color="#4f46e5" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={s.discussionLabel}>Event Discussion</Text>
+            <Text style={s.meta}>{isUpcoming ? 'Ask questions & prepare' : 'Share feedback'}</Text>
+          </View>
+          <MaterialIcons name="chevron-right" size={22} color="#d1d5db" />
+        </TouchableOpacity>
+      </Animated.ScrollView>
 
-      {/* Register Confirmation */}
+      {/* ── CONFIRM SHEETS ── */}
       <ConfirmBottomSheet
-        visible={showRegisterConfirmation}
-        onClose={() => setShowRegisterConfirmation(false)}
+        visible={showRegisterConfirm}
+        onClose={() => setShowRegisterConfirm(false)}
         onConfirm={handleRegistration}
         title="Confirm Registration"
-        message={`Are you sure you want to register for ${event.title}? You will receive a reminder 1 hour before the event.`}
-        confirmText={isRegistering ? 'Registering...' : 'Register'}
+        message={'Register for ' + event.title + '? You will get a reminder 1 hr before.'}
+        confirmText={isRegistering ? 'Processing...' : 'Register'}
         cancelText="Cancel"
-        confirmColor="#fb7185"
+        confirmColor="#4f46e5"
         icon="event-available"
       />
-
-      {/* Unregister Confirmation */}
       <ConfirmBottomSheet
-        visible={showUnregisterConfirmation}
-        onClose={() => setShowUnregisterConfirmation(false)}
+        visible={showUnregisterConfirm}
+        onClose={() => setShowUnregisterConfirm(false)}
         onConfirm={handleRegistration}
-        title="Unregister from Event?"
-        message={`Are you sure you want to unregister from ${event.title}? Your spot will be made available to others.`}
-        confirmText={isRegistering ? 'Unregistering...' : 'Unregister'}
-        cancelText="Keep Registration"
+        title="Unregister?"
+        message={'Leave ' + event.title + '? Your spot will open up for others.'}
+        confirmText={isRegistering ? 'Processing...' : 'Unregister'}
+        cancelText="Keep"
         confirmColor="#ef4444"
         icon="cancel"
       />
-
-      {/* Delete Event Confirmation */}
       <ConfirmBottomSheet
-        visible={showDeleteConfirmation}
-        onClose={() => setShowDeleteConfirmation(false)}
+        visible={showDeleteConfirm}
+        onClose={() => setShowDeleteConfirm(false)}
         onConfirm={handleDeleteEvent}
         title="Delete Event?"
-        message={`Are you sure you want to delete "${event.title}"? This action cannot be undone and all ${event.registrations_count} registration(s) will be cancelled.`}
-        confirmText={isDeleting ? 'Deleting...' : 'Delete Event'}
+        message={'Delete "' + event.title + '"? This cannot be undone. ' + event.registrations_count + ' registration(s) will be cancelled.'}
+        confirmText={isDeleting ? 'Deleting...' : 'Delete'}
         cancelText="Cancel"
         confirmColor="#ef4444"
         icon="delete-forever"
@@ -1138,669 +683,305 @@ export default function EventDetailsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f4f2',
-  },
-  gradientHeader: {
-    paddingTop: 8,
-    paddingBottom: 14,
-  },
-  header: {
+/* ─── INFO ROW COMPONENT ─── */
+function InfoRow({ icon, label, value, chevron, children }: {
+  icon: string; label: string; value: string; chevron?: boolean; children?: React.ReactNode;
+}) {
+  return (
+    <View style={s.infoRow}>
+      <View style={s.infoIcon}>
+        <MaterialIcons name={icon as any} size={17} color="#4f46e5" />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={s.infoLabel}>{label}</Text>
+        <Text style={s.infoVal}>{value}</Text>
+        {children}
+      </View>
+      {chevron && <MaterialIcons name="chevron-right" size={20} color="#d1d5db" />}
+    </View>
+  );
+}
+
+/* ─── STYLES ─── */
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#f5f5f7' },
+  loadWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+
+  /* Nav */
+  nav: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
+    height: 56,
+    paddingHorizontal: 12,
+    backgroundColor: '#fff',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e5e7eb',
   },
-  headerCenter: {
-    flex: 1,
-    paddingHorizontal: 10,
-    alignItems: 'center',
-  },
-  headerTitleMain: {
-    fontSize: 19,
-    fontWeight: '800',
-    color: '#0f172a',
-  },
-  headerPills: {
-    marginTop: 6,
-    flexDirection: 'row',
-    gap: 8,
-    alignItems: 'center',
-  },
-  headerTypePill: {
-    backgroundColor: '#ede9fe',
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  headerTypePillText: {
-    color: '#6d28d9',
-    fontSize: 11,
-    fontWeight: '700',
-    textTransform: 'capitalize',
-  },
-  headerUpcomingPill: {
-    backgroundColor: '#dcfce7',
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  headerUpcomingText: {
-    color: '#15803d',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  headerNeutralPill: {
-    backgroundColor: '#e2e8f0',
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  headerNeutralText: {
-    color: '#475569',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  roundIconButton: {
+  navIconBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.72)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#000',
+  navCenter: { flex: 1, alignItems: 'center' },
+  navTitleCenter: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1f2937',
   },
-  headerActions: {
+
+  /* 3-dot menu */
+  menuOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.25)',
+    justifyContent: 'flex-start',
+    alignItems: 'flex-end',
+    paddingTop: Platform.OS === 'ios' ? 100 : 56,
+    paddingRight: 16,
+  },
+  menuCard: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    paddingVertical: 6,
+    minWidth: 180,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.12, shadowRadius: 16 },
+      android: { elevation: 8 },
+    }),
+  },
+  menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 13,
   },
-  headerButton: {
-    padding: 4,
+  menuLabel: { fontSize: 15, fontWeight: '500', color: '#374151' },
+
+  /* Scroll & Banner */
+  scroll: { flex: 1 },
+  banner: {
+    marginHorizontal: 20,
+    marginTop: 16,
+    height: 200,
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: '#e5e7eb',
   },
-  deleteButton: {
-    backgroundColor: '#fef2f2',
-    borderRadius: 8,
-    padding: 8,
-  },
-  content: {
-    flex: 1,
+  bannerImg: { width: '100%', height: '100%' },
+
+  /* Title */
+  titleWrap: {
     paddingHorizontal: 20,
     paddingTop: 20,
+    paddingBottom: 4,
   },
-  saasCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 18,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    elevation: 5,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.05)',
-  },
-  loadingContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  loadingText: {
-    fontSize: 16,
-    color: '#6b7280',
-  },
-  eventHeader: {
+  pillRow: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  eventTypeContainer: {
-    backgroundColor: '#e0e7ff',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  eventTypeText: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: '#6366f1',
-  },
-  eventTitle: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: '#111827',
-    marginBottom: 12,
-    lineHeight: 32,
-  },
-  timerSection: {
-    backgroundColor: '#f9fafb',
-    padding: 20,
-    borderRadius: 12,
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  timerLabel: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#374151',
-    marginBottom: 12,
-  },
-  liveSection: {
-    backgroundColor: '#fef2f2',
-    padding: 20,
-    borderRadius: 12,
-    alignItems: 'center',
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: '#fecaca',
-  },
-  liveBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexWrap: 'wrap',
     gap: 8,
     marginBottom: 12,
   },
-  liveDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#ef4444',
-  },
-  liveText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#dc2626',
-  },
-  joinButton: {
+  pill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#ef4444',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  joinButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  detailsSection: {
-    marginBottom: 24,
-  },
-  detailRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 14,
-  },
-  iconBubble: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  detailContent: {
-    flex: 1,
-  },
-  detailLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#6b7280',
-    marginBottom: 3,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  detailText: {
-    fontSize: 15,
-    color: '#111827',
-    fontWeight: '500',
-  },
-  meetingLink: {
-    fontSize: 14,
-    color: '#6366f1',
-    fontWeight: '500',
-    marginTop: 4,
-  },
-  descriptionSection: {
-    marginBottom: 24,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: '#1f2937',
-    marginBottom: 12,
-  },
-  metaTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1f2937',
-    marginBottom: 12,
-  },
-  metaText: {
-    fontSize: 13,
-    color: '#6b7280',
-    marginTop: 8,
-  },
-  registeredText: {
-    color: '#16a34a',
-    fontWeight: '700',
-    fontSize: 14,
-    marginBottom: 0,
-  },
-  registeredPill: {
-    backgroundColor: '#dcfce7',
-    borderRadius: 999,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginBottom: 12,
-    alignSelf: 'flex-start',
-  },
-  buttonStack: {
-    gap: 12,
-  },
-  inlineButtons: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  inlineButton: {
-    flex: 1,
-  },
-  inviteHighlight: {
-    backgroundColor: '#f3e8ff',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 14,
-    marginBottom: 12,
-  },
-  loadingInline: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 8,
-  },
-  primaryButton: {
-    backgroundColor: '#13ecec',
-    borderRadius: 28,
-    height: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  primaryButtonText: {
-    color: '#062b2b',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  outlineButton: {
-    borderWidth: 1.5,
-    borderColor: '#6366f1',
-    borderRadius: 28,
-    height: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.65)',
-  },
-  outlineButtonText: {
-    color: '#6366f1',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  outlineDangerButton: {
-    borderWidth: 1.5,
-    borderColor: '#ef4444',
-    borderRadius: 28,
-    height: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.65)',
-  },
-  outlineDangerButtonText: {
-    color: '#ef4444',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  ghostButton: {
-    paddingVertical: 4,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  ghostButtonText: {
-    color: '#6366f1',
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  description: {
-    fontSize: 15,
-    color: '#4b5563',
-    lineHeight: 24,
-    marginBottom: 4,
-  },
-  registrationSection: {
-    marginBottom: 24,
-  },
-  registerButton: {
-    backgroundColor: '#6366f1',
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    marginBottom: 8,
-  },
-  unregisterButton: {
-    backgroundColor: '#fff',
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: '#ef4444',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    marginBottom: 8,
-  },
-  registerButtonDisabled: {
-    opacity: 0.6,
-  },
-  roundButton: {
-    borderRadius: 28,
-    height: 52,
-  },
-  registerButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  unregisterButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#ef4444',
-  },
-  registrationInfo: {
-    fontSize: 12,
-    color: '#6b7280',
-    textAlign: 'center',
-  },
-  closedSection: {
-    backgroundColor: '#f3f4f6',
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 12,
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  closedText: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#6b7280',
-  },
-  bannerContainer: {
-    width: '100%',
-    height: 210,
-    marginBottom: 18,
+    gap: 5,
+    backgroundColor: '#eef2ff',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     borderRadius: 20,
-    overflow: 'hidden',
-    position: 'relative',
-    backgroundColor: '#f3f4f6',
   },
-  bannerImage: {
-    width: '100%',
-    height: '100%',
+  pillText: { fontSize: 12, fontWeight: '600', color: '#4f46e5', textTransform: 'capitalize' },
+  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#dc2626' },
+  eventTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#111827',
+    lineHeight: 30,
+    letterSpacing: -0.3,
   },
-  imagePlaceholder: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#f3f4f6',
-  },
-  bannerGradient: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 100,
-  },
-  // Timeline Section Styles
-  timelineSection: {
+  countdown: { fontSize: 13, fontWeight: '600', color: '#4f46e5', marginTop: 6 },
+
+  /* Cards */
+  card: {
+    marginHorizontal: 20,
+    marginTop: 14,
     backgroundColor: '#fff',
-    paddingHorizontal: 20,
-    paddingVertical: 24,
-    marginBottom: 16,
+    borderRadius: 16,
+    padding: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#e5e7eb',
   },
-  timelineContainer: {
-    marginTop: 16,
+  cardHeader: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#374151',
+    letterSpacing: 0.2,
+    marginBottom: 12,
   },
-  timelineItem: {
+  bodyText: { fontSize: 14, color: '#4b5563', lineHeight: 22 },
+
+  /* Info rows */
+  infoRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    marginBottom: 20,
+    gap: 12,
+    paddingVertical: 11,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#f3f4f6',
   },
-  timelineIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  infoIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: '#eef2ff',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 16,
+    marginTop: 1,
   },
-  timelineContent: {
-    flex: 1,
-  },
-  timelineLabel: {
-    fontSize: 14,
+  infoLabel: {
+    fontSize: 11,
     fontWeight: '600',
-    color: '#6b7280',
-    marginBottom: 4,
+    color: '#9ca3af',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    marginBottom: 2,
   },
-  timelineDate: {
-    fontSize: 15,
-    color: '#111827',
-    fontWeight: '500',
-  },
-  miniCountdown: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 8,
-    gap: 6,
-  },
-  miniCountdownText: {
-    fontSize: 13,
-    color: '#f59e0b',
-    fontWeight: '500',
-  },
-  closedBadge: {
-    backgroundColor: '#fee2e2',
+  infoVal: { fontSize: 14, fontWeight: '500', color: '#111827' },
+  meta: { fontSize: 12, color: '#9ca3af', marginTop: 3 },
+  link: { fontSize: 13, fontWeight: '600', color: '#4f46e5', marginTop: 4 },
+  chipBtn: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#eef2ff',
     paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 12,
-    marginTop: 6,
-    alignSelf: 'flex-start',
-  },
-  closedBadgeText: {
-    fontSize: 12,
-    color: '#ef4444',
-    fontWeight: '600',
-  },
-  collaborationSection: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-  },
-  discussionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f8faff',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 12,
-    borderWidth: 1,
-    borderColor: '#e0e7ff',
-  },
-  discussionButtonTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1f2937',
-  },
-  discussionButtonSubtitle: {
-    fontSize: 13,
-    color: '#6b7280',
-    marginTop: 2,
-  },
-  viewUsersButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
     borderRadius: 8,
-    backgroundColor: '#eef2ff',
+    marginTop: 4,
   },
-  viewUsersText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#6366f1',
-  },
-  // Team zone styles
-  individualNotice: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#f3f4f6',
-    padding: 10,
-    borderRadius: 8,
-    marginBottom: 10,
-  },
-  individualNoticeText: {
-    fontSize: 14,
-    color: '#4b5563',
-    fontWeight: '500',
-  },
-  teamRegisterContainer: {
-    gap: 10,
-  },
-  teamRegisterInfoBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#eef2ff',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: '#c7d2fe',
-  },
-  teamRegisterInfoText: {
-    flex: 1,
-    fontSize: 13,
-    color: '#4f46e5',
-    fontWeight: '500',
-  },
-  teamZoneContainer: {
-    marginVertical: 16,
-    padding: 16,
-    backgroundColor: '#f9fafb',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#f0f0f0',
-  },
-  teamZoneActions: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  teamZoneSecondaryActions: {
-    gap: 8,
-  },
-  teamZonePrimaryButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#6366f1',
-    paddingVertical: 12,
-    borderRadius: 12,
-    gap: 8,
-    elevation: 2,
-    shadowColor: '#6366f1',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-  },
-  teamZonePrimaryText: {
-    color: '#fff',
-    fontWeight: '700',
-    fontSize: 15,
-  },
-  teamZoneSecondaryButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#fff',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    gap: 6,
-  },
-  teamZoneSecondaryText: {
-    color: '#374151',
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  teamZoneActionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#fff',
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#6366f1',
-    marginBottom: 12,
-  },
-  teamZoneActionText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#6366f1',
-    flex: 1,
-    marginLeft: 12,
-  },
-  deadlineBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#fef2f2',
-    borderWidth: 1,
-    borderColor: '#fecaca',
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 12,
-  },
-  deadlineBannerText: {
-    fontSize: 13,
-    color: '#dc2626',
-    fontWeight: '500',
-    flex: 1,
-  },
-});
+  chipBtnText: { fontSize: 12, fontWeight: '600', color: '#4f46e5' },
 
+  /* Registration */
+  successChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#f0fdf4',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    alignSelf: 'flex-start',
+    marginBottom: 12,
+  },
+  successChipText: { fontSize: 13, fontWeight: '600', color: '#16a34a' },
+  helper: { fontSize: 12, color: '#9ca3af', marginTop: 8 },
+
+  /* Buttons */
+  btnFill: {
+    backgroundColor: '#4f46e5',
+    borderRadius: 12,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  btnFillText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  btnOutline: {
+    borderWidth: 1.5,
+    borderColor: '#c7d2fe',
+    borderRadius: 12,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+  },
+  btnOutlineText: { color: '#4f46e5', fontSize: 15, fontWeight: '600' },
+  btnDangerOutline: {
+    borderWidth: 1.5,
+    borderColor: '#fca5a5',
+    borderRadius: 12,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fef2f2',
+  },
+  btnDangerOutlineText: { color: '#ef4444', fontSize: 15, fontWeight: '600' },
+  btnGhost: { paddingVertical: 6, alignItems: 'center', justifyContent: 'center' },
+  btnGhostText: { color: '#4f46e5', fontWeight: '600', fontSize: 14 },
+  btnOff: { opacity: 0.5 },
+
+  /* Team section */
+  sectionGap: { gap: 10 },
+  teamRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  teamAva: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  teamLabel: { fontSize: 15, fontWeight: '700', color: '#111827' },
+  infoBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#eef2ff',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  infoBannerText: { fontSize: 13, fontWeight: '600', color: '#4f46e5' },
+  warnBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#fffbeb',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  warnBannerText: { fontSize: 13, fontWeight: '600', color: '#92400e' },
+  rowBtns: { flexDirection: 'row', gap: 10 },
+  lookingBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 1.5,
+    borderColor: '#c7d2fe',
+    borderRadius: 12,
+    height: 44,
+  },
+  lookingActive: { borderColor: '#86efac', backgroundColor: '#f0fdf4' },
+  lookingText: { fontSize: 14, fontWeight: '600', color: '#4f46e5' },
+  ghostRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  ghostDot: { width: 3, height: 3, borderRadius: 2, backgroundColor: '#d1d5db' },
+
+  /* Discussion */
+  discussionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginHorizontal: 20,
+    marginTop: 14,
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#e5e7eb',
+  },
+  discussionIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  discussionLabel: { fontSize: 14, fontWeight: '600', color: '#1f2937' },
+});
