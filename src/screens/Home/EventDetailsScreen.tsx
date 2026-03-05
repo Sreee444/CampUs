@@ -13,7 +13,9 @@ import {
   Modal,
   Pressable,
   Platform,
+  StatusBar,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -126,13 +128,28 @@ export default function EventDetailsScreen() {
 
       const { data: memberData } = await supabase
         .from('event_team_members')
-        .select('team_id, event_teams!inner(event_id)')
+        .select('team_id, event_teams!inner(event_id, name)')
         .eq('user_id', user.id)
         .eq('event_teams.event_id', eventId)
         .limit(1) as any;
 
       if (memberData && memberData.length > 0) {
-        setTeamState((p: any) => ({ ...p, isInTeam: true, teamId: memberData[0].team_id }));
+        const teamId = memberData[0].team_id;
+        const teamName = memberData[0].event_teams?.name || 'Your Team';
+        
+        // Fetch actual member count
+        const { count: memberCount } = await supabase
+          .from('event_team_members')
+          .select('*', { count: 'exact', head: true })
+          .eq('team_id', teamId);
+        
+        setTeamState((p: any) => ({
+          ...p,
+          isInTeam: true,
+          teamId,
+          teamName,
+          teamMembersCount: memberCount || 0
+        }));
       }
 
       const { data: regRow } = await supabase
@@ -324,18 +341,23 @@ export default function EventDetailsScreen() {
   /* ─── LOADING STATE ─── */
   if (isLoading || !event) {
     return (
-      <SafeAreaView style={s.container}>
-        <View style={s.nav}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={s.navIconBtn}>
-            <MaterialIcons name="arrow-back" size={22} color="#1f2937" />
-          </TouchableOpacity>
-          <Text style={s.navTitleCenter}>Event Details</Text>
-          <View style={s.navIconBtn} />
+      <View style={s.container}>
+        <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+        <View style={s.navBar}>
+          <View style={s.navInner}>
+            <TouchableOpacity onPress={() => navigation.goBack()} style={s.navBtn}>
+              <MaterialIcons name="arrow-back" size={24} color="#1f2937" />
+            </TouchableOpacity>
+            <View style={s.navCenter}>
+              <Text style={s.navTitle}>Event Details</Text>
+            </View>
+            <View style={s.navBtn} />
+          </View>
         </View>
         <View style={s.loadWrap}>
           <ActivityIndicator size="large" color="#4f46e5" />
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
@@ -369,20 +391,24 @@ export default function EventDetailsScreen() {
   ];
 
   return (
-    <SafeAreaView style={s.container}>
-      {/* ── NAVBAR ── */}
-      <View style={s.nav}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={s.navIconBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#1f2937" />
-        </TouchableOpacity>
-        <View style={s.navCenter}>
-          <Animated.Text style={[s.navTitleCenter, { opacity: headerOpacity }]} numberOfLines={1}>
-            {event.title}
-          </Animated.Text>
+    <View style={s.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+      
+      {/* ── FIXED NAVBAR ── */}
+      <View style={s.navBar}>
+        <View style={s.navInner}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={s.navBtn} activeOpacity={0.7}>
+            <MaterialIcons name="arrow-back" size={24} color="#1f2937" />
+          </TouchableOpacity>
+          <View style={s.navCenter}>
+            <Animated.Text style={[s.navTitle, { opacity: headerOpacity }]} numberOfLines={1}>
+              {event.title}
+            </Animated.Text>
+          </View>
+          <TouchableOpacity style={s.navBtn} onPress={() => setMenuVisible(true)} activeOpacity={0.7}>
+            <MaterialIcons name="more-vert" size={24} color="#1f2937" />
+          </TouchableOpacity>
         </View>
-        <TouchableOpacity style={s.navIconBtn} onPress={() => setMenuVisible(true)}>
-          <MaterialIcons name="more-vert" size={22} color="#1f2937" />
-        </TouchableOpacity>
       </View>
 
       {/* ── 3-DOT MENU MODAL ── */}
@@ -403,7 +429,7 @@ export default function EventDetailsScreen() {
       <Animated.ScrollView
         style={s.scroll}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 100 }}
+        contentContainerStyle={{ paddingTop: 8, paddingBottom: 100 }}
         onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: false })}
         scrollEventThrottle={16}
       >
@@ -416,44 +442,59 @@ export default function EventDetailsScreen() {
 
         {/* Title Block */}
         <View style={s.titleWrap}>
+          <Text style={s.eventTitle}>{event.title}</Text>
           <View style={s.pillRow}>
-            <View style={[s.pill, { backgroundColor: statusColor + '14' }]}>
+            <View style={[s.pill, { backgroundColor: statusColor + '18' }]}>
               {isLive && <View style={s.liveDot} />}
               <Text style={[s.pillText, { color: statusColor }]}>{statusLabel}</Text>
             </View>
-            <View style={s.pill}>
-              <Text style={s.pillText}>{event.event_type}</Text>
+            <View style={[s.pill, { backgroundColor: '#f0fdf4' }]}>
+              <Text style={[s.pillText, { color: '#10b981' }]}>{event.event_type}</Text>
             </View>
             {(event as any)?.participation_type === 'team' && (
               <View style={[s.pill, { backgroundColor: '#f3e8ff' }]}>
+                <MaterialIcons name="groups" size={12} color="#7c3aed" />
                 <Text style={[s.pillText, { color: '#7c3aed' }]}>Team</Text>
               </View>
             )}
           </View>
-          <Text style={s.eventTitle}>{event.title}</Text>
           {isUpcoming && days > 0 && days <= 7 && (
-            <Text style={s.countdown}>Starts in {days} day{days !== 1 ? 's' : ''}</Text>
+            <View style={s.countdownRow}>
+              <MaterialIcons name="timer" size={16} color="#4f46e5" />
+              <Text style={s.countdown}>Starts in {days} day{days !== 1 ? 's' : ''}</Text>
+            </View>
           )}
         </View>
 
         {/* About */}
         {event.description ? (
           <View style={s.card}>
-            <Text style={s.cardHeader}>About</Text>
+            <View style={s.cardHeaderRow}>
+              <View style={[s.headerIconCircle, { backgroundColor: '#fef3c7' }]}>
+                <MaterialIcons name="description" size={16} color="#f59e0b" />
+              </View>
+              <Text style={s.cardHeaderText}>About</Text>
+            </View>
             <Text style={s.bodyText}>{event.description}</Text>
           </View>
         ) : null}
 
         {/* Details */}
         <View style={s.card}>
-          <Text style={s.cardHeader}>Details</Text>
+          <View style={s.cardHeaderRow}>
+            <View style={[s.headerIconCircle, { backgroundColor: '#eef2ff' }]}>
+              <MaterialIcons name="info-outline" size={16} color="#4f46e5" />
+            </View>
+            <Text style={s.cardHeaderText}>Details</Text>
+          </View>
 
-          <InfoRow icon="calendar-today" label="Date" value={fmtDate(event.start_date)} />
-          <InfoRow icon="schedule" label="Time" value={fmtTime(event.start_date) + ' — ' + fmtTime(event.end_date)} />
+          <InfoRow icon="calendar-today" label="Date" value={fmtDate(event.start_date)} iconColor="#4f46e5" iconBg="#eef2ff" />
+          <InfoRow icon="schedule" label="Time" value={fmtTime(event.start_date) + ' — ' + fmtTime(event.end_date)} iconColor="#f59e0b" iconBg="#fef3c7" />
           <InfoRow
             icon={event.is_online ? 'laptop' : 'location-on'}
             label={event.is_online ? 'Mode' : 'Venue'}
             value={event.is_online ? 'Online' : (event.venue || 'TBA')}
+            iconColor="#ef4444" iconBg="#fef2f2"
           >
             {event.is_online && event.meeting_link && isLive && (
               <TouchableOpacity onPress={openMeetingLink}>
@@ -461,17 +502,17 @@ export default function EventDetailsScreen() {
               </TouchableOpacity>
             )}
           </InfoRow>
-          <InfoRow icon="people-outline" label="Participants" value={event.registrations_count + ' / ' + (event.max_participants || '∞')}>
+          <InfoRow icon="people" label="Participants" value={event.registrations_count + ' / ' + (event.max_participants || '∞')} iconColor="#3b82f6" iconBg="#dbeafe">
             {canManage && event.registrations_count > 0 && (
               <TouchableOpacity
                 style={s.chipBtn}
                 onPress={() => navigation.navigate('EventRegisteredUsers', { eventId, eventTitle: event.title })}
               >
-                <Text style={s.chipBtnText}>View All</Text>
+                <Text style={s.chipBtnText}>View All →</Text>
               </TouchableOpacity>
             )}
           </InfoRow>
-          <InfoRow icon="verified-user" label="Eligibility" value={eligText}>
+          <InfoRow icon="verified-user" label="Eligibility" value={eligText} iconColor="#10b981" iconBg="#d1fae5">
             {eligType !== 'college' && (
               <Text style={s.meta}>
                 {eligDepts.length ? 'Depts: ' + eligDepts.join(', ') : ''}{eligDepts.length && eligYears.length ? ' · ' : ''}
@@ -483,109 +524,213 @@ export default function EventDetailsScreen() {
             activeOpacity={0.7}
             onPress={() => event.created_by && navigation.navigate('PublicProfile', { userId: event.created_by })}
           >
-            <InfoRow icon="person-outline" label="Organizer" value={event.organizer_profile?.full_name || 'Campus Team'} chevron />
+            <InfoRow icon="person" label="Organizer" value={event.organizer_profile?.full_name || 'Campus Team'} chevron iconColor="#ec4899" iconBg="#fce7f3" />
           </TouchableOpacity>
         </View>
 
         {/* Registration */}
-        <View style={s.card}>
-          <Text style={s.cardHeader}>Registration</Text>
+        <View style={s.registrationCard}>
+          <View style={s.cardHeaderRow}>
+            <MaterialIcons name="how-to-reg" size={20} color="#10b981" />
+            <Text style={s.cardHeader}>Registration</Text>
+          </View>
+          
           {event.is_registered ? (
             <>
-              <View style={s.successChip}>
-                <MaterialIcons name="check-circle" size={16} color="#16a34a" />
-                <Text style={s.successChipText}>You're registered</Text>
-              </View>
+              <LinearGradient
+                colors={['#d1fae5', '#ecfdf5']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={s.successCard}
+              >
+                <View style={s.successIconCircle}>
+                  <MaterialIcons name="check-circle" size={24} color="#10b981" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.successTitle}>Registered Successfully!</Text>
+                  <Text style={s.successSubtext}>You're all set for this event</Text>
+                </View>
+              </LinearGradient>
               <TouchableOpacity
                 style={[s.btnDangerOutline, isRegistering && s.btnOff]}
                 onPress={() => setShowUnregisterConfirm(true)}
                 disabled={isRegistering}
               >
+                <MaterialIcons name="cancel" size={18} color="#ef4444" />
                 <Text style={s.btnDangerOutlineText}>{isRegistering ? 'Processing...' : 'Unregister'}</Text>
               </TouchableOpacity>
             </>
           ) : (
             <>
               <TouchableOpacity
-                style={[s.btnFill, (!canRegister || isRegistering) && s.btnOff]}
+                style={[s.btnRegister, (!canRegister || isRegistering) && s.btnOff]}
                 onPress={() => setShowRegisterConfirm(true)}
                 disabled={!canRegister || isRegistering}
+                activeOpacity={0.8}
               >
-                <Text style={s.btnFillText}>
-                  {isRegistering ? 'Processing...' : canRegister ? 'Register Now' : "Can't Register"}
-                </Text>
+                <LinearGradient
+                  colors={canRegister ? ['#10b981', '#059669'] : ['#9ca3af', '#6b7280']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={s.btnGradient}
+                >
+                  <MaterialIcons name="event-available" size={20} color="#fff" />
+                  <Text style={s.btnFillText}>
+                    {isRegistering ? 'Processing...' : canRegister ? 'Register Now' : "Can't Register"}
+                  </Text>
+                </LinearGradient>
               </TouchableOpacity>
               {!canRegister && (
-                <Text style={s.helper}>
-                  {!regOpen ? 'Registration closed.' : (eligibility.reason || 'Not eligible for this event.')}
-                </Text>
+                <View style={s.warningBox}>
+                  <MaterialIcons name="info-outline" size={16} color="#f59e0b" />
+                  <Text style={s.warningText}>
+                    {!regOpen ? 'Registration closed.' : (eligibility.reason || 'Not eligible for this event.')}
+                  </Text>
+                </View>
               )}
             </>
           )}
-          <Text style={s.helper}>Deadline: {fmtDate(event.registration_deadline)}</Text>
+          
+          <View style={s.deadlineRow}>
+            <View style={s.deadlineIconCircle}>
+              <MaterialIcons name="event" size={16} color="#f59e0b" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={s.deadlineLabel}>Registration Deadline</Text>
+              <Text style={s.deadlineValue}>{fmtDate(event.registration_deadline)}</Text>
+            </View>
+          </View>
+          
+          <View style={s.deadlineRow}>
+            <View style={s.startIconCircle}>
+              <MaterialIcons name="play-circle-outline" size={16} color="#3b82f6" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={s.deadlineLabel}>Event Starts</Text>
+              <Text style={s.deadlineValue}>{fmtDate(event.start_date)} • {fmtTime(event.start_date)}</Text>
+            </View>
+          </View>
         </View>
 
         {/* Team Participation */}
         {(event as any)?.participation_type === 'team' && event.is_registered && (
-          <View style={s.card}>
-            <Text style={s.cardHeader}>Team Participation</Text>
+          <View style={s.teamCard}>
+            <View style={s.cardHeaderRow}>
+              <MaterialIcons name="groups" size={20} color="#7c3aed" />
+              <Text style={s.cardHeader}>Team Participation</Text>
+            </View>
             {isCheckingTeam ? (
-              <ActivityIndicator size="small" color="#4f46e5" style={{ marginVertical: 12 }} />
+              <ActivityIndicator size="small" color="#7c3aed" style={{ marginVertical: 12 }} />
             ) : teamState?.isInTeam ? (
               <View style={s.sectionGap}>
-                <View style={s.teamRow}>
-                  <View style={s.teamAva}>
-                    <MaterialIcons name="groups" size={20} color="#4f46e5" />
+                <LinearGradient
+                  colors={['#f5f3ff', '#faf5ff']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={s.teamInfoCard}
+                >
+                  <View style={s.teamAvaLarge}>
+                    <MaterialIcons name="groups" size={28} color="#7c3aed" />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={s.teamLabel}>{teamState?.teamName || 'Your Team'}</Text>
-                    <Text style={s.meta}>{teamState?.teamMembersCount ?? 0} members</Text>
+                    <Text style={s.teamNameLarge}>{teamState?.teamName || 'Your Team'}</Text>
+                    <View style={s.teamMetaRow}>
+                      <MaterialIcons name="people" size={14} color="#8b5cf6" />
+                      <Text style={s.teamMeta}>{teamState?.teamMembersCount ?? 0} members</Text>
+                    </View>
                   </View>
-                </View>
+                </LinearGradient>
                 <TouchableOpacity
-                  style={s.btnFill}
+                  style={s.btnPrimary}
                   onPress={() => navigation.navigate('TeamDetails', { teamId: teamState?.teamId, eventId })}
+                  activeOpacity={0.8}
                 >
-                  <Text style={s.btnFillText}>View My Team</Text>
+                  <LinearGradient
+                    colors={['#7c3aed', '#6d28d9']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={s.btnGradient}
+                  >
+                    <MaterialIcons name="visibility" size={18} color="#fff" />
+                    <Text style={s.btnPrimaryText}>View My Team</Text>
+                  </LinearGradient>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={s.btnGhost}
-                  onPress={() => navigation.navigate('TeamConnect', { eventId, requiredRoles: (event as any)?.required_roles ?? [], teamId: teamState?.teamId })}
-                >
-                  <Text style={s.btnGhostText}>Browse Members</Text>
-                </TouchableOpacity>
+                
+                <View style={s.actionGridSmall}>
+                  <TouchableOpacity
+                    style={s.btnSecondary}
+                    onPress={() => navigation.navigate('TeamConnect', { eventId, requiredRoles: (event as any)?.required_roles ?? [], teamId: teamState?.teamId })}
+                    activeOpacity={0.8}
+                  >
+                    <MaterialIcons name="people-outline" size={18} color="#7c3aed" />
+                    <Text style={s.btnSecondaryText}>Browse Members</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={s.btnSecondary}
+                    onPress={() => navigation.navigate('BrowseTeams', { eventId })}
+                    activeOpacity={0.8}
+                  >
+                    <MaterialIcons name="search" size={18} color="#7c3aed" />
+                    <Text style={s.btnSecondaryText}>Browse Teams</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             ) : teamState?.hasReceivedInvite ? (
               <View style={s.sectionGap}>
-                <View style={s.infoBanner}>
-                  <MaterialIcons name="mail" size={16} color="#4f46e5" />
-                  <Text style={s.infoBannerText}>You have a team invitation</Text>
-                </View>
+                <LinearGradient
+                  colors={['#dbeafe', '#eff6ff']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={s.inviteBanner}
+                >
+                  <View style={s.inviteIcon}>
+                    <MaterialIcons name="mail" size={18} color="#3b82f6" />
+                  </View>
+                  <Text style={s.inviteBannerText}>You have a team invitation!</Text>
+                </LinearGradient>
                 <View style={s.rowBtns}>
                   <TouchableOpacity
-                    style={[s.btnFill, { flex: 1 }, isHandlingInvite && s.btnOff]}
+                    style={[s.btnAccept, isHandlingInvite && s.btnOff]}
                     onPress={handleAcceptInvite}
                     disabled={isHandlingInvite}
+                    activeOpacity={0.8}
                   >
-                    <Text style={s.btnFillText}>Accept</Text>
+                    <LinearGradient
+                      colors={['#10b981', '#059669']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={s.btnGradientSmall}
+                    >
+                      <MaterialIcons name="check" size={18} color="#fff" />
+                      <Text style={s.btnAcceptText}>Accept</Text>
+                    </LinearGradient>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[s.btnOutline, { flex: 1 }, isHandlingInvite && s.btnOff]}
+                    style={[s.btnDecline, { flex: 1 }, isHandlingInvite && s.btnOff]}
                     onPress={handleRejectInvite}
                     disabled={isHandlingInvite}
+                    activeOpacity={0.8}
                   >
-                    <Text style={s.btnOutlineText}>Decline</Text>
+                    <MaterialIcons name="close" size={18} color="#ef4444" />
+                    <Text style={s.btnDeclineText}>Decline</Text>
                   </TouchableOpacity>
                 </View>
               </View>
             ) : teamState?.hasSentJoinRequest ? (
               <View style={s.sectionGap}>
-                <View style={s.warnBanner}>
-                  <MaterialIcons name="hourglass-empty" size={16} color="#92400e" />
-                  <Text style={s.warnBannerText}>Join request pending</Text>
-                </View>
-                <TouchableOpacity style={s.btnOutline} onPress={handleCancelJoinRequest}>
-                  <Text style={s.btnOutlineText}>Cancel Request</Text>
+                <LinearGradient
+                  colors={['#fef3c7', '#fef9e7']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={s.pendingBanner}
+                >
+                  <View style={s.pendingIcon}>
+                    <MaterialIcons name="hourglass-empty" size={18} color="#f59e0b" />
+                  </View>
+                  <Text style={s.pendingBannerText}>Join request pending approval</Text>
+                </LinearGradient>
+                <TouchableOpacity style={s.btnCancel} onPress={handleCancelJoinRequest} activeOpacity={0.8}>
+                  <Text style={s.btnCancelText}>Cancel Request</Text>
                 </TouchableOpacity>
               </View>
             ) : (
@@ -594,33 +739,102 @@ export default function EventDetailsScreen() {
                   style={[s.lookingBtn, isLookingForTeam && s.lookingActive, isTogglingLooking && s.btnOff]}
                   onPress={handleToggleLooking}
                   disabled={isTogglingLooking}
-                  activeOpacity={0.7}
+                  activeOpacity={0.8}
                 >
-                  <MaterialIcons
-                    name={isLookingForTeam ? 'check-circle' : 'group-add'}
-                    size={18}
-                    color={isLookingForTeam ? '#16a34a' : '#4f46e5'}
-                  />
-                  <Text style={[s.lookingText, isLookingForTeam && { color: '#16a34a' }]}>
-                    {isTogglingLooking ? 'Updating...' : isLookingForTeam ? 'Looking for Team' : 'Mark as Looking'}
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={s.btnFill} onPress={() => handleNavigateTeam('CreateTeam')}>
-                  <Text style={s.btnFillText}>Create Team</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={s.btnOutline} onPress={() => handleNavigateTeam('JoinTeam')}>
-                  <Text style={s.btnOutlineText}>Join via Code</Text>
-                </TouchableOpacity>
-                <View style={s.ghostRow}>
-                  <TouchableOpacity style={s.btnGhost} onPress={() => navigation.navigate('BrowseTeams', { eventId })}>
-                    <Text style={s.btnGhostText}>Browse Teams</Text>
-                  </TouchableOpacity>
-                  <View style={s.ghostDot} />
-                  <TouchableOpacity
-                    style={s.btnGhost}
-                    onPress={() => navigation.navigate('TeamConnect', { eventId, requiredRoles: (event as any)?.required_roles ?? [], teamId: teamState?.teamId })}
+                  <LinearGradient
+                    colors={isLookingForTeam ? ['#d1fae5', '#ecfdf5'] : ['#f5f3ff', '#faf5ff']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={s.lookingGradient}
                   >
-                    <Text style={s.btnGhostText}>Browse Members</Text>
+                    <MaterialIcons
+                      name={isLookingForTeam ? 'check-circle' : 'group-add'}
+                      size={20}
+                      color={isLookingForTeam ? '#10b981' : '#7c3aed'}
+                    />
+                    <Text style={[s.lookingText, isLookingForTeam && { color: '#10b981' }]}>
+                      {isTogglingLooking ? 'Updating...' : isLookingForTeam ? 'Looking for Team ✨' : 'Mark as Looking for Team'}
+                    </Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+                
+                <View style={s.actionGrid}>
+                  <TouchableOpacity 
+                    style={s.actionCard} 
+                    onPress={() => handleNavigateTeam('CreateTeam')}
+                    activeOpacity={0.8}
+                  >
+                    <LinearGradient
+                      colors={['#7c3aed', '#6d28d9']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={s.actionCardGradient}
+                    >
+                      <View style={s.actionIconCircle}>
+                        <MaterialIcons name="add-circle" size={24} color="#fff" />
+                      </View>
+                      <Text style={s.actionCardTitle}>Create Team</Text>
+                      <Text style={s.actionCardDesc}>Start your own</Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity 
+                    style={s.actionCard} 
+                    onPress={() => handleNavigateTeam('JoinTeam')}
+                    activeOpacity={0.8}
+                  >
+                    <LinearGradient
+                      colors={['#3b82f6', '#2563eb']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={s.actionCardGradient}
+                    >
+                      <View style={s.actionIconCircle}>
+                        <MaterialIcons name="vpn-key" size={24} color="#fff" />
+                      </View>
+                      <Text style={s.actionCardTitle}>Join via Code</Text>
+                      <Text style={s.actionCardDesc}>Enter code</Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={s.actionGrid}>
+                  <TouchableOpacity 
+                    style={s.actionCard} 
+                    onPress={() => navigation.navigate('BrowseTeams', { eventId })}
+                    activeOpacity={0.8}
+                  >
+                    <LinearGradient
+                      colors={['#10b981', '#059669']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={s.actionCardGradient}
+                    >
+                      <View style={s.actionIconCircle}>
+                        <MaterialIcons name="search" size={24} color="#fff" />
+                      </View>
+                      <Text style={s.actionCardTitle}>Browse Teams</Text>
+                      <Text style={s.actionCardDesc}>Find & join</Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity 
+                    style={s.actionCard}
+                    onPress={() => navigation.navigate('TeamConnect', { eventId, requiredRoles: (event as any)?.required_roles ?? [], teamId: teamState?.teamId })}
+                    activeOpacity={0.8}
+                  >
+                    <LinearGradient
+                      colors={['#f59e0b', '#d97706']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={s.actionCardGradient}
+                    >
+                      <View style={s.actionIconCircle}>
+                        <MaterialIcons name="people" size={24} color="#fff" />
+                      </View>
+                      <Text style={s.actionCardTitle}>Browse Members</Text>
+                      <Text style={s.actionCardDesc}>Connect</Text>
+                    </LinearGradient>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -679,25 +893,26 @@ export default function EventDetailsScreen() {
         confirmColor="#ef4444"
         icon="delete-forever"
       />
-    </SafeAreaView>
+    </View>
   );
 }
 
 /* ─── INFO ROW COMPONENT ─── */
-function InfoRow({ icon, label, value, chevron, children }: {
+function InfoRow({ icon, label, value, chevron, children, iconColor, iconBg }: {
   icon: string; label: string; value: string; chevron?: boolean; children?: React.ReactNode;
+  iconColor?: string; iconBg?: string;
 }) {
   return (
     <View style={s.infoRow}>
-      <View style={s.infoIcon}>
-        <MaterialIcons name={icon as any} size={17} color="#4f46e5" />
+      <View style={[s.infoIcon, iconBg ? { backgroundColor: iconBg } : null]}>
+        <MaterialIcons name={icon as any} size={17} color={iconColor || '#4f46e5'} />
       </View>
       <View style={{ flex: 1 }}>
         <Text style={s.infoLabel}>{label}</Text>
         <Text style={s.infoVal}>{value}</Text>
         {children}
       </View>
-      {chevron && <MaterialIcons name="chevron-right" size={20} color="#d1d5db" />}
+      {chevron && <MaterialIcons name="chevron-right" size={20} color="#9ca3af" />}
     </View>
   );
 }
@@ -707,26 +922,29 @@ const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f5f7' },
   loadWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
-  /* Nav */
-  nav: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    height: 56,
-    paddingHorizontal: 12,
+  /* Nav - proper fixed at top */
+  navBar: {
     backgroundColor: '#fff',
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#e5e7eb',
+    paddingTop: Platform.OS === 'ios' ? 50 : (StatusBar.currentHeight || 24),
   },
-  navIconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  navInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 52,
+    paddingHorizontal: 8,
+  },
+  navBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  navCenter: { flex: 1, alignItems: 'center' },
-  navTitleCenter: {
-    fontSize: 16,
+  navCenter: { flex: 1, alignItems: 'center', paddingHorizontal: 8 },
+  navTitle: {
+    fontSize: 17,
     fontWeight: '700',
     color: '#1f2937',
   },
@@ -774,19 +992,19 @@ const s = StyleSheet.create({
   /* Title */
   titleWrap: {
     paddingHorizontal: 20,
-    paddingTop: 20,
+    paddingTop: 16,
     paddingBottom: 4,
   },
   pillRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
-    marginBottom: 12,
+    marginTop: 10,
   },
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    gap: 4,
     backgroundColor: '#eef2ff',
     paddingHorizontal: 10,
     paddingVertical: 5,
@@ -795,13 +1013,19 @@ const s = StyleSheet.create({
   pillText: { fontSize: 12, fontWeight: '600', color: '#4f46e5', textTransform: 'capitalize' },
   liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#dc2626' },
   eventTitle: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '800',
     color: '#111827',
-    lineHeight: 30,
+    lineHeight: 32,
     letterSpacing: -0.3,
   },
-  countdown: { fontSize: 13, fontWeight: '600', color: '#4f46e5', marginTop: 6 },
+  countdownRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 8,
+  },
+  countdown: { fontSize: 13, fontWeight: '600', color: '#4f46e5' },
 
   /* Cards */
   card: {
@@ -813,32 +1037,49 @@ const s = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: '#e5e7eb',
   },
-  cardHeader: {
-    fontSize: 14,
+  cardHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 14,
+  },
+  headerIconCircle: {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardHeaderText: {
+    fontSize: 16,
     fontWeight: '700',
-    color: '#374151',
-    letterSpacing: 0.2,
-    marginBottom: 12,
+    color: '#1f2937',
+    letterSpacing: 0.1,
+  },
+  cardHeader: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1f2937',
+    letterSpacing: 0.1,
   },
   bodyText: { fontSize: 14, color: '#4b5563', lineHeight: 22 },
 
   /* Info rows */
   infoRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
-    paddingVertical: 11,
+    alignItems: 'center',
+    gap: 14,
+    paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#f3f4f6',
   },
   infoIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
+    width: 38,
+    height: 38,
+    borderRadius: 11,
     backgroundColor: '#eef2ff',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 1,
   },
   infoLabel: {
     fontSize: 11,
@@ -861,7 +1102,108 @@ const s = StyleSheet.create({
   },
   chipBtnText: { fontSize: 12, fontWeight: '600', color: '#4f46e5' },
 
-  /* Registration */
+  /* Registration - Enhanced */
+  registrationCard: {
+    marginHorizontal: 20,
+    marginTop: 14,
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#d1fae5',
+  },
+  successCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    padding: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#86efac',
+    marginBottom: 12,
+  },
+  successIconCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  successTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#047857',
+    marginBottom: 2,
+  },
+  successSubtext: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#059669',
+  },
+  btnRegister: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    height: 52,
+    marginBottom: 12,
+  },
+  warningBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#fffbeb',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#fde68a',
+  },
+  warningText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#92400e',
+    flex: 1,
+  },
+  deadlineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    backgroundColor: '#f9fafb',
+    borderRadius: 12,
+    marginTop: 8,
+  },
+  deadlineIconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#fef3c7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  startIconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#dbeafe',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deadlineLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#9ca3af',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    marginBottom: 3,
+  },
+  deadlineValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1f2937',
+  },
   successChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -896,12 +1238,14 @@ const s = StyleSheet.create({
   },
   btnOutlineText: { color: '#4f46e5', fontSize: 15, fontWeight: '600' },
   btnDangerOutline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
     borderWidth: 1.5,
     borderColor: '#fca5a5',
     borderRadius: 12,
     height: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
     backgroundColor: '#fef2f2',
   },
   btnDangerOutlineText: { color: '#ef4444', fontSize: 15, fontWeight: '600' },
@@ -909,8 +1253,17 @@ const s = StyleSheet.create({
   btnGhostText: { color: '#4f46e5', fontWeight: '600', fontSize: 14 },
   btnOff: { opacity: 0.5 },
 
-  /* Team section */
-  sectionGap: { gap: 10 },
+  /* Team section - NEW ENHANCED STYLES */
+  teamCard: {
+    marginHorizontal: 20,
+    marginTop: 14,
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#e9d5ff',
+  },
+  sectionGap: { gap: 12 },
   teamRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   teamAva: {
     width: 42,
@@ -921,6 +1274,268 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
   teamLabel: { fontSize: 15, fontWeight: '700', color: '#111827' },
+
+  // Enhanced Team Info Card
+  teamInfoCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    padding: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e9d5ff',
+  },
+  teamAvaLarge: {
+    width: 52,
+    height: 52,
+    borderRadius: 14,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  teamNameLarge: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#1f2937',
+    marginBottom: 4,
+  },
+  teamMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  teamMeta: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#8b5cf6',
+  },
+
+  // Primary Button with Gradient
+  btnPrimary: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    height: 50,
+  },
+  btnGradient: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 20,
+  },
+  btnPrimaryText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+
+  // Secondary Button
+  btnSecondary: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 1.5,
+    borderColor: '#c7d2fe',
+    borderRadius: 12,
+    height: 48,
+    backgroundColor: '#fff',
+  },
+  btnSecondaryText: {
+    color: '#7c3aed',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+
+  // Tertiary Button (for Browse Teams in team view)
+  btnTertiary: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 1.5,
+    borderColor: '#86efac',
+    borderRadius: 12,
+    height: 48,
+    backgroundColor: '#f0fdf4',
+  },
+  btnTertiaryText: {
+    color: '#10b981',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+
+  // Action Grid for small buttons
+  actionGridSmall: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+
+  // Invite Banner
+  inviteBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+  },
+  inviteIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inviteBannerText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1e40af',
+    flex: 1,
+  },
+
+  // Accept/Decline Buttons
+  rowBtns: { flexDirection: 'row', gap: 10 },
+  btnAccept: {
+    flex: 1,
+    borderRadius: 12,
+    overflow: 'hidden',
+    height: 48,
+  },
+  btnGradientSmall: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  btnAcceptText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  btnDecline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderWidth: 1.5,
+    borderColor: '#fca5a5',
+    borderRadius: 12,
+    height: 48,
+    backgroundColor: '#fef2f2',
+  },
+  btnDeclineText: {
+    color: '#ef4444',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+
+  // Pending Banner
+  pendingBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#fde68a',
+  },
+  pendingIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pendingBannerText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#92400e',
+    flex: 1,
+  },
+  btnCancel: {
+    borderWidth: 1.5,
+    borderColor: '#fed7aa',
+    borderRadius: 12,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+  },
+  btnCancelText: {
+    color: '#ea580c',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+
+  // Looking for Team Button
+  lookingBtn: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    height: 48,
+  },
+  lookingGradient: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 1.5,
+    borderColor: '#e9d5ff',
+    borderRadius: 12,
+  },
+  lookingActive: {},
+  lookingText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#7c3aed',
+  },
+
+  // Action Grid Cards
+  actionGrid: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  actionCard: {
+    flex: 1,
+    borderRadius: 14,
+    overflow: 'hidden',
+    height: 110,
+  },
+  actionCardGradient: {
+    flex: 1,
+    padding: 14,
+    justifyContent: 'space-between',
+  },
+  actionIconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionCardTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#fff',
+    marginTop: 8,
+  },
+  actionCardDesc: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.85)',
+  },
+
   infoBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -941,19 +1556,6 @@ const s = StyleSheet.create({
     borderRadius: 10,
   },
   warnBannerText: { fontSize: 13, fontWeight: '600', color: '#92400e' },
-  rowBtns: { flexDirection: 'row', gap: 10 },
-  lookingBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    borderWidth: 1.5,
-    borderColor: '#c7d2fe',
-    borderRadius: 12,
-    height: 44,
-  },
-  lookingActive: { borderColor: '#86efac', backgroundColor: '#f0fdf4' },
-  lookingText: { fontSize: 14, fontWeight: '600', color: '#4f46e5' },
   ghostRow: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -901,7 +901,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     color: Colors.primaryContent,
   },
   conversationsListContent: {
-    paddingBottom: 92,
+    paddingBottom: 110,
   },
   conversationItem: {
     flexDirection: 'row',

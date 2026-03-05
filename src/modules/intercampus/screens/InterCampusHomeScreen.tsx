@@ -1,12 +1,12 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
+  FlatList,
+  RefreshControl,
   SafeAreaView,
-  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
-  RefreshControl,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
@@ -14,73 +14,70 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../../../navigation/types';
 import { useAuth } from '../../../contexts/AuthContext';
 import { isAdminRole, isFacultyOrAdminRole } from '../../../utils/roles';
-import { useInterCampusEvents } from '../hooks/useInterCampusEvents';
+import { getVerifiedFests, getVerifiedStandaloneEvents } from '../api/intercampus';
+import { InterCampusEvent } from '../types/intercampus';
+import InterCampusFestCard from '../components/InterCampusFestCard';
 import InterCampusEventCard from '../components/InterCampusEventCard';
-import InterCampusState from '../components/InterCampusState';
-import { getInterCampusMyCollaborations, getMyInterCampusSubmissions } from '../api/intercampus';
-import { InterCampusEventSubmission } from '../types/intercampus';
 
 type Nav = StackNavigationProp<RootStackParamList>;
-type TabKey = 'all' | 'submissions' | 'team' | 'mine';
+type TabKey = 'fests' | 'events';
 
-const TABS: Array<{ key: TabKey; label: string }> = [
-  { key: 'all', label: 'All Events' },
-  { key: 'submissions', label: 'My Submissions' },
-  { key: 'team', label: 'Team-Up' },
-  { key: 'mine', label: 'My Collaborations' },
-];
+/* ─── Skeleton ─── */
+function SkeletonCard() {
+  return (
+    <View style={styles.skeletonCard}>
+      <View style={styles.skeletonBanner} />
+      <View style={styles.skeletonLineLg} />
+      <View style={styles.skeletonLineMd} />
+      <View style={styles.skeletonLineSm} />
+    </View>
+  );
+}
 
 export default function InterCampusHomeScreen() {
   const navigation = useNavigation<Nav>();
   const { user, profile } = useAuth();
-  const { events, loading, error, reload } = useInterCampusEvents(user?.id);
-  const [activeTab, setActiveTab] = useState<TabKey>('all');
-  const [myData, setMyData] = useState<{ my_posts: any[]; my_replies: any[] } | null>(null);
-  const [loadingMine, setLoadingMine] = useState(false);
-  const [submissions, setSubmissions] = useState<InterCampusEventSubmission[]>([]);
-  const [loadingSubmissions, setLoadingSubmissions] = useState(false);
   const canCreateDirect = isFacultyOrAdminRole(profile?.role);
+  const isStudent = !isFacultyOrAdminRole(profile?.role);
 
-  const teamEvents = useMemo(
-    () => events.filter((item) => item.participation_type === 'team'),
-    [events],
-  );
+  const [activeTab, setActiveTab] = useState<TabKey>('fests');
+  const [fests, setFests] = useState<InterCampusEvent[]>([]);
+  const [events, setEvents] = useState<InterCampusEvent[]>([]);
+  const [loadingFests, setLoadingFests] = useState(true);
+  const [loadingEvents, setLoadingEvents] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const loadMine = async () => {
-    if (!user?.id) return;
-    setLoadingMine(true);
+  /* ─── Loaders ─── */
+  const loadFests = useCallback(async () => {
     try {
-      const data = await getInterCampusMyCollaborations(user.id);
-      setMyData(data);
-    } catch {
-      setMyData({ my_posts: [], my_replies: [] });
+      setLoadingFests(true);
+      setError(null);
+      const data = await getVerifiedFests();
+      setFests(data);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load fests');
     } finally {
-      setLoadingMine(false);
+      setLoadingFests(false);
     }
-  };
+  }, []);
 
-  const loadSubmissions = async () => {
-    if (!user?.id) return;
-    setLoadingSubmissions(true);
+  const loadEvents = useCallback(async () => {
     try {
-      const data = await getMyInterCampusSubmissions(user.id);
-      setSubmissions(data);
-    } catch {
-      setSubmissions([]);
+      setLoadingEvents(true);
+      setError(null);
+      const data = await getVerifiedStandaloneEvents();
+      setEvents(data);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load events');
     } finally {
-      setLoadingSubmissions(false);
+      setLoadingEvents(false);
     }
-  };
+  }, []);
 
-  const onTabPress = async (key: TabKey) => {
-    setActiveTab(key);
-    if (key === 'mine' && !myData) {
-      await loadMine();
-    }
-    if (key === 'submissions' && submissions.length === 0) {
-      await loadSubmissions();
-    }
-  };
+  const reload = useCallback(() => {
+    loadFests();
+    loadEvents();
+  }, [loadFests, loadEvents]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -88,13 +85,62 @@ export default function InterCampusHomeScreen() {
     }, [reload]),
   );
 
+  const loading = activeTab === 'fests' ? loadingFests : loadingEvents;
+  const data = activeTab === 'fests' ? fests : events;
+
+  /* ─── Render Helpers ─── */
+  const renderFestItem = ({ item }: { item: InterCampusEvent }) => (
+    <InterCampusFestCard
+      fest={item}
+      onPress={() => navigation.navigate('InterCampusFestDetails', { festId: item.id })}
+    />
+  );
+
+  const renderEventItem = ({ item }: { item: InterCampusEvent }) => (
+    <InterCampusEventCard
+      event={item}
+      onPress={() => navigation.navigate('InterCampusEventDetails', { eventId: item.id })}
+    />
+  );
+
+  const renderEmpty = () => {
+    if (loading) return null;
+    return (
+      <View style={styles.emptyWrap}>
+        <MaterialIcons
+          name={activeTab === 'fests' ? 'festival' : 'event'}
+          size={42}
+          color="#94a3b8"
+        />
+        <Text style={styles.emptyTitle}>
+          {activeTab === 'fests' ? 'No verified fests yet' : 'No verified events yet'}
+        </Text>
+        <Text style={styles.emptySubtitle}>
+          {activeTab === 'fests'
+            ? 'Verified fests from other colleges will appear here.'
+            : 'Standalone events from other colleges will appear here.'}
+        </Text>
+      </View>
+    );
+  };
+
+  const renderSkeleton = () => (
+    <FlatList
+      data={[1, 2, 3]}
+      keyExtractor={(item) => String(item)}
+      renderItem={() => <SkeletonCard />}
+      contentContainerStyle={styles.listContent}
+    />
+  );
+
   return (
     <SafeAreaView style={styles.container}>
+      {/* ─── Header ─── */}
       <View style={styles.headerGradient}>
         <View style={styles.headerTopRow}>
           <View>
             <Text style={styles.title}>InterCampus</Text>
-            <Text style={styles.subtitle}>Verified external college events</Text>
+            <Text style={styles.subtitle}>Discover events across colleges</Text>
           </View>
           <View style={styles.headerActions}>
             {isFacultyOrAdminRole(profile?.role) && (
@@ -116,134 +162,63 @@ export default function InterCampusHomeScreen() {
           </View>
         </View>
 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabRow}>
-          {TABS.map((tab) => (
+        {/* ─── Segmented Tabs ─── */}
+        <View style={styles.segmentWrap}>
+          {(['fests', 'events'] as TabKey[]).map((tab) => (
             <TouchableOpacity
-              key={tab.key}
-              onPress={() => onTabPress(tab.key)}
-              style={[styles.tabPill, activeTab === tab.key && styles.tabPillActive]}
+              key={tab}
+              style={[styles.segmentBtn, activeTab === tab && styles.segmentBtnActive]}
+              onPress={() => setActiveTab(tab)}
             >
-              <Text style={[styles.tabText, activeTab === tab.key && styles.tabTextActive]}>{tab.label}</Text>
+              <MaterialIcons
+                name={tab === 'fests' ? 'celebration' : 'event'}
+                size={16}
+                color={activeTab === tab ? '#ffffff' : '#334155'}
+                style={{ marginRight: 6 }}
+              />
+              <Text style={[styles.segmentText, activeTab === tab && styles.segmentTextActive]}>
+                {tab === 'fests' ? 'Fests' : 'Events'}
+              </Text>
             </TouchableOpacity>
           ))}
-        </ScrollView>
+        </View>
       </View>
 
-      <ScrollView
-        style={styles.scroll}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={reload} tintColor="#0f766e" />}
-        contentContainerStyle={styles.scrollContent}
-      >
-        {!!error && (
-          <InterCampusState title="Could not load InterCampus events" subtitle={error} />
-        )}
+      {/* ─── Error Banner ─── */}
+      {!!error && (
+        <View style={styles.errorBanner}>
+          <MaterialIcons name="error-outline" size={16} color="#b91c1c" />
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      )}
 
-        {loading && !events.length ? (
-          <InterCampusState loading title="Loading InterCampus" subtitle="Fetching verified events..." />
-        ) : null}
+      {/* ─── Content ─── */}
+      {loading && !data.length ? (
+        renderSkeleton()
+      ) : (
+        <FlatList
+          data={data}
+          keyExtractor={(item) => item.id}
+          renderItem={activeTab === 'fests' ? renderFestItem : renderEventItem}
+          contentContainerStyle={styles.listContent}
+          ListEmptyComponent={renderEmpty}
+          refreshControl={
+            <RefreshControl refreshing={loading} onRefresh={reload} tintColor="#0f766e" />
+          }
+        />
+      )}
 
-        {!loading && !error && activeTab === 'all' && (
-          <>
-            {events.length === 0 ? (
-              <InterCampusState title="No verified events yet" subtitle="Faculty verification is in progress." />
-            ) : (
-              events.map((event) => (
-                <InterCampusEventCard
-                  key={event.id}
-                  event={event}
-                  onPress={() => navigation.navigate('InterCampusEventDetails', { eventId: event.id })}
-                />
-              ))
-            )}
-          </>
-        )}
-
-        {!loading && !error && activeTab === 'submissions' && (
-          <>
-            {loadingSubmissions ? (
-              <InterCampusState loading title="Loading submissions" />
-            ) : submissions.length === 0 ? (
-              <InterCampusState
-                title="You have not submitted any events yet."
-                subtitle="Submit your first external event for faculty verification."
-              />
-            ) : (
-              submissions.slice(0, 4).map((item) => (
-                <View key={item.id} style={styles.submissionCard}>
-                  <View style={styles.submissionHeader}>
-                    <Text style={styles.submissionTitle}>{item.event_title || 'Untitled Event'}</Text>
-                    <View style={[
-                      styles.submissionBadge,
-                      item.status === 'approved'
-                        ? styles.badgeApproved
-                        : item.status === 'rejected'
-                          ? styles.badgeRejected
-                          : styles.badgePending,
-                    ]}>
-                      <Text style={styles.submissionBadgeText}>
-                        {item.status === 'approved' ? 'Approved' : item.status === 'rejected' ? 'Rejected' : 'Pending Review'}
-                      </Text>
-                    </View>
-                  </View>
-                  <Text style={styles.submissionMeta}>{item.college_name || 'Unknown college'}</Text>
-                  <Text style={styles.submissionMeta}>
-                    Submitted: {item.created_at ? new Date(item.created_at).toLocaleDateString() : 'N/A'}
-                  </Text>
-                </View>
-              ))
-            )}
-            <TouchableOpacity style={styles.openSubmissionsBtn} onPress={() => navigation.navigate('MySubmittedEvents')}>
-              <Text style={styles.openSubmissionsText}>Open My Submissions</Text>
-            </TouchableOpacity>
-          </>
-        )}
-
-        {!loading && !error && activeTab === 'team' && (
-          <>
-            {teamEvents.length === 0 ? (
-              <InterCampusState title="No team events" subtitle="Team-up appears only for events with team participation." />
-            ) : (
-              teamEvents.map((event) => (
-                <InterCampusEventCard
-                  key={event.id}
-                  event={event}
-                  onPress={() => navigation.navigate('InterCampusTeamUp', { eventId: event.id })}
-                />
-              ))
-            )}
-          </>
-        )}
-
-        {!loading && activeTab === 'mine' && (
-          <>
-            {loadingMine ? (
-              <InterCampusState loading title="Loading collaborations" />
-            ) : (
-              <View style={styles.sectionCard}>
-                <Text style={styles.sectionTitle}>My Team Posts</Text>
-                <Text style={styles.sectionValue}>{myData?.my_posts?.length || 0}</Text>
-                <Text style={styles.sectionTitle}>My Replies</Text>
-                <Text style={styles.sectionValue}>{myData?.my_replies?.length || 0}</Text>
-                <TouchableOpacity style={styles.reloadBtn} onPress={loadMine}>
-                  <MaterialIcons name="refresh" size={16} color="#ffffff" />
-                  <Text style={styles.reloadText}>Refresh</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </>
-        )}
-
-        <View style={{ height: 80 }} />
-      </ScrollView>
-
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={() => navigation.navigate('InterCampusSubmitEvent')}
-        activeOpacity={0.88}
-      >
-        <MaterialIcons name="add" size={22} color="#ffffff" />
-        <Text style={styles.fabText}>Submit Event</Text>
-      </TouchableOpacity>
+      {/* ─── FABs ─── */}
+      {isStudent && (
+        <TouchableOpacity
+          style={styles.fab}
+          onPress={() => navigation.navigate('InterCampusSubmitEvent')}
+          activeOpacity={0.88}
+        >
+          <MaterialIcons name="add" size={22} color="#ffffff" />
+          <Text style={styles.fabText}>Submit Event</Text>
+        </TouchableOpacity>
+      )}
 
       {canCreateDirect && (
         <TouchableOpacity
@@ -267,7 +242,7 @@ const styles = StyleSheet.create({
   headerGradient: {
     paddingHorizontal: 16,
     paddingTop: 8,
-    paddingBottom: 12,
+    paddingBottom: 14,
     backgroundColor: '#eefcf8',
     borderBottomLeftRadius: 22,
     borderBottomRightRadius: 22,
@@ -276,7 +251,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 12,
   },
   headerActions: {
     flexDirection: 'row',
@@ -300,36 +275,121 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#475569',
   },
-  tabRow: {
-    gap: 8,
+
+  /* ─── Segmented Tabs ─── */
+  segmentWrap: {
+    flexDirection: 'row',
+    borderRadius: 14,
+    backgroundColor: '#e2e8f0',
+    padding: 3,
   },
-  tabPill: {
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#d1fae5',
+  segmentBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    borderRadius: 11,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  tabPillActive: {
+  segmentBtnActive: {
     backgroundColor: '#0f766e',
-    borderColor: '#0f766e',
+    shadowColor: '#0f766e',
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
   },
-  tabText: {
+  segmentText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#334155',
+  },
+  segmentTextActive: {
+    color: '#ffffff',
+  },
+
+  /* ─── Error ─── */
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: 16,
+    marginTop: 10,
+    padding: 10,
+    backgroundColor: '#fef2f2',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#fecaca',
+  },
+  errorText: {
+    flex: 1,
     fontSize: 12,
+    color: '#b91c1c',
+  },
+
+  /* ─── List ─── */
+  listContent: {
+    padding: 16,
+    gap: 12,
+    paddingBottom: 100,
+  },
+
+  /* ─── Empty ─── */
+  emptyWrap: {
+    alignItems: 'center',
+    paddingTop: 60,
+    gap: 10,
+  },
+  emptyTitle: {
+    fontSize: 16,
     fontWeight: '700',
     color: '#0f172a',
   },
-  tabTextActive: {
-    color: '#ffffff',
+  emptySubtitle: {
+    fontSize: 13,
+    color: '#64748b',
+    textAlign: 'center',
+    paddingHorizontal: 32,
   },
-  scroll: {
-    flex: 1,
+
+  /* ─── Skeleton ─── */
+  skeletonCard: {
+    borderRadius: 18,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    padding: 12,
+    marginBottom: 14,
   },
-  scrollContent: {
-    padding: 16,
-    gap: 10,
+  skeletonBanner: {
+    width: '100%',
+    aspectRatio: 16 / 9,
+    borderRadius: 12,
+    backgroundColor: '#e2e8f0',
+    marginBottom: 12,
   },
+  skeletonLineLg: {
+    height: 14,
+    width: '70%',
+    borderRadius: 999,
+    backgroundColor: '#e2e8f0',
+    marginBottom: 8,
+  },
+  skeletonLineMd: {
+    height: 12,
+    width: '55%',
+    borderRadius: 999,
+    backgroundColor: '#e2e8f0',
+    marginBottom: 8,
+  },
+  skeletonLineSm: {
+    height: 12,
+    width: '40%',
+    borderRadius: 999,
+    backgroundColor: '#e2e8f0',
+  },
+
+  /* ─── FABs ─── */
   fab: {
     position: 'absolute',
     right: 16,
@@ -368,91 +428,5 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontWeight: '700',
     fontSize: 13,
-  },
-  sectionCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  sectionTitle: {
-    fontSize: 12,
-    color: '#64748b',
-    fontWeight: '700',
-  },
-  sectionValue: {
-    marginTop: 4,
-    marginBottom: 10,
-    fontSize: 20,
-    fontWeight: '800',
-    color: '#0f172a',
-  },
-  reloadBtn: {
-    marginTop: 4,
-    alignSelf: 'flex-start',
-    borderRadius: 999,
-    backgroundColor: '#0f766e',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  reloadText: {
-    color: '#ffffff',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  submissionCard: {
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#ffffff',
-    padding: 12,
-    marginBottom: 10,
-  },
-  submissionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-  },
-  submissionTitle: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#0f172a',
-  },
-  submissionMeta: {
-    marginTop: 4,
-    fontSize: 12,
-    color: '#64748b',
-  },
-  submissionBadge: {
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  badgePending: { backgroundColor: '#ffedd5' },
-  badgeApproved: { backgroundColor: '#dcfce7' },
-  badgeRejected: { backgroundColor: '#fee2e2' },
-  submissionBadgeText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#0f172a',
-  },
-  openSubmissionsBtn: {
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#0f766e',
-    backgroundColor: '#ecfdf5',
-    paddingVertical: 10,
-    alignItems: 'center',
-  },
-  openSubmissionsText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#0f766e',
   },
 });

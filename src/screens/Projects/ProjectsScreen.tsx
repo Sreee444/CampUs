@@ -572,6 +572,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   scrollContent: {
     padding: Spacing.md,
+    paddingBottom: 110,
   },
   resultsText: {
     fontSize: FontSizes.sm,

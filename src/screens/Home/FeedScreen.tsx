@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   SafeAreaView,
   ScrollView,
+  Animated,
   RefreshControl,
   ActivityIndicator,
   TouchableOpacity,
@@ -546,49 +547,49 @@ export default function FeedScreen() {
   };
 
   const firstName = profile?.full_name?.split(' ')[0] || user?.email?.split('@')[0] || 'Student';
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const headerPaddingTop = scrollY.interpolate({
+    inputRange: [0, 100],
+    outputRange: [8, 2],
+    extrapolate: 'clamp',
+  });
+  const headerPaddingBottom = scrollY.interpolate({
+    inputRange: [0, 100],
+    outputRange: [20, 10],
+    extrapolate: 'clamp',
+  });
+  const userNameSize = scrollY.interpolate({
+    inputRange: [0, 100],
+    outputRange: [24, 18],
+    extrapolate: 'clamp',
+  });
+  const greetingOpacity = scrollY.interpolate({
+    inputRange: [0, 100],
+    outputRange: [1, 0.75],
+    extrapolate: 'clamp',
+  });
+  const headerFade = scrollY.interpolate({
+    inputRange: [0, 120],
+    outputRange: [1, 0],
+    extrapolate: 'clamp',
+  });
+  const headerTranslateY = scrollY.interpolate({
+    inputRange: [0, 120],
+    outputRange: [0, -18],
+    extrapolate: 'clamp',
+  });
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors.background }]}>
-      {/* Header */}
-      <LinearGradient
-        colors={['#e0f7fa', '#fdfbf7', '#f3e5f5']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.headerGradient}
-      >
-        <View style={styles.header}>
-          <View style={styles.greetingRow}>
-            <UserAvatar
-              uri={profile?.avatar_url}
-              name={profile?.full_name}
-              role={profile?.role}
-              size={42}
-              showRing={true}
-            />
-            <View style={{ marginLeft: 12 }}>
-              <Text style={styles.greeting}>{getGreeting()} 👋</Text>
-              <Text style={styles.userName}>{firstName}</Text>
-            </View>
-          </View>
-          <TouchableOpacity
-            style={styles.notificationButton}
-            onPress={() => navigation.navigate('Notifications' as any)}
-          >
-            <MaterialIcons name="notifications-none" size={24} color="#111818" />
-            {notificationCount > 0 && (
-              <View style={styles.notificationBadge}>
-                <Text style={styles.badgeText}>
-                  {notificationCount > 99 ? '99+' : notificationCount}
-                </Text>
-              </View>
-            )}
-          </TouchableOpacity>
-        </View>
-      </LinearGradient>
-
-      <ScrollView
+      <Animated.ScrollView
         style={styles.scrollView}
+        contentContainerStyle={{ paddingBottom: 110 }}
         showsVerticalScrollIndicator={false}
+        scrollEventThrottle={16}
+        onScroll={Animated.event(
+          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+          { useNativeDriver: false }
+        )}
         refreshControl={
           <RefreshControl
             refreshing={isRefreshing}
@@ -597,6 +598,53 @@ export default function FeedScreen() {
           />
         }
       >
+        {/* Header */}
+        <Animated.View style={{ opacity: headerFade, transform: [{ translateY: headerTranslateY }] }}>
+          <LinearGradient
+            colors={['#e0f7fa', '#fdfbf7', '#f3e5f5']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.headerGradient}
+          >
+            <Animated.View
+              style={[
+                styles.header,
+                {
+                  paddingTop: headerPaddingTop,
+                  paddingBottom: headerPaddingBottom,
+                },
+              ]}
+            >
+              <View style={styles.greetingRow}>
+                <UserAvatar
+                  uri={profile?.avatar_url}
+                  name={profile?.full_name}
+                  role={profile?.role}
+                  size={42}
+                  showRing={true}
+                />
+                <View style={{ marginLeft: 12 }}>
+                  <Animated.Text style={[styles.greeting, { opacity: greetingOpacity }]}>{getGreeting()} 👋</Animated.Text>
+                  <Animated.Text style={[styles.userName, { fontSize: userNameSize }]}>{firstName}</Animated.Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                style={styles.notificationButton}
+                onPress={() => navigation.navigate('Notifications' as any)}
+              >
+                <MaterialIcons name="notifications-none" size={24} color="#111818" />
+                {notificationCount > 0 && (
+                  <View style={styles.notificationBadge}>
+                    <Text style={styles.badgeText}>
+                      {notificationCount > 99 ? '99+' : notificationCount}
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            </Animated.View>
+          </LinearGradient>
+        </Animated.View>
+
         {/* Quick Stats */}
         <View style={styles.statsContainer}>
           <TouchableOpacity style={styles.statCardButton} activeOpacity={1} onPress={() => navigation.navigate('Projects' as any)}>
@@ -1032,7 +1080,7 @@ export default function FeedScreen() {
         </View>
 
         <View style={{ height: 32 }} />
-      </ScrollView >
+      </Animated.ScrollView >
 
       <Modal
         visible={!!previewImageUrl}

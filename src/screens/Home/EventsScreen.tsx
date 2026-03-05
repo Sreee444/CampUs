@@ -60,9 +60,17 @@ export default function EventsScreen() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // Check if user can create events
-  // TEMP: Allow all authenticated users for debugging
-  const canCreateEvent = profile && user?.id;
+  // Keep create button visibility aligned with CreateEventScreen permissions
+  const canCreateEvent = Boolean(
+    user?.id &&
+    profile &&
+    (
+      profile.role === 'faculty' ||
+      isAdminRole(profile?.role) ||
+      profile.is_club_coordinator ||
+      profile.is_volunteer
+    )
+  );
 
   // Log for debugging
   useEffect(() => {
@@ -140,12 +148,18 @@ export default function EventsScreen() {
   };
 
   const openEventMenu = (event: any) => {
+    if (!canDeleteEvent(event)) return;
     setEventToDelete(event);
     setShowEventMenu(true);
   };
 
   const handleDeleteEvent = async () => {
     if (!eventToDelete || !user?.id) return;
+    if (!canDeleteEvent(eventToDelete)) {
+      Toast.show({ type: 'error', text1: 'You are not allowed to delete this event' });
+      setShowDeleteConfirm(false);
+      return;
+    }
 
     try {
       setIsDeleting(true);
@@ -649,6 +663,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   eventsContent: {
     padding: Spacing.md,
+    paddingBottom: 110,
   },
   loadingContainer: {
     flex: 1,

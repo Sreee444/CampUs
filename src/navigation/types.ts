@@ -64,7 +64,7 @@ export type RootStackParamList = {
   InterCampusHome: undefined;
   InterCampusSubmitEvent: undefined;
   InterCampusEventDetails: { eventId: string };
-  InterCampusFestDetails: { festName: string; collegeName: string };
+  InterCampusFestDetails: { festId: string };
   InterCampusTeamUp: { eventId: string };
   InterCampusDiscussion: { eventId: string };
   MySubmittedEvents: undefined;

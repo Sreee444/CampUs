@@ -14,56 +14,48 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { Image } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import Toast from 'react-native-toast-message';
 import { RootStackParamList } from '../../../navigation/types';
 import { useAuth } from '../../../contexts/AuthContext';
-import { submitInterCampusEvent, submitInterCampusFestEvents } from '../api/intercampus';
-import { InterCampusSubmissionInput } from '../types/intercampus';
-import { buildInterCampusDetailsDescription } from '../utils/eventDetails';
+import { supabase } from '../../../api/supabase';
 
 type Nav = StackNavigationProp<RootStackParamList>;
 type SubmissionType = 'single' | 'fest' | null;
 
+/* ─── Fest Event Draft ─── */
 type FestEventDraft = {
   event_title: string;
-  event_description: string;
+  description: string;
   event_type: string;
   participation_type: 'individual' | 'team';
-  min_team_size: string;
-  max_team_size: string;
   venue: string;
   is_online: boolean;
-  online_link: string;
   registration_link: string;
   registration_deadline: Date | null;
-  eligibility: string;
+  eligibility_text: string;
   event_start_date: Date | null;
+  event_end_date: Date | null;
 };
 
 const initialFestEvent = (): FestEventDraft => ({
   event_title: '',
-  event_description: '',
+  description: '',
   event_type: '',
   participation_type: 'individual',
-  min_team_size: '',
-  max_team_size: '',
   venue: '',
   is_online: false,
-  online_link: '',
   registration_link: '',
   registration_deadline: null,
-  eligibility: '',
+  eligibility_text: '',
   event_start_date: null,
+  event_end_date: null,
 });
 
-const parseNumber = (value: string) => {
-  if (!value.trim()) return undefined;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
-};
-
+/* ─── Shared Components ─── */
 const Field = ({
   label,
   value,
@@ -76,7 +68,7 @@ const Field = ({
   value: string;
   onChangeText: (text: string) => void;
   multiline?: boolean;
-  keyboardType?: 'default' | 'numeric' | 'email-address' | 'url';
+  keyboardType?: 'default' | 'email-address' | 'url';
   placeholder?: string;
 }) => (
   <View style={styles.fieldWrap}>
@@ -93,295 +85,173 @@ const Field = ({
   </View>
 );
 
+const formatDate = (date?: Date | null) => {
+  if (!date) return null;
+  return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+};
+
+const uploadBannerImage = async (userId: string, imageUri: string) => {
+  const response = await fetch(imageUri);
+  const blob = await response.blob();
+  const timestamp = Date.now();
+  const filePath = `events/${userId}/${timestamp}.jpg`;
+
+  const { error: uploadError } = await supabase.storage
+    .from('event-banners')
+    .upload(filePath, blob, { contentType: 'image/jpeg', upsert: true });
+
+  if (uploadError) throw uploadError;
+
+  const { data } = supabase.storage.from('event-banners').getPublicUrl(filePath);
+  return data.publicUrl;
+};
+
+/* ─── Step Labels ─── */
+const SINGLE_STEPS = ['Basic', 'Location', 'Participation', 'Dates', 'Media', 'Review'];
+const FEST_STEPS = ['Fest Details', 'Add Events', 'Submit'];
+
+/* ─── Progress Bar ─── */
+function StepIndicator({ steps, current }: { steps: string[]; current: number }) {
+  return (
+    <View style={styles.stepIndicatorWrap}>
+      {steps.map((label, idx) => {
+        const isActive = idx === current;
+        const isDone = idx < current;
+        return (
+          <View key={label} style={styles.stepItem}>
+            <View
+              style={[
+                styles.stepDot,
+                isActive && styles.stepDotActive,
+                isDone && styles.stepDotDone,
+              ]}
+            >
+              {isDone ? (
+                <MaterialIcons name="check" size={12} color="#ffffff" />
+              ) : (
+                <Text style={[styles.stepDotText, (isActive || isDone) && styles.stepDotTextActive]}>
+                  {idx + 1}
+                </Text>
+              )}
+            </View>
+            <Text
+              style={[styles.stepLabel, isActive && styles.stepLabelActive]}
+              numberOfLines={1}
+            >
+              {label}
+            </Text>
+            {idx < steps.length - 1 && (
+              <View style={[styles.stepLine, isDone && styles.stepLineDone]} />
+            )}
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
 export default function InterCampusSubmitEventScreen() {
   const navigation = useNavigation<Nav>();
   const { user } = useAuth();
   const [submissionType, setSubmissionType] = useState<SubmissionType>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Single event form
+  /* ── Single event state ── */
+  const [singleStep, setSingleStep] = useState(0);
   const [eventTitle, setEventTitle] = useState('');
   const [eventDescription, setEventDescription] = useState('');
+  const [eventType, setEventType] = useState('');
   const [collegeName, setCollegeName] = useState('');
   const [collegeLocation, setCollegeLocation] = useState('');
   const [collegeWebsite, setCollegeWebsite] = useState('');
-  const [eventType, setEventType] = useState('');
+  const [venue, setVenue] = useState('');
+  const [isOnline, setIsOnline] = useState(false);
   const [participationType, setParticipationType] = useState<'individual' | 'team'>('individual');
   const [minTeamSize, setMinTeamSize] = useState('');
   const [maxTeamSize, setMaxTeamSize] = useState('');
-  const [eventStartDate, setEventStartDate] = useState<Date | null>(null);
-  const [venue, setVenue] = useState('');
-  const [isOnline, setIsOnline] = useState(false);
-  const [onlineLink, setOnlineLink] = useState('');
-  const [registrationLink, setRegistrationLink] = useState('');
-  const [registrationDeadline, setRegistrationDeadline] = useState<Date | null>(null);
   const [eligibility, setEligibility] = useState('');
-  const [bannerImage, setBannerImage] = useState('');
+  const [eventStartDate, setEventStartDate] = useState<Date | null>(null);
+  const [eventEndDate, setEventEndDate] = useState<Date | null>(null);
+  const [registrationDeadline, setRegistrationDeadline] = useState<Date | null>(null);
+  const [registrationLink, setRegistrationLink] = useState('');
+  const [bannerImageUri, setBannerImageUri] = useState<string | null>(null);
 
-  // Fest details
+  /* ── Fest state ── */
+  const [festStep, setFestStep] = useState(0);
   const [festName, setFestName] = useState('');
   const [festCollegeName, setFestCollegeName] = useState('');
   const [festCollegeLocation, setFestCollegeLocation] = useState('');
   const [festCollegeWebsite, setFestCollegeWebsite] = useState('');
   const [festStartDate, setFestStartDate] = useState<Date | null>(null);
   const [festEndDate, setFestEndDate] = useState<Date | null>(null);
-  const [festBannerImage, setFestBannerImage] = useState('');
-
-  const [festStep, setFestStep] = useState<1 | 2>(1);
+  const [festBannerImageUri, setFestBannerImageUri] = useState<string | null>(null);
+  const [createdFestId, setCreatedFestId] = useState<string | null>(null);
   const [festEventDraft, setFestEventDraft] = useState<FestEventDraft>(initialFestEvent());
   const [festEvents, setFestEvents] = useState<FestEventDraft[]>([]);
+
+  /* ── Calendar ── */
   const [calendarState, setCalendarState] = useState<{
-    field:
-      | 'eventStartDate'
-      | 'registrationDeadline'
-      | 'festStartDate'
-      | 'festEndDate'
-      | 'festEventStartDate'
-      | 'festRegistrationDeadline'
-      | null;
+    field: string | null;
     visible: boolean;
   }>({ field: null, visible: false });
 
-  const formatDate = (date?: Date | null) => {
-    if (!date) return null;
-    return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  /* ─── Image Picker ─── */
+  const pickBannerImage = async (setter: (value: string | null) => void) => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Toast.show({ type: 'error', text1: 'Permission required', text2: 'Allow photo library access to upload banners.' });
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [16, 9],
+      quality: 0.85,
+    });
+    if (!result.canceled) {
+      setter(result.assets[0].uri);
+    }
   };
 
-  const openCalendar = (
-    field:
-      | 'eventStartDate'
-      | 'registrationDeadline'
-      | 'festStartDate'
-      | 'festEndDate'
-      | 'festEventStartDate'
-      | 'festRegistrationDeadline',
-  ) => {
+  /* ─── Calendar Helpers ─── */
+  const openCalendar = (field: string) => {
     setCalendarState({ field, visible: true });
   };
 
-  const handleDateSelected = (_event: any, selectedDate?: Date) => {
-    if (Platform.OS === 'android') {
-      setCalendarState({ field: null, visible: false });
-    }
+  const getCalendarDate = (): Date => {
+    const { field } = calendarState;
+    if (field === 'eventStartDate') return eventStartDate || new Date();
+    if (field === 'eventEndDate') return eventEndDate || new Date();
+    if (field === 'registrationDeadline') return registrationDeadline || new Date();
+    if (field === 'festStartDate') return festStartDate || new Date();
+    if (field === 'festEndDate') return festEndDate || new Date();
+    if (field === 'festEventStartDate') return festEventDraft.event_start_date || new Date();
+    if (field === 'festEventEndDate') return festEventDraft.event_end_date || new Date();
+    if (field === 'festEventDeadline') return festEventDraft.registration_deadline || new Date();
+    return new Date();
+  };
 
+  const handleDateSelected = (_event: any, selectedDate?: Date) => {
+    if (Platform.OS === 'android') setCalendarState({ field: null, visible: false });
     if (!selectedDate || !calendarState.field) return;
 
-    if (calendarState.field === 'eventStartDate') setEventStartDate(selectedDate);
-    if (calendarState.field === 'registrationDeadline') setRegistrationDeadline(selectedDate);
-    if (calendarState.field === 'festStartDate') setFestStartDate(selectedDate);
-    if (calendarState.field === 'festEndDate') setFestEndDate(selectedDate);
-    if (calendarState.field === 'festEventStartDate') {
-      setFestEventDraft((prev) => ({ ...prev, event_start_date: selectedDate }));
-    }
-    if (calendarState.field === 'festRegistrationDeadline') {
-      setFestEventDraft((prev) => ({ ...prev, registration_deadline: selectedDate }));
-    }
+    const { field } = calendarState;
+    if (field === 'eventStartDate') setEventStartDate(selectedDate);
+    else if (field === 'eventEndDate') setEventEndDate(selectedDate);
+    else if (field === 'registrationDeadline') setRegistrationDeadline(selectedDate);
+    else if (field === 'festStartDate') setFestStartDate(selectedDate);
+    else if (field === 'festEndDate') setFestEndDate(selectedDate);
+    else if (field === 'festEventStartDate') setFestEventDraft((p) => ({ ...p, event_start_date: selectedDate }));
+    else if (field === 'festEventEndDate') setFestEventDraft((p) => ({ ...p, event_end_date: selectedDate }));
+    else if (field === 'festEventDeadline') setFestEventDraft((p) => ({ ...p, registration_deadline: selectedDate }));
 
-    if (Platform.OS === 'ios') {
-      setCalendarState({ field: null, visible: false });
-    }
+    if (Platform.OS === 'ios') setCalendarState({ field: null, visible: false });
   };
 
-  const canSaveFestEvent = useMemo(() => {
-    return (
-      !!festEventDraft.event_title.trim() &&
-      !!festEventDraft.registration_link.trim() &&
-      !!festEventDraft.event_start_date &&
-      !!festEventDraft.registration_deadline
-    );
-  }, [festEventDraft]);
-
-  const validateSingle = () => {
-    if (!eventTitle.trim() || !collegeName.trim()) {
-      throw new Error('Event title and college name are required');
-    }
-    if (!eventStartDate) {
-      throw new Error('Event start date is required');
-    }
-    if (!registrationDeadline) {
-      throw new Error('Registration deadline is required');
-    }
-    if (registrationDeadline >= eventStartDate) {
-      throw new Error('Registration deadline must be before the event start date.');
-    }
-
-    const min = parseNumber(minTeamSize);
-    const max = parseNumber(maxTeamSize);
-    if (participationType === 'team') {
-      if (typeof min !== 'number' || typeof max !== 'number') {
-        throw new Error('Team events require min and max team size');
-      }
-      if (min > max) {
-        throw new Error('Minimum team size cannot exceed maximum team size');
-      }
-    }
-  };
-
-  const handleSubmitSingle = async () => {
-    if (!user?.id) return;
-
-    try {
-      validateSingle();
-      setIsSubmitting(true);
-
-      const min = parseNumber(minTeamSize);
-      const max = parseNumber(maxTeamSize);
-
-      const enrichedDescription = buildInterCampusDetailsDescription(eventDescription, [
-        eventType ? `Event Type: ${eventType}` : '',
-        venue ? `Venue: ${venue}` : '',
-        isOnline ? 'Mode: Online' : 'Mode: Offline',
-        onlineLink ? `Online Link: ${onlineLink}` : '',
-        registrationDeadline ? `Registration Deadline: ${registrationDeadline}` : '',
-        eligibility ? `Eligibility: ${eligibility}` : '',
-        bannerImage ? `Banner: ${bannerImage}` : '',
-      ]);
-
-      const payload: InterCampusSubmissionInput = {
-        event_title: eventTitle.trim(),
-        event_description: enrichedDescription,
-        college_name: collegeName.trim(),
-        college_location: collegeLocation.trim(),
-        college_website: collegeWebsite.trim(),
-        event_start_date: eventStartDate?.toISOString(),
-        registration_deadline: registrationDeadline?.toISOString(),
-        registration_link: registrationLink.trim(),
-        participation_type: participationType,
-        min_team_size: participationType === 'team' ? min : undefined,
-        max_team_size: participationType === 'team' ? max : undefined,
-      };
-
-      await submitInterCampusEvent(user.id, payload);
-      Toast.show({ type: 'success', text1: 'Your event has been submitted for faculty verification.' });
-      Alert.alert(
-        'Submission Sent',
-        'Your event has been submitted for faculty verification.',
-        [
-          { text: 'View My Submissions', onPress: () => navigation.navigate('MySubmittedEvents') },
-          { text: 'Close', onPress: () => navigation.goBack(), style: 'cancel' },
-        ],
-      );
-    } catch (error: any) {
-      Toast.show({ type: 'error', text1: 'Submission failed', text2: error?.message || 'Please review form values' });
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const addFestEvent = () => {
-    if (!canSaveFestEvent) {
-      Toast.show({ type: 'error', text1: 'Add event title and registration link first' });
-      return;
-    }
-
-    if (festEventDraft.participation_type === 'team') {
-      const min = parseNumber(festEventDraft.min_team_size);
-      const max = parseNumber(festEventDraft.max_team_size);
-      if (typeof min !== 'number' || typeof max !== 'number' || min > max) {
-        Toast.show({ type: 'error', text1: 'Invalid team size range' });
-        return;
-      }
-    }
-    if (!festEventDraft.event_start_date || !festEventDraft.registration_deadline) {
-      Toast.show({ type: 'error', text1: 'Event start date and registration deadline are required' });
-      return;
-    }
-    if (festEventDraft.registration_deadline >= festEventDraft.event_start_date) {
-      Toast.show({ type: 'error', text1: 'Registration deadline must be before the event start date.' });
-      return;
-    }
-
-    setFestEvents((prev) => [...prev, festEventDraft]);
-    setFestEventDraft(initialFestEvent());
-  };
-
-  const submitFest = async () => {
-    if (!user?.id) return;
-
-    if (!festName.trim() || !festCollegeName.trim()) {
-      Toast.show({ type: 'error', text1: 'Fest name and college name are required' });
-      return;
-    }
-
-    if (festEvents.length === 0) {
-      Toast.show({ type: 'error', text1: 'Add at least one fest event' });
-      return;
-    }
-
-    try {
-      setIsSubmitting(true);
-
-      const mapped = festEvents.map((event) => {
-        const min = parseNumber(event.min_team_size);
-        const max = parseNumber(event.max_team_size);
-        const enrichedDescription = buildInterCampusDetailsDescription(event.event_description, [
-          event.event_type ? `Event Type: ${event.event_type}` : '',
-          event.venue ? `Venue: ${event.venue}` : '',
-          event.is_online ? 'Mode: Online' : 'Mode: Offline',
-          event.online_link ? `Online Link: ${event.online_link}` : '',
-          event.registration_deadline ? `Registration Deadline: ${event.registration_deadline.toISOString()}` : '',
-          event.eligibility ? `Eligibility: ${event.eligibility}` : '',
-          festBannerImage ? `Fest Banner: ${festBannerImage}` : '',
-        ]);
-
-        return {
-          event_title: event.event_title,
-          event_description: enrichedDescription,
-          college_name: festCollegeName,
-          registration_link: event.registration_link,
-          event_start_date: event.event_start_date?.toISOString(),
-          participation_type: event.participation_type,
-          registration_deadline: event.registration_deadline?.toISOString(),
-          min_team_size: event.participation_type === 'team' ? min : undefined,
-          max_team_size: event.participation_type === 'team' ? max : undefined,
-        } as InterCampusSubmissionInput;
-      });
-
-      await submitInterCampusFestEvents(
-        user.id,
-        festName,
-        {
-          college_name: festCollegeName,
-          college_location: festCollegeLocation,
-          college_website: festCollegeWebsite,
-          fest_start_date: festStartDate?.toISOString(),
-          fest_end_date: festEndDate?.toISOString(),
-        },
-        mapped,
-      );
-
-      Toast.show({ type: 'success', text1: 'Fest submitted', text2: `${festEvents.length} events sent for verification.` });
-      navigation.goBack();
-    } catch (error: any) {
-      Toast.show({ type: 'error', text1: 'Fest submission failed', text2: error?.message || 'Please try again' });
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const renderTypeSelector = () => (
-    <View style={styles.selectWrap}>
-      <Text style={styles.prompt}>What are you submitting?</Text>
-      <TouchableOpacity style={styles.selectCard} onPress={() => setSubmissionType('single')}>
-        <MaterialIcons name="event" size={22} color="#0f766e" />
-        <View style={styles.selectTextWrap}>
-          <Text style={styles.selectTitle}>Single Event</Text>
-          <Text style={styles.selectSub}>One external event for verification</Text>
-        </View>
-      </TouchableOpacity>
-      <TouchableOpacity style={styles.selectCard} onPress={() => setSubmissionType('fest')}>
-        <MaterialIcons name="festival" size={22} color="#a16207" />
-        <View style={styles.selectTextWrap}>
-          <Text style={styles.selectTitle}>Fest (Multiple Events)</Text>
-          <Text style={styles.selectSub}>Submit a fest and add multiple events</Text>
-        </View>
-      </TouchableOpacity>
-    </View>
-  );
-
+  /* ─── Participation Selector ─── */
   const renderParticipationSelector = (
     selected: 'individual' | 'team',
-    onChange: (next: 'individual' | 'team') => void,
+    onChange: (val: 'individual' | 'team') => void,
   ) => (
     <View style={styles.segmentWrap}>
       {(['individual', 'team'] as const).map((type) => (
@@ -398,222 +268,540 @@ export default function InterCampusSubmitEventScreen() {
     </View>
   );
 
-  return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <MaterialIcons name="arrow-back" size={24} color="#0f172a" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Submit Event</Text>
-        <View style={{ width: 24 }} />
-      </View>
+  /* ─── Date Card ─── */
+  const DateCard = ({ label, date, field }: { label: string; date: Date | null; field: string }) => (
+    <View style={styles.fieldWrap}>
+      <Text style={styles.fieldLabel}>{label}</Text>
+      <TouchableOpacity style={styles.dateCard} onPress={() => openCalendar(field)}>
+        <MaterialIcons name="calendar-month" size={18} color="#0f766e" />
+        <Text style={styles.dateCardLabel}>{formatDate(date) || `Select ${label}`}</Text>
+      </TouchableOpacity>
+    </View>
+  );
 
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
-        {!submissionType && renderTypeSelector()}
+  /* ═══════════════════════════════════════════════════════════════
+     SINGLE EVENT — MULTI STEP
+  ═══════════════════════════════════════════════════════════════ */
 
-        {submissionType === 'single' && (
+  const handleSubmitSingle = async () => {
+    if (!user?.id) return;
+    try {
+      if (!eventTitle.trim() || !collegeName.trim()) throw new Error('Event title and college name are required');
+      if (!eventStartDate) throw new Error('Event start date is required');
+      if (!registrationDeadline) throw new Error('Registration deadline is required');
+
+      setIsSubmitting(true);
+      const bannerUrl = bannerImageUri ? await uploadBannerImage(user.id, bannerImageUri) : null;
+
+      const { error } = await supabase.from('intercampus_events').insert({
+        title: eventTitle.trim(),
+        description: eventDescription.trim() || null,
+        college_name: collegeName.trim(),
+        college_location: collegeLocation.trim() || null,
+        college_website: collegeWebsite.trim() || null,
+        is_fest: false,
+        parent_fest_id: null,
+        event_start_date: eventStartDate.toISOString(),
+        event_end_date: eventEndDate?.toISOString() || null,
+        event_type: eventType.trim() || null,
+        participation_type: participationType,
+        min_team_size: participationType === 'team' ? parseInt(minTeamSize) || null : null,
+        max_team_size: participationType === 'team' ? parseInt(maxTeamSize) || null : null,
+        venue: venue.trim() || null,
+        is_online: isOnline,
+        registration_link: registrationLink.trim() || null,
+        registration_deadline: registrationDeadline.toISOString(),
+        eligibility_text: eligibility.trim() || null,
+        banner_image: bannerUrl,
+        verification_status: 'pending',
+        status: 'upcoming',
+        created_by: user.id,
+      } as any);
+
+      if (error) throw error;
+
+      Toast.show({ type: 'success', text1: 'Event submitted', text2: 'Awaiting verification.' });
+      Alert.alert('Success', 'Your event has been submitted for verification.', [
+        { text: 'Done', onPress: () => navigation.goBack() },
+      ]);
+    } catch (error: any) {
+      Toast.show({ type: 'error', text1: 'Submission failed', text2: error?.message || 'Check form values' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const renderSingleStep = () => {
+    switch (singleStep) {
+      /* Step 0 — Basic Details */
+      case 0:
+        return (
           <>
-            <Field label="Event Title" value={eventTitle} onChangeText={setEventTitle} />
-            <Field label="Description" value={eventDescription} onChangeText={setEventDescription} multiline />
-            <Field label="College Name" value={collegeName} onChangeText={setCollegeName} />
-            <Field label="College Location" value={collegeLocation} onChangeText={setCollegeLocation} />
-            <Field label="College Website" value={collegeWebsite} onChangeText={setCollegeWebsite} keyboardType="url" />
-            <Field label="Event Type" value={eventType} onChangeText={setEventType} />
+            <Text style={styles.stepTitle}>Basic Details</Text>
+            <Field label="Event Title *" value={eventTitle} onChangeText={setEventTitle} placeholder="e.g. Hackathon 2026" />
+            <Field label="Description" value={eventDescription} onChangeText={setEventDescription} multiline placeholder="What is this event about?" />
+            <Field label="Event Type" value={eventType} onChangeText={setEventType} placeholder="e.g. Technical, Cultural, Sports" />
+          </>
+        );
 
-            <Text style={styles.fieldLabel}>Participation Type</Text>
-            {renderParticipationSelector(participationType, setParticipationType)}
-
-            {participationType === 'team' && (
-              <View style={styles.row}>
-                <View style={{ flex: 1 }}>
-                  <Field label="Min Team Size" value={minTeamSize} onChangeText={setMinTeamSize} keyboardType="numeric" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Field label="Max Team Size" value={maxTeamSize} onChangeText={setMaxTeamSize} keyboardType="numeric" />
-                </View>
-              </View>
-            )}
-
-            <Text style={styles.fieldLabel}>Event Start Date</Text>
-            <TouchableOpacity style={styles.dateCard} onPress={() => openCalendar('eventStartDate')}>
-              <MaterialIcons name="calendar-month" size={18} color="#0f766e" />
-              <Text style={styles.dateCardLabel}>
-                {formatDate(eventStartDate) || 'Select Event Start Date'}
-              </Text>
-            </TouchableOpacity>
-            <Field label="Venue" value={venue} onChangeText={setVenue} />
-
+      /* Step 1 — Location */
+      case 1:
+        return (
+          <>
+            <Text style={styles.stepTitle}>Location & College</Text>
+            <Field label="College Name *" value={collegeName} onChangeText={setCollegeName} placeholder="e.g. CUSAT" />
+            <Field label="College Location" value={collegeLocation} onChangeText={setCollegeLocation} placeholder="e.g. Kochi, Kerala" />
+            <Field label="College Website" value={collegeWebsite} onChangeText={setCollegeWebsite} keyboardType="url" placeholder="https://..." />
+            <Field label="Venue" value={venue} onChangeText={setVenue} placeholder="e.g. Auditorium, Main Block" />
             <View style={styles.switchRow}>
               <Text style={styles.fieldLabel}>Online Event</Text>
               <Switch value={isOnline} onValueChange={setIsOnline} trackColor={{ false: '#cbd5e1', true: '#34d399' }} />
             </View>
-            {isOnline && <Field label="Online Link" value={onlineLink} onChangeText={setOnlineLink} keyboardType="url" />}
-
-            <Field label="Registration Link" value={registrationLink} onChangeText={setRegistrationLink} keyboardType="url" />
-            <Text style={styles.fieldLabel}>Registration Deadline</Text>
-            <TouchableOpacity style={styles.dateCard} onPress={() => openCalendar('registrationDeadline')}>
-              <MaterialIcons name="calendar-month" size={18} color="#0f766e" />
-              <Text style={styles.dateCardLabel}>
-                {formatDate(registrationDeadline) || 'Select Registration Deadline'}
-              </Text>
-            </TouchableOpacity>
-            <Field label="Eligibility" value={eligibility} onChangeText={setEligibility} multiline />
-            <Field label="Banner Image URL" value={bannerImage} onChangeText={setBannerImage} keyboardType="url" />
-
-            <TouchableOpacity style={styles.primaryBtn} disabled={isSubmitting} onPress={handleSubmitSingle}>
-              <Text style={styles.primaryBtnText}>{isSubmitting ? 'Submitting...' : 'Submit'}</Text>
-            </TouchableOpacity>
           </>
-        )}
+        );
 
-        {submissionType === 'fest' && (
+      /* Step 2 — Participation */
+      case 2:
+        return (
           <>
-            {festStep === 1 && (
+            <Text style={styles.stepTitle}>Participation</Text>
+            <Text style={styles.fieldLabel}>Participation Type</Text>
+            {renderParticipationSelector(participationType, setParticipationType)}
+            {participationType === 'team' && (
               <>
-                <Field label="Fest Name" value={festName} onChangeText={setFestName} />
-                <Field label="College Name" value={festCollegeName} onChangeText={setFestCollegeName} />
-                <Field label="College Location" value={festCollegeLocation} onChangeText={setFestCollegeLocation} />
-                <Field label="College Website" value={festCollegeWebsite} onChangeText={setFestCollegeWebsite} keyboardType="url" />
-                <Text style={styles.fieldLabel}>Fest Start Date</Text>
-                <TouchableOpacity style={styles.dateCard} onPress={() => openCalendar('festStartDate')}>
-                  <MaterialIcons name="calendar-month" size={18} color="#0f766e" />
-                  <Text style={styles.dateCardLabel}>{formatDate(festStartDate) || 'Select Fest Start Date'}</Text>
-                </TouchableOpacity>
-                <Text style={styles.fieldLabel}>Fest End Date</Text>
-                <TouchableOpacity style={styles.dateCard} onPress={() => openCalendar('festEndDate')}>
-                  <MaterialIcons name="calendar-month" size={18} color="#0f766e" />
-                  <Text style={styles.dateCardLabel}>{formatDate(festEndDate) || 'Select Fest End Date'}</Text>
-                </TouchableOpacity>
-                <Field label="Banner Image URL" value={festBannerImage} onChangeText={setFestBannerImage} keyboardType="url" />
-
-                <TouchableOpacity style={styles.primaryBtn} onPress={() => setFestStep(2)}>
-                  <Text style={styles.primaryBtnText}>Next: Add Events</Text>
-                </TouchableOpacity>
+                <Field label="Min Team Size" value={minTeamSize} onChangeText={setMinTeamSize} keyboardType="default" placeholder="e.g. 2" />
+                <Field label="Max Team Size" value={maxTeamSize} onChangeText={setMaxTeamSize} keyboardType="default" placeholder="e.g. 5" />
               </>
             )}
+            <Field label="Eligibility" value={eligibility} onChangeText={setEligibility} multiline placeholder="Who can participate?" />
+          </>
+        );
 
-            {festStep === 2 && (
-              <>
-                <Text style={styles.sectionTitle}>Add Event to Fest</Text>
-                <Field label="Event Title" value={festEventDraft.event_title} onChangeText={(v) => setFestEventDraft((p) => ({ ...p, event_title: v }))} />
-                <Field label="Description" value={festEventDraft.event_description} onChangeText={(v) => setFestEventDraft((p) => ({ ...p, event_description: v }))} multiline />
-                <Field label="Event Type" value={festEventDraft.event_type} onChangeText={(v) => setFestEventDraft((p) => ({ ...p, event_type: v }))} />
+      /* Step 3 — Dates */
+      case 3:
+        return (
+          <>
+            <Text style={styles.stepTitle}>Dates</Text>
+            <DateCard label="Event Start Date *" date={eventStartDate} field="eventStartDate" />
+            <DateCard label="Event End Date" date={eventEndDate} field="eventEndDate" />
+            <DateCard label="Registration Deadline *" date={registrationDeadline} field="registrationDeadline" />
+            <Field label="Registration Link" value={registrationLink} onChangeText={setRegistrationLink} keyboardType="url" placeholder="https://..." />
+          </>
+        );
 
-                <Text style={styles.fieldLabel}>Participation Type</Text>
-                {renderParticipationSelector(festEventDraft.participation_type, (next) => setFestEventDraft((p) => ({ ...p, participation_type: next })))}
-
-                {festEventDraft.participation_type === 'team' && (
-                  <View style={styles.row}>
-                    <View style={{ flex: 1 }}>
-                      <Field label="Min Team Size" value={festEventDraft.min_team_size} onChangeText={(v) => setFestEventDraft((p) => ({ ...p, min_team_size: v }))} keyboardType="numeric" />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Field label="Max Team Size" value={festEventDraft.max_team_size} onChangeText={(v) => setFestEventDraft((p) => ({ ...p, max_team_size: v }))} keyboardType="numeric" />
-                    </View>
-                  </View>
-                )}
-
-                <Field label="Venue" value={festEventDraft.venue} onChangeText={(v) => setFestEventDraft((p) => ({ ...p, venue: v }))} />
-                <View style={styles.switchRow}>
-                  <Text style={styles.fieldLabel}>Online Event</Text>
-                  <Switch value={festEventDraft.is_online} onValueChange={(v) => setFestEventDraft((p) => ({ ...p, is_online: v }))} trackColor={{ false: '#cbd5e1', true: '#34d399' }} />
-                </View>
-                {festEventDraft.is_online && (
-                  <Field label="Online Link" value={festEventDraft.online_link} onChangeText={(v) => setFestEventDraft((p) => ({ ...p, online_link: v }))} keyboardType="url" />
-                )}
-                <Field label="Registration Link" value={festEventDraft.registration_link} onChangeText={(v) => setFestEventDraft((p) => ({ ...p, registration_link: v }))} keyboardType="url" />
-                <Text style={styles.fieldLabel}>Registration Deadline</Text>
-                <TouchableOpacity style={styles.dateCard} onPress={() => openCalendar('festRegistrationDeadline')}>
-                  <MaterialIcons name="calendar-month" size={18} color="#0f766e" />
-                  <Text style={styles.dateCardLabel}>{formatDate(festEventDraft.registration_deadline) || 'Select Registration Deadline'}</Text>
-                </TouchableOpacity>
-                <Field label="Eligibility" value={festEventDraft.eligibility} onChangeText={(v) => setFestEventDraft((p) => ({ ...p, eligibility: v }))} multiline />
-                <Text style={styles.fieldLabel}>Event Start Date</Text>
-                <TouchableOpacity style={styles.dateCard} onPress={() => openCalendar('festEventStartDate')}>
-                  <MaterialIcons name="calendar-month" size={18} color="#0f766e" />
-                  <Text style={styles.dateCardLabel}>{formatDate(festEventDraft.event_start_date) || 'Select Event Start Date'}</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={styles.secondaryBtn} onPress={addFestEvent}>
-                  <Text style={styles.secondaryBtnText}>Add Event</Text>
-                </TouchableOpacity>
-
-                <View style={styles.addedEventsWrap}>
-                  <Text style={styles.sectionTitle}>Added Events ({festEvents.length})</Text>
-                  {festEvents.map((event, idx) => (
-                    <View key={`${event.event_title}-${idx}`} style={styles.addedEventCard}>
-                      <Text style={styles.addedEventTitle}>{event.event_title}</Text>
-                      <Text style={styles.addedEventMeta}>{event.participation_type === 'team' ? 'Team' : 'Individual'} | {event.registration_link}</Text>
-                    </View>
-                  ))}
-                </View>
-
-                <TouchableOpacity style={styles.primaryBtn} disabled={isSubmitting} onPress={submitFest}>
-                  <Text style={styles.primaryBtnText}>{isSubmitting ? 'Submitting...' : 'Submit Fest'}</Text>
-                </TouchableOpacity>
-              </>
+      /* Step 4 — Media */
+      case 4:
+        return (
+          <>
+            <Text style={styles.stepTitle}>Banner Image</Text>
+            <Text style={styles.helperText}>Upload an eye-catching banner for your event (16:9 ratio recommended)</Text>
+            <TouchableOpacity style={styles.imageBtn} onPress={() => pickBannerImage(setBannerImageUri)}>
+              <MaterialIcons name="add-photo-alternate" size={20} color="#0f766e" />
+              <Text style={styles.imageBtnText}>{bannerImageUri ? 'Change Image' : 'Select Image'}</Text>
+            </TouchableOpacity>
+            {!!bannerImageUri && (
+              <Image source={{ uri: bannerImageUri }} style={styles.previewImage} contentFit="cover" />
             )}
           </>
+        );
+
+      /* Step 5 — Review */
+      case 5:
+        return (
+          <>
+            <Text style={styles.stepTitle}>Review & Submit</Text>
+            {!!bannerImageUri && (
+              <Image source={{ uri: bannerImageUri }} style={styles.reviewBanner} contentFit="cover" />
+            )}
+            <View style={styles.reviewCard}>
+              <ReviewRow label="Title" value={eventTitle} />
+              <ReviewRow label="College" value={collegeName} />
+              <ReviewRow label="Location" value={collegeLocation || '–'} />
+              <ReviewRow label="Type" value={eventType || '–'} />
+              <ReviewRow label="Participation" value={participationType} />
+              <ReviewRow label="Start Date" value={formatDate(eventStartDate) || '–'} />
+              <ReviewRow label="End Date" value={formatDate(eventEndDate) || '–'} />
+              <ReviewRow label="Deadline" value={formatDate(registrationDeadline) || '–'} />
+              <ReviewRow label="Venue" value={venue || (isOnline ? 'Online' : '–')} />
+              <ReviewRow label="Eligibility" value={eligibility || '–'} />
+            </View>
+            <TouchableOpacity style={styles.submitBtn} disabled={isSubmitting} onPress={handleSubmitSingle}>
+              <MaterialIcons name="send" size={18} color="#ffffff" />
+              <Text style={styles.submitBtnText}>{isSubmitting ? 'Submitting...' : 'Submit Event'}</Text>
+            </TouchableOpacity>
+          </>
+        );
+
+      default:
+        return null;
+    }
+  };
+
+  /* ═══════════════════════════════════════════════════════════════
+     FEST — MULTI STEP
+  ═══════════════════════════════════════════════════════════════ */
+
+  const handleCreateFest = async () => {
+    if (!user?.id) return;
+    if (!festName.trim() || !festCollegeName.trim() || !festStartDate || !festEndDate) {
+      Toast.show({ type: 'error', text1: 'Fill all required fest fields' });
+      return;
+    }
+    if (festEndDate < festStartDate) {
+      Toast.show({ type: 'error', text1: 'End date must be after start date' });
+      return;
+    }
+    try {
+      setIsSubmitting(true);
+      const bannerUrl = festBannerImageUri ? await uploadBannerImage(user.id, festBannerImageUri) : null;
+
+      const { data, error } = await supabase
+        .from('intercampus_events')
+        .insert({
+          title: festName.trim(),
+          description: null,
+          college_name: festCollegeName.trim(),
+          college_location: festCollegeLocation.trim() || null,
+          college_website: festCollegeWebsite.trim() || null,
+          is_fest: true,
+          parent_fest_id: null,
+          event_start_date: festStartDate.toISOString(),
+          event_end_date: festEndDate.toISOString(),
+          banner_image: bannerUrl,
+          verification_status: 'pending',
+          status: 'upcoming',
+          created_by: user.id,
+        } as any)
+        .select('id')
+        .single();
+
+      if (error) throw error;
+      Toast.show({ type: 'success', text1: 'Fest created', text2: 'Now add events under this fest.' });
+      setCreatedFestId((data as any)?.id);
+      setFestStep(1);
+    } catch (error: any) {
+      Toast.show({ type: 'error', text1: 'Fest creation failed', text2: error?.message });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const addFestEvent = () => {
+    if (!festEventDraft.event_title.trim()) {
+      Toast.show({ type: 'error', text1: 'Event title is required' });
+      return;
+    }
+    if (!festEventDraft.event_start_date) {
+      Toast.show({ type: 'error', text1: 'Event start date is required' });
+      return;
+    }
+    setFestEvents((prev) => [...prev, festEventDraft]);
+    setFestEventDraft(initialFestEvent());
+    Toast.show({ type: 'success', text1: 'Event added' });
+  };
+
+  const submitFest = async () => {
+    if (!user?.id || !createdFestId) return;
+    if (festEvents.length === 0) {
+      Toast.show({ type: 'error', text1: 'Add at least one event' });
+      return;
+    }
+    try {
+      setIsSubmitting(true);
+      for (const event of festEvents) {
+        const { error } = await supabase.from('intercampus_events').insert({
+          title: event.event_title.trim(),
+          description: event.description.trim() || null,
+          college_name: festCollegeName.trim(),
+          college_location: festCollegeLocation.trim() || null,
+          college_website: festCollegeWebsite.trim() || null,
+          is_fest: false,
+          parent_fest_id: createdFestId,
+          event_start_date: event.event_start_date?.toISOString() || null,
+          event_end_date: event.event_end_date?.toISOString() || null,
+          event_type: event.event_type.trim() || null,
+          participation_type: event.participation_type,
+          venue: event.venue.trim() || null,
+          is_online: event.is_online,
+          registration_link: event.registration_link.trim() || null,
+          registration_deadline: event.registration_deadline?.toISOString() || null,
+          eligibility_text: event.eligibility_text.trim() || null,
+          banner_image: null,
+          verification_status: 'pending',
+          status: 'upcoming',
+          created_by: user.id,
+        } as any);
+        if (error) throw error;
+      }
+      Toast.show({ type: 'success', text1: 'Fest submitted', text2: `${festEvents.length} events submitted.` });
+      navigation.goBack();
+    } catch (error: any) {
+      Toast.show({ type: 'error', text1: 'Submission failed', text2: error?.message });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const renderFestStep = () => {
+    switch (festStep) {
+      /* Step 0 — Fest Details */
+      case 0:
+        return (
+          <>
+            <Text style={styles.stepTitle}>Fest Details</Text>
+            <Field label="Fest Name *" value={festName} onChangeText={setFestName} placeholder="e.g. TechFest 2026" />
+            <Field label="College Name *" value={festCollegeName} onChangeText={setFestCollegeName} placeholder="e.g. CUSAT" />
+            <Field label="College Location" value={festCollegeLocation} onChangeText={setFestCollegeLocation} placeholder="e.g. Kochi, Kerala" />
+            <Field label="College Website" value={festCollegeWebsite} onChangeText={setFestCollegeWebsite} keyboardType="url" />
+            <DateCard label="Fest Start Date *" date={festStartDate} field="festStartDate" />
+            <DateCard label="Fest End Date *" date={festEndDate} field="festEndDate" />
+
+            <Text style={styles.fieldLabel}>Banner Image</Text>
+            <TouchableOpacity style={styles.imageBtn} onPress={() => pickBannerImage(setFestBannerImageUri)}>
+              <MaterialIcons name="add-photo-alternate" size={20} color="#0f766e" />
+              <Text style={styles.imageBtnText}>{festBannerImageUri ? 'Change' : 'Select Image'}</Text>
+            </TouchableOpacity>
+            {!!festBannerImageUri && (
+              <Image source={{ uri: festBannerImageUri }} style={styles.previewImage} contentFit="cover" />
+            )}
+
+            <TouchableOpacity style={styles.submitBtn} disabled={isSubmitting} onPress={handleCreateFest}>
+              <Text style={styles.submitBtnText}>{isSubmitting ? 'Creating Fest...' : 'Create Fest & Next →'}</Text>
+            </TouchableOpacity>
+          </>
+        );
+
+      /* Step 1 — Add Events */
+      case 1:
+        return (
+          <>
+            <Text style={styles.stepTitle}>Add Events to Fest</Text>
+
+            {/* Current draft */}
+            <View style={styles.draftCard}>
+              <Field label="Event Title *" value={festEventDraft.event_title} onChangeText={(v) => setFestEventDraft((p) => ({ ...p, event_title: v }))} />
+              <Field label="Description" value={festEventDraft.description} onChangeText={(v) => setFestEventDraft((p) => ({ ...p, description: v }))} multiline />
+              <Field label="Event Type" value={festEventDraft.event_type} onChangeText={(v) => setFestEventDraft((p) => ({ ...p, event_type: v }))} />
+
+              <Text style={styles.fieldLabel}>Participation Type</Text>
+              {renderParticipationSelector(festEventDraft.participation_type, (next) =>
+                setFestEventDraft((p) => ({ ...p, participation_type: next }))
+              )}
+
+              <Field label="Venue" value={festEventDraft.venue} onChangeText={(v) => setFestEventDraft((p) => ({ ...p, venue: v }))} />
+
+              <View style={styles.switchRow}>
+                <Text style={styles.fieldLabel}>Online</Text>
+                <Switch
+                  value={festEventDraft.is_online}
+                  onValueChange={(v) => setFestEventDraft((p) => ({ ...p, is_online: v }))}
+                  trackColor={{ false: '#cbd5e1', true: '#34d399' }}
+                />
+              </View>
+
+              <Field label="Registration Link" value={festEventDraft.registration_link} onChangeText={(v) => setFestEventDraft((p) => ({ ...p, registration_link: v }))} keyboardType="url" />
+              <DateCard label="Event Start Date *" date={festEventDraft.event_start_date} field="festEventStartDate" />
+              <DateCard label="Event End Date" date={festEventDraft.event_end_date} field="festEventEndDate" />
+              <DateCard label="Registration Deadline" date={festEventDraft.registration_deadline} field="festEventDeadline" />
+              <Field label="Eligibility" value={festEventDraft.eligibility_text} onChangeText={(v) => setFestEventDraft((p) => ({ ...p, eligibility_text: v }))} multiline />
+
+              <TouchableOpacity style={styles.addEventBtn} onPress={addFestEvent}>
+                <MaterialIcons name="add" size={18} color="#0f766e" />
+                <Text style={styles.addEventBtnText}>Add Event</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Added events */}
+            <Text style={styles.sectionLabel}>Added Events ({festEvents.length})</Text>
+            {festEvents.map((event, idx) => (
+              <View key={`${event.event_title}-${idx}`} style={styles.addedEventCard}>
+                <Text style={styles.addedEventTitle}>{event.event_title}</Text>
+                <Text style={styles.addedEventMeta}>
+                  {event.participation_type === 'team' ? 'Team' : 'Individual'} | {formatDate(event.event_start_date)}
+                </Text>
+              </View>
+            ))}
+
+            <TouchableOpacity style={styles.submitBtn} onPress={() => setFestStep(2)}>
+              <Text style={styles.submitBtnText}>Next: Review →</Text>
+            </TouchableOpacity>
+          </>
+        );
+
+      /* Step 2 — Submit */
+      case 2:
+        return (
+          <>
+            <Text style={styles.stepTitle}>Submit Fest</Text>
+            <View style={styles.reviewCard}>
+              <ReviewRow label="Fest Name" value={festCollegeName} />
+              <ReviewRow label="Events" value={`${festEvents.length} event(s)`} />
+            </View>
+
+            {festEvents.map((event, idx) => (
+              <View key={`review-${idx}`} style={styles.reviewCard}>
+                <ReviewRow label="Event" value={event.event_title} />
+                <ReviewRow label="Date" value={formatDate(event.event_start_date) || '–'} />
+                <ReviewRow label="Type" value={event.participation_type} />
+              </View>
+            ))}
+
+            <TouchableOpacity style={styles.submitBtn} disabled={isSubmitting} onPress={submitFest}>
+              <MaterialIcons name="send" size={18} color="#ffffff" />
+              <Text style={styles.submitBtnText}>{isSubmitting ? 'Submitting...' : 'Submit Fest & Events'}</Text>
+            </TouchableOpacity>
+          </>
+        );
+
+      default:
+        return null;
+    }
+  };
+
+  /* ═══════════════════════════════════════════════════════════════
+     TYPE SELECTOR
+  ═══════════════════════════════════════════════════════════════ */
+
+  const renderTypeSelector = () => (
+    <View style={styles.typeWrap}>
+      <Text style={styles.typePrompt}>What are you submitting?</Text>
+      <TouchableOpacity style={styles.typeCard} onPress={() => setSubmissionType('single')}>
+        <View style={styles.typeIconWrap}>
+          <MaterialIcons name="event" size={26} color="#0f766e" />
+        </View>
+        <View style={styles.typeTextWrap}>
+          <Text style={styles.typeTitle}>Single Event</Text>
+          <Text style={styles.typeSub}>One standalone event submission</Text>
+        </View>
+        <MaterialIcons name="chevron-right" size={22} color="#94a3b8" />
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.typeCard} onPress={() => setSubmissionType('fest')}>
+        <View style={[styles.typeIconWrap, { backgroundColor: '#fef9c3' }]}>
+          <MaterialIcons name="celebration" size={26} color="#a16207" />
+        </View>
+        <View style={styles.typeTextWrap}>
+          <Text style={styles.typeTitle}>Fest (Multiple Events)</Text>
+          <Text style={styles.typeSub}>Create a fest and add events under it</Text>
+        </View>
+        <MaterialIcons name="chevron-right" size={22} color="#94a3b8" />
+      </TouchableOpacity>
+    </View>
+  );
+
+  /* ═══════════════════════════════════════════════════════════════
+     MAIN RENDER
+  ═══════════════════════════════════════════════════════════════ */
+
+  const currentSteps = submissionType === 'fest' ? FEST_STEPS : SINGLE_STEPS;
+  const currentStep = submissionType === 'fest' ? festStep : singleStep;
+  const canGoBack = submissionType === 'fest' ? festStep > 0 && !createdFestId : singleStep > 0;
+
+  return (
+    <SafeAreaView style={styles.container}>
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity
+          onPress={() => {
+            if (!submissionType) {
+              navigation.goBack();
+            } else if (canGoBack) {
+              submissionType === 'fest' ? setFestStep((p) => Math.max(0, p - 1) as any) : setSingleStep((p) => p - 1);
+            } else {
+              setSubmissionType(null);
+              setSingleStep(0);
+              setFestStep(0);
+            }
+          }}
+        >
+          <MaterialIcons name="arrow-back" size={24} color="#0f172a" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>
+          {!submissionType ? 'Submit Event' : submissionType === 'fest' ? 'Create Fest' : 'Submit Event'}
+        </Text>
+        <View style={{ width: 24 }} />
+      </View>
+
+      {/* Step Indicator */}
+      {!!submissionType && (
+        <StepIndicator steps={currentSteps} current={currentStep} />
+      )}
+
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        {!submissionType && renderTypeSelector()}
+        {submissionType === 'single' && renderSingleStep()}
+        {submissionType === 'fest' && renderFestStep()}
+
+        {/* Next Button (for single event, steps 0-4) */}
+        {submissionType === 'single' && singleStep < 5 && (
+          <TouchableOpacity
+            style={styles.nextBtn}
+            onPress={() => {
+              if (singleStep === 0 && !eventTitle.trim()) {
+                Toast.show({ type: 'error', text1: 'Event title is required' });
+                return;
+              }
+              if (singleStep === 1 && !collegeName.trim()) {
+                Toast.show({ type: 'error', text1: 'College name is required' });
+                return;
+              }
+              if (singleStep === 3 && !eventStartDate) {
+                Toast.show({ type: 'error', text1: 'Event start date is required' });
+                return;
+              }
+              if (singleStep === 3 && !registrationDeadline) {
+                Toast.show({ type: 'error', text1: 'Registration deadline is required' });
+                return;
+              }
+              setSingleStep((p) => p + 1);
+            }}
+          >
+            <Text style={styles.nextBtnText}>Next</Text>
+            <MaterialIcons name="arrow-forward" size={18} color="#ffffff" />
+          </TouchableOpacity>
         )}
       </ScrollView>
 
+      {/* Date Picker */}
       {calendarState.visible && calendarState.field && (
         <>
-          {(() => {
-            const pickerDate =
-              calendarState.field === 'eventStartDate'
-                ? eventStartDate
-                : calendarState.field === 'registrationDeadline'
-                ? registrationDeadline
-                : calendarState.field === 'festStartDate'
-                ? festStartDate
-                : calendarState.field === 'festEndDate'
-                ? festEndDate
-                : calendarState.field === 'festEventStartDate'
-                ? festEventDraft.event_start_date
-                : festEventDraft.registration_deadline;
-            const value = pickerDate || new Date();
-            return Platform.OS === 'ios' ? (
-              <Modal
-                visible={calendarState.visible}
-                transparent
-                animationType="slide"
-                onRequestClose={() => setCalendarState({ field: null, visible: false })}
-              >
-                <View style={styles.iosBackdrop}>
-                  <View style={styles.iosCard}>
-                    <View style={styles.iosHeader}>
-                      <TouchableOpacity onPress={() => setCalendarState({ field: null, visible: false })}>
-                        <Text style={styles.iosHeaderText}>Cancel</Text>
-                      </TouchableOpacity>
-                      <Text style={styles.iosTitle}>Select Date</Text>
-                      <TouchableOpacity onPress={() => setCalendarState({ field: null, visible: false })}>
-                        <Text style={styles.iosHeaderText}>Done</Text>
-                      </TouchableOpacity>
-                    </View>
-                    <DateTimePicker
-                      value={value}
-                      mode="date"
-                      display="spinner"
-                      onChange={handleDateSelected}
-                      minimumDate={new Date()}
-                    />
+          {Platform.OS === 'ios' ? (
+            <Modal
+              visible={calendarState.visible}
+              transparent
+              animationType="slide"
+              onRequestClose={() => setCalendarState({ field: null, visible: false })}
+            >
+              <View style={styles.iosBackdrop}>
+                <View style={styles.iosCard}>
+                  <View style={styles.iosHeader}>
+                    <TouchableOpacity onPress={() => setCalendarState({ field: null, visible: false })}>
+                      <Text style={styles.iosHeaderText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <Text style={styles.iosTitle}>Select Date</Text>
+                    <TouchableOpacity onPress={() => setCalendarState({ field: null, visible: false })}>
+                      <Text style={styles.iosHeaderText}>Done</Text>
+                    </TouchableOpacity>
                   </View>
+                  <DateTimePicker value={getCalendarDate()} mode="date" display="spinner" onChange={handleDateSelected} minimumDate={new Date()} />
                 </View>
-              </Modal>
-            ) : (
-              <DateTimePicker
-                value={value}
-                mode="date"
-                display="default"
-                onChange={handleDateSelected}
-                minimumDate={new Date()}
-              />
-            );
-          })()}
+              </View>
+            </Modal>
+          ) : (
+            <DateTimePicker value={getCalendarDate()} mode="date" display="default" onChange={handleDateSelected} minimumDate={new Date()} />
+          )}
         </>
       )}
     </SafeAreaView>
+  );
+}
+
+/* ─── Review Row ─── */
+function ReviewRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.reviewRow}>
+      <Text style={styles.reviewLabel}>{label}</Text>
+      <Text style={styles.reviewValue}>{value}</Text>
+    </View>
   );
 }
 
@@ -629,44 +817,94 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  headerTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#0f172a',
-  },
+  headerTitle: { fontSize: 17, fontWeight: '700', color: '#0f172a' },
   scroll: { flex: 1 },
-  content: { padding: 16, paddingBottom: 30, gap: 8 },
-  selectWrap: {
+  content: { padding: 16, paddingBottom: 40, gap: 10 },
+
+  /* ─── Step Indicator ─── */
+  stepIndicatorWrap: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     backgroundColor: '#ffffff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  stepItem: {
+    flex: 1,
+    alignItems: 'center',
+    position: 'relative',
+  },
+  stepDot: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#e2e8f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  stepDotActive: { backgroundColor: '#0f766e' },
+  stepDotDone: { backgroundColor: '#0f766e' },
+  stepDotText: { fontSize: 11, fontWeight: '700', color: '#64748b' },
+  stepDotTextActive: { color: '#ffffff' },
+  stepLabel: { fontSize: 10, color: '#94a3b8', fontWeight: '600', textAlign: 'center' },
+  stepLabelActive: { color: '#0f766e', fontWeight: '700' },
+  stepLine: {
+    position: 'absolute',
+    top: 13,
+    left: '60%',
+    right: '-40%',
+    height: 2,
+    backgroundColor: '#e2e8f0',
+    zIndex: -1,
+  },
+  stepLineDone: { backgroundColor: '#0f766e' },
+
+  /* ─── Type Selector ─── */
+  typeWrap: { gap: 12 },
+  typePrompt: { fontSize: 18, fontWeight: '800', color: '#0f172a' },
+  typeCard: {
     borderRadius: 16,
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    padding: 14,
-    gap: 10,
-  },
-  prompt: { fontSize: 16, fontWeight: '700', color: '#0f172a' },
-  selectCard: {
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#d1fae5',
-    padding: 12,
+    backgroundColor: '#ffffff',
+    padding: 16,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    backgroundColor: '#f8fffc',
+    gap: 12,
+    shadowColor: '#0f172a',
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
   },
-  selectTextWrap: { flex: 1 },
-  selectTitle: { fontSize: 14, fontWeight: '700', color: '#0f172a' },
-  selectSub: { marginTop: 2, fontSize: 12, color: '#64748b' },
+  typeIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: '#ecfdf5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  typeTextWrap: { flex: 1 },
+  typeTitle: { fontSize: 15, fontWeight: '700', color: '#0f172a' },
+  typeSub: { marginTop: 2, fontSize: 12, color: '#64748b' },
+
+  /* ─── Step Content ─── */
+  stepTitle: { fontSize: 18, fontWeight: '800', color: '#0f172a', marginBottom: 4 },
+  helperText: { fontSize: 13, color: '#64748b', marginBottom: 4 },
+
+  /* ─── Fields ─── */
   fieldWrap: { marginBottom: 6 },
-  fieldLabel: { fontSize: 12, fontWeight: '700', color: '#334155', marginBottom: 6 },
+  fieldLabel: { fontSize: 13, fontWeight: '700', color: '#334155', marginBottom: 6 },
   input: {
     borderWidth: 1,
     borderColor: '#cbd5e1',
     borderRadius: 12,
     backgroundColor: '#ffffff',
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 11,
     fontSize: 14,
     color: '#0f172a',
   },
@@ -678,16 +916,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     paddingHorizontal: 12,
     paddingVertical: 12,
-    marginBottom: 8,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-  dateCardLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#0f172a',
-  },
+  dateCardLabel: { fontSize: 14, fontWeight: '600', color: '#0f172a' },
+
+  /* ─── Segments ─── */
   segmentWrap: {
     flexDirection: 'row',
     borderRadius: 10,
@@ -695,16 +930,12 @@ const styles = StyleSheet.create({
     padding: 3,
     marginBottom: 8,
   },
-  segmentBtn: {
-    flex: 1,
-    borderRadius: 8,
-    paddingVertical: 8,
-    alignItems: 'center',
-  },
+  segmentBtn: { flex: 1, borderRadius: 8, paddingVertical: 8, alignItems: 'center' },
   segmentBtnActive: { backgroundColor: '#0f766e' },
-  segmentText: { fontSize: 12, fontWeight: '700', color: '#334155' },
+  segmentText: { fontSize: 13, fontWeight: '700', color: '#334155' },
   segmentTextActive: { color: '#ffffff' },
-  row: { flexDirection: 'row', gap: 10 },
+
+  /* ─── Switch ─── */
   switchRow: {
     marginBottom: 8,
     flexDirection: 'row',
@@ -714,47 +945,122 @@ const styles = StyleSheet.create({
     borderColor: '#cbd5e1',
     borderRadius: 12,
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 8,
     backgroundColor: '#ffffff',
   },
-  primaryBtn: {
-    marginTop: 8,
+
+  /* ─── Image ─── */
+  imageBtn: {
+    borderWidth: 1.5,
+    borderColor: '#0f766e',
     borderRadius: 12,
+    backgroundColor: '#ecfdf5',
     paddingVertical: 12,
     alignItems: 'center',
-    backgroundColor: '#0f766e',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
   },
-  primaryBtnText: { color: '#ffffff', fontSize: 14, fontWeight: '800' },
-  secondaryBtn: {
-    marginTop: 6,
-    borderRadius: 12,
-    paddingVertical: 11,
+  imageBtnText: { color: '#0f766e', fontSize: 14, fontWeight: '700' },
+  previewImage: {
+    width: '100%',
+    aspectRatio: 16 / 9,
+    borderRadius: 14,
+    marginTop: 8,
+    backgroundColor: '#e2e8f0',
+  },
+
+  /* ─── Next / Submit ─── */
+  nextBtn: {
+    marginTop: 12,
+    borderRadius: 14,
+    backgroundColor: '#0f766e',
+    paddingVertical: 14,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  nextBtnText: { color: '#ffffff', fontWeight: '800', fontSize: 15 },
+  submitBtn: {
+    marginTop: 12,
+    borderRadius: 14,
+    backgroundColor: '#0f766e',
+    paddingVertical: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  submitBtnText: { color: '#ffffff', fontWeight: '800', fontSize: 15 },
+
+  /* ─── Review ─── */
+  reviewBanner: {
+    width: '100%',
+    aspectRatio: 16 / 9,
+    borderRadius: 14,
+    backgroundColor: '#e2e8f0',
+    marginBottom: 8,
+  },
+  reviewCard: {
+    borderRadius: 14,
+    backgroundColor: '#ffffff',
     borderWidth: 1,
+    borderColor: '#e2e8f0',
+    padding: 14,
+    gap: 6,
+  },
+  reviewRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  reviewLabel: { fontSize: 13, color: '#64748b', fontWeight: '600' },
+  reviewValue: { fontSize: 13, color: '#0f172a', fontWeight: '500', textAlign: 'right', flex: 1 },
+
+  /* ─── Fest Events ─── */
+  draftCard: {
+    borderRadius: 16,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    padding: 14,
+    gap: 6,
+  },
+  addEventBtn: {
+    marginTop: 8,
+    borderRadius: 12,
+    borderWidth: 1.5,
     borderColor: '#0f766e',
     backgroundColor: '#ecfdf5',
+    paddingVertical: 11,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
   },
-  secondaryBtnText: { color: '#0f766e', fontSize: 14, fontWeight: '800' },
-  sectionTitle: { fontSize: 14, fontWeight: '700', color: '#0f172a', marginBottom: 6, marginTop: 8 },
-  addedEventsWrap: { marginTop: 8, gap: 8 },
+  addEventBtnText: { color: '#0f766e', fontWeight: '700', fontSize: 14 },
+  sectionLabel: { fontSize: 14, fontWeight: '700', color: '#0f172a', marginTop: 8 },
   addedEventCard: {
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#ffffff',
-    padding: 10,
+    borderColor: '#d1fae5',
+    backgroundColor: '#ecfdf5',
+    padding: 12,
   },
-  addedEventTitle: { fontSize: 13, fontWeight: '700', color: '#0f172a' },
+  addedEventTitle: { fontSize: 14, fontWeight: '700', color: '#0f172a' },
   addedEventMeta: { marginTop: 3, fontSize: 12, color: '#64748b' },
+
+  /* ─── iOS Date Picker Modal ─── */
   iosBackdrop: {
     flex: 1,
     justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    backgroundColor: 'rgba(0,0,0,0.4)',
   },
   iosCard: {
     backgroundColor: '#ffffff',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
     paddingBottom: 20,
   },
   iosHeader: {
@@ -762,18 +1068,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    paddingVertical: 14,
   },
-  iosHeaderText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#0f766e',
-  },
-  iosTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#0f172a',
-  },
+  iosHeaderText: { fontSize: 15, color: '#0f766e', fontWeight: '700' },
+  iosTitle: { fontSize: 15, fontWeight: '700', color: '#0f172a' },
 });

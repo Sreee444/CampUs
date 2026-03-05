@@ -6,6 +6,8 @@ export type InterCampusEvent = {
   id: string;
   title: string;
   description?: string | null;
+  is_fest?: boolean | null;
+  parent_fest_id?: string | null;
   college_name: string;
   college_location?: string | null;
   college_website?: string | null;
@@ -25,6 +27,7 @@ export type InterCampusEvent = {
   faculty_notes?: string | null;
   participation_cap?: number | null;
   verification_status?: InterCampusVerificationStatus | null;
+  status?: string | null;
   created_by?: string | null;
   created_at?: string | null;
   interested_count?: number;

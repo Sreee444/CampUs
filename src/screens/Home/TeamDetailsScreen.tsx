@@ -9,6 +9,7 @@ import {
     Switch,
     Image,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Clipboard } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -20,6 +21,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../api/supabase';
 import StatusBadge from '../../components/StatusBadge';
 import ConfirmDialog from '../../components/ConfirmDialog';
+import DropdownSheet from '../../components/DropdownSheet';
 import { computeTeamStatus, SKILL_ROLES, analyzeTeamStrength } from '../../utils/teamUtils';
 
 type TeamDetailsScreenNavigationProp = StackNavigationProp<RootStackParamList, 'TeamDetails'>;
@@ -67,7 +69,15 @@ export default function TeamDetailsScreen() {
         userId: '',
         name: '',
     });
+    const [promoteDialog, setPromoteDialog] = useState<{ visible: boolean; userId: string; name: string }>({
+        visible: false,
+        userId: '',
+        name: '',
+    });
+    const [memberMenuVisible, setMemberMenuVisible] = useState(false);
+    const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null);
     const [isKickingMember, setIsKickingMember] = useState<string | null>(null);
+    const [isPromotingMember, setIsPromotingMember] = useState<string | null>(null);
     const [registrationDeadline, setRegistrationDeadline] = useState<string | null>(null);
 
     const isLeader = members.some((m) => m.user_id === user?.id && m.role === 'leader');
@@ -228,6 +238,24 @@ export default function TeamDetailsScreen() {
         setRemoveDialog({ visible: true, userId, name });
     };
 
+    const openMemberMenu = (member: TeamMember) => {
+        setSelectedMember(member);
+        setMemberMenuVisible(true);
+    };
+
+    const onMemberMenuSelect = (action: string) => {
+        setMemberMenuVisible(false);
+        if (!selectedMember) return;
+        const name = selectedMember.user?.full_name || 'this member';
+        if (action === 'Promote to Leader') {
+            setPromoteDialog({ visible: true, userId: selectedMember.user_id, name });
+            return;
+        }
+        if (action === 'Remove Member') {
+            kickMember(selectedMember.user_id, name);
+        }
+    };
+
     const confirmRemoveMember = async () => {
         const { userId } = removeDialog;
         setRemoveDialog({ visible: false, userId: '', name: '' });
@@ -248,6 +276,39 @@ export default function TeamDetailsScreen() {
             Toast.show({ type: 'error', text1: 'Failed to remove member', text2: err.message });
         } finally {
             setIsKickingMember(null);
+        }
+    };
+
+    const confirmPromoteMember = async () => {
+        if (!user) return;
+        const { userId, name } = promoteDialog;
+        setPromoteDialog({ visible: false, userId: '', name: '' });
+        try {
+            setIsPromotingMember(userId);
+
+            const { error: demoteErr } = await (supabase.from('event_team_members') as any)
+                .update({ role: 'member' })
+                .eq('team_id', teamId)
+                .eq('user_id', user.id);
+            if (demoteErr) throw demoteErr;
+
+            const { error: promoteErr } = await (supabase.from('event_team_members') as any)
+                .update({ role: 'leader' })
+                .eq('team_id', teamId)
+                .eq('user_id', userId);
+            if (promoteErr) throw promoteErr;
+
+            await (supabase.from('event_teams') as any)
+                .update({ leader_id: userId })
+                .eq('id', teamId);
+
+            Toast.show({ type: 'success', text1: `${name} is now team leader` });
+            await loadTeam();
+        } catch (err: any) {
+            Toast.show({ type: 'error', text1: 'Failed to promote member', text2: err.message });
+        } finally {
+            setIsPromotingMember(null);
+            setSelectedMember(null);
         }
     };
 
@@ -272,7 +333,7 @@ export default function TeamDetailsScreen() {
     if (isLoading) {
         return (
             <View style={[st.container, st.centered]}>
-                <ActivityIndicator size="large" color="#4f46e5" />
+                <ActivityIndicator size="large" color="#7c3aed" />
             </View>
         );
     }
@@ -290,6 +351,7 @@ export default function TeamDetailsScreen() {
 
     const status = computeTeamStatus(members.length, team.max_members, registrationDeadline ?? undefined);
     const spotsLeft = team.max_members - members.length;
+    const isCurrentUserMember = members.some((m) => m.user_id === user?.id);
     const strength = analyzeTeamStrength(
         members.length,
         team.max_members,
@@ -316,31 +378,21 @@ export default function TeamDetailsScreen() {
 
             <ScrollView style={st.scroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
                 {/* Team code card */}
-                <View style={st.codeCard}>
+                <LinearGradient
+                    colors={['#f5f3ff', '#faf5ff']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={st.codeCard}
+                >
                     <View>
                         <Text style={st.codeLabel}>Team Code</Text>
                         <Text style={st.codeValue}>{team.team_code}</Text>
                     </View>
                     <TouchableOpacity style={st.copyBtn} onPress={handleCopyCode}>
-                        <MaterialIcons name="content-copy" size={16} color="#4f46e5" />
+                        <MaterialIcons name="content-copy" size={16} color="#7c3aed" />
                         <Text style={st.copyText}>Copy</Text>
                     </TouchableOpacity>
-                </View>
-
-                {/* Find teammates (leader, spots available) */}
-                {isLeader && spotsLeft > 0 && (
-                    <TouchableOpacity
-                        style={st.findBtn}
-                        onPress={() => navigation.navigate('TeamConnect', {
-                            eventId,
-                            requiredRoles: team.required_roles || [],
-                            teamId: team.id,
-                        })}
-                    >
-                        <MaterialIcons name="person-add" size={18} color="#fff" />
-                        <Text style={st.findBtnText}>Find Teammates</Text>
-                    </TouchableOpacity>
-                )}
+                </LinearGradient>
 
                 {/* Stats */}
                 <View style={st.statsRow}>
@@ -363,7 +415,10 @@ export default function TeamDetailsScreen() {
                 {/* Required Roles */}
                 {team.required_roles && team.required_roles.length > 0 && (
                     <View style={st.section}>
-                        <Text style={st.sectionLabel}>Required Roles</Text>
+                        <View style={st.sectionHeader}>
+                            <MaterialIcons name="assessment" size={16} color="#7c3aed" />
+                            <Text style={st.sectionLabel}>Required Roles</Text>
+                        </View>
                         <View style={st.rolesWrap}>
                             {team.required_roles.map((role: string, i: number) => {
                                 const info = SKILL_ROLES.find((r) => r.id === role);
@@ -384,22 +439,30 @@ export default function TeamDetailsScreen() {
 
                 {/* Team Strength */}
                 <View style={st.section}>
-                    <Text style={st.sectionLabel}>Team Strength</Text>
-                    <View style={st.strengthCard}>
+                    <View style={st.sectionHeader}>
+                        <MaterialIcons name="lightning-bolt" size={16} color="#f59e0b" />
+                        <Text style={st.sectionLabel}>Team Strength</Text>
+                    </View>
+                    <LinearGradient
+                        colors={getStrengthColor() === '#16a34a' ? ['#f0fdf4', '#ecfdf5'] : getStrengthColor() === '#d97706' ? ['#fffbeb', '#fef3c7'] : ['#fef2f2', '#fecaca']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={st.strengthCard}
+                    >
                         <View style={st.strengthTop}>
-                            <View style={st.scoreCircle}>
-                                <Text style={[st.scoreNum, { color: getStrengthColor() }]}>{strength.overallScore}</Text>
-                                <Text style={st.scoreOf}>/100</Text>
+                            <View style={[st.scoreCircle, { backgroundColor: getStrengthColor(), borderRadius: 50, paddingHorizontal: 20, paddingVertical: 14 }]}>
+                                <Text style={[st.scoreNum, { color: '#fff' }]}>{strength.overallScore}</Text>
+                                <Text style={[st.scoreOf, { color: 'rgba(255,255,255,0.8)' }]}>/100</Text>
                             </View>
                             <View style={st.strengthMeta}>
-                                <Text style={[st.ratingLabel, { color: getStrengthColor() }]}>{strength.rating}</Text>
+                                <Text style={[st.ratingLabel, { color: getStrengthColor(), textTransform: 'capitalize' }]}>Team {strength.rating}</Text>
                                 <View style={st.metricRow}>
-                                    <Text style={st.metricLabel}>Skills</Text>
-                                    <Text style={st.metricVal}>{strength.skillCoverage}%</Text>
+                                    <Text style={st.metricLabel}>Skills Coverage</Text>
+                                    <Text style={[st.metricVal, { color: '#7c3aed' }]}>{strength.skillCoverage}%</Text>
                                 </View>
                                 <View style={st.metricRow}>
-                                    <Text style={st.metricLabel}>Size</Text>
-                                    <Text style={st.metricVal}>{strength.teamCompleteness}%</Text>
+                                    <Text style={st.metricLabel}>Team Size</Text>
+                                    <Text style={[st.metricVal, { color: '#7c3aed' }]}>{strength.teamCompleteness}%</Text>
                                 </View>
                             </View>
                         </View>
@@ -410,12 +473,15 @@ export default function TeamDetailsScreen() {
                                 ))}
                             </View>
                         )}
-                    </View>
+                    </LinearGradient>
                 </View>
 
                 {/* Members */}
                 <View style={st.section}>
-                    <Text style={st.sectionLabel}>Members ({members.length})</Text>
+                    <View style={st.sectionHeader}>
+                        <MaterialIcons name="people" size={16} color="#7c3aed" />
+                        <Text style={st.sectionLabel}>Members ({members.length})</Text>
+                    </View>
                     {members.map((member) => {
                         const initials = (member.user?.full_name || '?').split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase();
                         return (
@@ -443,11 +509,12 @@ export default function TeamDetailsScreen() {
                                 </View>
                                 {isLeader && member.user_id !== user?.id && (
                                     <TouchableOpacity
-                                        style={[st.kickBtn, isKickingMember === member.user_id && st.btnDisabled]}
-                                        onPress={() => kickMember(member.user_id, member.user?.full_name || 'this member')}
-                                        disabled={isKickingMember === member.user_id}
+                                        style={st.memberMenuBtn}
+                                        onPress={() => openMemberMenu(member)}
+                                        disabled={isKickingMember === member.user_id || isPromotingMember === member.user_id}
+                                        activeOpacity={0.8}
                                     >
-                                        <MaterialIcons name="person-remove" size={16} color="#ef4444" />
+                                        <MaterialIcons name="more-vert" size={18} color="#6b7280" />
                                     </TouchableOpacity>
                                 )}
                             </View>
@@ -458,7 +525,8 @@ export default function TeamDetailsScreen() {
                 {/* Join Requests (leader only) */}
                 {isLeader && joinRequests.length > 0 && (
                     <View style={st.section}>
-                        <View style={st.sectionHeader}>
+                        <View style={st.sectionHeaderTop}>
+                            <MaterialIcons name="mail" size={16} color="#3b82f6" />
                             <Text style={st.sectionLabel}>Join Requests</Text>
                             <View style={st.countBadge}>
                                 <Text style={st.countText}>{joinRequests.length}</Text>
@@ -521,7 +589,7 @@ export default function TeamDetailsScreen() {
                                 value={isRecruiting}
                                 onValueChange={toggleRecruiting}
                                 trackColor={{ false: '#e5e7eb', true: '#c7d2fe' }}
-                                thumbColor={isRecruiting ? '#4f46e5' : '#fff'}
+                                thumbColor={isRecruiting ? '#7c3aed' : '#fff'}
                             />
                         </View>
                     </View>
@@ -529,25 +597,35 @@ export default function TeamDetailsScreen() {
             </ScrollView>
 
             {/* Footer */}
-            <View style={st.footer}>
-                {isLeader && spotsLeft > 0 && (
-                    <TouchableOpacity
-                        style={st.primaryBtn}
-                        onPress={() => navigation.navigate('TeamConnect', {
-                            eventId,
-                            requiredRoles: team.required_roles || [],
-                            teamId: team.id,
-                        })}
-                    >
-                        <MaterialIcons name="person-add" size={18} color="#fff" />
-                        <Text style={st.primaryBtnText}>Invite Members</Text>
+            {isCurrentUserMember && (
+                <View style={st.footer}>
+                    {isLeader && spotsLeft > 0 && (
+                        <TouchableOpacity
+                            style={{ borderRadius: 12, overflow: 'hidden' }}
+                            onPress={() => navigation.navigate('TeamConnect', {
+                                eventId,
+                                requiredRoles: team.required_roles || [],
+                                teamId: team.id,
+                            })}
+                            activeOpacity={0.8}
+                        >
+                            <LinearGradient
+                                colors={['#7c3aed', '#6d28d9']}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 1, y: 0 }}
+                                style={st.primaryBtn}
+                            >
+                                <MaterialIcons name="person-add" size={18} color="#fff" />
+                                <Text style={st.primaryBtnText}>Invite Members</Text>
+                            </LinearGradient>
+                        </TouchableOpacity>
+                    )}
+                    <TouchableOpacity style={st.leaveBtn} onPress={handleLeave} activeOpacity={0.8}>
+                        <MaterialIcons name="logout" size={18} color="#ef4444" />
+                        <Text style={st.leaveBtnText}>Leave Team</Text>
                     </TouchableOpacity>
-                )}
-                <TouchableOpacity style={st.leaveBtn} onPress={handleLeave}>
-                    <MaterialIcons name="logout" size={18} color="#ef4444" />
-                    <Text style={st.leaveBtnText}>Leave Team</Text>
-                </TouchableOpacity>
-            </View>
+                </View>
+            )}
 
             {/* Dialogs */}
             <ConfirmDialog
@@ -569,6 +647,24 @@ export default function TeamDetailsScreen() {
                 confirmText="Remove"
                 onConfirm={confirmRemoveMember}
                 onCancel={() => setRemoveDialog({ visible: false, userId: '', name: '' })}
+            />
+            <ConfirmDialog
+                visible={promoteDialog.visible}
+                title="Promote to Leader?"
+                message={'Make ' + promoteDialog.name + ' the team leader? You will become a member.'}
+                confirmText="Promote"
+                onConfirm={confirmPromoteMember}
+                onCancel={() => setPromoteDialog({ visible: false, userId: '', name: '' })}
+            />
+            <DropdownSheet
+                visible={memberMenuVisible}
+                title={selectedMember?.user?.full_name || 'Member Actions'}
+                options={selectedMember?.role === 'leader' ? ['Remove Member'] : ['Promote to Leader', 'Remove Member']}
+                onSelect={onMemberMenuSelect}
+                onClose={() => {
+                    setMemberMenuVisible(false);
+                    setSelectedMember(null);
+                }}
             />
         </View>
     );
@@ -608,20 +704,19 @@ const st = StyleSheet.create({
     codeCard: {
         marginHorizontal: 20,
         marginTop: 16,
-        backgroundColor: '#eef2ff',
         borderRadius: 14,
         padding: 18,
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
         borderWidth: 1,
-        borderColor: '#e0e7ff',
+        borderColor: '#e9d5ff',
     },
-    codeLabel: { fontSize: 11, color: '#6b7280', fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.3 },
+    codeLabel: { fontSize: 11, color: '#8b5cf6', fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.3 },
     codeValue: {
         fontSize: 24,
         fontWeight: '800',
-        color: '#4f46e5',
+        color: '#7c3aed',
         letterSpacing: 4,
         fontFamily: 'monospace',
         marginTop: 2,
@@ -635,23 +730,9 @@ const st = StyleSheet.create({
         paddingHorizontal: 12,
         paddingVertical: 8,
         borderWidth: 1,
-        borderColor: '#e0e7ff',
+        borderColor: '#e9d5ff',
     },
-    copyText: { color: '#4f46e5', fontWeight: '600', fontSize: 13 },
-
-    // Find teammates
-    findBtn: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: '#4f46e5',
-        paddingVertical: 12,
-        borderRadius: 12,
-        marginHorizontal: 20,
-        marginTop: 12,
-        gap: 8,
-    },
-    findBtnText: { fontSize: 15, fontWeight: '600', color: '#fff' },
+    copyText: { color: '#7c3aed', fontWeight: '600', fontSize: 13 },
 
     // Stats
     statsRow: {
@@ -685,13 +766,20 @@ const st = StyleSheet.create({
         color: '#6b7280',
         textTransform: 'uppercase',
         letterSpacing: 0.3,
-        marginBottom: 12,
+        marginBottom: 0,
     },
     sectionHeader: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
         marginBottom: 12,
+    },
+    sectionHeaderTop: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        marginBottom: 12,
+        justifyContent: 'space-between',
     },
 
     // Roles
@@ -716,11 +804,10 @@ const st = StyleSheet.create({
 
     // Strength
     strengthCard: {
-        backgroundColor: '#f9fafb',
         borderRadius: 12,
-        padding: 14,
+        padding: 16,
         borderWidth: 1,
-        borderColor: '#f0f0f0',
+        borderColor: 'rgba(124, 58, 237, 0.2)',
     },
     strengthTop: {
         flexDirection: 'row',
@@ -729,6 +816,7 @@ const st = StyleSheet.create({
     },
     scoreCircle: {
         alignItems: 'center',
+        justifyContent: 'center',
     },
     scoreNum: {
         fontSize: 28,
@@ -736,15 +824,14 @@ const st = StyleSheet.create({
     },
     scoreOf: {
         fontSize: 11,
-        color: '#9ca3af',
         marginTop: -4,
     },
     strengthMeta: {
         flex: 1,
-        gap: 4,
+        gap: 6,
     },
     ratingLabel: {
-        fontSize: 14,
+        fontSize: 15,
         fontWeight: '700',
         marginBottom: 4,
     },
@@ -800,7 +887,7 @@ const st = StyleSheet.create({
         width: 40,
         height: 40,
         borderRadius: 20,
-        backgroundColor: '#4f46e5',
+        backgroundColor: '#7c3aed',
         alignItems: 'center',
         justifyContent: 'center',
     },
@@ -824,6 +911,16 @@ const st = StyleSheet.create({
         backgroundColor: '#fef2f2',
         borderWidth: 1,
         borderColor: '#fecaca',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    memberMenuBtn: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: '#f9fafb',
+        borderWidth: 1,
+        borderColor: '#e5e7eb',
         alignItems: 'center',
         justifyContent: 'center',
     },
@@ -860,7 +957,7 @@ const st = StyleSheet.create({
         width: 36,
         height: 36,
         borderRadius: 18,
-        backgroundColor: '#4f46e5',
+        backgroundColor: '#7c3aed',
         alignItems: 'center',
         justifyContent: 'center',
     },
@@ -914,9 +1011,7 @@ const st = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: '#4f46e5',
         paddingVertical: 14,
-        borderRadius: 12,
         gap: 8,
     },
     primaryBtnText: { fontSize: 15, fontWeight: '700', color: '#fff' },

@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Image,
   Linking,
   SafeAreaView,
   ScrollView,
@@ -10,6 +9,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -21,6 +22,13 @@ import { InterCampusEvent } from '../types/intercampus';
 
 type Route = RouteProp<RootStackParamList, 'InterCampusEventDetails'>;
 type Nav = StackNavigationProp<RootStackParamList>;
+
+const formatDate = (value?: string | null) => {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+};
 
 export default function InterCampusEventDetailsScreen() {
   const route = useRoute<Route>();
@@ -51,19 +59,16 @@ export default function InterCampusEventDetailsScreen() {
       Toast.show({ type: 'info', text1: 'No registration link available yet' });
       return;
     }
-
     const canOpen = await Linking.canOpenURL(event.registration_link);
     if (!canOpen) {
       Toast.show({ type: 'error', text1: 'Invalid registration URL' });
       return;
     }
-
     await Linking.openURL(event.registration_link);
   };
 
   const handleToggleInterested = async () => {
     if (!user?.id || !event?.id) return;
-
     try {
       setProcessingInterest(true);
       const interestedNow = await toggleInterCampusInterested(event.id, user.id);
@@ -86,7 +91,7 @@ export default function InterCampusEventDetailsScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.centerWrap}>
-        <ActivityIndicator color="#0f766e" />
+        <ActivityIndicator color="#0f766e" size="large" />
       </SafeAreaView>
     );
   }
@@ -94,6 +99,7 @@ export default function InterCampusEventDetailsScreen() {
   if (!event) {
     return (
       <SafeAreaView style={styles.centerWrap}>
+        <MaterialIcons name="error-outline" size={36} color="#94a3b8" />
         <Text style={styles.emptyTitle}>Event not available</Text>
       </SafeAreaView>
     );
@@ -103,83 +109,160 @@ export default function InterCampusEventDetailsScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <MaterialIcons name="arrow-back" size={24} color="#0f172a" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>InterCampus Event</Text>
-        <View style={{ width: 24 }} />
-      </View>
-
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
-        {event.banner_image ? (
-          <Image source={{ uri: event.banner_image }} style={styles.banner} />
-        ) : (
-          <View style={styles.bannerPlaceholder}>
-            <MaterialIcons name="public" size={26} color="#0f172a" />
-            <Text style={styles.bannerText}>Verified InterCampus Event</Text>
-          </View>
-        )}
-
-        <Text style={styles.title}>{event.title}</Text>
-        <Text style={styles.subTitle}>{event.college_name}</Text>
-        {!!event.college_location && <Text style={styles.fest}>Location: {event.college_location}</Text>}
-        {!!event.college_website && <Text style={styles.fest}>Website: {event.college_website}</Text>}
-        {!!event.fest_name && <Text style={styles.fest}>Fest: {event.fest_name}</Text>}
-
-        <View style={styles.badgeRow}>
-          <View style={[styles.badge, isTeam ? styles.badgeTeam : styles.badgeIndividual]}>
-            <Text style={styles.badgeText}>{isTeam ? 'Team Event' : 'Individual Event'}</Text>
-          </View>
-          <View style={styles.badgeVerified}>
-            <MaterialIcons name="verified" size={14} color="#047857" />
-            <Text style={styles.badgeVerifiedText}>Verified</Text>
-          </View>
-        </View>
-
-        <View style={styles.card}>
-          {!!event.description && <Text style={styles.bodyText}>{event.description}</Text>}
-          {!!event.event_type && <Text style={styles.metaLine}>Event Type: {event.event_type}</Text>}
-          <Text style={styles.metaLine}>Mode: {event.is_online ? 'Online' : 'Offline'}</Text>
-          {!!event.venue && <Text style={styles.metaLine}>Venue: {event.venue}</Text>}
-          {isTeam && (
-            <Text style={styles.metaLine}>
-              Team Size: {event.min_team_size || '-'} to {event.max_team_size || '-'}
-            </Text>
+      <ScrollView style={styles.scroll}>
+        {/* ─── Banner ─── */}
+        <View style={styles.bannerWrap}>
+          {event.banner_image ? (
+            <Image source={{ uri: event.banner_image }} style={styles.banner} contentFit="cover" transition={200} />
+          ) : (
+            <View style={styles.bannerPlaceholder}>
+              <MaterialIcons name="public" size={42} color="#0f766e" />
+              <Text style={styles.bannerPlaceholderText}>InterCampus Event</Text>
+            </View>
           )}
-          {!!event.event_start_date && <Text style={styles.metaLine}>Start: {new Date(event.event_start_date).toLocaleString()}</Text>}
-          {!!event.event_end_date && <Text style={styles.metaLine}>End: {new Date(event.event_end_date).toLocaleString()}</Text>}
-          {!!event.eligibility_text && <Text style={styles.metaLine}>Eligibility: {event.eligibility_text}</Text>}
-          {!!event.faculty_notes && <Text style={styles.metaLine}>Faculty Notes: {event.faculty_notes}</Text>}
-          {!!event.registration_deadline && (
-            <Text style={styles.metaLine}>Registration Deadline: {new Date(event.registration_deadline).toLocaleString()}</Text>
-          )}
-          <Text style={styles.interestedCount}>{event.interested_count || 0} users interested</Text>
-        </View>
-
-        <TouchableOpacity style={styles.primaryBtn} onPress={openRegistration}>
-          <Text style={styles.primaryBtnText}>Official Registration</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.secondaryBtn} disabled={processingInterest} onPress={handleToggleInterested}>
-          <Text style={styles.secondaryBtnText}>{event.is_interested ? 'Interested' : 'Mark Interested'}</Text>
-        </TouchableOpacity>
-
-        {isTeam && (
-          <TouchableOpacity
-            style={styles.secondaryBtn}
-            onPress={() => navigation.navigate('InterCampusTeamUp', { eventId: event.id })}
-          >
-            <Text style={styles.secondaryBtnText}>Team Up</Text>
+          <LinearGradient colors={['transparent', 'rgba(0,0,0,0.7)']} style={styles.bannerGradient} />
+          <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+            <MaterialIcons name="arrow-back" size={22} color="#ffffff" />
           </TouchableOpacity>
-        )}
+          <View style={styles.bannerTextWrap}>
+            <Text style={styles.bannerTitle}>{event.title}</Text>
+          </View>
+        </View>
 
-        <TouchableOpacity
-          style={styles.secondaryBtn}
-          onPress={() => navigation.navigate('InterCampusDiscussion', { eventId: event.id })}
-        >
-          <Text style={styles.secondaryBtnText}>Discussion</Text>
-        </TouchableOpacity>
+        {/* ─── Info Section ─── */}
+        <View style={styles.infoSection}>
+          <View style={styles.infoRow}>
+            <MaterialIcons name="school" size={18} color="#0f766e" />
+            <Text style={styles.infoText}>{event.college_name}</Text>
+          </View>
+          {!!event.college_location && (
+            <View style={styles.infoRow}>
+              <MaterialIcons name="location-on" size={18} color="#0f766e" />
+              <Text style={styles.infoText}>{event.college_location}</Text>
+            </View>
+          )}
+          <View style={styles.infoRow}>
+            <MaterialIcons name="calendar-month" size={18} color="#0f766e" />
+            <Text style={styles.infoText}>
+              {formatDate(event.event_start_date) || 'Date TBA'}
+              {!!event.event_end_date && ` – ${formatDate(event.event_end_date)}`}
+            </Text>
+          </View>
+          <View style={styles.infoRow}>
+            <MaterialIcons name="place" size={18} color="#0f766e" />
+            <Text style={styles.infoText}>
+              {event.venue?.trim() || (event.is_online ? 'Online' : 'Venue TBA')}
+            </Text>
+          </View>
+
+          {/* Badges */}
+          <View style={styles.badgeRow}>
+            <View style={[styles.badge, isTeam ? styles.badgeTeam : styles.badgeIndividual]}>
+              <MaterialIcons name={isTeam ? 'groups' : 'person'} size={14} color="#0f172a" />
+              <Text style={styles.badgeText}>{isTeam ? 'Team Event' : 'Individual'}</Text>
+            </View>
+            <View style={styles.badgeVerified}>
+              <MaterialIcons name="verified" size={14} color="#047857" />
+              <Text style={styles.badgeVerifiedText}>Verified</Text>
+            </View>
+            <View style={styles.badgeInterested}>
+              <MaterialIcons name="favorite" size={14} color="#0f766e" />
+              <Text style={styles.badgeInterestedText}>{event.interested_count || 0} interested</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* ─── Description Card ─── */}
+        <View style={styles.contentPad}>
+          {!!event.description && (
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>About</Text>
+              <Text style={styles.bodyText}>{event.description}</Text>
+            </View>
+          )}
+
+          {/* Details Card */}
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Details</Text>
+            {!!event.event_type && (
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Event Type</Text>
+                <Text style={styles.detailValue}>{event.event_type}</Text>
+              </View>
+            )}
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>Mode</Text>
+              <Text style={styles.detailValue}>{event.is_online ? 'Online' : 'Offline'}</Text>
+            </View>
+            {isTeam && (
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Team Size</Text>
+                <Text style={styles.detailValue}>
+                  {event.min_team_size || '-'} to {event.max_team_size || '-'}
+                </Text>
+              </View>
+            )}
+            {!!event.eligibility_text && (
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Eligibility</Text>
+                <Text style={styles.detailValue}>{event.eligibility_text}</Text>
+              </View>
+            )}
+            {!!event.registration_deadline && (
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Deadline</Text>
+                <Text style={styles.detailValue}>{formatDate(event.registration_deadline)}</Text>
+              </View>
+            )}
+            {!!event.faculty_notes && (
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Faculty Notes</Text>
+                <Text style={styles.detailValue}>{event.faculty_notes}</Text>
+              </View>
+            )}
+          </View>
+
+          {/* ─── Action Buttons ─── */}
+          <TouchableOpacity style={styles.primaryBtn} onPress={openRegistration}>
+            <MaterialIcons name="open-in-new" size={18} color="#ffffff" />
+            <Text style={styles.primaryBtnText}>Official Registration</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.outlineBtn, event.is_interested && styles.outlineBtnActive]}
+            disabled={processingInterest}
+            onPress={handleToggleInterested}
+          >
+            <MaterialIcons
+              name={event.is_interested ? 'favorite' : 'favorite-border'}
+              size={18}
+              color={event.is_interested ? '#ffffff' : '#0f766e'}
+            />
+            <Text style={[styles.outlineBtnText, event.is_interested && styles.outlineBtnTextActive]}>
+              {event.is_interested ? 'Interested ✓' : 'Mark Interested'}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.outlineBtn}
+            onPress={() => navigation.navigate('InterCampusDiscussion', { eventId: event.id })}
+          >
+            <MaterialIcons name="forum" size={18} color="#0f766e" />
+            <Text style={styles.outlineBtnText}>Discussion</Text>
+          </TouchableOpacity>
+
+          {isTeam && (
+            <TouchableOpacity
+              style={styles.outlineBtn}
+              onPress={() => navigation.navigate('InterCampusTeamUp', { eventId: event.id })}
+            >
+              <MaterialIcons name="groups" size={18} color="#0f766e" />
+              <Text style={styles.outlineBtnText}>Team Up</Text>
+            </TouchableOpacity>
+          )}
+
+          <View style={{ height: 40 }} />
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -187,75 +270,122 @@ export default function InterCampusEventDetailsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8fafc' },
-  centerWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f8fafc' },
-  emptyTitle: { fontSize: 16, color: '#0f172a', fontWeight: '700' },
-  header: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+  centerWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f8fafc', gap: 10 },
+  emptyTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a' },
+  scroll: { flex: 1 },
+
+  /* ─── Banner ─── */
+  bannerWrap: { position: 'relative' },
+  banner: { width: '100%', aspectRatio: 16 / 9, backgroundColor: '#e2e8f0' },
+  bannerPlaceholder: {
+    width: '100%',
+    aspectRatio: 16 / 9,
+    backgroundColor: '#ecfdf5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  bannerPlaceholderText: { fontSize: 13, color: '#334155', fontWeight: '700' },
+  bannerGradient: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 100 },
+  backBtn: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bannerTextWrap: { position: 'absolute', bottom: 14, left: 16, right: 16 },
+  bannerTitle: { fontSize: 22, fontWeight: '800', color: '#ffffff' },
+
+  /* ─── Info Section ─── */
+  infoSection: {
+    padding: 16,
+    gap: 8,
     backgroundColor: '#ffffff',
     borderBottomWidth: 1,
     borderBottomColor: '#e2e8f0',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
   },
-  headerTitle: { fontSize: 17, fontWeight: '700', color: '#0f172a' },
-  scroll: { flex: 1 },
-  content: { padding: 16, gap: 10 },
-  banner: { width: '100%', height: 190, borderRadius: 16, backgroundColor: '#dbeafe' },
-  bannerPlaceholder: {
-    width: '100%',
-    height: 190,
-    borderRadius: 16,
-    backgroundColor: '#e2e8f0',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  bannerText: { fontSize: 12, color: '#334155', fontWeight: '700' },
-  title: { fontSize: 22, fontWeight: '800', color: '#0f172a', marginTop: 2 },
-  subTitle: { fontSize: 14, color: '#334155', fontWeight: '600' },
-  fest: { fontSize: 13, color: '#64748b' },
-  badgeRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
-  badge: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
+  infoRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  infoText: { flex: 1, fontSize: 14, color: '#334155', fontWeight: '500' },
+
+  /* Badges */
+  badgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 6 },
+  badge: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
   badgeTeam: { backgroundColor: '#fee2e2' },
   badgeIndividual: { backgroundColor: '#dbeafe' },
   badgeText: { fontSize: 12, fontWeight: '700', color: '#0f172a' },
   badgeVerified: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6,
     backgroundColor: '#dcfce7',
-    flexDirection: 'row',
-    gap: 5,
-    alignItems: 'center',
   },
   badgeVerifiedText: { fontSize: 12, fontWeight: '700', color: '#047857' },
+  badgeInterested: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: '#ecfdf5',
+  },
+  badgeInterestedText: { fontSize: 12, fontWeight: '700', color: '#0f766e' },
+
+  /* ─── Content ─── */
+  contentPad: { padding: 16, gap: 12 },
   card: {
-    borderRadius: 14,
+    borderRadius: 16,
+    backgroundColor: '#ffffff',
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    backgroundColor: '#ffffff',
     padding: 14,
-    gap: 6,
+    gap: 8,
   },
-  bodyText: { fontSize: 14, color: '#0f172a', lineHeight: 20 },
-  metaLine: { fontSize: 13, color: '#475569' },
-  interestedCount: { marginTop: 4, fontSize: 12, color: '#0f766e', fontWeight: '700' },
+  cardTitle: { fontSize: 15, fontWeight: '700', color: '#0f172a' },
+  bodyText: { fontSize: 14, color: '#334155', lineHeight: 21 },
+  detailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  detailLabel: { fontSize: 13, color: '#64748b', fontWeight: '600' },
+  detailValue: { fontSize: 13, color: '#0f172a', fontWeight: '500', textAlign: 'right', flex: 1 },
+
+  /* ─── Buttons ─── */
   primaryBtn: {
-    borderRadius: 12,
+    borderRadius: 14,
     backgroundColor: '#0f766e',
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    justifyContent: 'center',
+    paddingVertical: 14,
+    gap: 8,
   },
-  primaryBtnText: { color: '#ffffff', fontWeight: '800', fontSize: 14 },
-  secondaryBtn: {
-    borderRadius: 12,
-    borderWidth: 1,
+  primaryBtnText: { color: '#ffffff', fontWeight: '800', fontSize: 15 },
+  outlineBtn: {
+    borderRadius: 14,
+    borderWidth: 1.5,
     borderColor: '#0f766e',
     backgroundColor: '#ffffff',
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    justifyContent: 'center',
+    paddingVertical: 13,
+    gap: 8,
   },
-  secondaryBtnText: { color: '#0f766e', fontWeight: '800', fontSize: 14 },
+  outlineBtnActive: {
+    backgroundColor: '#0f766e',
+    borderColor: '#0f766e',
+  },
+  outlineBtnText: { color: '#0f766e', fontWeight: '800', fontSize: 14 },
+  outlineBtnTextActive: { color: '#ffffff' },
 });

@@ -36,6 +36,7 @@ export const getVerifiedInterCampusEvents = async (userId?: string): Promise<Int
     .from('intercampus_events')
     .select('*')
     .eq('verification_status', 'verified')
+    .order('is_fest', { ascending: false })
     .order('event_start_date', { ascending: true, nullsFirst: false });
 
   if (error) throw error;
@@ -51,10 +52,10 @@ export const getVerifiedInterCampusEvents = async (userId?: string): Promise<Int
       .in('event_id', eventIds),
     userId
       ? supabase
-          .from('intercampus_interested_users')
-          .select('event_id')
-          .eq('user_id', userId)
-          .in('event_id', eventIds)
+        .from('intercampus_interested_users')
+        .select('event_id')
+        .eq('user_id', userId)
+        .in('event_id', eventIds)
       : Promise.resolve({ data: null as any, error: null as any }),
   ]);
 
@@ -92,11 +93,11 @@ export const getInterCampusEventById = async (eventId: string, userId?: string):
       .eq('event_id', eventId),
     userId
       ? supabase
-          .from('intercampus_interested_users')
-          .select('id')
-          .eq('event_id', eventId)
-          .eq('user_id', userId)
-          .maybeSingle()
+        .from('intercampus_interested_users')
+        .select('id')
+        .eq('event_id', eventId)
+        .eq('user_id', userId)
+        .maybeSingle()
       : Promise.resolve({ data: null as any, error: null as any }),
   ]);
 
@@ -110,25 +111,18 @@ export const getInterCampusEventById = async (eventId: string, userId?: string):
 };
 
 export const getInterCampusFests = (events: InterCampusEvent[]): InterCampusFestGroup[] => {
-  const grouped = new Map<string, InterCampusFestGroup>();
+  const festRows = events.filter((event) => event.is_fest);
+  const festEvents = events.filter((event) => !event.is_fest && !!event.fest_name);
 
-  events.forEach((event) => {
-    if (!event.fest_name?.trim()) return;
-    const key = `${event.fest_name.trim()}__${event.college_name}`;
-    if (!grouped.has(key)) {
-      grouped.set(key, {
-        fest_name: event.fest_name,
-        college_name: event.college_name,
-        college_location: event.college_location,
-        banner_image: event.banner_image,
-        events: [],
-      });
-    }
-
-    grouped.get(key)!.events.push(event);
-  });
-
-  return Array.from(grouped.values()).sort((a, b) => a.fest_name.localeCompare(b.fest_name));
+  return festRows
+    .map((fest) => ({
+      fest_name: fest.title,
+      college_name: fest.college_name,
+      college_location: fest.college_location,
+      banner_image: fest.banner_image,
+      events: festEvents.filter((event) => event.fest_name?.trim() === fest.title?.trim()),
+    }))
+    .sort((a, b) => a.fest_name.localeCompare(b.fest_name));
 };
 
 export const submitInterCampusEvent = async (submittedBy: string, payload: InterCampusSubmissionInput) => {
@@ -589,6 +583,45 @@ export const getInterCampusAllDiscussionReplies = async () => {
   return data || [];
 };
 
+/* ─── Dedicated fest / event queries using parent_fest_id ─── */
+
+export const getVerifiedFests = async (): Promise<InterCampusEvent[]> => {
+  const { data, error } = await supabase
+    .from('intercampus_events')
+    .select('*')
+    .eq('is_fest', true)
+    .eq('verification_status', 'verified')
+    .order('event_start_date', { ascending: true });
+
+  if (error) throw error;
+  return (data || []) as InterCampusEvent[];
+};
+
+export const getVerifiedStandaloneEvents = async (): Promise<InterCampusEvent[]> => {
+  const { data, error } = await supabase
+    .from('intercampus_events')
+    .select('*')
+    .eq('is_fest', false)
+    .is('parent_fest_id', null)
+    .eq('verification_status', 'verified')
+    .order('event_start_date', { ascending: true });
+
+  if (error) throw error;
+  return (data || []) as InterCampusEvent[];
+};
+
+export const getFestEvents = async (festId: string): Promise<InterCampusEvent[]> => {
+  const { data, error } = await supabase
+    .from('intercampus_events')
+    .select('*')
+    .eq('parent_fest_id', festId)
+    .eq('verification_status', 'verified')
+    .order('event_start_date', { ascending: true });
+
+  if (error) throw error;
+  return (data || []) as InterCampusEvent[];
+};
+
 export const createInterCampusEventDirect = async (
   creatorId: string,
   payload: {
@@ -618,6 +651,7 @@ export const createInterCampusEventDirect = async (
 
   const insertData: any = {
     title: payload.title.trim(),
+    is_fest: false,
     description: payload.description?.trim() || null,
     college_name: payload.college_name.trim(),
     college_location: payload.college_location?.trim() || null,

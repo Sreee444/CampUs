@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
     View,
     Text,
@@ -7,6 +7,7 @@ import {
     StyleSheet,
     ActivityIndicator,
     RefreshControl,
+    Animated,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -48,6 +49,13 @@ export default function BrowseTeamsScreen() {
     const [refreshing, setRefreshing] = useState(false);
     const [userTeamId, setUserTeamId] = useState<string | null>(null);
     const [joiningTeamId, setJoiningTeamId] = useState<string | null>(null);
+    
+    const scrollY = useRef(new Animated.Value(0)).current;
+    const headerOpacity = scrollY.interpolate({
+        inputRange: [0, 100],
+        outputRange: [1, 0.8],
+        extrapolate: 'clamp',
+    });
 
     const loadTeams = useCallback(async () => {
         if (!user?.id) return;
@@ -173,55 +181,75 @@ export default function BrowseTeamsScreen() {
         const isFull = team.members_count >= team.max_members;
 
         if (team.i_am_member) {
-            return <Text style={styles.inTeamText}>You are in this team</Text>;
+            return (
+                <View style={[styles.stateButton, styles.stateSuccess]}>
+                    <MaterialIcons name="check-circle" size={16} color="#16a34a" />
+                    <Text style={styles.stateSuccessText}>You're in this team</Text>
+                </View>
+            );
         }
 
         if (team.my_request_status === 'pending') {
             return (
                 <TouchableOpacity
-                    style={[styles.outlineDangerButton, disabled && styles.buttonDisabled]}
+                    style={[styles.stateButton, styles.statePending, disabled && styles.buttonDisabled]}
                     onPress={() => handleCancelRequest(team)}
                     disabled={disabled}
+                    activeOpacity={0.8}
                 >
-                    <Text style={styles.outlineDangerButtonText}>
-                        {disabled ? 'Cancelling...' : 'Cancel Request'}
-                    </Text>
+                    <MaterialIcons name="schedule" size={16} color="#d97706" />
+                    <Text style={styles.statePendingText}>{disabled ? 'Cancelling...' : 'Request Pending · Tap to Cancel'}</Text>
                 </TouchableOpacity>
             );
         }
 
         if (userTeamId && userTeamId !== team.id) {
             return (
-                <View style={[styles.outlineButton, styles.buttonDisabled]}>
-                    <Text style={styles.outlineButtonText}>Already in a Team</Text>
+                <View style={[styles.stateButton, styles.stateMuted]}>
+                    <MaterialIcons name="info" size={16} color="#6b7280" />
+                    <Text style={styles.stateMutedText}>Already in a team</Text>
                 </View>
             );
         }
 
         if (!team.is_recruiting || isFull) {
             return (
-                <View style={[styles.outlineButton, styles.buttonDisabled]}>
-                    <Text style={styles.outlineButtonText}>{isFull ? 'Team Full' : 'Closed'}</Text>
+                <View style={[styles.stateButton, styles.stateMuted]}>
+                    <MaterialIcons name="lock" size={16} color="#6b7280" />
+                    <Text style={styles.stateMutedText}>{isFull ? 'Team Full' : 'Closed'}</Text>
                 </View>
             );
         }
 
         return (
             <TouchableOpacity
-                style={[styles.primaryButton, disabled && styles.buttonDisabled]}
+                style={[styles.joinButton, disabled && styles.buttonDisabled]}
                 onPress={() => handleRequestJoin(team)}
                 disabled={disabled}
+                activeOpacity={0.8}
             >
-                {disabled
-                    ? <ActivityIndicator color="#fff" size="small" />
-                    : <Text style={styles.primaryButtonText}>Request to Join</Text>}
+                <LinearGradient
+                    colors={['#7c3aed', '#6d28d9']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.joinButtonGradient}
+                >
+                    {disabled ? (
+                        <ActivityIndicator color="#fff" size="small" />
+                    ) : (
+                        <>
+                            <MaterialIcons name="person-add" size={16} color="#fff" />
+                            <Text style={styles.joinButtonText}>Request to Join</Text>
+                        </>
+                    )}
+                </LinearGradient>
             </TouchableOpacity>
         );
     };
 
     return (
         <View style={styles.container}>
-            <LinearGradient colors={['#dff8f0', '#f2eefc']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.headerGradient}>
+            <Animated.View style={[styles.headerGradient, { opacity: headerOpacity }]}>
                 <View style={styles.header}>
                     <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerIconBtn}>
                         <MaterialIcons name="arrow-back" size={22} color="#111827" />
@@ -231,58 +259,96 @@ export default function BrowseTeamsScreen() {
                         <Text style={styles.headerSub}>{teams.length} team{teams.length !== 1 ? 's' : ''}</Text>
                     </View>
                     <TouchableOpacity onPress={handleRefresh} style={styles.headerIconBtn}>
-                        <MaterialIcons name="refresh" size={22} color="#6366f1" />
+                        <MaterialIcons name="refresh" size={22} color="#7c3aed" />
                     </TouchableOpacity>
                 </View>
-            </LinearGradient>
+            </Animated.View>
 
             {isLoading ? (
                 <View style={styles.centered}>
-                    <ActivityIndicator size="large" color="#6366f1" />
+                    <ActivityIndicator size="large" color="#7c3aed" />
                     <Text style={styles.loadingText}>Loading teams...</Text>
                 </View>
             ) : teams.length === 0 ? (
                 <View style={styles.centered}>
+                    <MaterialIcons name="groups" size={48} color="#c7d2fe" />
                     <Text style={styles.emptyTitle}>No teams yet</Text>
-                    <Text style={styles.emptySub}>Be the first to create one.</Text>
+                    <Text style={styles.emptySub}>Create one or join an existing team</Text>
                 </View>
             ) : (
-                <ScrollView
+                <Animated.ScrollView
                     style={styles.list}
                     showsVerticalScrollIndicator={false}
-                    refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#6366f1" />}
+                    refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#7c3aed" />}
+                    onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: false })}
+                    scrollEventThrottle={16}
                 >
                     {teams.map((team) => (
-                        <View key={team.id} style={styles.card}>
-                            <View style={styles.cardTop}>
-                                <View style={styles.teamIconWrap}>
-                                    <Text style={styles.teamIconText}>{team.name[0]?.toUpperCase()}</Text>
-                                </View>
-                                <View style={{ flex: 1 }}>
-                                    <Text style={styles.teamName}>{team.name}</Text>
-                                    <Text style={styles.teamMeta}>{team.members_count} / {team.max_members} members</Text>
-                                    <Text style={styles.teamMeta}>Leader: {team.leader_name}</Text>
-                                </View>
-                            </View>
-
-                            {team.required_roles.length > 0 && (
-                                <View style={styles.rolesRow}>
-                                    {team.required_roles.map((roleId) => {
-                                        const role = SKILL_ROLES.find((r) => r.id === roleId);
-                                        return (
-                                            <View key={roleId} style={styles.rolePill}>
-                                                <Text style={styles.rolePillText}>{role?.label || roleId}</Text>
+                        <TouchableOpacity
+                            key={team.id}
+                            style={styles.cardWrapper}
+                            onPress={() => navigation.navigate('TeamDetails', { teamId: team.id, eventId })}
+                            activeOpacity={0.85}
+                        >
+                            <LinearGradient
+                                colors={['#ffffff', '#f8fafc']}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 1, y: 1 }}
+                                style={styles.card}
+                            >
+                                <View style={styles.cardTop}>
+                                    <LinearGradient
+                                        colors={['#0ea5e9', '#3b82f6']}
+                                        start={{ x: 0, y: 0 }}
+                                        end={{ x: 1, y: 1 }}
+                                        style={styles.teamIconWrap}
+                                    >
+                                        <Text style={styles.teamIconText}>{team.name[0]?.toUpperCase()}</Text>
+                                    </LinearGradient>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={styles.teamName}>{team.name}</Text>
+                                        <View style={styles.teamMetaRow}>
+                                            <View style={styles.metaBadge}>
+                                                <MaterialIcons name="people" size={12} color="#7c3aed" />
+                                                <Text style={styles.metaText}>{team.members_count}/{team.max_members}</Text>
                                             </View>
-                                        );
-                                    })}
+                                            <View style={styles.metaBadge}>
+                                                <MaterialIcons name="person" size={12} color="#f59e0b" />
+                                                <Text style={styles.metaText}>{team.leader_name}</Text>
+                                            </View>
+                                        </View>
+                                    </View>
                                 </View>
-                            )}
 
-                            {renderTeamAction(team)}
-                        </View>
+                                {team.required_roles.length > 0 && (
+                                    <View style={styles.rolesRow}>
+                                        {team.required_roles.slice(0, 3).map((roleId) => {
+                                            const role = SKILL_ROLES.find((r) => r.id === roleId);
+                                            return (
+                                                <LinearGradient
+                                                    key={roleId}
+                                                    colors={['#f1f5f9', '#e2e8f0']}
+                                                    style={styles.rolePill}
+                                                >
+                                                    <Text style={styles.rolePillIcon}>{role?.icon || '🔧'}</Text>
+                                                    <Text style={styles.rolePillText}>{role?.label || roleId}</Text>
+                                                </LinearGradient>
+                                            );
+                                        })}
+                                        {team.required_roles.length > 3 && (
+                                            <View style={styles.rolePillMore}>
+                                                <Text style={styles.rolePillMoreText}>+{team.required_roles.length - 3}</Text>
+                                            </View>
+                                        )}
+                                    </View>
+                                )}
+
+                                {renderTeamAction(team)}
+                            </LinearGradient>
+                        </TouchableOpacity>
                     ))}
                     <View style={{ height: 28 }} />
-                </ScrollView>
+                </Animated.ScrollView>
             )}
         </View>
     );
@@ -293,6 +359,7 @@ const styles = StyleSheet.create({
     headerGradient: {
         paddingTop: 8,
         paddingBottom: 14,
+        backgroundColor: '#fff',
     },
     header: {
         flexDirection: 'row',
@@ -305,83 +372,133 @@ const styles = StyleSheet.create({
         width: 40,
         height: 40,
         borderRadius: 20,
-        backgroundColor: 'rgba(255,255,255,0.72)',
+        backgroundColor: '#f3e8ff',
         alignItems: 'center',
         justifyContent: 'center',
     },
     headerTitle: { fontSize: 18, fontWeight: '700', color: '#111827' },
     headerSub: { fontSize: 12, color: '#6b7280', marginTop: 1 },
-    centered: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
+    centered: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
     loadingText: { color: '#6b7280', fontSize: 14 },
     emptyTitle: { fontSize: 18, fontWeight: '700', color: '#374151' },
     emptySub: { fontSize: 13, color: '#6b7280' },
-    list: { flex: 1, paddingHorizontal: 20, paddingTop: 20 },
+    list: { flex: 1, paddingHorizontal: 20, paddingTop: 16 },
+    
+    cardWrapper: {
+        marginBottom: 16,
+        borderRadius: 16,
+        overflow: 'hidden',
+    },
     card: {
-        backgroundColor: '#fffdfb',
-        borderRadius: 20,
-        padding: 20,
-        marginBottom: 18,
-        gap: 12,
+        paddingHorizontal: 18,
+        paddingVertical: 18,
+        borderRadius: 18,
+        gap: 14,
+        borderWidth: 1,
+        borderColor: '#e5e7eb',
         shadowColor: '#0f172a',
         shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.06,
-        shadowRadius: 10,
-        elevation: 2,
+        shadowOpacity: 0.08,
+        shadowRadius: 12,
+        elevation: 4,
     },
-    cardTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    cardTop: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 12,
+    },
     teamIconWrap: {
-        width: 36,
-        height: 36,
-        borderRadius: 18,
-        backgroundColor: '#e9d5ff',
+        width: 52,
+        height: 52,
+        borderRadius: 12,
         alignItems: 'center',
         justifyContent: 'center',
     },
-    teamIconText: { color: '#7c3aed', fontWeight: '800', fontSize: 15 },
-    teamName: { fontSize: 17, fontWeight: '800', color: '#111827' },
-    teamMeta: { fontSize: 13, color: '#6b7280', marginTop: 2 },
-    rolesRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    teamIconText: { color: '#fff', fontWeight: '800', fontSize: 20 },
+    teamName: { fontSize: 17, fontWeight: '700', color: '#111827', marginBottom: 6 },
+    teamMetaRow: {
+        flexDirection: 'row',
+        gap: 8,
+        flexWrap: 'wrap',
+    },
+    metaBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        backgroundColor: '#f3f4f6',
+        borderRadius: 6,
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+    },
+    metaText: { fontSize: 11, color: '#6b7280', fontWeight: '600' },
+    
+    rolesRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+    },
     rolePill: {
-        backgroundColor: '#f1f5f9',
-        borderRadius: 999,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        borderRadius: 8,
+        paddingHorizontal: 11,
+        paddingVertical: 7,
+        borderWidth: 1,
+        borderColor: '#cbd5e1',
+    },
+    rolePillIcon: { fontSize: 12 },
+    rolePillText: { color: '#334155', fontSize: 12, fontWeight: '600' },
+    rolePillMore: {
+        borderRadius: 8,
         paddingHorizontal: 10,
-        paddingVertical: 5,
-    },
-    rolePillText: { color: '#4f46e5', fontSize: 12, fontWeight: '600' },
-    primaryButton: {
-        backgroundColor: '#13ecec',
-        borderRadius: 28,
-        height: 52,
-        alignItems: 'center',
+        paddingVertical: 7,
+        backgroundColor: '#f1f5f9',
+        borderWidth: 1,
+        borderColor: '#cbd5e1',
         justifyContent: 'center',
     },
-    primaryButtonText: { color: '#062b2b', fontWeight: '700', fontSize: 15 },
-    outlineButton: {
-        borderWidth: 1.5,
-        borderColor: '#6366f1',
-        borderRadius: 28,
-        height: 52,
+    rolePillMoreText: { color: '#334155', fontSize: 12, fontWeight: '600' },
+    
+    joinButton: {
+        borderRadius: 10,
+        overflow: 'hidden',
+        height: 44,
+    },
+    joinButtonGradient: {
+        flex: 1,
+        flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: 'rgba(255,255,255,0.65)',
+        gap: 6,
     },
-    outlineButtonText: { color: '#6366f1', fontWeight: '700', fontSize: 15 },
-    outlineDangerButton: {
-        borderWidth: 1.5,
-        borderColor: '#ef4444',
-        borderRadius: 28,
-        height: 52,
+    joinButtonText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+    
+    stateButton: {
+        height: 44,
+        borderRadius: 10,
+        paddingHorizontal: 12,
+        flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: 'rgba(255,255,255,0.65)',
+        gap: 8,
+        borderWidth: 1,
     },
-    outlineDangerButtonText: { color: '#ef4444', fontWeight: '700', fontSize: 15 },
-    buttonDisabled: { opacity: 0.6 },
-    inTeamText: {
-        color: '#16a34a',
-        fontWeight: '700',
-        fontSize: 13,
-        textAlign: 'center',
-        marginTop: 4,
+    stateSuccess: {
+        backgroundColor: '#f0fdf4',
+        borderColor: '#bbf7d0',
     },
+    statePending: {
+        backgroundColor: '#fffbeb',
+        borderColor: '#fcd34d',
+    },
+    stateMuted: {
+        backgroundColor: '#f9fafb',
+        borderColor: '#e5e7eb',
+    },
+    stateSuccessText: { color: '#16a34a', fontWeight: '700', fontSize: 13 },
+    statePendingText: { color: '#d97706', fontWeight: '700', fontSize: 13 },
+    stateMutedText: { color: '#6b7280', fontWeight: '700', fontSize: 13 },
+    
+    buttonDisabled: { opacity: 0.5 },
 });
