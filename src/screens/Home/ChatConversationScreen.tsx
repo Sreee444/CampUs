@@ -47,11 +47,33 @@ import {
   forwardMessage,
   updateUserStatus,
 } from '../../api/chat';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import { UserAvatar } from '../../components/UserAvatar';
 import PinnedMessagesModal from '../../components/PinnedMessagesModal';
 import { supabase } from '../../api/supabase';
+
+const CHAT_THEME_KEY = 'chat_color_theme';
+
+type ChatTheme = {
+  key: string;
+  label: string;
+  bubbleColor: string;
+  textColor: string;
+  timeColor: string;
+};
+
+const CHAT_THEMES: ChatTheme[] = [
+  { key: 'default', label: 'Teal', bubbleColor: '#13ecec', textColor: '#0e3a3a', timeColor: '#0e3a3a' },
+  { key: 'blue', label: 'Blue', bubbleColor: '#3B82F6', textColor: '#ffffff', timeColor: '#dbeafe' },
+  { key: 'purple', label: 'Purple', bubbleColor: '#8B5CF6', textColor: '#ffffff', timeColor: '#ede9fe' },
+  { key: 'green', label: 'Green', bubbleColor: '#10B981', textColor: '#ffffff', timeColor: '#d1fae5' },
+  { key: 'rose', label: 'Rose', bubbleColor: '#F43F5E', textColor: '#ffffff', timeColor: '#ffe4e6' },
+  { key: 'orange', label: 'Orange', bubbleColor: '#F97316', textColor: '#ffffff', timeColor: '#ffedd5' },
+  { key: 'indigo', label: 'Indigo', bubbleColor: '#6366F1', textColor: '#ffffff', timeColor: '#e0e7ff' },
+  { key: 'pink', label: 'Pink', bubbleColor: '#EC4899', textColor: '#ffffff', timeColor: '#fce7f3' },
+];
 
 type ChatConversationScreenNavigationProp = StackNavigationProp<RootStackParamList, 'ChatConversation'>;
 type ChatConversationScreenRouteProp = RouteProp<RootStackParamList, 'ChatConversation'>;
@@ -124,6 +146,8 @@ export default function ChatConversationScreen() {
   const [announcementTitle, setAnnouncementTitle] = useState('');
   const [announcementContent, setAnnouncementContent] = useState('');
   const [isCreatingAnnouncement, setIsCreatingAnnouncement] = useState(false);
+  const [chatTheme, setChatTheme] = useState<ChatTheme>(CHAT_THEMES[0]);
+  const [showThemePicker, setShowThemePicker] = useState(false);
   const announcementPulse = useSharedValue(1);
   const announcementSlide = useSharedValue(-100);
   const announcementScale = useSharedValue(0.95);
@@ -153,6 +177,23 @@ export default function ChatConversationScreen() {
 
   const { conversationId = '', name = 'Chat', isGroup = false } = route.params || {};
   const isAIChat = conversationId === 'ai-assistant';
+
+  // Load saved chat theme
+  useEffect(() => {
+    AsyncStorage.getItem(CHAT_THEME_KEY).then((val) => {
+      if (val) {
+        const found = CHAT_THEMES.find((t) => t.key === val);
+        if (found) setChatTheme(found);
+      }
+    });
+  }, []);
+
+  const selectChatTheme = (theme: ChatTheme) => {
+    setChatTheme(theme);
+    AsyncStorage.setItem(CHAT_THEME_KEY, theme.key);
+    setShowThemePicker(false);
+    Toast.show({ type: 'success', text1: `${theme.label} theme applied` });
+  };
 
   const upsertMessage = (nextMessage: ChatMessage) => {
     setMessages((prev) => {
@@ -731,7 +772,7 @@ export default function ChatConversationScreen() {
           <TouchableOpacity
             style={[
               styles.messageBubble,
-              isMyMessage ? styles.myMessage : styles.otherMessage,
+              isMyMessage ? [styles.myMessage, { backgroundColor: chatTheme.bubbleColor }] : styles.otherMessage,
             ]}
             onLongPress={() => handleMessageLongPress(message)}
             delayLongPress={400}
@@ -746,7 +787,7 @@ export default function ChatConversationScreen() {
               <Text
                 style={[
                   styles.messageText,
-                  isMyMessage ? styles.myMessageText : styles.otherMessageText,
+                  isMyMessage ? [styles.myMessageText, { color: chatTheme.textColor }] : styles.otherMessageText,
                 ]}
               >
                 {message.content}
@@ -756,7 +797,7 @@ export default function ChatConversationScreen() {
               <Text
                 style={[
                   styles.messageTime,
-                  isMyMessage ? styles.myMessageTime : styles.otherMessageTime,
+                  isMyMessage ? [styles.myMessageTime, { color: chatTheme.timeColor, opacity: 0.85 }] : styles.otherMessageTime,
                 ]}
               >
                 {messageTime}
@@ -765,7 +806,7 @@ export default function ChatConversationScreen() {
                 <MaterialIcons
                   name={message.seen_by_others ? 'done-all' : 'done'}
                   size={14}
-                  color={message.seen_by_others ? '#4FC3F7' : Colors.primaryContent}
+                  color={message.seen_by_others ? '#4FC3F7' : chatTheme.timeColor}
                   style={styles.seenIndicator}
                 />
               )}
@@ -1162,6 +1203,17 @@ export default function ChatConversationScreen() {
             >
               <MaterialIcons name="refresh" size={20} color={Colors.text} />
               <Text style={styles.optionText}>Refresh Conversation</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.optionRow}
+              onPress={() => {
+                setShowChatOptions(false);
+                setShowThemePicker(true);
+              }}
+            >
+              <MaterialIcons name="palette" size={20} color={Colors.text} />
+              <Text style={styles.optionText}>Change Chat Theme</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -1625,6 +1677,68 @@ export default function ChatConversationScreen() {
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
+      </Modal>
+
+      {/* Chat Theme Picker */}
+      <Modal
+        visible={showThemePicker}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowThemePicker(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.optionsSheet}>
+            <Text style={styles.optionsTitle}>Choose Chat Theme</Text>
+            <Text style={styles.themeSubtitle}>Pick a color for your sent messages</Text>
+
+            <View style={styles.themeGrid}>
+              {CHAT_THEMES.map((theme) => {
+                const isSelected = chatTheme.key === theme.key;
+                return (
+                  <TouchableOpacity
+                    key={theme.key}
+                    style={styles.themeOption}
+                    onPress={() => selectChatTheme(theme)}
+                    activeOpacity={0.7}
+                  >
+                    <View
+                      style={[
+                        styles.themeCircle,
+                        { backgroundColor: theme.bubbleColor },
+                        isSelected && styles.themeCircleSelected,
+                      ]}
+                    >
+                      {isSelected && (
+                        <MaterialIcons name="check" size={20} color={theme.textColor} />
+                      )}
+                    </View>
+                    <Text style={[styles.themeLabel, isSelected && styles.themeLabelSelected]}>
+                      {theme.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Preview */}
+            <View style={styles.themePreview}>
+              <View style={[styles.previewBubbleOther, { backgroundColor: Colors.card, borderColor: Colors.border }]}>
+                <Text style={{ fontSize: 13, color: Colors.text }}>Hey, how are you?</Text>
+              </View>
+              <View style={[styles.previewBubbleMine, { backgroundColor: chatTheme.bubbleColor }]}>
+                <Text style={{ fontSize: 13, color: chatTheme.textColor }}>I'm doing great! 😊</Text>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.optionRow, styles.optionCancel]}
+              onPress={() => setShowThemePicker(false)}
+            >
+              <MaterialIcons name="close" size={20} color={Colors.textSecondary} />
+              <Text style={[styles.optionText, { color: Colors.textSecondary }]}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </Modal>
 
       <ConfirmDialog
@@ -2193,6 +2307,71 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     },
     optionCancel: {
       marginTop: Spacing.xs,
+    },
+    themeSubtitle: {
+      fontSize: FontSizes.sm,
+      color: Colors.textSecondary,
+      marginBottom: Spacing.md,
+      marginTop: -4,
+    },
+    themeGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      justifyContent: 'center',
+      gap: 16,
+      paddingVertical: Spacing.sm,
+    },
+    themeOption: {
+      alignItems: 'center',
+      gap: 6,
+      width: 64,
+    },
+    themeCircle: {
+      width: 48,
+      height: 48,
+      borderRadius: 24,
+      alignItems: 'center',
+      justifyContent: 'center',
+      ...Shadows.sm,
+    },
+    themeCircleSelected: {
+      borderWidth: 3,
+      borderColor: Colors.text,
+    },
+    themeLabel: {
+      fontSize: 11,
+      color: Colors.textSecondary,
+      fontWeight: FontWeights.medium,
+    },
+    themeLabelSelected: {
+      color: Colors.text,
+      fontWeight: FontWeights.bold,
+    },
+    themePreview: {
+      marginTop: Spacing.md,
+      marginBottom: Spacing.sm,
+      paddingHorizontal: Spacing.md,
+      paddingVertical: Spacing.md,
+      backgroundColor: Colors.background,
+      borderRadius: BorderRadius.lg,
+      gap: 8,
+    },
+    previewBubbleOther: {
+      alignSelf: 'flex-start',
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+      borderRadius: 16,
+      borderBottomLeftRadius: 6,
+      borderWidth: 1,
+      maxWidth: '70%',
+    },
+    previewBubbleMine: {
+      alignSelf: 'flex-end',
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+      borderRadius: 16,
+      borderBottomRightRadius: 6,
+      maxWidth: '70%',
     },
     inputLabel: {
       fontSize: FontSizes.sm,

@@ -175,6 +175,27 @@ export const getConversations = async (userId: string) => {
     })
   );
 
+  // Enrich last_message with seen_by_others for messages sent by the current user
+  const sentLastMessageIds = conversationsWithData
+    .filter((c: any) => c.last_message && c.last_message.sender_id === userId)
+    .map((c: any) => c.last_message.id);
+
+  const seenSet = new Set<string>();
+  if (sentLastMessageIds.length > 0) {
+    const { data: seenData } = await supabase
+      .from("message_reads")
+      .select("message_id")
+      .neq("user_id", userId)
+      .in("message_id", sentLastMessageIds);
+    (seenData || []).forEach((r: any) => seenSet.add(r.message_id));
+  }
+
+  for (const conv of conversationsWithData) {
+    if ((conv as any).last_message && (conv as any).last_message.sender_id === userId) {
+      (conv as any).last_message.seen_by_others = seenSet.has((conv as any).last_message.id);
+    }
+  }
+
   return conversationsWithData as Conversation[];
 };
 
