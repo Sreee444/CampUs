@@ -355,3 +355,99 @@ export const getProjectMentorshipChat = async (
   if (chatError) throw chatError;
   return chat?.id ?? null;
 };
+
+// ========== MESSAGE REACTIONS ==========
+
+export type MessageReaction = {
+  id: string;
+  message_id: string;
+  user_id: string;
+  emoji: string;
+  created_at: string;
+  user?: Profile;
+};
+
+/**
+ * Add a reaction to a mentorship message.
+ */
+export const addMentorshipMessageReaction = async (
+  messageId: string,
+  emoji: string
+): Promise<void> => {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError) throw userError;
+  if (!user?.id) throw new Error('User must be authenticated to add reactions');
+
+  const { error } = await supabase
+    .from('mentorship_message_reactions')
+    .insert({
+      message_id: messageId,
+      user_id: user.id,
+      emoji,
+    } as any);
+
+  if (error && error.code !== '23505') throw error;
+};
+
+/**
+ * Remove a reaction from a mentorship message.
+ */
+export const removeMentorshipMessageReaction = async (
+  messageId: string,
+  emoji: string
+): Promise<void> => {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError) throw userError;
+  if (!user?.id) throw new Error('User must be authenticated to remove reactions');
+
+  const { error } = await supabase
+    .from('mentorship_message_reactions')
+    .delete()
+    .eq('message_id', messageId)
+    .eq('user_id', user.id)
+    .eq('emoji', emoji);
+
+  if (error) throw error;
+};
+
+/**
+ * Get all reactions for mentorship message IDs.
+ */
+export const getMentorshipMessageReactions = async (
+  messageIds: string[]
+): Promise<Map<string, MessageReaction[]>> => {
+  if (messageIds.length === 0) return new Map();
+
+  const { data, error } = await supabase
+    .from('mentorship_message_reactions')
+    .select(`
+      *,
+      user:profiles!mentorship_message_reactions_user_id_fkey(
+        id,
+        full_name,
+        avatar_url
+      )
+    `)
+    .in('message_id', messageIds);
+
+  if (error) throw error;
+
+  const reactionsMap = new Map<string, MessageReaction[]>();
+  for (const reaction of data || []) {
+    const msgId = reaction.message_id;
+    if (!reactionsMap.has(msgId)) {
+      reactionsMap.set(msgId, []);
+    }
+    reactionsMap.get(msgId)!.push(reaction as MessageReaction);
+  }
+
+  return reactionsMap;
+};

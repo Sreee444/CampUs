@@ -655,6 +655,86 @@ export const markConversationAsRead = async (
   if (error && error.code !== "23505") throw error;
 };
 
+export type ChatMessageReaction = {
+  id: string;
+  message_id: string;
+  user_id: string;
+  emoji: string;
+  created_at: string;
+  user?: {
+    id: string;
+    full_name?: string;
+    avatar_url?: string;
+  } | null;
+};
+
+// Get reactions grouped by message id for a list of message IDs
+export const getMessageReactions = async (
+  messageIds: string[]
+): Promise<Map<string, ChatMessageReaction[]>> => {
+  if (!messageIds.length) return new Map();
+
+  const { data, error } = await supabase
+    .from("message_reactions")
+    .select(`
+      *,
+      user:profiles!message_reactions_user_id_fkey(id, full_name, avatar_url)
+    `)
+    .in("message_id", messageIds);
+
+  if (error) throw error;
+
+  const reactionsMap = new Map<string, ChatMessageReaction[]>();
+  for (const reaction of data || []) {
+    const messageId = (reaction as any).message_id;
+    if (!reactionsMap.has(messageId)) {
+      reactionsMap.set(messageId, []);
+    }
+    reactionsMap.get(messageId)?.push(reaction as ChatMessageReaction);
+  }
+
+  return reactionsMap;
+};
+
+export const addMessageReaction = async (messageId: string, emoji: string) => {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError) throw userError;
+  if (!user?.id) throw new Error("User must be authenticated to react");
+
+  const { error } = await supabase
+    .from("message_reactions")
+    .insert({
+      message_id: messageId,
+      user_id: user.id,
+      emoji,
+    } as any);
+
+  if (error && error.code !== "23505") throw error;
+};
+
+export const removeMessageReaction = async (messageId: string, emoji: string) => {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError) throw userError;
+  if (!user?.id) throw new Error("User must be authenticated to remove reaction");
+
+  const { error } = await supabase
+    .from("message_reactions")
+    .delete()
+    .eq("message_id", messageId)
+    .eq("user_id", user.id)
+    .eq("emoji", emoji);
+
+  if (error) throw error;
+};
+
 
 // ===== TYPING INDICATORS =====
 
