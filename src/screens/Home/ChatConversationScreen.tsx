@@ -61,6 +61,7 @@ type ChatMessage = {
   sender_id: string;
   content?: string;
   created_at: string;
+  seen_by_others?: boolean;
   sender?: {
     id?: string;
     full_name?: string;
@@ -307,6 +308,27 @@ export default function ChatConversationScreen() {
             markConversationAsRead(conversationId, user.id).catch((error) => {
               console.error('Failed to mark conversation as read:', error);
             });
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'message_reads',
+        },
+        (payload) => {
+          // When someone else reads a message, update its seen status
+          if (payload.new.user_id !== user.id) {
+            const readMessageId = payload.new.message_id;
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === readMessageId && msg.sender_id === user.id
+                  ? { ...msg, seen_by_others: true }
+                  : msg
+              )
+            );
           }
         }
       )
@@ -739,6 +761,14 @@ export default function ChatConversationScreen() {
               >
                 {messageTime}
               </Text>
+              {isMyMessage && !isAIChat && (
+                <MaterialIcons
+                  name={message.seen_by_others ? 'done-all' : 'done'}
+                  size={14}
+                  color={message.seen_by_others ? '#4FC3F7' : Colors.primaryContent}
+                  style={styles.seenIndicator}
+                />
+              )}
             </View>
           </TouchableOpacity>
         </View>
@@ -1928,6 +1958,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     },
     myMessageFooter: {
       justifyContent: 'flex-end',
+      alignItems: 'center',
     },
     otherMessageFooter: {
       justifyContent: 'flex-start',
@@ -1942,6 +1973,10 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     },
     otherMessageTime: {
       color: Colors.textSecondary,
+    },
+    seenIndicator: {
+      marginLeft: 4,
+      opacity: 0.9,
     },
     replyBar: {
       marginHorizontal: Spacing.md,

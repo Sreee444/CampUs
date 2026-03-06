@@ -494,9 +494,22 @@ export const getMessages = async (
     (readData || []).forEach((r: any) => readSet.add(r.message_id));
   }
 
+  // Check which of the current user's sent messages have been seen by others
+  const sentMessageIds = msgs.filter((m: any) => m.sender_id === userId).map((m: any) => m.id);
+  const seenByOthersSet = new Set<string>();
+  if (sentMessageIds.length > 0) {
+    const { data: seenData } = await supabase
+      .from("message_reads")
+      .select("message_id")
+      .neq("user_id", userId)
+      .in("message_id", sentMessageIds);
+    (seenData || []).forEach((r: any) => seenByOthersSet.add(r.message_id));
+  }
+
   return msgs.reverse().map((message: any) => ({
     ...message,
     is_read: readSet.has(message.id),
+    seen_by_others: message.sender_id === userId ? seenByOthersSet.has(message.id) : undefined,
   })) as Message[];
 };
 
