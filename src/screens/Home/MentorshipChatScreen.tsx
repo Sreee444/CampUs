@@ -11,6 +11,7 @@ import {
     KeyboardAvoidingView,
     Platform,
     ActivityIndicator,
+    Modal,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -28,6 +29,10 @@ import {
     getMentorshipChatById,
     MentorshipMessage,
     MentorshipChat,
+    addMentorshipMessageReaction,
+    removeMentorshipMessageReaction,
+    getMentorshipMessageReactions,
+    MessageReaction,
 } from '../../api/mentorshipChat';
 
 type Nav = StackNavigationProp<RootStackParamList, 'MentorshipChat'>;
@@ -47,7 +52,12 @@ export default function MentorshipChatScreen() {
     const [isLoading, setIsLoading] = useState(true);
     const [isSending, setIsSending] = useState(false);
     const [messageText, setMessageText] = useState('');
+    const [reactions, setReactions] = useState<Map<string, MessageReaction[]>>(new Map());
+    const [showReactionPicker, setShowReactionPicker] = useState(false);
+    const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
     const listRef = useRef<FlatList>(null);
+
+    const availableEmojis = ['👍', '❤️', '😊', '😂', '🎉', '🔥', '👏', '🙌'];
 
     const loadData = useCallback(async () => {
         if (!chatId) return;
@@ -58,6 +68,12 @@ export default function MentorshipChatScreen() {
             ]);
             setChat(chatData);
             setMessages(msgs);
+            
+            if (msgs.length > 0) {
+                const messageIds = msgs.map(m => m.id);
+                const reactionsMap = await getMentorshipMessageReactions(messageIds);
+                setReactions(reactionsMap);
+            }
         } catch (e: any) {
             Toast.show({ type: 'error', text1: 'Failed to load chat', text2: e?.message });
         } finally {
@@ -135,6 +151,87 @@ export default function MentorshipChatScreen() {
         return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
     };
 
+    const handleReactionPress = (messageId: string) => {
+        setSelectedMessageId(messageId);
+        setShowReactionPicker(true);
+    };
+
+    const handleAddReaction = async (emoji: string) => {
+        if (!selectedMessageId) return;
+        try {
+            await addMentorshipMessageReaction(selectedMessageId, emoji);
+            setReactions((prev) => {
+                const newMap = new Map(prev);
+                const existing = newMap.get(selectedMessageId) || [];
+                const alreadyReacted = existing.some(r => r.user_id === user?.id && r.emoji === emoji);
+                if (!alreadyReacted) {
+                    newMap.set(selectedMessageId, [...existing, {
+                        id: Date.now().toString(),
+                        message_id: selectedMessageId,
+                        user_id: user?.id || '',
+                        emoji,
+                        created_at: new Date().toISOString(),
+                    }]);
+                }
+                return newMap;
+            });
+        } catch (e: any) {
+            Toast.show({ type: 'error', text1: 'Failed to add reaction', text2: e?.message });
+        } finally {
+            setShowReactionPicker(false);
+            setSelectedMessageId(null);
+        }
+    };
+
+    const handleToggleReaction = async (messageId: string, emoji: string) => {
+        const messageReactions = reactions.get(messageId) || [];
+        const userReaction = messageReactions.find(r => r.user_id === user?.id && r.emoji === emoji);
+        try {
+            if (userReaction) {
+                await removeMentorshipMessageReaction(messageId, emoji);
+                setReactions((prev) => {
+                    const newMap = new Map(prev);
+                    const filtered = (newMap.get(messageId) || []).filter(
+                        r => !(r.user_id === user?.id && r.emoji === emoji)
+                    );
+                    if (filtered.length === 0) newMap.delete(messageId);
+                    else newMap.set(messageId, filtered);
+                    return newMap;
+                });
+            } else {
+                await addMentorshipMessageReaction(messageId, emoji);
+                setReactions((prev) => {
+                    const newMap = new Map(prev);
+                    const existing = newMap.get(messageId) || [];
+                    newMap.set(messageId, [...existing, {
+                        id: Date.now().toString(),
+                        message_id: messageId,
+                        user_id: user?.id || '',
+                        emoji,
+                        created_at: new Date().toISOString(),
+                    }]);
+                    return newMap;
+                });
+            }
+        } catch (e: any) {
+            Toast.show({ type: 'error', text1: 'Failed to update reaction', text2: e?.message });
+        }
+    };
+
+    const groupReactions = (messageReactions: MessageReaction[]) => {
+        const grouped: { [emoji: string]: { count: number; hasUserReacted: boolean } } = {};
+        messageReactions.forEach((reaction) => {
+            if (!grouped[reaction.emoji]) {
+                grouped[reaction.emoji] = { count: 0, hasUserReacted: false };
+            }
+            grouped[reaction.emoji].count++;
+            if (reaction.user_id === user?.id) {
+                grouped[reaction.emoji].hasUserReacted = true;
+            }
+        });
+        return grouped;
+    };
+
     const renderMessage = ({ item, index }: { item: MentorshipMessage; index: number }) => {
         const isMe = item.sender_id === user?.id;
         const prev = index > 0 ? messages[index - 1] : null;
@@ -146,6 +243,9 @@ export default function MentorshipChatScreen() {
             hour: 'numeric',
             minute: '2-digit',
         });
+
+        const messageReactions = reactions.get(item.id) || [];
+        const groupedReactions = groupReactions(messageReactions);
 
         return (
             <View>
@@ -169,14 +269,44 @@ export default function MentorshipChatScreen() {
                             )}
                         </View>
                     )}
-                    <View style={[S.bubble, isMe ? S.myBubble : S.otherBubble]}>
-                        {showAvatar && !isMe && (
-                            <Text style={S.senderName}>{item.sender?.full_name || 'Member'}</Text>
+                    <View style={{ maxWidth: '75%' }}>
+                        <View style={[S.bubble, isMe ? S.myBubble : S.otherBubble]}>
+                            {showAvatar && !isMe && (
+                                <Text style={S.senderName}>{item.sender?.full_name || 'Member'}</Text>
+                            )}
+                            <Text style={[S.msgText, isMe ? S.myMsgText : S.otherMsgText]}>
+                                {item.content}
+                            </Text>
+                            <View style={S.msgFooter}>
+                                <Text style={[S.msgTime, isMe ? S.myMsgTime : S.otherMsgTime]}>{time}</Text>
+                                <TouchableOpacity 
+                                    onPress={() => handleReactionPress(item.id)}
+                                    style={S.reactionBtn}
+                                >
+                                    <MaterialIcons 
+                                        name="insert-emoticon" 
+                                        size={16} 
+                                        color={isMe ? 'rgba(255,255,255,0.8)' : Colors.textSecondary} 
+                                    />
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+                        {Object.keys(groupedReactions).length > 0 && (
+                            <View style={[S.reactionsContainer, isMe && S.reactionsContainerRight]}>
+                                {Object.entries(groupedReactions).map(([emoji, data]) => (
+                                    <TouchableOpacity
+                                        key={emoji}
+                                        style={[S.reactionPill, data.hasUserReacted && S.reactionPillActive]}
+                                        onPress={() => handleToggleReaction(item.id, emoji)}
+                                    >
+                                        <Text style={S.reactionEmoji}>{emoji}</Text>
+                                        <Text style={[S.reactionCount, data.hasUserReacted && S.reactionCountActive]}>
+                                            {data.count}
+                                        </Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
                         )}
-                        <Text style={[S.msgText, isMe ? S.myMsgText : S.otherMsgText]}>
-                            {item.content}
-                        </Text>
-                        <Text style={[S.msgTime, isMe ? S.myMsgTime : S.otherMsgTime]}>{time}</Text>
                     </View>
                 </View>
             </View>
@@ -265,6 +395,20 @@ export default function MentorshipChatScreen() {
                     </TouchableOpacity>
                 </View>
             </KeyboardAvoidingView>
+            <Modal visible={showReactionPicker} transparent animationType="fade" onRequestClose={() => setShowReactionPicker(false)}>
+                <TouchableOpacity style={S.modalOverlay} activeOpacity={1} onPress={() => setShowReactionPicker(false)}>
+                    <View style={S.reactionPickerContainer}>
+                        <Text style={S.reactionPickerTitle}>React with</Text>
+                        <View style={S.reactionPickerGrid}>
+                            {availableEmojis.map((emoji) => (
+                                <TouchableOpacity key={emoji} style={S.emojiButton} onPress={() => handleAddReaction(emoji)}>
+                                    <Text style={S.emojiButtonText}>{emoji}</Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                    </View>
+                </TouchableOpacity>
+            </Modal>
         </SafeAreaView>
     );
 }
@@ -363,6 +507,92 @@ const styles = (Colors: any) =>
         },
         myMsgTime: { color: 'rgba(255,255,255,0.65)' },
         otherMsgTime: { color: Colors.textSecondary },
+        msgFooter: {
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 8,
+        },
+        reactionBtn: {
+            width: 22,
+            height: 22,
+            borderRadius: 11,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: 'rgba(255,255,255,0.12)',
+        },
+        reactionsContainer: {
+            flexDirection: 'row',
+            flexWrap: 'wrap',
+            gap: 4,
+            marginTop: 4,
+        },
+        reactionsContainerRight: {
+            alignSelf: 'flex-end',
+        },
+        reactionPill: {
+            flexDirection: 'row',
+            alignItems: 'center',
+            backgroundColor: Colors.surface,
+            borderRadius: 12,
+            paddingHorizontal: 8,
+            paddingVertical: 3,
+            gap: 4,
+            borderWidth: 1,
+            borderColor: Colors.border,
+        },
+        reactionPillActive: {
+            backgroundColor: '#E0E7FF',
+            borderColor: '#4F46E5',
+        },
+        reactionEmoji: {
+            fontSize: 14,
+        },
+        reactionCount: {
+            fontSize: 11,
+            fontWeight: '600',
+            color: Colors.text,
+        },
+        reactionCountActive: {
+            color: '#4F46E5',
+        },
+        modalOverlay: {
+            flex: 1,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            justifyContent: 'center',
+            alignItems: 'center',
+        },
+        reactionPickerContainer: {
+            backgroundColor: Colors.surface,
+            borderRadius: BorderRadius.lg,
+            padding: Spacing.lg,
+            width: 280,
+            maxWidth: '90%',
+        },
+        reactionPickerTitle: {
+            fontSize: FontSizes.md,
+            fontWeight: FontWeights.bold,
+            color: Colors.text,
+            marginBottom: Spacing.md,
+        },
+        reactionPickerGrid: {
+            flexDirection: 'row',
+            flexWrap: 'wrap',
+            gap: 8,
+        },
+        emojiButton: {
+            width: 56,
+            height: 56,
+            borderRadius: 12,
+            backgroundColor: Colors.background,
+            borderWidth: 1,
+            borderColor: Colors.border,
+            alignItems: 'center',
+            justifyContent: 'center',
+        },
+        emojiButtonText: {
+            fontSize: 28,
+        },
         inputContainer: {
             flexDirection: 'row',
             alignItems: 'flex-end',
