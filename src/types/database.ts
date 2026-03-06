@@ -276,6 +276,7 @@ export type Message = {
   // Joined
   sender?: Profile;
   is_read?: boolean;
+  seen_by_others?: boolean;
 };
 
 export type MessageRead = {
