@@ -93,8 +93,26 @@ export const getUserOnlineStatus = async (userId: string) => {
       return { status: "offline", last_active: null };
     }
 
+    if (!data) {
+      return { status: "offline", last_active: null };
+    }
+
+    // Check if status is stale (not updated in last 5 minutes)
+    // If stale, consider user offline regardless of stored status
+    let currentStatus = data.status || "offline";
+    
+    if (data.status_updated_at && currentStatus !== "offline") {
+      const statusAge = Date.now() - new Date(data.status_updated_at).getTime();
+      const FIVE_MINUTES_MS = 5 * 60 * 1000;
+      
+      if (statusAge > FIVE_MINUTES_MS) {
+        // Status is stale, user is offline
+        currentStatus = "offline";
+      }
+    }
+
     return {
-      status: data ? (data.status || "offline") : "offline",
+      status: currentStatus,
       last_active: data?.last_active,
       updated_at: data?.status_updated_at,
     };
