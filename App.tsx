@@ -37,8 +37,8 @@ function AppContent() {
         if (nextAppState === 'active') {
           // App came to foreground
           await updateUserStatus(user.id, 'online');
-        } else if (nextAppState === 'background') {
-          // App went to background
+        } else if (nextAppState === 'inactive' || nextAppState === 'background') {
+          // App moved out of active use
           await updateUserStatus(user.id, 'away');
         }
       } catch (error) {
@@ -55,11 +55,12 @@ function AppContent() {
       if (AppState.currentState === 'active') {
         updateUserStatus(user.id, 'online').catch(console.error);
       }
-    }, 2 * 60 * 1000); // Update every 2 minutes
+    }, 45 * 1000); // Update every 45 seconds
 
     return () => {
       subscription.remove();
       clearInterval(statusHeartbeat);
+      updateUserStatus(user.id, 'away').catch(console.error);
     };
   }, [user?.id]);
 
