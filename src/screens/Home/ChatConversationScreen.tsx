@@ -24,15 +24,19 @@ import { BorderRadius, FontSizes, FontWeights, getColors, Shadows, Spacing } fro
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import {
+  addMessageReaction,
   addConversationSupervisor,
   canFacultySupervise,
   chatWithAI,
   deleteMessage,
+  getMessageReactions,
   getConversationDetails,
   getConversationSupervisionStats,
   getConversationSupervisor,
+  getUserStatus,
   getMessages,
   markConversationAsRead,
+  removeMessageReaction,
   removeConversationSupervisor,
   removeParticipantFromGroup,
   sendMessage,
@@ -46,6 +50,7 @@ import {
   deactivateGroupAnnouncement,
   forwardMessage,
   updateUserStatus,
+  ChatMessageReaction,
 } from '../../api/chat';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
@@ -90,6 +95,11 @@ type ChatMessage = {
     avatar_url?: string;
     role?: string;
   };
+};
+
+type GroupedReaction = {
+  count: number;
+  hasCurrentUser: boolean;
 };
 
 type GroupParticipant = {
@@ -148,11 +158,16 @@ export default function ChatConversationScreen() {
   const [isCreatingAnnouncement, setIsCreatingAnnouncement] = useState(false);
   const [chatTheme, setChatTheme] = useState<ChatTheme>(CHAT_THEMES[0]);
   const [showThemePicker, setShowThemePicker] = useState(false);
+  const [messageReactions, setMessageReactions] = useState<Map<string, ChatMessageReaction[]>>(new Map());
+  const [reactionPickerVisible, setReactionPickerVisible] = useState(false);
+  const [reactionTargetMessageId, setReactionTargetMessageId] = useState<string | null>(null);
+  const [directPartnerStatus, setDirectPartnerStatus] = useState<'online' | 'away' | 'offline' | null>(null);
   const announcementPulse = useSharedValue(1);
   const announcementSlide = useSharedValue(-100);
   const announcementScale = useSharedValue(0.95);
   const announcementIconRotate = useSharedValue(0);
   const listRef = useRef<FlatList>(null);
+  const reactionChoices = ['👍', '❤️', '😂', '😮', '😢', '👏'];
 
   const [confirmDialog, setConfirmDialog] = useState<{
     visible: boolean;
@@ -427,6 +442,9 @@ export default function ChatConversationScreen() {
         (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
       );
       setMessages(sorted);
+      const ids = sorted.map((m) => m.id).filter(Boolean);
+      const reactions = await getMessageReactions(ids);
+      setMessageReactions(reactions);
       await markConversationAsRead(conversationId, user.id);
       setTimeout(() => listRef.current?.scrollToEnd({ animated: false }), 100);
     } catch (error) {
@@ -509,6 +527,16 @@ export default function ChatConversationScreen() {
   };
 
   const handleMessageLongPress = (message: ChatMessage) => {
+    if (!user?.id) return;
+    const isMyMessage = message.sender_id === user.id;
+
+    // For received messages, long-press should open quick reactions.
+    if (!isMyMessage && !isAIChat) {
+      openReactionPicker(message.id);
+      return;
+    }
+
+    // Keep existing options for own messages.
     setSelectedMessage(message);
     setShowMessageOptions(true);
   };
@@ -688,6 +716,65 @@ export default function ChatConversationScreen() {
     return otherMessage?.sender || null;
   }, [isGroup, isAIChat, messages, user?.id]);
 
+  // Mark current user online while this chat screen is open.
+  useEffect(() => {
+    if (!user?.id || isAIChat) return;
+    updateUserStatus(user.id, 'online').catch(() => { });
+
+    return () => {
+      updateUserStatus(user.id, 'away').catch(() => { });
+    };
+  }, [user?.id, isAIChat]);
+
+  // Load and live-update direct partner status for WhatsApp-like online indicator.
+  useEffect(() => {
+    if (isGroup || isAIChat || !directPartnerId) {
+      setDirectPartnerStatus(null);
+      return;
+    }
+
+    let isMounted = true;
+
+    const loadStatus = async () => {
+      try {
+        const statusData: any = await getUserStatus(directPartnerId);
+        if (isMounted) {
+          setDirectPartnerStatus((statusData?.status as 'online' | 'away' | 'offline') || 'offline');
+        }
+      } catch {
+        if (isMounted) {
+          setDirectPartnerStatus(null);
+        }
+      }
+    };
+
+    loadStatus();
+
+    const statusChannel = supabase
+      .channel(`partner-status-${directPartnerId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'profiles',
+          filter: `id=eq.${directPartnerId}`,
+        },
+        (payload: any) => {
+          const nextStatus = payload?.new?.status;
+          if (nextStatus) {
+            setDirectPartnerStatus(nextStatus);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      isMounted = false;
+      supabase.removeChannel(statusChannel);
+    };
+  }, [directPartnerId, isGroup, isAIChat]);
+
   const currentUserParticipant = useMemo(
     () => groupMembers.find((participant) => participant.user_id === user?.id),
     [groupMembers, user?.id]
@@ -725,6 +812,93 @@ export default function ChatConversationScreen() {
     });
   };
 
+  const getGroupedReactions = (messageId: string): Record<string, GroupedReaction> => {
+    const reactions = messageReactions.get(messageId) || [];
+    const grouped: Record<string, GroupedReaction> = {};
+    for (const reaction of reactions) {
+      if (!grouped[reaction.emoji]) {
+        grouped[reaction.emoji] = { count: 0, hasCurrentUser: false };
+      }
+      grouped[reaction.emoji].count += 1;
+      if (reaction.user_id === user?.id) {
+        grouped[reaction.emoji].hasCurrentUser = true;
+      }
+    }
+    return grouped;
+  };
+
+  const openReactionPicker = (messageId: string) => {
+    setReactionTargetMessageId(messageId);
+    setReactionPickerVisible(true);
+  };
+
+  const upsertLocalReaction = (messageId: string, emoji: string) => {
+    setMessageReactions((prev) => {
+      const next = new Map(prev);
+      const list = [...(next.get(messageId) || [])];
+      const exists = list.some((r) => r.user_id === user?.id && r.emoji === emoji);
+      if (!exists) {
+        list.push({
+          id: `local-${Date.now()}`,
+          message_id: messageId,
+          user_id: user?.id || '',
+          emoji,
+          created_at: new Date().toISOString(),
+          user: {
+            id: user?.id || '',
+            full_name: profile?.full_name,
+            avatar_url: profile?.avatar_url,
+          },
+        });
+        next.set(messageId, list);
+      }
+      return next;
+    });
+  };
+
+  const removeLocalReaction = (messageId: string, emoji: string) => {
+    setMessageReactions((prev) => {
+      const next = new Map(prev);
+      const list = (next.get(messageId) || []).filter(
+        (r) => !(r.user_id === user?.id && r.emoji === emoji)
+      );
+      if (list.length) next.set(messageId, list);
+      else next.delete(messageId);
+      return next;
+    });
+  };
+
+  const handlePickReaction = async (emoji: string) => {
+    const messageId = reactionTargetMessageId;
+    setReactionPickerVisible(false);
+    setReactionTargetMessageId(null);
+    if (!messageId || isAIChat) return;
+
+    try {
+      await addMessageReaction(messageId, emoji);
+      upsertLocalReaction(messageId, emoji);
+    } catch (error: any) {
+      Toast.show({ type: 'error', text1: 'Failed to add reaction', text2: error?.message || 'Try again' });
+    }
+  };
+
+  const toggleReaction = async (messageId: string, emoji: string) => {
+    if (isAIChat) return;
+    const reactions = messageReactions.get(messageId) || [];
+    const hasMine = reactions.some((r) => r.user_id === user?.id && r.emoji === emoji);
+    try {
+      if (hasMine) {
+        await removeMessageReaction(messageId, emoji);
+        removeLocalReaction(messageId, emoji);
+      } else {
+        await addMessageReaction(messageId, emoji);
+        upsertLocalReaction(messageId, emoji);
+      }
+    } catch (error: any) {
+      Toast.show({ type: 'error', text1: 'Failed to update reaction', text2: error?.message || 'Try again' });
+    }
+  };
+
   const renderMessage = ({ item: message, index }: { item: ChatMessage; index: number }) => {
     const isMyMessage = message.sender_id === user?.id;
     const previousMessage = index > 0 ? filteredMessages[index - 1] : null;
@@ -738,6 +912,15 @@ export default function ChatConversationScreen() {
       hour: 'numeric',
       minute: '2-digit',
     });
+    const groupedReactions = getGroupedReactions(message.id);
+    const groupedReactionEntries = Object.entries(groupedReactions);
+    const messageLength = (message.content || '').trim().length;
+    const bubbleWidthStyle =
+      messageLength <= 12
+        ? styles.bubbleShort
+        : messageLength <= 40
+          ? styles.bubbleMedium
+          : styles.bubbleLong;
 
     return (
       <View>
@@ -769,49 +952,66 @@ export default function ChatConversationScreen() {
             </View>
           )}
 
-          <TouchableOpacity
-            style={[
-              styles.messageBubble,
-              isMyMessage ? [styles.myMessage, { backgroundColor: chatTheme.bubbleColor }] : styles.otherMessage,
-            ]}
-            onLongPress={() => handleMessageLongPress(message)}
-            delayLongPress={400}
-            activeOpacity={0.8}
-          >
-            {showSenderLabel && (
-              <Text style={styles.senderName} numberOfLines={1}>
-                {message.sender?.full_name || 'Member'}
-              </Text>
-            )}
-            <View style={styles.messageContentWrap}>
-              <Text
-                style={[
-                  styles.messageText,
-                  isMyMessage ? [styles.myMessageText, { color: chatTheme.textColor }] : styles.otherMessageText,
-                ]}
-              >
-                {message.content}
-              </Text>
-            </View>
-            <View style={[styles.messageFooter, isMyMessage ? styles.myMessageFooter : styles.otherMessageFooter]}>
-              <Text
-                style={[
-                  styles.messageTime,
-                  isMyMessage ? [styles.myMessageTime, { color: chatTheme.timeColor, opacity: 0.85 }] : styles.otherMessageTime,
-                ]}
-              >
-                {messageTime}
-              </Text>
-              {isMyMessage && !isAIChat && (
-                <MaterialIcons
-                  name={message.seen_by_others ? 'done-all' : 'done'}
-                  size={14}
-                  color={message.seen_by_others ? '#4FC3F7' : chatTheme.timeColor}
-                  style={styles.seenIndicator}
-                />
+          <View style={[styles.messageBubbleWrap, bubbleWidthStyle]}>
+            <TouchableOpacity
+              style={[
+                styles.messageBubble,
+                isMyMessage ? [styles.myMessage, { backgroundColor: chatTheme.bubbleColor }] : styles.otherMessage,
+              ]}
+              onLongPress={() => handleMessageLongPress(message)}
+              delayLongPress={400}
+              activeOpacity={0.8}
+            >
+              {showSenderLabel && (
+                <Text style={styles.senderName} numberOfLines={1}>
+                  {message.sender?.full_name || 'Member'}
+                </Text>
               )}
-            </View>
-          </TouchableOpacity>
+              <View style={styles.messageContentWrap}>
+                <Text
+                  style={[
+                    styles.messageText,
+                    isMyMessage ? [styles.myMessageText, { color: chatTheme.textColor }] : styles.otherMessageText,
+                  ]}
+                >
+                  {message.content}
+                </Text>
+              </View>
+              <View style={[styles.messageFooter, isMyMessage ? styles.myMessageFooter : styles.otherMessageFooter]}>
+                <Text
+                  style={[
+                    styles.messageTime,
+                    isMyMessage ? [styles.myMessageTime, { color: chatTheme.timeColor, opacity: 0.85 }] : styles.otherMessageTime,
+                  ]}
+                >
+                  {messageTime}
+                </Text>
+                {isMyMessage && !isAIChat && (
+                  <MaterialIcons
+                    name={message.seen_by_others ? 'done-all' : 'done'}
+                    size={14}
+                    color={message.seen_by_others ? '#4FC3F7' : chatTheme.timeColor}
+                    style={styles.seenIndicator}
+                  />
+                )}
+              </View>
+            </TouchableOpacity>
+
+            {groupedReactionEntries.length > 0 && (
+              <View style={[styles.reactionRow, isMyMessage ? styles.myReactionRow : styles.otherReactionRow]}>
+                {groupedReactionEntries.map(([emoji, info]) => (
+                  <TouchableOpacity
+                    key={`${message.id}-${emoji}`}
+                    style={[styles.reactionPill, info.hasCurrentUser && styles.reactionPillActive]}
+                    onPress={() => toggleReaction(message.id, emoji)}
+                  >
+                    <Text style={styles.reactionPillEmoji}>{emoji}</Text>
+                    <Text style={[styles.reactionPillCount, info.hasCurrentUser && styles.reactionPillCountActive]}>{info.count}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </View>
         </View>
       </View>
     );
@@ -872,9 +1072,16 @@ export default function ChatConversationScreen() {
                 </View>
               </View>
             ) : (
-              <Text style={styles.headerStatus}>
-                {isAIChat ? 'AI Assistant' : directPartnerProfile?.role || 'Direct chat'}
-              </Text>
+              <View style={styles.directStatusRow}>
+                {!isAIChat && directPartnerStatus === 'online' && <View style={styles.onlineDot} />}
+                <Text style={styles.headerStatus}>
+                  {isAIChat
+                    ? 'AI Assistant'
+                    : directPartnerStatus === 'online'
+                      ? 'Online'
+                      : directPartnerProfile?.role || 'Direct chat'}
+                </Text>
+              </View>
             )}
           </View>
         </TouchableOpacity>
@@ -1741,6 +1948,40 @@ export default function ChatConversationScreen() {
         </View>
       </Modal>
 
+      <Modal
+        visible={reactionPickerVisible}
+        animationType="fade"
+        transparent
+        onRequestClose={() => {
+          setReactionPickerVisible(false);
+          setReactionTargetMessageId(null);
+        }}
+      >
+        <TouchableOpacity
+          style={styles.centeredModalOverlay}
+          activeOpacity={1}
+          onPress={() => {
+            setReactionPickerVisible(false);
+            setReactionTargetMessageId(null);
+          }}
+        >
+          <View style={styles.reactionPickerSheet}>
+            <Text style={styles.optionsTitle}>React to Message</Text>
+            <View style={styles.reactionChoiceRow}>
+              {reactionChoices.map((emoji) => (
+                <TouchableOpacity
+                  key={emoji}
+                  style={styles.reactionChoiceButton}
+                  onPress={() => handlePickReaction(emoji)}
+                >
+                  <Text style={styles.reactionChoiceText}>{emoji}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
       <ConfirmDialog
         visible={confirmDialog.visible}
         title={confirmDialog.title}
@@ -1812,6 +2053,18 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       fontSize: 12,
       color: Colors.textSecondary,
       marginTop: 2,
+    },
+    directStatusRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      marginTop: 2,
+    },
+    onlineDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: '#22C55E',
     },
     groupHeaderMeta: {
       flexDirection: 'row',
@@ -2020,7 +2273,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       justifyContent: 'flex-start',
     },
     messageBubble: {
-      maxWidth: '82%',
+      maxWidth: '100%',
       borderRadius: 18,
       paddingHorizontal: 12,
       paddingVertical: 9,
@@ -2066,20 +2319,40 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     otherMessageText: {
       color: Colors.text,
     },
+    messageBubbleWrap: {
+      width: 'auto',
+    },
+    bubbleShort: {
+      maxWidth: '42%',
+    },
+    bubbleMedium: {
+      maxWidth: '64%',
+    },
+    bubbleLong: {
+      maxWidth: '82%',
+    },
     messageFooter: {
       flexDirection: 'row',
       marginTop: 6,
+      alignItems: 'center',
+      gap: 6,
+      minHeight: 20,
+      width: '100%',
     },
     myMessageFooter: {
       justifyContent: 'flex-end',
       alignItems: 'center',
+      alignSelf: 'flex-end',
     },
     otherMessageFooter: {
-      justifyContent: 'flex-start',
+      justifyContent: 'flex-end',
+      alignItems: 'center',
+      alignSelf: 'flex-end',
     },
     messageTime: {
       fontSize: 10,
       fontWeight: FontWeights.medium,
+      lineHeight: 14,
     },
     myMessageTime: {
       color: Colors.primaryContent,
@@ -2091,6 +2364,71 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     seenIndicator: {
       marginLeft: 4,
       opacity: 0.9,
+    },
+    reactionRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 6,
+      marginTop: 5,
+    },
+    myReactionRow: {
+      justifyContent: 'flex-end',
+    },
+    otherReactionRow: {
+      justifyContent: 'flex-start',
+    },
+    reactionPill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: Colors.border,
+      backgroundColor: Colors.surface,
+    },
+    reactionPillActive: {
+      borderColor: Colors.primary,
+      backgroundColor: `${Colors.primary}20`,
+    },
+    reactionPillEmoji: {
+      fontSize: 13,
+    },
+    reactionPillCount: {
+      fontSize: 11,
+      color: Colors.textSecondary,
+      fontWeight: FontWeights.semibold,
+    },
+    reactionPillCountActive: {
+      color: Colors.primary,
+    },
+    reactionPickerSheet: {
+      width: '88%',
+      maxWidth: 340,
+      backgroundColor: Colors.card,
+      borderRadius: BorderRadius.lg,
+      padding: Spacing.md,
+      ...Shadows.md,
+    },
+    reactionChoiceRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 10,
+      marginTop: Spacing.sm,
+    },
+    reactionChoiceButton: {
+      width: 42,
+      height: 42,
+      borderRadius: 21,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: Colors.surface,
+      borderWidth: 1,
+      borderColor: Colors.border,
+    },
+    reactionChoiceText: {
+      fontSize: 21,
     },
     replyBar: {
       marginHorizontal: Spacing.md,
@@ -2217,6 +2555,12 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       flex: 1,
       backgroundColor: 'rgba(0,0,0,0.35)',
       justifyContent: 'flex-end',
+    },
+    centeredModalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.35)',
+      justifyContent: 'center',
+      alignItems: 'center',
     },
     optionsSheet: {
       backgroundColor: Colors.surface,
