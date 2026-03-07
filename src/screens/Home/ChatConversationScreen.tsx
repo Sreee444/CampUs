@@ -67,17 +67,101 @@ type ChatTheme = {
   bubbleColor: string;
   textColor: string;
   timeColor: string;
+  incomingBubbleColor: string;
+  incomingTextColor: string;
+  incomingTimeColor: string;
+  incomingBorderColor: string;
 };
 
 const CHAT_THEMES: ChatTheme[] = [
-  { key: 'default', label: 'Teal', bubbleColor: '#13ecec', textColor: '#0e3a3a', timeColor: '#0e3a3a' },
-  { key: 'blue', label: 'Blue', bubbleColor: '#3B82F6', textColor: '#ffffff', timeColor: '#dbeafe' },
-  { key: 'purple', label: 'Purple', bubbleColor: '#8B5CF6', textColor: '#ffffff', timeColor: '#ede9fe' },
-  { key: 'green', label: 'Green', bubbleColor: '#10B981', textColor: '#ffffff', timeColor: '#d1fae5' },
-  { key: 'rose', label: 'Rose', bubbleColor: '#F43F5E', textColor: '#ffffff', timeColor: '#ffe4e6' },
-  { key: 'orange', label: 'Orange', bubbleColor: '#F97316', textColor: '#ffffff', timeColor: '#ffedd5' },
-  { key: 'indigo', label: 'Indigo', bubbleColor: '#6366F1', textColor: '#ffffff', timeColor: '#e0e7ff' },
-  { key: 'pink', label: 'Pink', bubbleColor: '#EC4899', textColor: '#ffffff', timeColor: '#fce7f3' },
+  {
+    key: 'default',
+    label: 'Teal',
+    bubbleColor: '#13ecec',
+    textColor: '#0e3a3a',
+    timeColor: '#0e3a3a',
+    incomingBubbleColor: '#d8fafa',
+    incomingTextColor: '#0f3d3d',
+    incomingTimeColor: '#2b5f5f',
+    incomingBorderColor: '#aeecec',
+  },
+  {
+    key: 'blue',
+    label: 'Blue',
+    bubbleColor: '#3B82F6',
+    textColor: '#ffffff',
+    timeColor: '#dbeafe',
+    incomingBubbleColor: '#dbeafe',
+    incomingTextColor: '#1e3a8a',
+    incomingTimeColor: '#1d4ed8',
+    incomingBorderColor: '#bfdbfe',
+  },
+  {
+    key: 'purple',
+    label: 'Purple',
+    bubbleColor: '#8B5CF6',
+    textColor: '#ffffff',
+    timeColor: '#ede9fe',
+    incomingBubbleColor: '#ede9fe',
+    incomingTextColor: '#5b21b6',
+    incomingTimeColor: '#6d28d9',
+    incomingBorderColor: '#ddd6fe',
+  },
+  {
+    key: 'green',
+    label: 'Green',
+    bubbleColor: '#10B981',
+    textColor: '#ffffff',
+    timeColor: '#d1fae5',
+    incomingBubbleColor: '#d1fae5',
+    incomingTextColor: '#065f46',
+    incomingTimeColor: '#047857',
+    incomingBorderColor: '#a7f3d0',
+  },
+  {
+    key: 'rose',
+    label: 'Rose',
+    bubbleColor: '#F43F5E',
+    textColor: '#ffffff',
+    timeColor: '#ffe4e6',
+    incomingBubbleColor: '#ffe4e6',
+    incomingTextColor: '#9f1239',
+    incomingTimeColor: '#be123c',
+    incomingBorderColor: '#fecdd3',
+  },
+  {
+    key: 'orange',
+    label: 'Orange',
+    bubbleColor: '#F97316',
+    textColor: '#ffffff',
+    timeColor: '#ffedd5',
+    incomingBubbleColor: '#ffedd5',
+    incomingTextColor: '#9a3412',
+    incomingTimeColor: '#c2410c',
+    incomingBorderColor: '#fed7aa',
+  },
+  {
+    key: 'indigo',
+    label: 'Indigo',
+    bubbleColor: '#6366F1',
+    textColor: '#ffffff',
+    timeColor: '#e0e7ff',
+    incomingBubbleColor: '#e0e7ff',
+    incomingTextColor: '#3730a3',
+    incomingTimeColor: '#4338ca',
+    incomingBorderColor: '#c7d2fe',
+  },
+  {
+    key: 'pink',
+    label: 'Pink',
+    bubbleColor: '#EC4899',
+    textColor: '#ffffff',
+    timeColor: '#fce7f3',
+    incomingBubbleColor: '#fce7f3',
+    incomingTextColor: '#9d174d',
+    incomingTimeColor: '#be185d',
+    incomingBorderColor: '#fbcfe8',
+  },
 ];
 
 type ChatConversationScreenNavigationProp = StackNavigationProp<RootStackParamList, 'ChatConversation'>;
@@ -983,7 +1067,15 @@ export default function ChatConversationScreen() {
             <TouchableOpacity
               style={[
                 styles.messageBubble,
-                isMyMessage ? [styles.myMessage, { backgroundColor: chatTheme.bubbleColor }] : styles.otherMessage,
+                isMyMessage
+                  ? [styles.myMessage, { backgroundColor: chatTheme.bubbleColor }]
+                  : [
+                      styles.otherMessage,
+                      {
+                        backgroundColor: chatTheme.incomingBubbleColor,
+                        borderColor: chatTheme.incomingBorderColor,
+                      },
+                    ],
               ]}
               onLongPress={() => handleMessageLongPress(message)}
               delayLongPress={400}
@@ -998,7 +1090,9 @@ export default function ChatConversationScreen() {
                 <Text
                   style={[
                     styles.messageText,
-                    isMyMessage ? [styles.myMessageText, { color: chatTheme.textColor }] : styles.otherMessageText,
+                    isMyMessage
+                      ? [styles.myMessageText, { color: chatTheme.textColor }]
+                      : [styles.otherMessageText, { color: chatTheme.incomingTextColor }],
                   ]}
                 >
                   {message.content}
@@ -1008,7 +1102,9 @@ export default function ChatConversationScreen() {
                 <Text
                   style={[
                     styles.messageTime,
-                    isMyMessage ? [styles.myMessageTime, { color: chatTheme.timeColor, opacity: 0.85 }] : styles.otherMessageTime,
+                    isMyMessage
+                      ? [styles.myMessageTime, { color: chatTheme.timeColor, opacity: 0.85 }]
+                      : [styles.otherMessageTime, { color: chatTheme.incomingTimeColor, opacity: 0.9 }],
                   ]}
                 >
                   {messageTime}
@@ -1923,7 +2019,7 @@ export default function ChatConversationScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.optionsSheet}>
             <Text style={styles.optionsTitle}>Choose Chat Theme</Text>
-            <Text style={styles.themeSubtitle}>Pick a color for your sent messages</Text>
+            <Text style={styles.themeSubtitle}>Pick colors for both sender and receiver bubbles</Text>
 
             <View style={styles.themeGrid}>
               {CHAT_THEMES.map((theme) => {
@@ -1956,8 +2052,16 @@ export default function ChatConversationScreen() {
 
             {/* Preview */}
             <View style={styles.themePreview}>
-              <View style={[styles.previewBubbleOther, { backgroundColor: Colors.card, borderColor: Colors.border }]}>
-                <Text style={{ fontSize: 13, color: Colors.text }}>Hey, how are you?</Text>
+              <View
+                style={[
+                  styles.previewBubbleOther,
+                  {
+                    backgroundColor: chatTheme.incomingBubbleColor,
+                    borderColor: chatTheme.incomingBorderColor,
+                  },
+                ]}
+              >
+                <Text style={{ fontSize: 13, color: chatTheme.incomingTextColor }}>Hey, how are you?</Text>
               </View>
               <View style={[styles.previewBubbleMine, { backgroundColor: chatTheme.bubbleColor }]}>
                 <Text style={{ fontSize: 13, color: chatTheme.textColor }}>I'm doing great! 😊</Text>
