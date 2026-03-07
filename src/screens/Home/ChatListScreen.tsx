@@ -23,7 +23,7 @@ import { RootStackParamList, MainTabParamList } from '../../navigation/types';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { getConversations, createGroupConversation } from '../../api/chat';
+import { getConversations, createGroupConversation, updateUserStatus } from '../../api/chat';
 import { supabase } from '../../api/supabase';
 import { getMyConnections, ConnectionWithProfile } from '../../api/connections';
 import { UserAvatar } from '../../components/UserAvatar';
@@ -85,11 +85,24 @@ export default function ChatScreen() {
   // Reload conversations every time user navigates to this tab
   useFocusEffect(
     React.useCallback(() => {
-      if (user?.id) loadConversations();
+      if (user?.id) {
+        loadConversations();
+        updateUserStatus(user.id, 'online').catch(() => {
+          // Ignore presence update failures to avoid blocking chat list loading.
+        });
+      }
+
+      return () => {
+        if (user?.id) {
+          updateUserStatus(user.id, 'away').catch(() => {
+            // Set away when leaving chat section to Projects/Events/Profile.
+          });
+        }
+      };
     }, [user?.id])
   );
 
-  // Real-time: refresh list when any message is inserted or read status changes
+  // Real-time: refresh list when any message is inserted
   // Use user-specific channel name to avoid duplicate subscription conflicts
   useEffect(() => {
     if (!user?.id) return;
@@ -98,11 +111,6 @@ export default function ChatScreen() {
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages' },
-        () => { loadConversations(); }
-      )
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'message_reads' },
         () => { loadConversations(); }
       )
       .subscribe();
@@ -316,7 +324,6 @@ export default function ChatScreen() {
       ? conversation.participants?.find((p: any) => p.id !== currentUserId)
       : null;
     const avatarUri = conversation.is_group ? conversation.group_avatar : otherUser?.avatar_url;
-    const hasUnread = (conversation.unread_count || 0) > 0;
     const lastMessageTime = conversation.last_message
       ? new Date(conversation.last_message.created_at).toLocaleTimeString('en-US', {
         hour: 'numeric',
@@ -326,53 +333,67 @@ export default function ChatScreen() {
 
     return (
       <TouchableOpacity
-        style={[styles.conversationItem, hasUnread && styles.conversationItemUnread]}
+        style={styles.conversationItem}
         onPress={() => navigation.navigate('ChatConversation', {
           conversationId: conversation.id,
           name,
           isGroup: conversation.is_group,
+          partnerUserId: conversation.is_group ? undefined : otherUser?.id,
         })}
-        activeOpacity={0.7}
       >
         <View style={styles.avatarWrapper}>
           <UserAvatar
             uri={avatarUri}
             name={name}
-            size={52}
+            size={48}
             showRing={false}
           />
           {conversation.is_group && (
             <View style={styles.groupBadge}>
-              <MaterialIcons name="groups" size={11} color="#fff" />
+              <MaterialIcons name="people" size={12} color={Colors.surface} />
             </View>
           )}
         </View>
 
         <View style={styles.conversationInfo}>
           <View style={styles.conversationHeader}>
-            <Text style={[styles.conversationName, hasUnread && styles.conversationNameUnread]} numberOfLines={1}>{name}</Text>
-            <Text style={[styles.conversationTime, hasUnread && styles.conversationTimeUnread]}>{lastMessageTime}</Text>
+            <Text style={styles.conversationName}>{name}</Text>
+            <Text style={styles.conversationTime}>{lastMessageTime}</Text>
+          </View>
+
+          <View style={styles.metaRow}>
+            {conversation.is_group ? (
+              <View style={styles.typeChip}>
+                <MaterialIcons name="groups" size={12} color={Colors.textSecondary} />
+                <Text style={styles.typeChipText}>Group</Text>
+              </View>
+            ) : (
+              <View style={styles.typeChip}>
+                <MaterialIcons name="person" size={12} color={Colors.textSecondary} />
+                <Text style={styles.typeChipText}>Direct</Text>
+              </View>
+            )}
           </View>
 
           <View style={styles.messageRow}>
-            {conversation.last_message?.sender_id === currentUserId && conversation.last_message?.content && (
+            {conversation.last_message?.sender_id === currentUserId && (
               <MaterialIcons
                 name={conversation.last_message?.seen_by_others ? 'done-all' : 'done'}
-                size={15}
+                size={14}
                 color={conversation.last_message?.seen_by_others ? '#2196F3' : Colors.textSecondary}
-                style={styles.chatListSeenIcon}
+                style={styles.seenIcon}
               />
             )}
             <Text
               style={[
                 styles.lastMessage,
-                hasUnread && styles.lastMessageUnread,
+                (conversation.unread_count || 0) > 0 && styles.lastMessageUnread,
               ]}
               numberOfLines={1}
             >
               {conversation.last_message?.content || 'No messages yet'}
             </Text>
-            {hasUnread && (
+            {(conversation.unread_count || 0) > 0 && (
               <View style={styles.unreadBadge}>
                 <Text style={styles.unreadText}>{conversation.unread_count}</Text>
               </View>
@@ -389,13 +410,13 @@ export default function ChatScreen() {
       <View style={styles.header}>
         <View>
           <Text style={styles.headerTitle}>Messages</Text>
-          <Text style={styles.headerSubtitle}>{filteredConversations.length} conversations</Text>
+          <Text style={styles.headerSubtitle}>{`${unreadTotal} unread · ${directCount} direct chats`}</Text>
         </View>
         <TouchableOpacity
           style={styles.composeButton}
           onPress={() => setShowComposeMenu(true)}
         >
-          <MaterialIcons name="person-add" size={20} color="#fff" />
+          <MaterialIcons name="person-add-alt-1" size={20} color={Colors.primary} />
         </TouchableOpacity>
       </View>
 
@@ -404,7 +425,7 @@ export default function ChatScreen() {
           <MaterialIcons name="search" size={20} color={Colors.textSecondary} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search conversations..."
+            placeholder="Type chat name or message"
             placeholderTextColor={Colors.textSecondary}
             value={searchInput}
             onChangeText={setSearchInput}
@@ -418,30 +439,56 @@ export default function ChatScreen() {
           )}
         </View>
 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
-          {filterOptions.map((item) => {
+        <View style={styles.searchActionsRow}>
+          <TouchableOpacity
+            style={[styles.searchActionChip, isRealtimeSearch && styles.searchActionChipActive]}
+            onPress={() => setIsRealtimeSearch((prev) => !prev)}
+          >
+            <MaterialIcons
+              name={isRealtimeSearch ? 'flash-on' : 'flash-off'}
+              size={14}
+              color={isRealtimeSearch ? Colors.primaryContent : Colors.textSecondary}
+            />
+            <Text style={[styles.searchActionText, isRealtimeSearch && styles.searchActionTextActive]}>
+              Realtime
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.searchButton} onPress={submitSearch}>
+            <MaterialIcons name="search" size={16} color={Colors.primaryContent} />
+            <Text style={styles.searchButtonText}>Search</Text>
+          </TouchableOpacity>
+        </View>
+
+        <FlatList
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          data={filterOptions}
+          keyExtractor={(item) => item.key}
+          contentContainerStyle={styles.filterRow}
+          renderItem={({ item }) => {
             const isActive = activeFilter === item.key;
             return (
               <TouchableOpacity
-                key={item.key}
                 style={[styles.filterChip, isActive && styles.filterChipActive]}
                 onPress={() => setActiveFilter(item.key)}
-                activeOpacity={0.7}
               >
                 <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>
                   {item.label}
                 </Text>
-                {item.count > 0 && (
-                  <View style={[styles.filterCountBadge, isActive && styles.filterCountBadgeActive]}>
-                    <Text style={[styles.filterCountText, isActive && styles.filterCountTextActive]}>
-                      {item.count}
-                    </Text>
-                  </View>
-                )}
+                <View style={[styles.filterCountBadge, isActive && styles.filterCountBadgeActive]}>
+                  <Text style={[styles.filterCountText, isActive && styles.filterCountTextActive]}>
+                    {item.count}
+                  </Text>
+                </View>
               </TouchableOpacity>
             );
-          })}
-        </ScrollView>
+          }}
+        />
+
+        <Text style={styles.resultsCount}>
+          {activeSearch ? `${filteredConversations.length} results for "${activeSearch}"` : `${filteredConversations.length} chats`}
+        </Text>
       </View>
 
       <FlatList
@@ -741,46 +788,56 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 16,
+    paddingHorizontal: Spacing.md,
+    paddingTop: 14,
     paddingBottom: 12,
-    backgroundColor: Colors.surface,
+    backgroundColor: Colors.background,
   },
   headerTitle: {
-    fontSize: 26,
+    fontSize: FontSizes.xxl,
     fontWeight: FontWeights.bold,
     color: Colors.text,
-    letterSpacing: -0.5,
   },
   headerSubtitle: {
-    fontSize: FontSizes.xs,
-    color: Colors.textSecondary,
     marginTop: 2,
+    fontSize: FontSizes.sm,
+    color: Colors.textSecondary,
+    fontWeight: FontWeights.medium,
   },
   composeButton: {
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: Colors.primary,
+    backgroundColor: Colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: Colors.primary,
     ...Shadows.sm,
   },
   searchSection: {
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 12,
+    marginHorizontal: Spacing.md,
+    marginTop: 4,
+    marginBottom: 8,
+    borderRadius: BorderRadius.xl,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 12,
     backgroundColor: Colors.surface,
-    gap: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+    gap: Spacing.sm,
+    ...Shadows.sm,
   },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.background,
-    borderRadius: 24,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    gap: 10,
+    backgroundColor: Colors.card,
+    borderRadius: BorderRadius.lg,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
   searchInput: {
     flex: 1,
@@ -796,8 +853,8 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.xs,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs + 2,
     borderRadius: BorderRadius.full,
     borderWidth: 1,
     borderColor: Colors.border,
@@ -819,10 +876,10 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    borderRadius: BorderRadius.md,
+    borderRadius: BorderRadius.full,
     backgroundColor: Colors.primary,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.xs + 2,
   },
   searchButtonText: {
     color: Colors.primaryContent,
@@ -830,8 +887,9 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     fontSize: FontSizes.sm,
   },
   filterRow: {
-    gap: 8,
-    paddingVertical: 2,
+    gap: Spacing.sm,
+    paddingTop: Spacing.xs,
+    paddingBottom: 2,
   },
   resultsCount: {
     fontSize: FontSizes.sm,
@@ -841,19 +899,22 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   filterChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: Colors.background,
+    gap: Spacing.xs,
+    paddingHorizontal: Spacing.md + 2,
+    paddingVertical: Spacing.xs + 4,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.card,
   },
   filterChipActive: {
-    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primarySoft,
   },
   filterChipText: {
     fontSize: FontSizes.sm,
     color: Colors.textSecondary,
-    fontWeight: FontWeights.semibold,
+    fontWeight: FontWeights.medium,
   },
   filterChipTextActive: {
     color: Colors.primaryContent,
@@ -862,42 +923,42 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     minWidth: 18,
     height: 18,
     borderRadius: 9,
-    paddingHorizontal: 5,
+    paddingHorizontal: 4,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.border,
+    backgroundColor: Colors.card,
   },
   filterCountBadgeActive: {
-    backgroundColor: 'rgba(14, 58, 58, 0.2)',
+    backgroundColor: Colors.surface,
   },
   filterCountText: {
-    fontSize: 10,
+    fontSize: FontSizes.xs,
     color: Colors.textSecondary,
-    fontWeight: FontWeights.bold,
+    fontWeight: FontWeights.semibold,
   },
   filterCountTextActive: {
     color: Colors.primaryContent,
   },
   conversationsListContent: {
+    paddingHorizontal: Spacing.md,
+    paddingTop: 4,
     paddingBottom: 110,
-    paddingTop: 6,
   },
   conversationItem: {
     flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: Spacing.md,
     paddingVertical: 14,
-    gap: 14,
+    marginBottom: 10,
+    borderRadius: BorderRadius.lg,
+    gap: 12,
     backgroundColor: Colors.surface,
-    marginHorizontal: 12,
-    marginVertical: 3,
-    borderRadius: 16,
-  },
-  conversationItemUnread: {
-    backgroundColor: Colors.primarySoft,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    ...Shadows.sm,
   },
   avatarWrapper: {
     position: 'relative',
+    marginRight: 12,
   },
   avatar: {
     width: 48,
@@ -938,16 +999,14 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   groupBadge: {
     position: 'absolute',
-    bottom: -2,
+    top: -2,
     right: -2,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: '#6366f1',
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: Colors.textSecondary,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: Colors.surface,
   },
   avatarText: {
     fontSize: FontSizes.sm,
@@ -961,71 +1020,84 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 5,
+    marginBottom: 6,
   },
   conversationName: {
     fontSize: FontSizes.md,
     fontWeight: FontWeights.semibold,
     color: Colors.text,
-    flex: 1,
-    marginRight: 8,
-  },
-  conversationNameUnread: {
-    fontWeight: FontWeights.bold,
   },
   conversationTime: {
-    fontSize: 11,
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  metaRow: {
+    marginBottom: 6,
+  },
+  typeChip: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 2,
+    backgroundColor: Colors.card,
+  },
+  typeChipText: {
+    fontSize: FontSizes.xs,
     color: Colors.textSecondary,
     fontWeight: FontWeights.medium,
-  },
-  conversationTimeUnread: {
-    color: Colors.primary,
-    fontWeight: FontWeights.semibold,
   },
   messageRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
   },
   lastMessage: {
     flex: 1,
     fontSize: FontSizes.sm,
     color: Colors.textSecondary,
-    lineHeight: 18,
   },
   lastMessageUnread: {
-    fontWeight: FontWeights.semibold,
+    fontWeight: FontWeights.medium,
     color: Colors.text,
   },
-  chatListSeenIcon: {
-    marginRight: 3,
+  seenIcon: {
+    marginRight: 6,
   },
   unreadBadge: {
-    minWidth: 22,
-    height: 22,
-    borderRadius: 11,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
     backgroundColor: Colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 6,
-    marginLeft: 10,
+    marginLeft: 8,
   },
   unreadText: {
     fontSize: 11,
     fontWeight: FontWeights.bold,
-    color: Colors.primaryContent,
+    color: '#ffffff',
   },
   aiChatFab: {
     position: 'absolute',
-    bottom: 90,
-    right: 20,
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    bottom: 92,
+    right: 24,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: '#7c3aed',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#ffffff',
+    elevation: 12,
+    zIndex: 20,
     ...Shadows.lg,
-    elevation: 6,
   },
   modalOverlayCenter: {
     flex: 1,
@@ -1036,25 +1108,29 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   composeMenuCard: {
     width: '100%',
-    borderRadius: 20,
+    borderRadius: BorderRadius.xl,
     backgroundColor: Colors.surface,
-    padding: 20,
-    gap: 10,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: Spacing.md,
+    gap: Spacing.sm,
   },
   composeMenuTitle: {
     fontSize: FontSizes.lg,
     color: Colors.text,
-    fontWeight: FontWeights.bold,
-    marginBottom: 4,
+    fontWeight: FontWeights.semibold,
+    marginBottom: Spacing.xs,
   },
   composeActionRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.md,
-    borderRadius: 14,
-    backgroundColor: Colors.background,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.card,
     paddingHorizontal: Spacing.md,
-    paddingVertical: 14,
+    paddingVertical: Spacing.md,
   },
   composeActionText: {
     fontSize: FontSizes.md,
@@ -1067,21 +1143,19 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   emptyStateContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 60,
+    paddingVertical: Spacing.xl,
     paddingHorizontal: Spacing.lg,
-    gap: 8,
+    gap: Spacing.xs,
   },
   emptyStateTitle: {
     fontSize: FontSizes.lg,
-    fontWeight: FontWeights.bold,
+    fontWeight: FontWeights.semibold,
     color: Colors.text,
-    marginTop: 12,
   },
   emptyStateSubtext: {
     fontSize: FontSizes.sm,
     color: Colors.textSecondary,
     textAlign: 'center',
-    lineHeight: 20,
   },
   // New Chat Modal Styles
   modalOverlay: {

@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 import { useAnimatedStyle, useSharedValue, withRepeat, withTiming, Easing } from 'react-native-reanimated';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../../navigation/types';
 import { BorderRadius, FontSizes, FontWeights, getColors, Shadows, Spacing } from '../../theme';
@@ -274,7 +274,7 @@ export default function ChatConversationScreen() {
     };
   });
 
-  const { conversationId = '', name = 'Chat', isGroup = false } = route.params || {};
+  const { conversationId = '', name = 'Chat', isGroup = false, partnerUserId } = route.params || {};
   const isAIChat = conversationId === 'ai-assistant';
 
   // Load saved chat theme
@@ -319,6 +319,17 @@ export default function ChatConversationScreen() {
       setGroupAvatarDraft(details?.group_avatar || '');
     } catch (error) {
       console.error('Failed to load group details:', error);
+    }
+  };
+
+  const loadDirectChatDetails = async () => {
+    if (!conversationId || isGroup || isAIChat || !user?.id) return;
+
+    try {
+      const details = await getConversationDetails(conversationId);
+      setGroupDetails(details);
+    } catch (error) {
+      console.error('Failed to load direct chat details:', error);
     }
   };
 
@@ -404,6 +415,8 @@ export default function ChatConversationScreen() {
     if (isGroup) {
       loadGroupDetails();
       loadLatestAnnouncement();
+    } else {
+      loadDirectChatDetails();
     }
     checkSupervisionCapability().catch((err) => console.error('Error in supervision check:', err));
 
@@ -786,19 +799,34 @@ export default function ChatConversationScreen() {
 
   const directPartnerId = useMemo(() => {
     if (isGroup || isAIChat || !user?.id) return null;
+    if (partnerUserId && partnerUserId !== user.id) return partnerUserId;
+    // First try to get from conversation participants
+    const participants = groupDetails?.participants as any[] | undefined;
+    if (participants && participants.length > 0) {
+      const otherParticipant = participants.find((p: any) => p.user_id !== user.id);
+      if (otherParticipant) return otherParticipant.user_id;
+    }
+    // Fallback to getting from messages
     const otherMessage = messages.find(
       (message) => message.sender_id !== user.id && message.sender_id !== 'ai'
     );
     return otherMessage?.sender_id || null;
-  }, [isGroup, isAIChat, messages, user?.id]);
+  }, [isGroup, isAIChat, messages, user?.id, groupDetails?.participants, partnerUserId]);
 
   const directPartnerProfile = useMemo(() => {
     if (isGroup || isAIChat || !user?.id) return null;
+    // First try to get from conversation participants
+    const participants = groupDetails?.participants as any[] | undefined;
+    if (participants && participants.length > 0) {
+      const otherParticipant = participants.find((p: any) => p.user_id !== user.id);
+      if (otherParticipant?.user) return otherParticipant.user;
+    }
+    // Fallback to getting from messages
     const otherMessage = messages.find(
       (message) => message.sender_id !== user.id && message.sender_id !== 'ai'
     );
     return otherMessage?.sender || null;
-  }, [isGroup, isAIChat, messages, user?.id]);
+  }, [isGroup, isAIChat, messages, user?.id, groupDetails?.participants]);
 
   const normalizePresenceStatus = (status?: string | null, updatedAt?: string | null) => {
     const fallback: 'online' | 'away' | 'offline' = 'offline';
@@ -818,17 +846,39 @@ export default function ChatConversationScreen() {
     return nextStatus;
   };
 
-  // Mark current user online while this chat screen is open.
-  useEffect(() => {
-    if (!user?.id || isAIChat) return;
-    updateUserStatus(user.id, 'online').catch(() => { });
+  // Keep presence online while this chat screen is focused.
+  useFocusEffect(
+    React.useCallback(() => {
+      if (!user?.id || isAIChat) return;
+      updateUserStatus(user.id, 'online').catch(() => { });
 
-    return () => {
-      updateUserStatus(user.id, 'away').catch(() => { });
-    };
-  }, [user?.id, isAIChat]);
+      return () => {
+        updateUserStatus(user.id, 'away').catch(() => { });
+      };
+    }, [user?.id, isAIChat])
+  );
 
-  // Load and live-update direct partner status for WhatsApp-like online indicator.
+  // Force status reload when screen is focused and we have a partner ID
+  useFocusEffect(
+    React.useCallback(() => {
+      if (!directPartnerId || isGroup || isAIChat) return;
+
+      const loadPartnerStatus = async () => {
+        try {
+          const statusData: any = await getUserStatus(directPartnerId);
+          setDirectPartnerStatus(
+            normalizePresenceStatus(statusData?.status, statusData?.status_updated_at)
+          );
+        } catch {
+          setDirectPartnerStatus(null);
+        }
+      };
+
+      loadPartnerStatus();
+    }, [directPartnerId, isGroup, isAIChat])
+  );
+
+  // Subscribe to real-time status updates for direct partner
   useEffect(() => {
     if (isGroup || isAIChat || !directPartnerId) {
       setDirectPartnerStatus(null);
@@ -845,20 +895,22 @@ export default function ChatConversationScreen() {
             normalizePresenceStatus(statusData?.status, statusData?.status_updated_at)
           );
         }
-      } catch {
+      } catch (error) {
+        console.error('Error loading partner status:', error);
         if (isMounted) {
           setDirectPartnerStatus(null);
         }
       }
     };
 
+    // Initial load
     loadStatus();
 
     // Poll as a fallback because stale presence can persist without UPDATE events.
-    const statusPoll = setInterval(loadStatus, 60 * 1000);
+    const statusPoll = setInterval(loadStatus, 30 * 1000); // More frequent polling
 
     const statusChannel = supabase
-      .channel(`partner-status-${directPartnerId}`)
+      .channel(`partner-status-${directPartnerId}-${Date.now()}`) // Unique channel to avoid conflicts
       .on(
         'postgres_changes',
         {
@@ -868,6 +920,7 @@ export default function ChatConversationScreen() {
           filter: `id=eq.${directPartnerId}`,
         },
         (payload: any) => {
+          if (!isMounted) return;
           const nextStatus = normalizePresenceStatus(
             payload?.new?.status,
             payload?.new?.status_updated_at
