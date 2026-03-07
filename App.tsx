@@ -49,8 +49,17 @@ function AppContent() {
     // Set initial status to online when component mounts
     updateUserStatus(user.id, 'online').catch(console.error);
 
+    // Periodically update status to keep it fresh while app is active
+    // This prevents false offline status due to stale timestamps
+    const statusHeartbeat = setInterval(() => {
+      if (AppState.currentState === 'active') {
+        updateUserStatus(user.id, 'online').catch(console.error);
+      }
+    }, 2 * 60 * 1000); // Update every 2 minutes
+
     return () => {
       subscription.remove();
+      clearInterval(statusHeartbeat);
     };
   }, [user?.id]);
 

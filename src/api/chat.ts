@@ -1159,6 +1159,22 @@ export const getUserStatus = async (userId: string) => {
     .single();
 
   if (error) throw error;
+  
+  // Check if status is stale (not updated in last 5 minutes)
+  // If stale, consider user offline regardless of stored status
+  if (data?.status_updated_at) {
+    const statusAge = Date.now() - new Date(data.status_updated_at).getTime();
+    const FIVE_MINUTES_MS = 5 * 60 * 1000;
+    
+    if (statusAge > FIVE_MINUTES_MS && data.status !== 'offline') {
+      // Status is stale, return offline instead
+      return {
+        ...data,
+        status: 'offline'
+      };
+    }
+  }
+  
   return data;
 };
 
