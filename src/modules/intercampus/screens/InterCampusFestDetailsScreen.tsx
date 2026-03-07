@@ -456,6 +456,8 @@ export default function InterCampusFestDetailsScreen() {
                   <MaterialIcons name="delete" size={13} color="#b91c1c" />
                   <Text style={styles.eventItemDeleteText}>Delete</Text>
                 </TouchableOpacity>
+                <View style={{ flex: 1 }} />
+                <Text style={styles.eventItemAdminLabel}>Admin</Text>
               </View>
             )}
           </View>
@@ -619,26 +621,21 @@ const styles = StyleSheet.create({
   // Per-event admin row (under each event card)
   eventCardWrapper: {
     marginHorizontal: 12,
-    marginBottom: 10,
-    borderRadius: 14,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
+    marginBottom: 12,
   },
   eventItemAdminRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#f1f5f9',
-    backgroundColor: '#fafafa',
+    marginTop: 6,
+    paddingHorizontal: 4,
+  },
+  eventItemAdminLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#94a3b8',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   eventItemEditBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
