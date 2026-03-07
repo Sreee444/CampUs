@@ -3,6 +3,7 @@ import { supabase } from '../api/supabase';
 import { Profile } from '../types/database';
 import { getCurrentUser, getProfile, updateProfile } from '../api/auth';
 import { updateLastActive } from '../api/users';
+import { updateUserStatus } from '../api/chat';
 import { calculateAcademicFields } from '../utils/academic';
 
 export type AuthUser = {
@@ -247,6 +248,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const handleSignOut = async () => {
     try {
+      if (user?.id) {
+        await updateUserStatus(user.id, 'offline');
+      }
       await supabase.auth.signOut();
       setUser(null);
       setProfile(null);

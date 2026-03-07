@@ -24,7 +24,7 @@ export type RootStackParamList = {
   Notifications: undefined;
   NotificationSettings: undefined;
   Privacy: undefined;
-  ChatConversation: { conversationId: string; name: string; isGroup: boolean };
+  ChatConversation: { conversationId: string; name: string; isGroup: boolean; partnerUserId?: string };
   DiscussionTopic: { topicId: string };
   CreateTopic: undefined;
   CreateProject: undefined;
