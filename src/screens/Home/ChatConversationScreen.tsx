@@ -716,6 +716,24 @@ export default function ChatConversationScreen() {
     return otherMessage?.sender || null;
   }, [isGroup, isAIChat, messages, user?.id]);
 
+  const normalizePresenceStatus = (status?: string | null, updatedAt?: string | null) => {
+    const fallback: 'online' | 'away' | 'offline' = 'offline';
+    const nextStatus = (status as 'online' | 'away' | 'offline' | null) || fallback;
+    if (nextStatus === 'offline') {
+      return fallback;
+    }
+
+    // Presence is only trusted when the timestamp is recent and parseable.
+    const PRESENCE_STALE_MS = 2 * 60 * 1000;
+    const updatedAtMs = updatedAt ? new Date(updatedAt).getTime() : Number.NaN;
+    const isFresh = Number.isFinite(updatedAtMs) && Date.now() - updatedAtMs <= PRESENCE_STALE_MS;
+    if (!isFresh) {
+      return fallback;
+    }
+
+    return nextStatus;
+  };
+
   // Mark current user online while this chat screen is open.
   useEffect(() => {
     if (!user?.id || isAIChat) return;
@@ -739,7 +757,9 @@ export default function ChatConversationScreen() {
       try {
         const statusData: any = await getUserStatus(directPartnerId);
         if (isMounted) {
-          setDirectPartnerStatus((statusData?.status as 'online' | 'away' | 'offline') || 'offline');
+          setDirectPartnerStatus(
+            normalizePresenceStatus(statusData?.status, statusData?.status_updated_at)
+          );
         }
       } catch {
         if (isMounted) {
@@ -749,6 +769,9 @@ export default function ChatConversationScreen() {
     };
 
     loadStatus();
+
+    // Poll as a fallback because stale presence can persist without UPDATE events.
+    const statusPoll = setInterval(loadStatus, 60 * 1000);
 
     const statusChannel = supabase
       .channel(`partner-status-${directPartnerId}`)
@@ -761,7 +784,10 @@ export default function ChatConversationScreen() {
           filter: `id=eq.${directPartnerId}`,
         },
         (payload: any) => {
-          const nextStatus = payload?.new?.status;
+          const nextStatus = normalizePresenceStatus(
+            payload?.new?.status,
+            payload?.new?.status_updated_at
+          );
           if (nextStatus) {
             setDirectPartnerStatus(nextStatus);
           }
@@ -771,6 +797,7 @@ export default function ChatConversationScreen() {
 
     return () => {
       isMounted = false;
+      clearInterval(statusPoll);
       supabase.removeChannel(statusChannel);
     };
   }, [directPartnerId, isGroup, isAIChat]);
