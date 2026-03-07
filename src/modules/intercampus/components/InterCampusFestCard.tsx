@@ -1,5 +1,5 @@
-import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useState } from 'react';
+import { Dimensions, Image as RNImage, Linking, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Image } from 'expo-image';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -18,7 +18,16 @@ const formatDate = (value?: string | null) => {
 };
 
 export default function InterCampusFestCard({ fest, onPress }: Props) {
+  const [viewerVisible, setViewerVisible] = useState(false);
   const startStr = formatDate(fest.event_start_date);
+
+  const openUrl = async (url?: string | null) => {
+    if (!url) return;
+    const canOpen = await Linking.canOpenURL(url);
+    if (canOpen) {
+      Linking.openURL(url);
+    }
+  };
   const endStr = formatDate(fest.event_end_date);
   const dateRange = startStr && endStr ? `${startStr} – ${endStr}` : startStr || 'Dates TBA';
 
@@ -26,9 +35,9 @@ export default function InterCampusFestCard({ fest, onPress }: Props) {
     <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.88}>
       {/* Banner */}
       <View style={styles.bannerWrap}>
-        {fest.banner_image ? (
+        {fest.banner_image || fest.poster_image ? (
           <Image
-            source={{ uri: fest.banner_image }}
+            source={{ uri: fest.banner_image || fest.poster_image || '' }}
             style={styles.banner}
             contentFit="cover"
             transition={200}
@@ -80,12 +89,63 @@ export default function InterCampusFestCard({ fest, onPress }: Props) {
         </View>
 
         <View style={styles.footerRow}>
+          <View style={styles.quickRow}>
+            <TouchableOpacity
+              style={[styles.quickBtn, !(fest.poster_image || fest.banner_image) && styles.quickBtnDisabled]}
+              disabled={!(fest.poster_image || fest.banner_image)}
+              onPress={(e) => {
+                e.stopPropagation?.();
+                setViewerVisible(true);
+              }}
+            >
+              <MaterialIcons name="image" size={13} color="#0f766e" />
+              <Text style={styles.quickText}>Image</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.quickBtn, !fest.source_url && styles.quickBtnDisabled]}
+              disabled={!fest.source_url}
+              onPress={(e) => {
+                e.stopPropagation?.();
+                openUrl(fest.source_url);
+              }}
+            >
+              <MaterialIcons name="language" size={13} color="#0f766e" />
+              <Text style={styles.quickText}>Website</Text>
+            </TouchableOpacity>
+          </View>
           <View style={styles.openBtn}>
             <Text style={styles.openBtnText}>View Fest</Text>
             <MaterialIcons name="arrow-forward" size={14} color="#0f766e" />
           </View>
         </View>
       </View>
+
+      {/* Image Viewer Modal */}
+      {(fest.poster_image || fest.banner_image) && (
+        <Modal
+          visible={viewerVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setViewerVisible(false)}
+        >
+          <View style={styles.imageViewerOverlay}>
+            <TouchableOpacity
+              style={styles.imageViewerClose}
+              onPress={() => setViewerVisible(false)}
+            >
+              <MaterialIcons name="close" size={28} color="#ffffff" />
+            </TouchableOpacity>
+            <RNImage
+              source={{ uri: fest.poster_image || fest.banner_image || '' }}
+              style={{
+                width: Dimensions.get('window').width,
+                height: Dimensions.get('window').height,
+              }}
+              resizeMode="contain"
+            />
+          </View>
+        </Modal>
+      )}
     </TouchableOpacity>
   );
 }
@@ -165,7 +225,33 @@ const styles = StyleSheet.create({
   footerRow: {
     marginTop: 8,
     flexDirection: 'row',
-    justifyContent: 'flex-end',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+  },
+  quickRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  quickBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#99f6e4',
+    backgroundColor: '#e6fffa',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  quickBtnDisabled: {
+    opacity: 0.45,
+  },
+  quickText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#0f766e',
   },
   openBtn: {
     flexDirection: 'row',
@@ -181,5 +267,22 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: '#0f766e',
+  },
+  imageViewerOverlay: {
+    flex: 1,
+    backgroundColor: '#000000',
+    justifyContent: 'center',
+  },
+  imageViewerClose: {
+    position: 'absolute',
+    top: 48,
+    right: 16,
+    zIndex: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

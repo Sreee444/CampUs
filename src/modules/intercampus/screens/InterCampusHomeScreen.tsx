@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   RefreshControl,
   SafeAreaView,
@@ -14,7 +15,7 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../../../navigation/types';
 import { useAuth } from '../../../contexts/AuthContext';
 import { isAdminRole, isFacultyOrAdminRole } from '../../../utils/roles';
-import { getVerifiedFests, getVerifiedStandaloneEvents } from '../api/intercampus';
+import { getVerifiedFestsPaginated, getVerifiedStandaloneEventsPaginated } from '../api/intercampus';
 import { InterCampusEvent } from '../types/intercampus';
 import InterCampusFestCard from '../components/InterCampusFestCard';
 import InterCampusEventCard from '../components/InterCampusEventCard';
@@ -36,48 +37,71 @@ function SkeletonCard() {
 
 export default function InterCampusHomeScreen() {
   const navigation = useNavigation<Nav>();
-  const { user, profile } = useAuth();
-  const canCreateDirect = isFacultyOrAdminRole(profile?.role);
-  const isStudent = !isFacultyOrAdminRole(profile?.role);
+  const { profile } = useAuth();
+  const canModerate = isFacultyOrAdminRole(profile?.role);
 
   const [activeTab, setActiveTab] = useState<TabKey>('fests');
   const [fests, setFests] = useState<InterCampusEvent[]>([]);
   const [events, setEvents] = useState<InterCampusEvent[]>([]);
+  const [festPage, setFestPage] = useState(1);
+  const [eventPage, setEventPage] = useState(1);
+  const [festHasMore, setFestHasMore] = useState(true);
+  const [eventHasMore, setEventHasMore] = useState(true);
   const [loadingFests, setLoadingFests] = useState(true);
   const [loadingEvents, setLoadingEvents] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   /* ─── Loaders ─── */
-  const loadFests = useCallback(async () => {
+  const loadFests = useCallback(async (page = 1, append = false) => {
     try {
-      setLoadingFests(true);
+      if (append) setLoadingMore(true);
+      else setLoadingFests(true);
       setError(null);
-      const data = await getVerifiedFests();
-      setFests(data);
+      const result = await getVerifiedFestsPaginated({ page, pageSize: 10 });
+      setFests((prev) => (append ? [...prev, ...result.data] : result.data));
+      setFestPage(page);
+      setFestHasMore(result.hasMore);
     } catch (err: any) {
       setError(err?.message || 'Failed to load fests');
     } finally {
       setLoadingFests(false);
+      setLoadingMore(false);
     }
   }, []);
 
-  const loadEvents = useCallback(async () => {
+  const loadEvents = useCallback(async (page = 1, append = false) => {
     try {
-      setLoadingEvents(true);
+      if (append) setLoadingMore(true);
+      else setLoadingEvents(true);
       setError(null);
-      const data = await getVerifiedStandaloneEvents();
-      setEvents(data);
+      const result = await getVerifiedStandaloneEventsPaginated({ page, pageSize: 10 });
+      setEvents((prev) => (append ? [...prev, ...result.data] : result.data));
+      setEventPage(page);
+      setEventHasMore(result.hasMore);
     } catch (err: any) {
       setError(err?.message || 'Failed to load events');
     } finally {
       setLoadingEvents(false);
+      setLoadingMore(false);
     }
   }, []);
 
   const reload = useCallback(() => {
-    loadFests();
-    loadEvents();
+    loadFests(1, false);
+    loadEvents(1, false);
   }, [loadFests, loadEvents]);
+
+  const loadMore = useCallback(() => {
+    if (loadingMore) return;
+    if (activeTab === 'fests' && festHasMore) {
+      loadFests(festPage + 1, true);
+      return;
+    }
+    if (activeTab === 'events' && eventHasMore) {
+      loadEvents(eventPage + 1, true);
+    }
+  }, [activeTab, eventHasMore, eventPage, festHasMore, festPage, loadEvents, loadFests, loadingMore]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -99,6 +123,7 @@ export default function InterCampusHomeScreen() {
   const renderEventItem = ({ item }: { item: InterCampusEvent }) => (
     <InterCampusEventCard
       event={item}
+      showSubmitter={canModerate}
       onPress={() => navigation.navigate('InterCampusEventDetails', { eventId: item.id })}
     />
   );
@@ -143,7 +168,7 @@ export default function InterCampusHomeScreen() {
             <Text style={styles.subtitle}>Discover events across colleges</Text>
           </View>
           <View style={styles.headerActions}>
-            {isFacultyOrAdminRole(profile?.role) && (
+            {canModerate && (
               <TouchableOpacity
                 style={styles.headerActionBtn}
                 onPress={() => navigation.navigate('FacultyInterCampusDashboard')}
@@ -202,6 +227,11 @@ export default function InterCampusHomeScreen() {
           renderItem={activeTab === 'fests' ? renderFestItem : renderEventItem}
           contentContainerStyle={styles.listContent}
           ListEmptyComponent={renderEmpty}
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.4}
+          ListFooterComponent={
+            loadingMore ? <ActivityIndicator color="#0f766e" style={{ marginTop: 8 }} /> : null
+          }
           refreshControl={
             <RefreshControl refreshing={loading} onRefresh={reload} tintColor="#0f766e" />
           }
@@ -209,27 +239,14 @@ export default function InterCampusHomeScreen() {
       )}
 
       {/* ─── FABs ─── */}
-      {isStudent && (
-        <TouchableOpacity
-          style={styles.fab}
-          onPress={() => navigation.navigate('InterCampusSubmitEvent')}
-          activeOpacity={0.88}
-        >
-          <MaterialIcons name="add" size={22} color="#ffffff" />
-          <Text style={styles.fabText}>Submit Event</Text>
-        </TouchableOpacity>
-      )}
-
-      {canCreateDirect && (
-        <TouchableOpacity
-          style={styles.facultyFab}
-          onPress={() => navigation.navigate('CreateInterCampusEvent')}
-          activeOpacity={0.9}
-        >
-          <MaterialIcons name="add-circle-outline" size={21} color="#ffffff" />
-          <Text style={styles.fabText}>Create Event</Text>
-        </TouchableOpacity>
-      )}
+      <TouchableOpacity
+        style={canModerate ? styles.facultyFab : styles.fab}
+        onPress={() => navigation.navigate('InterCampusSubmitEvent')}
+        activeOpacity={0.9}
+      >
+        <MaterialIcons name={canModerate ? 'add-circle-outline' : 'add'} size={22} color="#ffffff" />
+        <Text style={styles.fabText}>{canModerate ? 'Submit Event' : 'Submit Event'}</Text>
+      </TouchableOpacity>
     </SafeAreaView>
   );
 }

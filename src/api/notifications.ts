@@ -6,6 +6,19 @@ import * as Device from "expo-device";
 import Constants from "expo-constants";
 import { Platform } from "react-native";
 
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const resolveValidProjectId = () => {
+  const candidates = [
+    process.env.EXPO_PUBLIC_EAS_PROJECT_ID,
+    Constants?.expoConfig?.extra?.eas?.projectId,
+    (Constants as any)?.easConfig?.projectId,
+  ].filter(Boolean) as string[];
+
+  return candidates.find((id) => UUID_REGEX.test(String(id).trim())) || null;
+};
+
 // Configure notifications (wrapped in try-catch for Expo Go compatibility)
 try {
   ExpoNotifications.setNotificationHandler({
@@ -29,6 +42,11 @@ export const registerForPushNotifications = async () => {
     return null;
   }
 
+  if ((Constants as any)?.appOwnership === 'expo') {
+    console.log('Push notifications not available in Expo Go');
+    return null;
+  }
+
   try {
     let token;
 
@@ -47,14 +65,12 @@ export const registerForPushNotifications = async () => {
         return null;
       }
 
-      const projectId =
-        process.env.EXPO_PUBLIC_EAS_PROJECT_ID ||
-        Constants?.expoConfig?.extra?.eas?.projectId ||
-        (Constants as any)?.easConfig?.projectId ||
-        null;
+      const projectId = resolveValidProjectId();
 
       if (!projectId) {
-        console.log("Missing EAS projectId for push notifications");
+        console.log(
+          "Missing/invalid EAS projectId for push notifications. Set EXPO_PUBLIC_EAS_PROJECT_ID to a valid UUID."
+        );
         return null;
       }
 

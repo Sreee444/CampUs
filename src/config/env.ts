@@ -3,6 +3,7 @@
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+const aiApiBaseUrl = process.env.EXPO_PUBLIC_AI_API_BASE_URL;
 
 if (!supabaseUrl || !supabaseAnonKey) {
   console.warn(
@@ -14,4 +15,5 @@ if (!supabaseUrl || !supabaseAnonKey) {
 export const ENV = {
   supabaseUrl: supabaseUrl ?? '',
   supabaseAnonKey: supabaseAnonKey ?? '',
+  aiApiBaseUrl: aiApiBaseUrl ?? '',
 };

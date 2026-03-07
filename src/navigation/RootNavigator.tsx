@@ -67,6 +67,7 @@ import MySubmittedEventsScreen from '../modules/intercampus/screens/MySubmittedE
 import FacultyInterCampusDashboardScreen from '../modules/intercampus/screens/FacultyInterCampusDashboardScreen';
 import AdminInterCampusManagementScreen from '../modules/intercampus/screens/AdminInterCampusManagementScreen';
 import CreateInterCampusEventScreen from '../modules/intercampus/screens/CreateInterCampusEventScreen';
+import EditInterCampusEventScreen from '../modules/intercampus/screens/EditInterCampusEventScreen';
 import { AcademicFeedScreen, FeedDetailsScreen, CreateFeedScreen } from '../modules/feed';
 import { MainTabNavigator } from './MainTabNavigator';
 
@@ -454,6 +455,11 @@ export default function RootNavigator() {
             <Stack.Screen
               name="CreateInterCampusEvent"
               component={CreateInterCampusEventScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="EditInterCampusEvent"
+              component={EditInterCampusEventScreen}
               options={{ animationEnabled: true }}
             />
             <Stack.Screen

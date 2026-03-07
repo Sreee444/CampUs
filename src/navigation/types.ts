@@ -71,6 +71,7 @@ export type RootStackParamList = {
   FacultyInterCampusDashboard: undefined;
   AdminInterCampusManagement: undefined;
   CreateInterCampusEvent: undefined;
+  EditInterCampusEvent: { eventId: string };
   AcademicFeed: undefined;
   FeedDetails: { postId: string; focusComment?: boolean; focusAttachment?: boolean; attachmentIndex?: number };
   CreateFeed: undefined;

@@ -30,10 +30,16 @@ import { InterCampusDiscussion, InterCampusDiscussionReply } from '../types/inte
 type Route = RouteProp<RootStackParamList, 'InterCampusDiscussion'>;
 type Nav = StackNavigationProp<RootStackParamList>;
 
-export default function InterCampusDiscussionScreen() {
+type Props = {
+  eventId?: string;
+  embedded?: boolean;
+};
+
+export default function InterCampusDiscussionScreen({ eventId, embedded = false }: Props) {
   const route = useRoute<Route>();
   const navigation = useNavigation<Nav>();
   const { user, profile } = useAuth();
+  const targetEventId = eventId || route.params?.eventId;
 
   const [loading, setLoading] = useState(true);
   const [discussions, setDiscussions] = useState<InterCampusDiscussion[]>([]);
@@ -45,9 +51,10 @@ export default function InterCampusDiscussionScreen() {
   const isModerator = isFacultyOrAdminRole(profile?.role);
 
   const loadDiscussions = useCallback(async () => {
+    if (!targetEventId) return;
     try {
       setLoading(true);
-      const data = await getInterCampusDiscussions(route.params.eventId);
+      const data = await getInterCampusDiscussions(targetEventId);
       setDiscussions(data);
 
       const firstId = selectedDiscussionId && data.find((item) => item.id === selectedDiscussionId)
@@ -67,7 +74,7 @@ export default function InterCampusDiscussionScreen() {
     } finally {
       setLoading(false);
     }
-  }, [route.params.eventId, selectedDiscussionId]);
+  }, [selectedDiscussionId, targetEventId]);
 
   useEffect(() => {
     loadDiscussions();
@@ -85,13 +92,14 @@ export default function InterCampusDiscussionScreen() {
 
   const createTopic = async () => {
     if (!user?.id) return;
+    if (!targetEventId) return;
     if (!newTopicTitle.trim()) {
       Toast.show({ type: 'error', text1: 'Topic title is required' });
       return;
     }
 
     try {
-      const discussion = await createInterCampusDiscussion(route.params.eventId, user.id, newTopicTitle.trim());
+      const discussion = await createInterCampusDiscussion(targetEventId, user.id, newTopicTitle.trim());
       setDiscussions((prev) => [discussion, ...prev]);
       setNewTopicTitle('');
       await openDiscussion(discussion.id);
@@ -141,17 +149,21 @@ export default function InterCampusDiscussionScreen() {
 
   const selectedDiscussion = discussions.find((item) => item.id === selectedDiscussionId) || null;
 
+  const Container = embedded ? View : SafeAreaView;
+
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <MaterialIcons name="arrow-back" size={24} color="#0f172a" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Discussion</Text>
-        <TouchableOpacity onPress={loadDiscussions}>
-          <MaterialIcons name="refresh" size={22} color="#0f172a" />
-        </TouchableOpacity>
-      </View>
+    <Container style={[styles.container, embedded && { flex: 0 }]}>
+      {!embedded && (
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => navigation.goBack()}>
+            <MaterialIcons name="arrow-back" size={24} color="#0f172a" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Discussion</Text>
+          <TouchableOpacity onPress={loadDiscussions}>
+            <MaterialIcons name="refresh" size={22} color="#0f172a" />
+          </TouchableOpacity>
+        </View>
+      )}
 
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.card}>
@@ -243,7 +255,7 @@ export default function InterCampusDiscussionScreen() {
           )}
         </View>
       </ScrollView>
-    </SafeAreaView>
+    </Container>
   );
 }
 

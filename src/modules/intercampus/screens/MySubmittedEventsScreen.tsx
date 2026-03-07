@@ -14,6 +14,7 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import Toast from 'react-native-toast-message';
 import { RootStackParamList } from '../../../navigation/types';
 import { useAuth } from '../../../contexts/AuthContext';
+import { isFacultyOrAdminRole } from '../../../utils/roles';
 import {
   getMyInterCampusSubmissions,
   resolveApprovedEventForSubmission,
@@ -45,7 +46,8 @@ const SkeletonCard = () => (
 
 export default function MySubmittedEventsScreen() {
   const navigation = useNavigation<Nav>();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
+  const isStudent = !isFacultyOrAdminRole(profile?.role);
   const [loading, setLoading] = useState(true);
   const [submissions, setSubmissions] = useState<InterCampusEventSubmission[]>([]);
 
@@ -117,9 +119,11 @@ export default function MySubmittedEventsScreen() {
         ) : submissions.length === 0 ? (
           <View style={styles.emptyCard}>
             <Text style={styles.emptyText}>You have not submitted any events yet.</Text>
-            <TouchableOpacity style={styles.submitBtn} onPress={() => navigation.navigate('InterCampusSubmitEvent')}>
-              <Text style={styles.submitBtnText}>Submit Event</Text>
-            </TouchableOpacity>
+            {isStudent && (
+              <TouchableOpacity style={styles.submitBtn} onPress={() => navigation.navigate('InterCampusSubmitEvent')}>
+                <Text style={styles.submitBtnText}>Submit Event</Text>
+              </TouchableOpacity>
+            )}
           </View>
         ) : (
           submissions.map((item) => {

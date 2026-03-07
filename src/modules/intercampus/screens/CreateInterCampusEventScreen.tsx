@@ -83,6 +83,17 @@ const Field = ({
   </View>
 );
 
+const isValidHttpUrl = (value: string) => {
+  const raw = value.trim();
+  if (!raw) return false;
+  try {
+    const parsed = new URL(raw);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+};
+
 export default function CreateInterCampusEventScreen() {
   const navigation = useNavigation<Nav>();
   const { user, profile } = useAuth();
@@ -206,6 +217,23 @@ export default function CreateInterCampusEventScreen() {
       return 'Registration deadline must be before the event start date.';
     }
 
+    if (form.college_website.trim() && !isValidHttpUrl(form.college_website)) {
+      return 'College website must be a valid URL';
+    }
+
+    if (form.registration_link.trim() && !isValidHttpUrl(form.registration_link)) {
+      return 'Registration link must be a valid URL';
+    }
+
+    if (form.is_online) {
+      if (!form.online_link.trim()) return 'Online link is required for online events';
+      if (!isValidHttpUrl(form.online_link)) return 'Online link must be a valid URL';
+    }
+
+    if (form.banner_image.trim() && !isValidHttpUrl(form.banner_image)) {
+      return 'Uploaded banner URL is invalid';
+    }
+
     if (form.participation_type === 'team') {
       const min = Number(form.min_team_size);
       const max = Number(form.max_team_size);
@@ -258,7 +286,7 @@ export default function CreateInterCampusEventScreen() {
         description: normalizedDescription,
         college_name: form.college_name,
         college_location: form.college_location,
-        college_website: form.college_website,
+        college_website: form.college_website.trim() || undefined,
         fest_name: form.fest_name,
         event_type: form.event_type,
         participation_type: form.participation_type,
@@ -266,7 +294,7 @@ export default function CreateInterCampusEventScreen() {
         max_team_size: form.participation_type === 'team' ? max : undefined,
         venue: form.venue,
         is_online: form.is_online,
-        registration_link: form.registration_link,
+        registration_link: form.registration_link.trim() || undefined,
         registration_deadline: form.registration_deadline?.toISOString(),
         event_start_date: form.event_start_date?.toISOString() as string,
         eligibility_text: form.eligibility_text,

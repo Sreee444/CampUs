@@ -746,6 +746,15 @@ CREATE TABLE message_reads (
   UNIQUE(message_id, user_id)
 );
 
+CREATE TABLE message_reactions (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  message_id UUID REFERENCES messages(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+  reaction TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(message_id, user_id)
+);
+
 CREATE TABLE typing_indicators (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   conversation_id UUID REFERENCES conversations(id) ON DELETE CASCADE,
