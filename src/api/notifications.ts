@@ -126,6 +126,7 @@ export const createNotification = async (notificationData: {
   related_type?: string | null;
   action_url?: string | null;
   image_url?: string | null;
+  metadata?: any;
   is_read?: boolean;
 }) => {
   const { data, error } = await supabase
@@ -139,6 +140,7 @@ export const createNotification = async (notificationData: {
       related_type: notificationData.related_type ?? null,
       action_url: notificationData.action_url ?? null,
       image_url: notificationData.image_url ?? null,
+      metadata: notificationData.metadata ?? null,
       is_read: notificationData.is_read ?? false,
     } as any)
     .select()

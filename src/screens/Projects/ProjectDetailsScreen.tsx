@@ -252,7 +252,7 @@ export default function ProjectDetailsScreen() {
   const candidatesLoadedRef = React.useRef(false);
 
   const loadInviteCandidates = useCallback(async () => {
-    if (!team || !isCreator) return;
+    if (!team || !canManageTeam) return;
 
     try {
       setIsLoadingInvitees(true);
@@ -262,7 +262,13 @@ export default function ProjectDetailsScreen() {
 
       if (error) throw error;
 
-      const memberIds = new Set(displayMembers.map((member) => member.id));
+      const memberIds = new Set<string>((team.members || []).map((member: any) => member.id).filter(Boolean));
+      if (team.created_by) {
+        memberIds.add(team.created_by);
+      }
+      if ((team as any).mentor_id) {
+        memberIds.add((team as any).mentor_id);
+      }
       const pendingIds = new Set(pendingJoinRequests.map((request) => request.user_id));
       if (user?.id) {
         memberIds.add(user.id);
@@ -293,7 +299,7 @@ export default function ProjectDetailsScreen() {
     }
     // Only re-run when team/required skills change, NOT on every displayMembers change
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [team?.id, requiredRoles, isCreator]);
+  }, [team?.id, requiredRoles, canManageTeam]);
 
   useEffect(() => {
     if (showInviteModal) {
@@ -427,6 +433,18 @@ export default function ProjectDetailsScreen() {
     setShowJoinConfirmation(true);
   };
 
+  const handleOpenInviteModal = () => {
+    if (isTeamFull) {
+      Toast.show({
+        type: 'info',
+        text1: 'Team Full',
+        text2: 'This project has reached the maximum members.',
+      });
+      return;
+    }
+    setShowInviteModal(true);
+  };
+
   const handleSendJoinRequest = async () => {
     if (!user?.id || !team) return;
 
@@ -448,7 +466,7 @@ export default function ProjectDetailsScreen() {
       setIsSendingRequest(true);
       setShowJoinConfirmation(false);
 
-      await sendJoinRequest(teamId, user.id, joinMessage.trim() || undefined);
+      const request: any = await sendJoinRequest(teamId, user.id, joinMessage.trim() || undefined);
 
       // Try to send notifications (don't fail if this fails)
       try {
@@ -460,6 +478,11 @@ export default function ProjectDetailsScreen() {
             body: `${profile?.full_name || user?.email || 'Someone'} wants to join ${team.name}`,
             type: 'project_request',
             related_id: teamId,
+            metadata: {
+              project_request_id: request?.id,
+              requester_user_id: user.id,
+              team_id: teamId,
+            },
           });
         }
 
@@ -518,7 +541,7 @@ export default function ProjectDetailsScreen() {
 
     try {
       setInvitingUserId(userId);
-      await sendProjectInvite(teamId, userId, profile?.full_name || user.email || 'Team leader');
+      const inviteRequest: any = await sendProjectInvite(teamId, userId, profile?.full_name || user.email || 'Team leader');
 
       await createNotification({
         user_id: userId,
@@ -526,6 +549,11 @@ export default function ProjectDetailsScreen() {
         body: `${profile?.full_name || user.email || 'A team leader'} invited you to join ${team.name}`,
         type: 'project_invite',
         related_id: teamId,
+        metadata: {
+          project_request_id: inviteRequest?.id,
+          requester_user_id: user.id,
+          team_id: teamId,
+        },
       });
 
       // Update local state only — avoids modal glitch from full screen reload
@@ -1082,11 +1110,17 @@ export default function ProjectDetailsScreen() {
                   <Text style={[styles.actionBtnText, { color: '#4f46e5' }]}>Edit</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[styles.actionBtn, { borderColor: '#4f46e5' }]}
-                  onPress={() => setShowInviteModal(true)}
+                  style={[
+                    styles.actionBtn,
+                    { borderColor: isTeamFull ? '#94a3b8' : '#4f46e5' },
+                    isTeamFull && { opacity: 0.6 },
+                  ]}
+                  onPress={handleOpenInviteModal}
                 >
-                  <MaterialIcons name="person-add" size={16} color="#4f46e5" />
-                  <Text style={[styles.actionBtnText, { color: '#4f46e5' }]}>Invite</Text>
+                  <MaterialIcons name={isTeamFull ? 'group' : 'person-add'} size={16} color={isTeamFull ? '#64748b' : '#4f46e5'} />
+                  <Text style={[styles.actionBtnText, { color: isTeamFull ? '#64748b' : '#4f46e5' }]}>
+                    {isTeamFull ? 'Team Full' : 'Invite'}
+                  </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.actionBtn, { borderColor: '#dc2626' }]}
@@ -1540,7 +1574,14 @@ export default function ProjectDetailsScreen() {
             {inviteFilter === 'dept' && !profile?.department && (
               <Text style={styles.inviteFilterHint}>Set your department to filter by department.</Text>
             )}
-            {isLoadingInvitees ? (
+            {isTeamFull ? (
+              <View style={styles.inviteEmpty}>
+                <Text style={styles.inviteEmptyTitle}>Team Full</Text>
+                <Text style={styles.inviteEmptySubtitle}>
+                  This project already has the maximum members.
+                </Text>
+              </View>
+            ) : isLoadingInvitees ? (
               <View style={styles.inviteLoading}>
                 <ActivityIndicator size="small" color={Colors.primary} />
                 <Text style={styles.inviteLoadingText}>Loading users...</Text>

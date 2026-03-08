@@ -443,6 +443,31 @@ export const getMentoredProjects = async (mentorId: string) => {
 
 // Send join request
 export const sendJoinRequest = async (teamId: string, userId: string, message?: string) => {
+  // Check recruiting + capacity before allowing request
+  const { data: team, error: teamError } = await supabase
+    .from("project_teams")
+    .select("id, max_members, is_recruiting")
+    .eq("id", teamId)
+    .single();
+
+  if (teamError) throw teamError;
+
+  if (!team.is_recruiting) {
+    throw new Error("Team is not recruiting");
+  }
+
+  const { count, error: countError } = await supabase
+    .from("project_team_members")
+    .select("id", { count: "exact", head: true })
+    .eq("team_id", teamId);
+
+  if (countError) throw countError;
+
+  const currentMembers = count || 0;
+  if (team.max_members && currentMembers >= team.max_members) {
+    throw new Error("Team is full");
+  }
+
   // Check if already a member
   const { data: existingMember } = await supabase
     .from("project_team_members")

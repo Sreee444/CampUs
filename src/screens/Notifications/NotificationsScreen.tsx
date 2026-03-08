@@ -29,6 +29,14 @@ import {
     acceptConnectionRequest,
     rejectConnectionRequest
 } from '../../api/connections';
+import {
+    getUserJoinRequestStatus,
+    acceptProjectInvite,
+    rejectProjectInvite,
+    getTeamJoinRequests,
+    acceptJoinRequest,
+    rejectJoinRequest,
+} from '../../api/projects';
 import { Notification, ConnectionWithProfile } from '../../types/database';
 import { supabase } from '../../api/supabase';
 import { acceptInvite, rejectInvite, markNotifRead } from '../../utils/teamActions';
@@ -120,6 +128,16 @@ export default function NotificationsScreen() {
                 // Navigate to the dedciated invitations screen
                 navigation.navigate('TeamInvitations');
                 break;
+            case 'project_invite':
+                if (notification.related_id) {
+                    navigation.navigate('ProjectDetails', { teamId: notification.related_id });
+                }
+                break;
+            case 'project_request':
+                if (notification.related_id) {
+                    navigation.navigate('ProjectDetails', { teamId: notification.related_id });
+                }
+                break;
             case 'broadcast':
                 navigation.navigate('NotificationDetails', { notificationId: notification.id });
                 break;
@@ -180,6 +198,131 @@ export default function NotificationsScreen() {
         }
     };
 
+    const handleAcceptProjectInvite = async (notif: Notification) => {
+        if (!user?.id) return;
+        try {
+            setProcessingInviteId(notif.id);
+            const teamId = notif.related_id;
+
+            if (!teamId) {
+                setToast({ visible: true, message: 'Project reference missing', type: 'error' });
+                return;
+            }
+
+            const request = await getUserJoinRequestStatus(teamId, user.id);
+            if (!request || request.status !== 'pending') {
+                await markNotificationAsRead(notif.id);
+                setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
+                setToast({ visible: true, message: 'Invite is no longer pending', type: 'info' });
+                return;
+            }
+
+            await acceptProjectInvite(request.id, teamId, user.id);
+            await markNotificationAsRead(notif.id);
+            setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
+            setToast({ visible: true, message: '🎉 Project invite accepted', type: 'success' });
+        } catch (err: any) {
+            setToast({ visible: true, message: err?.message ?? 'Failed to accept invite', type: 'error' });
+        } finally {
+            setProcessingInviteId(null);
+        }
+    };
+
+    const handleDeclineProjectInvite = async (notif: Notification) => {
+        if (!user?.id) return;
+        try {
+            setProcessingInviteId(notif.id);
+            const teamId = notif.related_id;
+
+            if (!teamId) {
+                setToast({ visible: true, message: 'Project reference missing', type: 'error' });
+                return;
+            }
+
+            const request = await getUserJoinRequestStatus(teamId, user.id);
+            if (request?.id && request.status === 'pending') {
+                await rejectProjectInvite(request.id);
+            }
+
+            await markNotificationAsRead(notif.id);
+            setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
+            setToast({ visible: true, message: 'Project invite declined', type: 'info' });
+        } catch (err: any) {
+            setToast({ visible: true, message: err?.message ?? 'Failed to decline invite', type: 'error' });
+        } finally {
+            setProcessingInviteId(null);
+        }
+    };
+
+    const resolveProjectJoinRequest = async (notif: Notification) => {
+        const teamId = notif.related_id;
+        if (!teamId) {
+            throw new Error('Project reference missing');
+        }
+
+        const meta = (notif as any).metadata ?? {};
+        const requestId = meta.project_request_id ?? meta.team_request_id;
+        const requesterUserId = meta.requester_user_id;
+
+        const pendingRequests = await getTeamJoinRequests(teamId);
+        if (!Array.isArray(pendingRequests) || pendingRequests.length === 0) {
+            throw new Error('No pending join request found');
+        }
+
+        if (requestId) {
+            const matched = pendingRequests.find((request: any) => request.id === requestId);
+            if (matched) return matched;
+        }
+
+        if (requesterUserId) {
+            const byUser = pendingRequests.find((request: any) => request.user_id === requesterUserId);
+            if (byUser) return byUser;
+        }
+
+        if (pendingRequests.length === 1) {
+            return pendingRequests[0];
+        }
+
+        throw new Error('Multiple pending requests found. Open Project Details to choose one.');
+    };
+
+    const handleAcceptProjectRequest = async (notif: Notification) => {
+        if (!user?.id) return;
+        try {
+            setProcessingInviteId(notif.id);
+            const teamId = notif.related_id;
+            if (!teamId) {
+                setToast({ visible: true, message: 'Project reference missing', type: 'error' });
+                return;
+            }
+
+            const request = await resolveProjectJoinRequest(notif);
+            await acceptJoinRequest(request.id, teamId, request.user_id);
+            await markNotificationAsRead(notif.id);
+            setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
+            setToast({ visible: true, message: 'Join request accepted', type: 'success' });
+        } catch (err: any) {
+            setToast({ visible: true, message: err?.message ?? 'Failed to accept request', type: 'error' });
+        } finally {
+            setProcessingInviteId(null);
+        }
+    };
+
+    const handleDeclineProjectRequest = async (notif: Notification) => {
+        try {
+            setProcessingInviteId(notif.id);
+            const request = await resolveProjectJoinRequest(notif);
+            await rejectJoinRequest(request.id);
+            await markNotificationAsRead(notif.id);
+            setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
+            setToast({ visible: true, message: 'Join request declined', type: 'info' });
+        } catch (err: any) {
+            setToast({ visible: true, message: err?.message ?? 'Failed to decline request', type: 'error' });
+        } finally {
+            setProcessingInviteId(null);
+        }
+    };
+
     const handleAcceptRequest = async (connectionId: string, requesterName: string) => {
         try {
             await acceptConnectionRequest(connectionId);
@@ -225,6 +368,9 @@ export default function NotificationsScreen() {
 
     const renderNotificationItem = (item: Notification) => {
         const isTeamInvite = item.type === 'team_invite';
+        const isProjectInvite = item.type === 'project_invite';
+        const isProjectRequest = item.type === 'project_request';
+        const hasInlineInviteActions = isTeamInvite || isProjectInvite || isProjectRequest;
         const isProcessing = processingInviteId === item.id;
 
         return (
@@ -233,20 +379,22 @@ export default function NotificationsScreen() {
                 style={[
                     styles.notificationItem,
                     !item.is_read && styles.unreadItem,
-                    isTeamInvite && styles.teamInviteItem,
+                    hasInlineInviteActions && styles.teamInviteItem,
                 ]}
                 onPress={() => handleNotificationPress(item)}
-                activeOpacity={isTeamInvite ? 1 : 0.7}
+                activeOpacity={hasInlineInviteActions ? 1 : 0.7}
             >
                 {/* Icon */}
-                <View style={[styles.iconContainer, isTeamInvite && styles.teamInviteIcon]}>
+                <View style={[styles.iconContainer, hasInlineInviteActions && styles.teamInviteIcon]}>
                     {item.type === 'event' && <MaterialIcons name="event" size={24} color="#e11d48" />}
                     {item.type === 'message' && <MaterialIcons name="chat-bubble" size={24} color="#3b82f6" />}
                     {item.type === 'connection_request' && <MaterialIcons name="person-add" size={24} color="#f59e0b" />}
                     {item.type === 'connection_accepted' && <MaterialIcons name="person" size={24} color="#10b981" />}
                     {item.type === 'team' && <MaterialIcons name="group" size={24} color="#8b5cf6" />}
                     {item.type === 'team_invite' && <MaterialIcons name="mail" size={24} color="#6366f1" />}
-                    {!['event', 'message', 'connection_request', 'connection_accepted', 'team', 'team_invite'].includes(item.type) && (
+                    {item.type === 'project_invite' && <MaterialIcons name="mail" size={24} color="#6366f1" />}
+                    {item.type === 'project_request' && <MaterialIcons name="group-add" size={24} color="#8b5cf6" />}
+                    {!['event', 'message', 'connection_request', 'connection_accepted', 'team', 'team_invite', 'project_invite', 'project_request'].includes(item.type) && (
                         <MaterialIcons name="notifications" size={24} color={Colors.primary} />
                     )}
                 </View>
@@ -262,11 +410,17 @@ export default function NotificationsScreen() {
                     <Text style={styles.timeText}>{dayjs(item.created_at).fromNow()}</Text>
 
                     {/* ── Inline Accept / Decline for team invites ── */}
-                    {isTeamInvite && (
+                    {hasInlineInviteActions && (
                         <View style={styles.inviteActions}>
                             <TouchableOpacity
                                 style={[styles.inviteAcceptBtn, isProcessing && styles.inviteBtnDisabled]}
-                                onPress={() => handleAcceptInvite(item)}
+                                onPress={() => (
+                                    isProjectInvite
+                                        ? handleAcceptProjectInvite(item)
+                                        : isProjectRequest
+                                            ? handleAcceptProjectRequest(item)
+                                            : handleAcceptInvite(item)
+                                )}
                                 disabled={isProcessing}
                             >
                                 {isProcessing ? (
@@ -280,7 +434,13 @@ export default function NotificationsScreen() {
                             </TouchableOpacity>
                             <TouchableOpacity
                                 style={[styles.inviteDeclineBtn, isProcessing && styles.inviteBtnDisabled]}
-                                onPress={() => handleDeclineInvite(item)}
+                                onPress={() => (
+                                    isProjectInvite
+                                        ? handleDeclineProjectInvite(item)
+                                        : isProjectRequest
+                                            ? handleDeclineProjectRequest(item)
+                                            : handleDeclineInvite(item)
+                                )}
                                 disabled={isProcessing}
                             >
                                 {isProcessing ? (
@@ -297,7 +457,7 @@ export default function NotificationsScreen() {
                 </View>
 
                 {/* Delete (hidden for team_invite — handled by decline) */}
-                {!isTeamInvite && (
+                {!hasInlineInviteActions && (
                     <TouchableOpacity
                         style={styles.deleteButton}
                         onPress={() => handleDeleteNotification(item.id)}

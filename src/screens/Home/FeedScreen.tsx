@@ -594,16 +594,16 @@ export default function FeedScreen() {
           <RefreshControl
             refreshing={isRefreshing}
             onRefresh={() => loadFeedData(true)}
-            tintColor="#13ecec"
+            tintColor="#64748B"
           />
         }
       >
         {/* Header */}
         <Animated.View style={{ opacity: headerFade, transform: [{ translateY: headerTranslateY }] }}>
           <LinearGradient
-            colors={['#e0f7fa', '#fdfbf7', '#f3e5f5']}
+            colors={['#EFE2D6', '#F6EEE6', '#F8FAFC']}
             start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
+            end={{ x: 0, y: 1 }}
             style={styles.headerGradient}
           >
             <Animated.View
@@ -632,7 +632,7 @@ export default function FeedScreen() {
                 style={styles.notificationButton}
                 onPress={() => navigation.navigate('Notifications' as any)}
               >
-                <MaterialIcons name="notifications-none" size={24} color="#111818" />
+                <MaterialIcons name="notifications-none" size={24} color="#0F172A" />
                 {notificationCount > 0 && (
                   <View style={styles.notificationBadge}>
                     <Text style={styles.badgeText}>
@@ -648,25 +648,25 @@ export default function FeedScreen() {
         {/* Quick Stats */}
         <View style={styles.statsContainer}>
           <TouchableOpacity style={styles.statCardButton} activeOpacity={1} onPress={() => navigation.navigate('Projects' as any)}>
-            <LinearGradient colors={['#e0f7fa', '#ccfbfb']} style={styles.statCard}>
-              <MaterialIcons name="folder-open" size={26} color="#0d9488" />
+            <View style={[styles.statCard, { backgroundColor: '#D7E7F6' }]}>
+              <MaterialIcons name="folder-open" size={26} color="#2563EB" />
               <Text style={styles.statNumber}>{stats.projects}</Text>
               <Text style={styles.statLabel}>Projects</Text>
-            </LinearGradient>
+            </View>
           </TouchableOpacity>
           <TouchableOpacity style={styles.statCardButton} activeOpacity={1} onPress={() => navigation.navigate('Events' as any)}>
-            <LinearGradient colors={['#f3e5f5', '#ecdcf7']} style={styles.statCard}>
-              <MaterialIcons name="event" size={26} color="#9333ea" />
+            <View style={[styles.statCard, { backgroundColor: '#E5D8F7' }]}>
+              <MaterialIcons name="event" size={26} color="#7C3AED" />
               <Text style={styles.statNumber}>{stats.events}</Text>
               <Text style={styles.statLabel}>Events</Text>
-            </LinearGradient>
+            </View>
           </TouchableOpacity>
           <TouchableOpacity style={styles.statCardButton} activeOpacity={1} onPress={() => navigation.navigate('AllUsers' as any)}>
-            <LinearGradient colors={['#fff5e6', '#ffe0cc']} style={styles.statCard}>
-              <MaterialIcons name="people-outline" size={26} color="#ea580c" />
+            <View style={[styles.statCard, { backgroundColor: '#F6E3C5' }]}>
+              <MaterialIcons name="people-outline" size={26} color="#EA580C" />
               <Text style={styles.statNumber}>{stats.connections}</Text>
               <Text style={styles.statLabel}>Connects</Text>
-            </LinearGradient>
+            </View>
           </TouchableOpacity>
         </View>
 
@@ -681,8 +681,8 @@ export default function FeedScreen() {
                 activeOpacity={1}
                 onPress={() => navigation.navigate('Calendar' as any)}
               >
-                <View style={[styles.actionIcon, { backgroundColor: '#e0f7fa' }]}>
-                  <MaterialIcons name="calendar-month" size={22} color="#0d9488" />
+                <View style={[styles.actionIcon, { backgroundColor: '#D7E7F6' }]}>
+                  <MaterialIcons name="calendar-month" size={22} color="#2563EB" />
                 </View>
                 <Text style={styles.actionLabel}>Calendar</Text>
               </TouchableOpacity>
@@ -691,8 +691,8 @@ export default function FeedScreen() {
                 activeOpacity={1}
                 onPress={() => navigation.navigate('MentorHub' as any)}
               >
-                <View style={[styles.actionIcon, { backgroundColor: '#ede9fe' }]}>
-                  <MaterialIcons name="school" size={22} color="#4F46E5" />
+                <View style={[styles.actionIcon, { backgroundColor: '#E5D8F7' }]}>
+                  <MaterialIcons name="school" size={22} color="#7C3AED" />
                 </View>
                 <Text style={styles.actionLabel}>Mentor Hub</Text>
 
@@ -702,8 +702,8 @@ export default function FeedScreen() {
                 activeOpacity={1}
                 onPress={() => navigation.navigate('Discussions' as any)}
               >
-                <View style={[styles.actionIcon, { backgroundColor: '#ede9fe' }]}>
-                  <MaterialIcons name="forum" size={22} color="#7c3aed" />
+                <View style={[styles.actionIcon, { backgroundColor: '#E8F2FF' }]}>
+                  <MaterialIcons name="forum" size={22} color="#4F46E5" />
                 </View>
                 <Text style={styles.actionLabel}>Discuss</Text>
               </TouchableOpacity>
@@ -712,8 +712,8 @@ export default function FeedScreen() {
                 activeOpacity={1}
                 onPress={() => navigation.navigate('AllUsers' as any)}
               >
-                <View style={[styles.actionIcon, { backgroundColor: '#fef3c7' }]}>
-                  <MaterialIcons name="people" size={22} color="#d97706" />
+                <View style={[styles.actionIcon, { backgroundColor: '#F6E3C5' }]}>
+                  <MaterialIcons name="people" size={22} color="#EA580C" />
                 </View>
                 <Text style={styles.actionLabel}>Connect</Text>
               </TouchableOpacity>
@@ -725,8 +725,8 @@ export default function FeedScreen() {
                 style={styles.actionCard}
                 onPress={() => navigation.navigate('InterCampusHome' as any)}
               >
-                <View style={[styles.actionIcon, { backgroundColor: '#fecaca' }]}>
-                  <MaterialIcons name="public" size={24} color="#dc2626" />
+                <View style={[styles.actionIcon, { backgroundColor: '#FAD4D4' }]}>
+                  <MaterialIcons name="public" size={24} color="#DC2626" />
                 </View>
                 <Text style={styles.actionLabel}>InterCampus</Text>
               </TouchableOpacity>
@@ -735,7 +735,7 @@ export default function FeedScreen() {
                 activeOpacity={1}
                 onPress={() => navigation.navigate('CreateProject' as any)}
               >
-                <View style={[styles.actionIcon, { backgroundColor: '#c7f0d8' }]}>
+                <View style={[styles.actionIcon, { backgroundColor: '#D8F3E7' }]}>
                   <MaterialIcons name="work-outline" size={22} color="#059669" />
                 </View>
                 <Text style={styles.actionLabel}>+ Project</Text>
@@ -744,8 +744,8 @@ export default function FeedScreen() {
                 style={styles.actionCard}
                 onPress={() => navigation.navigate('AcademicFeed' as any)}
               >
-                <View style={[styles.actionIcon, { backgroundColor: '#d1e7dd' }]}>
-                  <MaterialIcons name="newspaper" size={24} color="#0f766e" />
+                <View style={[styles.actionIcon, { backgroundColor: '#D7E7F6' }]}>
+                  <MaterialIcons name="newspaper" size={24} color="#2563EB" />
                 </View>
                 <Text style={styles.actionLabel}>Feed</Text>
               </TouchableOpacity>
@@ -754,8 +754,8 @@ export default function FeedScreen() {
                 activeOpacity={1}
                 onPress={() => navigation.navigate('AIInsights' as any)}
               >
-                <View style={[styles.actionIcon, { backgroundColor: '#e9d5ff' }]}>
-                  <MaterialIcons name="insights" size={22} color="#a855f7" />
+                <View style={[styles.actionIcon, { backgroundColor: '#E9D5FF' }]}>
+                  <MaterialIcons name="insights" size={22} color="#9333EA" />
                 </View>
                 <Text style={styles.actionLabel}>AI Stats</Text>
               </TouchableOpacity>
@@ -769,79 +769,8 @@ export default function FeedScreen() {
             <Text style={styles.sectionTitle}>Academic Feed</Text>
           </View>
 
-          {canPostAcademic && (
-            <View style={[styles.postComposerCard, { marginHorizontal: 20 }]}>
-              <TextInput
-                style={styles.postComposerInput}
-                placeholder="Share an academic update..."
-                placeholderTextColor="#94a3b8"
-                value={newPostText}
-                onChangeText={setNewPostText}
-                multiline
-                maxLength={1000}
-              />
-
-              {(selectedImageUri || selectedFile) && (
-                <View>
-                  <View style={styles.attachmentPreviewRow}>
-                    <MaterialIcons name={selectedImageUri ? 'image' : 'attach-file'} size={16} color="#0d9488" />
-                    <Text style={styles.attachmentPreviewText} numberOfLines={1}>
-                      {selectedImageUri ? 'Image selected' : selectedFile?.name}
-                    </Text>
-                    <TouchableOpacity
-                      onPress={() => {
-                        setSelectedImageUri(null);
-                        setSelectedFile(null);
-                      }}
-                    >
-                      <MaterialIcons name="close" size={16} color="#94a3b8" />
-                    </TouchableOpacity>
-                  </View>
-
-                  {!!selectedImageUri && (
-                    <Image source={{ uri: selectedImageUri }} style={styles.composerImagePreview} resizeMode="cover" />
-                  )}
-                </View>
-              )}
-
-              <View style={styles.postComposerActions}>
-                <View style={styles.postAttachmentButtons}>
-                  <TouchableOpacity style={styles.postAttachmentButton} onPress={handlePickImage}>
-                    <MaterialIcons name="image" size={18} color="#0d9488" />
-                    <Text style={styles.postAttachmentButtonText}>Image</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.postAttachmentButton} onPress={handlePickFile}>
-                    <MaterialIcons name="attach-file" size={18} color="#0d9488" />
-                    <Text style={styles.postAttachmentButtonText}>File</Text>
-                  </TouchableOpacity>
-                </View>
-
-                <TouchableOpacity
-                  style={[styles.publishButton, isPosting && styles.publishButtonDisabled]}
-                  onPress={handleCreateAcademicPost}
-                  disabled={isPosting}
-                >
-                  {isPosting ? (
-                    <ActivityIndicator size="small" color="#ffffff" />
-                  ) : (
-                    <Text style={styles.publishButtonText}>Post</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
-
-          {!canPostAcademic && (
-            <View style={[styles.readOnlyNote, { marginHorizontal: 20 }]}>
-              <MaterialIcons name="info-outline" size={18} color="#64748b" />
-              <Text style={styles.readOnlyNoteText}>
-                Academic posts are shared by admin and faculty. You can still like and comment.
-              </Text>
-            </View>
-          )}
-
           {isLoadingPosts ? (
-            <ActivityIndicator color="#13ecec" style={{ marginVertical: 16 }} />
+            <ActivityIndicator color="#64748B" style={{ marginVertical: 16 }} />
           ) : academicPosts.length === 0 ? (
             <View style={[styles.emptyCard, { marginHorizontal: 20 }]}>
               <MaterialIcons name="campaign" size={30} color="#cbd5e1" />
@@ -857,12 +786,6 @@ export default function FeedScreen() {
               snapToAlignment="start"
             >
               {academicPosts.slice(0, 3).map((post, index) => {
-                const feedGradients: [string, string][] = [
-                  ['#1e3a5f', '#2d5a87'],
-                  ['#4a1942', '#6b2d6b'],
-                  ['#1a4731', '#2d6b4e'],
-                ];
-                const gradientColors = feedGradients[index % feedGradients.length];
                 return (
                   <TouchableOpacity
                     key={post.id}
@@ -871,7 +794,7 @@ export default function FeedScreen() {
                     style={styles.feedCardHorizontal}
                   >
                     <LinearGradient
-                      colors={gradientColors}
+                      colors={['#E3EDF7', '#D7E7F6']}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 1 }}
                       style={styles.feedCardGradient}
@@ -880,7 +803,7 @@ export default function FeedScreen() {
                       <View style={styles.eventCardTopRow}>
                         <View style={styles.feedAuthorRow}>
                           <View style={styles.feedAuthorAvatar}>
-                            <MaterialIcons name="school" size={18} color="#ffffff" />
+                            <MaterialIcons name="school" size={18} color="#2563EB" />
                           </View>
                           <View>
                             <Text style={styles.feedAuthorName}>{post.author?.full_name || 'Faculty'}</Text>
@@ -894,7 +817,7 @@ export default function FeedScreen() {
                           style={styles.feedDotMenu}
                           onPress={() => setMenuPostId(post.id)}
                         >
-                          <MaterialIcons name="more-vert" size={20} color="rgba(255,255,255,0.8)" />
+                          <MaterialIcons name="more-vert" size={20} color="#94A3B8" />
                         </TouchableOpacity>
                       </View>
 
@@ -906,7 +829,7 @@ export default function FeedScreen() {
                       {/* Attachment indicator */}
                       {!!post.images?.length && (
                         <View style={styles.feedImageIndicator}>
-                          <MaterialIcons name="image" size={14} color="rgba(255,255,255,0.7)" />
+                          <MaterialIcons name="image" size={14} color="#64748B" />
                           <Text style={styles.feedImageCount}>{post.images.length} attachment{post.images.length > 1 ? 's' : ''}</Text>
                         </View>
                       )}
@@ -917,18 +840,18 @@ export default function FeedScreen() {
                           <MaterialIcons
                             name={post.is_liked ? 'favorite' : 'favorite-border'}
                             size={16}
-                            color={post.is_liked ? '#ef4444' : 'rgba(255,255,255,0.7)'}
+                            color={post.is_liked ? '#EF4444' : '#64748B'}
                           />
                           <Text style={styles.feedActionText}>{post.likes_count || 0}</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity style={styles.feedActionBtn} onPress={() => navigation.navigate('FeedDetails' as any, { postId: post.id, focusComment: true })}>
-                          <MaterialIcons name="comment" size={16} color="rgba(255,255,255,0.7)" />
+                          <MaterialIcons name="comment" size={16} color="#64748B" />
                           <Text style={styles.feedActionText}>{post.comments_count || 0}</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity style={styles.feedActionBtn} onPress={() => navigation.navigate('FeedDetails' as any, { postId: post.id })}>
-                          <MaterialIcons name="open-in-new" size={16} color="rgba(255,255,255,0.7)" />
+                          <MaterialIcons name="open-in-new" size={16} color="#64748B" />
                           <Text style={styles.feedActionText}>View</Text>
                         </TouchableOpacity>
                       </View>
@@ -969,7 +892,7 @@ export default function FeedScreen() {
                 onPress={() => navigation.navigate('AcademicFeed' as any)}
               >
                 <View style={styles.feedSeeAllCardInner}>
-                  <MaterialIcons name="arrow-forward" size={32} color="#0d9488" />
+                  <MaterialIcons name="arrow-forward" size={32} color="#2563EB" />
                   <Text style={styles.feedSeeAllCardText}>See All Feeds</Text>
                 </View>
               </TouchableOpacity>
@@ -980,16 +903,15 @@ export default function FeedScreen() {
 
         {/* AI Suggestion */}
         <View style={styles.section}>
-          <LinearGradient
-            colors={['rgba(19,236,236,0.08)', 'rgba(19,236,236,0.03)']}
+          <View
             style={styles.aiSuggestion}
           >
-            <MaterialIcons name="auto-awesome" size={20} color="#0d9488" />
+            <MaterialIcons name="auto-awesome" size={20} color="#3730A3" />
             <View style={styles.aiContent}>
               <Text style={styles.aiTitle}>AI Suggestion</Text>
               <Text style={styles.aiText}>{aiSuggestion}</Text>
             </View>
-          </LinearGradient>
+          </View>
         </View>
 
         {/* Upcoming Events */}
@@ -1002,7 +924,7 @@ export default function FeedScreen() {
           </View>
 
           {isLoading ? (
-            <ActivityIndicator color="#13ecec" style={{ marginVertical: 16 }} />
+            <ActivityIndicator color="#64748B" style={{ marginVertical: 16 }} />
           ) : upcomingEvents.length === 0 ? (
             <View style={[styles.emptyCard, { marginHorizontal: 20 }]}>
               <MaterialIcons name="event-busy" size={32} color="#cbd5e1" />
@@ -1018,11 +940,6 @@ export default function FeedScreen() {
               snapToAlignment="start"
             >
               {upcomingEvents.map((event, index) => {
-                const gradientColors: [string, string] = index % 3 === 0
-                  ? ['#0d9488', '#14b8a6']
-                  : index % 3 === 1
-                    ? ['#6366f1', '#818cf8']
-                    : ['#f59e0b', '#fbbf24'];
                 return (
                   <TouchableOpacity
                     key={event.id}
@@ -1031,7 +948,7 @@ export default function FeedScreen() {
                     style={styles.eventCardHorizontal}
                   >
                     <LinearGradient
-                      colors={gradientColors}
+                      colors={['#D5EDE7', '#C5E0D8']}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 1 }}
                       style={styles.eventCardGradient}
@@ -1055,21 +972,21 @@ export default function FeedScreen() {
 
                       <View style={styles.eventCardBottom}>
                         <View style={styles.eventMetaRow}>
-                          <MaterialIcons name="access-time" size={14} color="rgba(255,255,255,0.85)" />
+                          <MaterialIcons name="access-time" size={14} color="#334155" />
                           <Text style={styles.eventMetaTextNew}>
                             {new Date(event.start_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </Text>
                         </View>
                         {event.location ? (
                           <View style={styles.eventMetaRow}>
-                            <MaterialIcons name="place" size={14} color="rgba(255,255,255,0.85)" />
+                            <MaterialIcons name="place" size={14} color="#334155" />
                             <Text style={styles.eventMetaTextNew} numberOfLines={1}>{event.location}</Text>
                           </View>
                         ) : null}
                       </View>
 
                       <View style={styles.eventCardArrow}>
-                        <MaterialIcons name="arrow-forward" size={18} color="rgba(255,255,255,0.7)" />
+                        <MaterialIcons name="arrow-forward" size={18} color="#334155" />
                       </View>
                     </LinearGradient>
                   </TouchableOpacity>
@@ -1278,6 +1195,11 @@ const styles = StyleSheet.create({
   },
   headerGradient: {
     paddingTop: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
   },
   header: {
     flexDirection: 'row',
@@ -1299,14 +1221,14 @@ const styles = StyleSheet.create({
   userName: {
     fontSize: 24,
     fontWeight: '700',
-    color: '#111818',
+    color: '#0F172A',
     marginTop: 2,
   },
   notificationButton: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: 'rgba(255,255,255,0.8)',
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
@@ -1350,21 +1272,21 @@ const styles = StyleSheet.create({
   },
   statCard: {
     aspectRatio: 1,
-    borderRadius: 18,
+    borderRadius: 16,
     padding: 10,
     paddingVertical: 12,
     alignItems: 'center',
     justifyContent: 'space-between',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 5,
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
     elevation: 2,
   },
   statNumber: {
     fontSize: 24,
     fontWeight: '700',
-    color: '#111818',
+    color: '#0F172A',
     lineHeight: 28,
   },
   statLabel: {
@@ -1386,7 +1308,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 17,
     fontWeight: '700',
-    color: '#111818',
+    color: '#0F172A',
     marginBottom: 14,
   },
   quickActions: {
@@ -1430,9 +1352,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 12,
+    backgroundColor: '#E8ECFF',
     borderWidth: 1,
-    borderColor: 'rgba(19,236,236,0.2)',
-    borderRadius: 16,
+    borderColor: '#C7D2FE',
+    borderRadius: 14,
     padding: 14,
   },
   aiContent: {
@@ -1441,12 +1364,12 @@ const styles = StyleSheet.create({
   aiTitle: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#0d9488',
+    color: '#3730A3',
     marginBottom: 4,
   },
   aiText: {
     fontSize: 13,
-    color: '#334155',
+    color: '#3730A3',
     lineHeight: 18,
   },
   emptyCard: {
@@ -1464,7 +1387,7 @@ const styles = StyleSheet.create({
   },
   seeAllText: {
     fontSize: 13,
-    color: '#13ecec',
+    color: '#2563EB',
     fontWeight: '600',
     marginBottom: 12,
   },
@@ -1501,27 +1424,27 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 14,
-    backgroundColor: 'rgba(255,255,255,0.25)',
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
   },
   eventDateDayNew: {
     fontSize: 22,
     fontWeight: '800',
-    color: '#ffffff',
+    color: '#0F172A',
     lineHeight: 24,
   },
   eventDateMonthNew: {
     fontSize: 10,
     fontWeight: '700',
-    color: 'rgba(255,255,255,0.9)',
+    color: '#0F172A',
     letterSpacing: 1,
   },
   eventCardChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: 'rgba(15,23,42,0.08)',
     borderRadius: 20,
     paddingHorizontal: 10,
     paddingVertical: 4,
@@ -1529,12 +1452,12 @@ const styles = StyleSheet.create({
   eventCardChipText: {
     fontSize: 11,
     fontWeight: '600',
-    color: '#ffffff',
+    color: '#0F172A',
   },
   eventTitleNew: {
     fontSize: 17,
     fontWeight: '700',
-    color: '#ffffff',
+    color: '#0F172A',
     marginTop: 12,
     lineHeight: 22,
   },
@@ -1552,7 +1475,7 @@ const styles = StyleSheet.create({
   eventMetaTextNew: {
     fontSize: 12,
     fontWeight: '500',
-    color: 'rgba(255,255,255,0.85)',
+    color: '#334155',
   },
   eventCardArrow: {
     position: 'absolute',
@@ -1561,7 +1484,7 @@ const styles = StyleSheet.create({
     width: 30,
     height: 30,
     borderRadius: 15,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: 'rgba(15,23,42,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1575,12 +1498,12 @@ const styles = StyleSheet.create({
   },
   feedCardHorizontal: {
     width: Dimensions.get('window').width - 40,
-    borderRadius: 20,
+    borderRadius: 18,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 6,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 5,
   },
   feedCardVertical: {
     marginBottom: 16,
@@ -1610,15 +1533,15 @@ const styles = StyleSheet.create({
   feedSeeAllText: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#0d9488',
+    color: '#2563EB',
   },
   feedSeeAllCard: {
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: '#f0fdfa',
+    backgroundColor: '#EFF6FF',
     borderWidth: 2,
-    borderColor: '#0d9488',
+    borderColor: '#2563EB',
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'center',
@@ -1632,10 +1555,10 @@ const styles = StyleSheet.create({
   feedSeeAllCardText: {
     fontSize: 9,
     fontWeight: '700',
-    color: '#0d9488',
+    color: '#2563EB',
   },
   feedCardGradient: {
-    borderRadius: 20,
+    borderRadius: 18,
     padding: 18,
     minHeight: 200,
     height: 200,
@@ -1651,24 +1574,24 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
   },
   feedAuthorName: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#ffffff',
+    color: '#0F172A',
   },
   feedAuthorMeta: {
     fontSize: 11,
     fontWeight: '500',
-    color: 'rgba(255,255,255,0.7)',
+    color: '#64748B',
     marginTop: 2,
   },
   feedContentText: {
     fontSize: 14,
-    color: 'rgba(255,255,255,0.95)',
+    color: '#0F172A',
     lineHeight: 20,
     marginTop: 16,
     marginBottom: 8,
@@ -1677,7 +1600,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: 'rgba(0,0,0,0.15)',
+    backgroundColor: '#F1F5F9',
     alignSelf: 'flex-start',
     paddingHorizontal: 10,
     paddingVertical: 4,
@@ -1688,7 +1611,7 @@ const styles = StyleSheet.create({
   feedImageCount: {
     fontSize: 12,
     fontWeight: '500',
-    color: 'rgba(255,255,255,0.9)',
+    color: '#64748B',
   },
   feedActionsRow: {
     flexDirection: 'row',
@@ -1706,7 +1629,7 @@ const styles = StyleSheet.create({
   feedActionText: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#ffffff',
+    color: '#64748B',
   },
   feedExpandedComments: {
     backgroundColor: '#ffffff',
