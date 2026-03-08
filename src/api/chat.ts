@@ -1145,9 +1145,9 @@ export const updateUserStatus = async (userId: string, status: 'online' | 'away'
     } as any)
     .eq("id", userId)
     .select()
-    .single();
+    .maybeSingle();
 
-  if (error) throw error;
+  if (error && error.code !== 'PGRST116') throw error;
   return data;
 };
 

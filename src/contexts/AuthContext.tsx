@@ -295,7 +295,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const handleSignOut = async () => {
     try {
       if (user?.id) {
-        await updateUserStatus(user.id, 'offline');
+        try {
+          await updateUserStatus(user.id, 'offline');
+        } catch (statusError: any) {
+          // Never block logout on optional presence updates.
+          if (statusError?.code !== 'PGRST116' && !isTransientNetworkError(statusError)) {
+            console.warn('Failed to update user status during sign out:', statusError);
+          }
+        }
       }
       await supabase.auth.signOut();
       setUser(null);
