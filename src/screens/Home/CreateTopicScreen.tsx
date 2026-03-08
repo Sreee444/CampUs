@@ -54,7 +54,12 @@ export default function CreateTopicScreen() {
 
     try {
       setIsLoading(true);
-      await createDiscussionTopic(title.trim(), selectedCategory, user.id);
+      await createDiscussionTopic({
+        title: title.trim(),
+        category: selectedCategory,
+        created_by: user.id,
+        discussion_scope: 'general',
+      });
       Toast.show({ type: 'success', text1: 'Discussion created!' });
       navigation.goBack();
     } catch (error: any) {

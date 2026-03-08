@@ -68,7 +68,7 @@ export default function DiscussionsScreen() {
   const loadTopics = async () => {
     try {
       setIsLoading(true);
-      const data = await getDiscussionTopics();
+      const data = await getDiscussionTopics({ scope: 'general' });
       setTopics(data);
     } catch (error) {
       console.error('Failed to load discussions:', error);

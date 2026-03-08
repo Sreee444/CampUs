@@ -2,8 +2,49 @@
 import { supabase } from './supabase';
 import { DiscussionTopic, DiscussionReply, DiscussionCategory } from '../types/database';
 
+type DiscussionScope = 'general' | 'event' | 'all';
+type EventPhase = 'pre' | 'post' | 'all';
+
+type GetDiscussionTopicsOptions = {
+  scope?: DiscussionScope;
+  eventId?: string;
+  eventPhase?: EventPhase;
+};
+
+const getEventIdFromLegacyTitle = (title?: string): string | null => {
+  if (!title) return null;
+  const match = title.match(/\[event-([^\]]+)\]/);
+  return match?.[1] || null;
+};
+
+const getEventPhaseFromLegacyTitle = (title?: string): 'pre' | 'post' | null => {
+  if (!title) return null;
+  if (title.includes('[Pre-Event]')) return 'pre';
+  if (title.includes('[Post-Event]')) return 'post';
+  return null;
+};
+
+const normalizeTopic = (topic: any) => {
+  const legacyEventId = getEventIdFromLegacyTitle(topic.title);
+  const legacyPhase = getEventPhaseFromLegacyTitle(topic.title);
+  const normalizedScope = topic.discussion_scope || (legacyEventId ? 'event' : 'general');
+
+  return {
+    ...topic,
+    event_id: topic.event_id || legacyEventId,
+    event_phase: topic.event_phase || legacyPhase,
+    discussion_scope: normalizedScope,
+  };
+};
+
 // Get all discussion topics
-export const getDiscussionTopics = async () => {
+export const getDiscussionTopics = async (options: GetDiscussionTopicsOptions = {}) => {
+  const {
+    scope = 'all',
+    eventId,
+    eventPhase = 'all',
+  } = options;
+
   const { data, error } = await supabase
     .from('discussion_topics')
     .select(`
@@ -23,11 +64,24 @@ export const getDiscussionTopics = async () => {
         .select('id', { count: 'exact', head: true })
         .eq('topic_id', topic.id);
 
-      return { ...topic, replies_count: count || 0 };
+      return { ...normalizeTopic(topic), replies_count: count || 0 };
     })
   );
 
-  return topicsWithCounts as DiscussionTopic[];
+  const filtered = topicsWithCounts.filter((topic: any) => {
+    const topicScope = topic.discussion_scope || 'general';
+
+    if (scope === 'general' && topicScope !== 'general') return false;
+    if (scope === 'event' && topicScope !== 'event') return false;
+
+    if (eventId && topic.event_id !== eventId) return false;
+
+    if (eventPhase !== 'all' && topic.event_phase !== eventPhase) return false;
+
+    return true;
+  });
+
+  return filtered as DiscussionTopic[];
 };
 
 // Get single topic
@@ -42,7 +96,7 @@ export const getDiscussionTopic = async (topicId: string) => {
     .single();
 
   if (error) throw error;
-  return data as DiscussionTopic;
+  return normalizeTopic(data) as DiscussionTopic;
 };
 
 // Create new topic - supports both old and new signatures
@@ -67,8 +121,10 @@ export const createDiscussionTopic = async (
       title: titleOrData.title,
       category: titleOrData.category,
       created_by: titleOrData.created_by,
-      // Note: description, event_id, type fields don't exist in schema
-      // Only include fields that exist in discussion_topics table
+      description: titleOrData.description,
+      event_id: titleOrData.event_id,
+      discussion_scope: titleOrData.discussion_scope,
+      event_phase: titleOrData.event_phase,
     };
   }
 
@@ -78,17 +134,48 @@ export const createDiscussionTopic = async (
     insertData.created_by = sessionData.session.user.id;
   }
 
-  const { data, error } = await supabase
+  // Ensure default scope for quick-access/general topics.
+  if (!insertData.discussion_scope) {
+    insertData.discussion_scope = 'general';
+  }
+
+  // Avoid sending undefined values in Supabase insert payload.
+  Object.keys(insertData).forEach((key) => {
+    if (insertData[key] === undefined) {
+      delete insertData[key];
+    }
+  });
+
+  let { data, error } = await supabase
     .from('discussion_topics')
     .insert(insertData as any)
     .select()
     .single();
 
+  // Backward compatibility: if new metadata columns are missing in DB schema,
+  // retry with the legacy minimal payload.
+  if (error && ['PGRST204', '42703'].includes((error as any).code)) {
+    const legacyInsertData: any = {
+      title: insertData.title,
+      category: insertData.category,
+      created_by: insertData.created_by,
+    };
+
+    const retry = await supabase
+      .from('discussion_topics')
+      .insert(legacyInsertData)
+      .select()
+      .single();
+
+    data = retry.data;
+    error = retry.error;
+  }
+
   if (error) {
     console.error('Error creating discussion topic:', error);
     throw error;
   }
-  return data as DiscussionTopic;
+  return normalizeTopic(data) as DiscussionTopic;
 };
 
 // Get replies for a topic
