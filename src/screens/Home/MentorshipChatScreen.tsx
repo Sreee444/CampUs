@@ -14,7 +14,7 @@ import {
     Modal,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../../navigation/types';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights } from '../../theme';
@@ -22,6 +22,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { UserAvatar } from '../../components/UserAvatar';
 import Toast from 'react-native-toast-message';
+import { updateUserStatus } from '../../api/chat';
 import {
     getMentorshipMessages,
     sendMentorshipMessage,
@@ -58,6 +59,18 @@ export default function MentorshipChatScreen() {
     const listRef = useRef<FlatList>(null);
 
     const availableEmojis = ['👍', '❤️', '😊', '😂', '🎉', '🔥', '👏', '🙌'];
+
+    useFocusEffect(
+        useCallback(() => {
+            if (!user?.id) return;
+
+            updateUserStatus(user.id, 'online').catch(() => {});
+
+            return () => {
+                updateUserStatus(user.id, 'away').catch(() => {});
+            };
+        }, [user?.id])
+    );
 
     const loadData = useCallback(async () => {
         if (!chatId) return;
