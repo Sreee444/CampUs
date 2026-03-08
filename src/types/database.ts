@@ -161,8 +161,12 @@ export type DiscussionCategory = 'academic' | 'doubt' | 'general' | 'project';
 export type DiscussionTopic = {
   id: string;
   title: string;
+  description?: string;
   category: DiscussionCategory;
   created_by: string;
+  discussion_scope?: 'general' | 'event';
+  event_id?: string | null;
+  event_phase?: 'pre' | 'post' | null;
   is_pinned: boolean;
   is_locked: boolean;
   created_at: string;

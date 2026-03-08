@@ -96,12 +96,12 @@ export default function DiscussionTopicScreen() {
       setTopic(topicData);
       setReplies(repliesData);
 
-      // Check if this is an event discussion by looking for event ID in title
-      // Title format: "[Pre-Event] [event-123] Topic Title" or "[Post-Event] [event-456] Topic"
-      const eventIdMatch = topicData?.title?.match(/\[event-([^\]]+)\]/);
-      
-      if (eventIdMatch && eventIdMatch[1]) {
-        const eventId = eventIdMatch[1];
+      // Check if this is an event discussion using explicit metadata first,
+      // then fallback to legacy event id encoded in title.
+      const eventId = topicData?.event_id || getEventIdFromTitle(topicData?.title);
+      const eventPhase = topicData?.event_phase || (isPreEventDiscussion(topicData?.title) ? 'pre' : 'post');
+
+      if (eventId) {
         try {
           const eventData = await getEvent(eventId, user?.id);
           setRelatedEvent(eventData);
@@ -111,8 +111,8 @@ export default function DiscussionTopicScreen() {
           const eventStart = new Date(eventData.start_date);
           const eventEnd = new Date(eventData.end_date);
 
-          // Determine if this is pre or post event discussion based on title prefix
-          const isPreEvent = topicData.title?.includes('[Pre-Event]');
+          // Determine if this is pre or post event discussion.
+          const isPreEvent = eventPhase === 'pre';
           
           let timingOpen = true;
           let disabledReason = '';
@@ -165,9 +165,10 @@ export default function DiscussionTopicScreen() {
       await postReply(topicId, user.id, replyContent.trim());
 
       // Mirror into event_discussions if this is an event-linked topic
-      const eventId = getEventIdFromTitle(topic?.title);
+      const eventId = topic?.event_id || getEventIdFromTitle(topic?.title);
       if (eventId) {
-        await addEventDiscussion(eventId, user.id, replyContent.trim(), isPreEventDiscussion(topic?.title));
+        const isPre = topic?.event_phase ? topic.event_phase === 'pre' : isPreEventDiscussion(topic?.title);
+        await addEventDiscussion(eventId, user.id, replyContent.trim(), isPre);
       }
 
       setReplyContent('');
@@ -222,9 +223,10 @@ export default function DiscussionTopicScreen() {
       console.log('Deleting topic:', topicId);
       await deleteDiscussionTopic(topicId);
 
-      const eventId = getEventIdFromTitle(topic?.title);
+      const eventId = topic?.event_id || getEventIdFromTitle(topic?.title);
       if (eventId) {
-        await deleteEventDiscussionThread(eventId, isPreEventDiscussion(topic?.title));
+        const isPre = topic?.event_phase ? topic.event_phase === 'pre' : isPreEventDiscussion(topic?.title);
+        await deleteEventDiscussionThread(eventId, isPre);
       }
 
       Toast.show({ type: 'success', text1: 'Discussion deleted' });

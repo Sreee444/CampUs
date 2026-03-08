@@ -74,17 +74,20 @@ export default function EventDiscussionScreen() {
       setEvent(eventData);
 
       // Load discussions for this event
-      // Discussions are identified by title containing [event-{eventId}]
-      const allDiscussions = await getDiscussionTopics();
-      const eventDiscussions = allDiscussions.filter(
-        (topic: any) => topic.title?.includes(`[event-${eventId}]`)
-      );
+      const eventDiscussions = await getDiscussionTopics({
+        scope: 'event',
+        eventId,
+      });
 
       setDiscussions(eventDiscussions);
 
-      // Separate pre and post event discussions by title prefix
-      const preEvent = eventDiscussions.find((t: any) => t.title?.includes('[Pre-Event]'));
-      const postEvent = eventDiscussions.find((t: any) => t.title?.includes('[Post-Event]'));
+      // Separate pre and post event discussions, with legacy title fallback.
+      const preEvent = eventDiscussions.find(
+        (t: any) => t.event_phase === 'pre' || t.title?.includes('[Pre-Event]')
+      );
+      const postEvent = eventDiscussions.find(
+        (t: any) => t.event_phase === 'post' || t.title?.includes('[Post-Event]')
+      );
 
       setPreEventDiscussion(preEvent || null);
       setPostEventDiscussion(postEvent || null);
@@ -113,6 +116,9 @@ export default function EventDiscussionScreen() {
       const newTopic = await createDiscussionTopic({
         title: `${discussionType === 'pre' ? '[Pre-Event] ' : '[Post-Event] '}[event-${eventId}] ${newTopicTitle}`,
         category: 'general',
+        discussion_scope: 'event',
+        event_id: eventId,
+        event_phase: discussionType,
         created_by: user.id,
       });
 
@@ -310,7 +316,7 @@ export default function EventDiscussionScreen() {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.discussionTitle}>{getCleanDiscussionTitle(preEventDiscussion.title)}</Text>
                   <Text style={styles.discussionMeta}>
-                    <MaterialIcons name="forum" size={12} /> {preEventDiscussion.reply_count || 0} discussions
+                    <MaterialIcons name="forum" size={12} /> {preEventDiscussion.replies_count || 0} discussions
                   </Text>
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -378,7 +384,7 @@ export default function EventDiscussionScreen() {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.discussionTitle}>{getCleanDiscussionTitle(postEventDiscussion.title)}</Text>
                   <Text style={styles.discussionMeta}>
-                    <MaterialIcons name="forum" size={12} /> {postEventDiscussion.reply_count || 0} discussions
+                    <MaterialIcons name="forum" size={12} /> {postEventDiscussion.replies_count || 0} discussions
                   </Text>
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
