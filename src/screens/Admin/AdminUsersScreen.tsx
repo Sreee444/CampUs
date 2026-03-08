@@ -8,7 +8,7 @@ import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
-import { getAllUsers, changeUserRole, toggleUserBan, getActiveBans, insertAdminLog } from '../../api/admin';
+import { banUser, changeUserRole, getActiveBans, getAllUsers, getUserActiveBan, insertAdminLog, unbanUser } from '../../api/admin';
 import { Profile, UserBan } from '../../types/database';
 import { UserAvatar } from '../../components/UserAvatar';
 import { useAuth } from '../../contexts/AuthContext';
@@ -134,28 +134,25 @@ export default function AdminUsersScreen() {
 
   const handleConfirmBan = async () => {
     if (!selectedUser || !user?.id) return;
-    const isBanned = bannedIds.includes(selectedUser.id);
+    const isBannedByUi = bannedIds.includes(selectedUser.id);
 
-    if (!isBanned && !banReason.trim()) {
+    if (!isBannedByUi && !banReason.trim()) {
       Toast.show({ type: 'error', text1: 'Ban reason is required' });
       return;
     }
 
     try {
       setIsProcessing(true);
+      const activeBan = await getUserActiveBan(selectedUser.id);
+      const isBanned = Boolean(activeBan);
+
       let banUntil: string | undefined;
       if (!isBanned && banDays !== null) {
         banUntil = new Date(Date.now() + banDays * 24 * 60 * 60 * 1000).toISOString();
       }
 
-      const result = await toggleUserBan(
-        selectedUser.id,
-        user.id,
-        banReason.trim(),
-        banUntil,
-      );
-
-      if (result.action === 'banned') {
+      if (!isBanned) {
+        await banUser(selectedUser.id, user.id, banReason.trim(), banUntil);
         setBannedIds(prev => [...prev, selectedUser.id]);
         await insertAdminLog(user.id, 'ban_user', selectedUser.id, {
           reason: banReason.trim(),
@@ -164,6 +161,7 @@ export default function AdminUsersScreen() {
         });
         Toast.show({ type: 'success', text1: 'User banned', text2: `${selectedUser.full_name}` });
       } else {
+        await unbanUser(selectedUser.id);
         setBannedIds(prev => prev.filter(id => id !== selectedUser.id));
         await insertAdminLog(user.id, 'unban_user', selectedUser.id, {});
         Toast.show({ type: 'success', text1: 'User unbanned', text2: `${selectedUser.full_name}` });

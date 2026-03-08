@@ -17,6 +17,7 @@ type AuthContextValue = {
   isBanned: boolean;
   banReason: string | null;
   banUntil: string | null;
+  banDuration: string | null;
   setUser: (user: AuthUser) => void;
   setProfile: (profile: Profile | null) => void;
   isAuthenticated: boolean;
@@ -50,8 +51,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isBanned, setIsBanned] = useState(false);
   const [banReason, setBanReason] = useState<string | null>(null);
   const [banUntil, setBanUntil] = useState<string | null>(null);
+  const [banDuration, setBanDuration] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const startTimeRef = React.useRef<number>(Date.now());
+
+  const formatDuration = (ms: number) => {
+    const totalHours = Math.max(1, Math.round(ms / (60 * 60 * 1000)));
+    if (totalHours >= 24) {
+      const days = Math.round(totalHours / 24);
+      return `${days} day${days === 1 ? '' : 's'}`;
+    }
+    return `${totalHours} hour${totalHours === 1 ? '' : 's'}`;
+  };
 
   // Load user session and profile on mount
   useEffect(() => {
@@ -69,6 +80,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setIsBanned(false);
           setBanReason(null);
           setBanUntil(null);
+          setBanDuration(null);
         }
         // Ensure minimum splash time before hiding
         const elapsedTime = Date.now() - startTimeRef.current;
@@ -145,7 +157,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [user?.id]);
 
-  const getActiveBanForUser = async (userId: string) => {
+  const getActiveBanForUser = async (userId: string): Promise<{
+    active: { reason: string; until: string | null; duration: string | null } | null;
+    lookupFailed: boolean;
+  }> => {
     const { data, error } = await supabase
       .from('user_bans')
       .select('*')
@@ -153,7 +168,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .order('created_at', { ascending: false });
 
     if (error) {
-      return null;
+      return { active: null, lookupFailed: true };
     }
 
     const rows = data || [];
@@ -165,11 +180,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return !Number.isNaN(untilTs) && untilTs > Date.now();
     }) as any;
 
-    if (!active) return null;
+    if (!active) return { active: null, lookupFailed: false };
+
+    const until = active.banned_until ?? active.ban_until ?? null;
+    let duration: string | null = null;
+    if (active?.is_permanent === true) {
+      duration = 'Permanent';
+    } else if (until) {
+      const untilMs = new Date(until).getTime();
+      const createdMs = new Date(active.created_at).getTime();
+      if (!Number.isNaN(untilMs) && !Number.isNaN(createdMs) && untilMs > createdMs) {
+        duration = formatDuration(untilMs - createdMs);
+      }
+    }
 
     return {
-      reason: active.reason || 'Your account has been suspended by an administrator.',
-      until: active.banned_until ?? active.ban_until ?? null,
+      active: {
+        reason: active.reason || 'Your account has been suspended by an administrator.',
+        until,
+        duration,
+      },
+      lookupFailed: false,
     };
   };
 
@@ -202,13 +233,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setIsBanned(false);
         setBanReason(null);
         setBanUntil(null);
+        setBanDuration(null);
         return;
       }
 
-      const activeBan = await getActiveBanForUser(userId);
-      setIsBanned(Boolean(activeBan || userProfile.is_suspended));
-      setBanReason(activeBan?.reason ?? null);
+      const { active: activeBan, lookupFailed } = await getActiveBanForUser(userId);
+
+      // If ban lookup succeeds, active ban rows are the source of truth.
+      // This prevents expired temporary bans from keeping users blocked via stale profile flags.
+      const suspended = lookupFailed ? Boolean(userProfile.is_suspended) : Boolean(activeBan);
+      setIsBanned(suspended);
+      setBanReason(activeBan?.reason ?? (suspended ? 'Your account has been suspended by an administrator.' : null));
       setBanUntil(activeBan?.until ?? null);
+      setBanDuration(activeBan?.duration ?? null);
+
+      if (!lookupFailed) {
+        const shouldSuspendFlag = Boolean(activeBan);
+        if (Boolean(userProfile.is_suspended) !== shouldSuspendFlag) {
+          const syncedProfile = await updateProfile(userId, { is_suspended: shouldSuspendFlag });
+          setProfile(syncedProfile);
+          return;
+        }
+      }
 
       if (userProfile.year_of_admission) {
         const computed = calculateAcademicFields(userProfile.year_of_admission);
@@ -257,6 +303,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsBanned(false);
       setBanReason(null);
       setBanUntil(null);
+      setBanDuration(null);
     } catch (error: any) {
       // Ignore abort errors (common on web during hot reload)
       if (isTransientNetworkError(error)) {
@@ -273,6 +320,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isBanned,
       banReason,
       banUntil,
+      banDuration,
       setUser,
       setProfile,
       isAuthenticated: Boolean(user),
@@ -280,7 +328,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signOut: handleSignOut,
       refreshProfile,
     }),
-    [user, profile, isBanned, banReason, banUntil, isLoading]
+    [user, profile, isBanned, banReason, banUntil, banDuration, isLoading]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -7,14 +7,16 @@ import {
   SafeAreaView,
   ScrollView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../../navigation/types';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
-import { getEngagementMetrics } from '../../api/admin';
+import { getEngagementMetrics, getPendingAppealsCount } from '../../api/admin';
+import { supabase } from '../../api/supabase';
 import Loader from '../../components/Loader';
 import AdminHeader from '../../components/admin/AdminHeader';
 
@@ -35,22 +37,94 @@ export default function AdminDashboardScreen() {
   const styles = createStyles(Colors);
 
   const [metrics, setMetrics] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [pendingAppeals, setPendingAppeals] = useState(0);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isNavigating, setIsNavigating] = useState(false);
+  const loadInProgressRef = useRef(false);
+  const queuedReloadRef = useRef(false);
+  const mountedRef = useRef(true);
+  const hasLoadedOnceRef = useRef(false);
+  const realtimeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    loadMetrics();
+    return () => {
+      mountedRef.current = false;
+      if (realtimeDebounceRef.current) clearTimeout(realtimeDebounceRef.current);
+    };
   }, []);
 
-  const loadMetrics = async () => {
+  const loadMetrics = useCallback(async () => {
+    if (loadInProgressRef.current) {
+      queuedReloadRef.current = true;
+      return;
+    }
+
+    loadInProgressRef.current = true;
+    const firstLoad = !hasLoadedOnceRef.current;
     try {
-      const data = await getEngagementMetrics();
-      setMetrics(data);
+      if (mountedRef.current) {
+        if (firstLoad) setIsInitialLoading(true);
+        else setIsRefreshing(true);
+      }
+      const [data, appealCount] = await Promise.all([
+        getEngagementMetrics(),
+        getPendingAppealsCount(),
+      ]);
+      if (mountedRef.current) {
+        setMetrics(data);
+        setPendingAppeals(appealCount);
+      }
+      hasLoadedOnceRef.current = true;
     } catch (error) {
       console.error('Error loading metrics:', error);
     } finally {
-      setIsLoading(false);
+      if (mountedRef.current) {
+        setIsInitialLoading(false);
+        setIsRefreshing(false);
+      }
+      loadInProgressRef.current = false;
+      if (queuedReloadRef.current) {
+        queuedReloadRef.current = false;
+        loadMetrics();
+      }
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    loadMetrics();
+  }, [loadMetrics]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadMetrics();
+    }, [loadMetrics])
+  );
+
+  useEffect(() => {
+    const triggerRealtimeRefresh = () => {
+      if (realtimeDebounceRef.current) clearTimeout(realtimeDebounceRef.current);
+      realtimeDebounceRef.current = setTimeout(() => {
+        loadMetrics();
+      }, 450);
+    };
+
+    const channel = supabase
+      .channel('admin-dashboard-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, triggerRealtimeRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'feed_posts' }, triggerRealtimeRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, triggerRealtimeRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'project_teams' }, triggerRealtimeRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, triggerRealtimeRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'event_registrations' }, triggerRealtimeRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reports' }, triggerRealtimeRefresh)
+      .subscribe();
+
+    return () => {
+      if (realtimeDebounceRef.current) clearTimeout(realtimeDebounceRef.current);
+      supabase.removeChannel(channel);
+    };
+  }, [loadMetrics]);
 
   const coreModules: ModuleItem[] = [
     {
@@ -123,13 +197,18 @@ export default function AdminDashboardScreen() {
 
   const quickActions = [
     { label: 'Open Users', icon: 'manage-accounts', screen: 'AdminUsers' },
-    { label: 'View Reports', icon: 'report-problem', screen: 'AdminReports' },
+    { label: pendingAppeals > 0 ? `Appeals (${pendingAppeals})` : 'View Reports', icon: 'report-problem', screen: 'AdminReports' },
     { label: 'Broadcast', icon: 'notifications-active', screen: 'AdminBroadcast' },
     { label: 'Audit', icon: 'rule-folder', screen: 'AdminAudit' },
   ];
 
   const handleNavigate = (screen: string) => {
+    if (isNavigating) return;
+    setIsNavigating(true);
     navigation.navigate(screen as any);
+    setTimeout(() => {
+      if (mountedRef.current) setIsNavigating(false);
+    }, 350);
   };
 
   const roleBreakdown = useMemo(() => {
@@ -142,7 +221,7 @@ export default function AdminDashboardScreen() {
     }));
   }, [metrics]);
 
-  if (isLoading || !metrics) {
+  if (isInitialLoading || !metrics) {
     return <Loader />;
   }
 
@@ -151,6 +230,13 @@ export default function AdminDashboardScreen() {
       <AdminHeader
         title="Admin Command Center"
         subtitle="Operations, moderation, and intelligence modules"
+        onBack={() => {
+          if (navigation.canGoBack()) {
+            navigation.goBack();
+            return;
+          }
+          navigation.navigate('MainTabs', { screen: 'Home' });
+        }}
         onRefresh={loadMetrics}
       />
 
@@ -166,6 +252,13 @@ export default function AdminDashboardScreen() {
               <Text style={styles.liveText}>LIVE</Text>
             </View>
           </View>
+
+          {isRefreshing && (
+            <View style={styles.inlineRefreshRow}>
+              <ActivityIndicator size="small" color={Colors.primary} />
+              <Text style={[styles.inlineRefreshText, { color: Colors.textSecondary }]}>Refreshing live metrics...</Text>
+            </View>
+          )}
 
           <View style={styles.statsGrid}>
             <View style={[styles.statCard, { borderColor: Colors.border, backgroundColor: Colors.background }]}>
@@ -188,7 +281,10 @@ export default function AdminDashboardScreen() {
         </View>
 
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: Colors.text }]}>Quick Actions</Text>
+          <View style={styles.sectionHeadRow}>
+            <Text style={[styles.sectionTitle, { color: Colors.text }]}>Quick Actions</Text>
+            {isRefreshing && <ActivityIndicator size="small" color={Colors.primary} />}
+          </View>
           <View style={styles.quickGrid}>
             {quickActions.map((action) => (
               <TouchableOpacity
@@ -196,6 +292,7 @@ export default function AdminDashboardScreen() {
                 style={[styles.quickActionCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}
                 onPress={() => handleNavigate(action.screen)}
                 activeOpacity={0.85}
+                disabled={isNavigating}
               >
                 <MaterialIcons name={action.icon as any} size={18} color={Colors.primary} />
                 <Text style={[styles.quickLabel, { color: Colors.text }]}>{action.label}</Text>
@@ -205,7 +302,10 @@ export default function AdminDashboardScreen() {
         </View>
 
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: Colors.text }]}>Role Distribution</Text>
+          <View style={styles.sectionHeadRow}>
+            <Text style={[styles.sectionTitle, { color: Colors.text }]}>Role Distribution</Text>
+            {isRefreshing && <ActivityIndicator size="small" color={Colors.primary} />}
+          </View>
           <View style={[styles.distributionCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}>
             {roleBreakdown.map((item) => (
               <View key={item.role} style={styles.distributionItem}>
@@ -224,7 +324,10 @@ export default function AdminDashboardScreen() {
         </View>
 
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: Colors.text }]}>Management Modules</Text>
+          <View style={styles.sectionHeadRow}>
+            <Text style={[styles.sectionTitle, { color: Colors.text }]}>Management Modules</Text>
+            {isRefreshing && <ActivityIndicator size="small" color={Colors.primary} />}
+          </View>
           <View style={styles.menuGrid}>
             {coreModules.map((item) => (
               <TouchableOpacity
@@ -232,6 +335,7 @@ export default function AdminDashboardScreen() {
                 style={[styles.menuCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}
                 onPress={() => handleNavigate(item.screen)}
                 activeOpacity={0.85}
+                disabled={isNavigating}
               >
                 <View style={[styles.iconContainer, { backgroundColor: item.color + '18' }]}>
                   <MaterialIcons name={item.icon as any} size={24} color={item.color} />
@@ -247,7 +351,10 @@ export default function AdminDashboardScreen() {
         </View>
 
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: Colors.text }]}>Intelligence and Communications</Text>
+          <View style={styles.sectionHeadRow}>
+            <Text style={[styles.sectionTitle, { color: Colors.text }]}>Intelligence and Communications</Text>
+            {isRefreshing && <ActivityIndicator size="small" color={Colors.primary} />}
+          </View>
           <View style={styles.menuGrid}>
             {intelligenceModules.map((item) => (
               <TouchableOpacity
@@ -255,6 +362,7 @@ export default function AdminDashboardScreen() {
                 style={[styles.menuCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}
                 onPress={() => handleNavigate(item.screen)}
                 activeOpacity={0.85}
+                disabled={isNavigating}
               >
                 <View style={[styles.iconContainer, { backgroundColor: item.color + '18' }]}>
                   <MaterialIcons name={item.icon as any} size={24} color={item.color} />
@@ -330,6 +438,15 @@ const createStyles = (Colors: any) =>
       flexWrap: 'wrap',
       gap: Spacing.sm,
     },
+    inlineRefreshRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    inlineRefreshText: {
+      fontSize: FontSizes.xs,
+      fontWeight: FontWeights.medium,
+    },
     statCard: {
       width: '48%',
       borderWidth: 1,
@@ -352,6 +469,12 @@ const createStyles = (Colors: any) =>
     sectionTitle: {
       fontSize: FontSizes.md,
       fontWeight: FontWeights.bold,
+      marginBottom: Spacing.sm,
+    },
+    sectionHeadRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
       marginBottom: Spacing.sm,
     },
     quickGrid: {
