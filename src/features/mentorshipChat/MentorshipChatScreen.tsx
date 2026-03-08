@@ -12,7 +12,7 @@ import {
   Platform,
   TextInput,
 } from 'react-native';
-import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
+import { RouteProp, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { MaterialIcons } from '@expo/vector-icons';
 import { RootStackParamList } from '../../navigation/types';
@@ -26,6 +26,7 @@ import {
   subscribeToMentorshipMessages,
   MentorshipMessage,
 } from '../../api/mentorshipChat';
+import { updateUserStatus } from '../../api/chat';
 import { UserAvatar } from '../../components/UserAvatar';
 
 type MentorshipChatRouteProp = RouteProp<RootStackParamList, 'MentorshipChat'>;
@@ -86,6 +87,18 @@ export default function MentorshipChatScreen() {
         year: 'numeric',
       })
     : '';
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (!currentUserId) return;
+
+      updateUserStatus(currentUserId, 'online').catch(() => {});
+
+      return () => {
+        updateUserStatus(currentUserId, 'away').catch(() => {});
+      };
+    }, [currentUserId])
+  );
 
   useEffect(() => {
     let isMounted = true;
