@@ -128,16 +128,22 @@ export const updateProfile = async (
   userId: string,
   updates: Partial<Profile>
 ) => {
-  const { data, error } = await supabase
+  // Update only existing profile rows. Creating rows should happen server-side
+  // (auth trigger/service role), otherwise client-side inserts can fail under RLS.
+  const { data: updatedProfile, error: updateError } = await supabase
     .from("profiles")
     // @ts-ignore - Supabase type inference issue until database is set up
     .update(updates)
     .eq("id", userId)
-    .select()
-    .single();
+    .select("*")
+    .maybeSingle();
 
-  if (error) throw error;
-  return data as Profile;
+  if (updateError) throw updateError;
+  if (updatedProfile) return updatedProfile as Profile;
+
+  throw new Error(
+    'Profile record was not found. Ask admin to create profile rows via auth trigger (recommended) or allow profile insert policy.'
+  );
 };
 
 // Reset password

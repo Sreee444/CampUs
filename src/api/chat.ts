@@ -518,7 +518,7 @@ const ensureGroupAdminPermission = async (conversationId: string, actorId: strin
 export const updateGroupConversation = async (
   conversationId: string,
   actorId: string,
-  updates: { group_name?: string; group_avatar?: string | null }
+  updates: { group_name?: string; group_avatar?: string | null; group_bio?: string | null }
 ) => {
   const details = await ensureGroupAdminPermission(conversationId, actorId);
 
@@ -536,18 +536,58 @@ export const updateGroupConversation = async (
     payload.group_avatar = updates.group_avatar || null;
   }
 
+  if (typeof updates.group_bio !== 'undefined') {
+    const nextBio = (updates.group_bio || '').trim();
+    payload.group_bio = nextBio || null;
+  }
+
   if (Object.keys(payload).length === 0) {
     return details;
   }
 
-  const { data, error } = await supabase
-    .from("conversations")
-    .update(payload as any)
-    .eq("id", conversationId)
-    .select("*")
-    .single();
+  const runUpdate = async (updatePayload: Record<string, any>) => {
+    return await supabase
+      .from("conversations")
+      .update(updatePayload as any)
+      .eq("id", conversationId)
+      .select("*")
+      .single();
+  };
+
+  let { data, error } = await runUpdate(payload);
+  let groupBioUnsupported = false;
+
+  // Backward compatibility for deployments where group_bio migration is not applied yet.
+  if (error && typeof payload.group_bio !== 'undefined') {
+    const message = `${(error as any)?.message || ''}`.toLowerCase();
+    const isMissingGroupBioColumn =
+      message.includes('group_bio') && (message.includes('column') || message.includes('could not find'));
+
+    if (isMissingGroupBioColumn) {
+      groupBioUnsupported = true;
+      const fallbackPayload = { ...payload };
+      delete fallbackPayload.group_bio;
+
+      if (Object.keys(fallbackPayload).length === 0) {
+        throw new Error(
+          'Group bio is not supported yet in this database. Please run the migration to add conversations.group_bio.'
+        );
+      }
+
+      const fallbackResult = await runUpdate(fallbackPayload);
+      data = fallbackResult.data;
+      error = fallbackResult.error;
+    }
+  }
 
   if (error) throw error;
+  if (groupBioUnsupported) {
+    return {
+      ...(data || details),
+      __groupBioUnsupported: true,
+    } as any;
+  }
+
   return data;
 };
 
@@ -592,6 +632,52 @@ export const setGroupParticipantAdmin = async (
     .is("left_at", null);
 
   if (error) throw error;
+};
+
+export const addParticipantsToGroup = async (
+  conversationId: string,
+  actorId: string,
+  participantIds: string[]
+) => {
+  const details = await ensureGroupAdminPermission(conversationId, actorId);
+
+  const uniqueParticipantIds = Array.from(
+    new Set(participantIds.filter((id) => !!id && id !== actorId))
+  );
+
+  if (!uniqueParticipantIds.length) {
+    return { addedCount: 0 };
+  }
+
+  const activeMemberIds = new Set<string>(
+    (details.participants || []).map((participant: any) => participant.user_id)
+  );
+
+  const idsToAdd = uniqueParticipantIds.filter((id) => !activeMemberIds.has(id));
+
+  if (!idsToAdd.length) {
+    return { addedCount: 0 };
+  }
+
+  const rows = idsToAdd.map((userId) => ({
+    conversation_id: conversationId,
+    user_id: userId,
+    left_at: null,
+    is_admin: false,
+  }));
+
+  const { error } = await supabase
+    .from("conversation_participants")
+    .upsert(rows as any, { onConflict: "conversation_id,user_id" });
+
+  if (error) throw error;
+
+  await supabase
+    .from("conversations")
+    .update({ updated_at: new Date().toISOString() } as any)
+    .eq("id", conversationId);
+
+  return { addedCount: idsToAdd.length };
 };
 
 // ===== MESSAGES =====
@@ -1001,7 +1087,7 @@ export const uploadChatAttachment = async (
   fileUri: string
 ) => {
   const fileExt = (fileUri.split('.').pop()?.split('?')[0] ?? 'jpg').toLowerCase();
-  const fileName = `${Date.now()}.${fileExt} `;
+  const fileName = `${Date.now()}.${fileExt}`;
   const filePath = `${userId}/${fileName}`;
   const contentType = fileExt === 'png' ? 'image/png' : fileExt === 'webp' ? 'image/webp' : 'image/jpeg';
 
@@ -1021,6 +1107,48 @@ export const uploadChatAttachment = async (
   const { data: { publicUrl } } = supabase.storage
     .from('chat-attachments')
     .getPublicUrl(filePath);
+
+  return publicUrl;
+};
+
+// Upload group avatar (uses avatars bucket which is already configured for profile uploads)
+export const uploadGroupAvatar = async (userId: string, fileUri: string) => {
+  const fileExt = (fileUri.split('.').pop()?.split('?')[0] ?? 'jpg').toLowerCase();
+  const safeExt = ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(fileExt) ? fileExt : 'jpg';
+  const fileName = `group-avatar-${Date.now()}.${safeExt}`;
+  const filePath = `${userId}/${fileName}`;
+
+  const contentType =
+    safeExt === 'png'
+      ? 'image/png'
+      : safeExt === 'webp'
+        ? 'image/webp'
+        : safeExt === 'gif'
+          ? 'image/gif'
+          : 'image/jpeg';
+
+  const base64 = await FileSystem.readAsStringAsync(fileUri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  const byteCharacters = atob(base64);
+  const uint8Array = new Uint8Array(byteCharacters.length);
+  for (let i = 0; i < byteCharacters.length; i++) {
+    uint8Array[i] = byteCharacters.charCodeAt(i);
+  }
+
+  const { error: uploadError } = await supabase.storage
+    .from('avatars')
+    .upload(filePath, uint8Array, {
+      contentType,
+      upsert: true,
+      cacheControl: '3600',
+    });
+
+  if (uploadError) throw uploadError;
+
+  const {
+    data: { publicUrl },
+  } = supabase.storage.from('avatars').getPublicUrl(filePath);
 
   return publicUrl;
 };

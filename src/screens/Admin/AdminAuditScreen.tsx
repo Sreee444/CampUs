@@ -370,7 +370,7 @@ export default function AdminAuditScreen() {
                                             <View key={`${row.field}-${idx}`} style={[styles.previewChangeRow, { borderColor: Colors.border }]}> 
                                                 <Text style={[styles.previewChangeField, { color: Colors.textSecondary }]}>{row.field}</Text>
                                                 <Text style={[styles.previewChangeValue, { color: Colors.text }]}>
-                                                    {row.from} -> {row.to}
+                                                    {row.from}{' -> '}{row.to}
                                                 </Text>
                                             </View>
                                         ))}

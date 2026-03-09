@@ -406,6 +406,11 @@ const createStyles = (Colors: any, isDark: boolean) =>
       paddingVertical: 4,
       borderRadius: BorderRadius.md,
     },
+    badgeText: {
+      fontSize: FontSizes.xs,
+      fontWeight: FontWeights.semibold,
+      color: Colors.text,
+    },
     topicCategory: {
       fontSize: FontSizes.xs,
       color: Colors.textSecondary,

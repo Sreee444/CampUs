@@ -54,7 +54,6 @@ export default function AllUsersScreen() {
   const [searchInput, setSearchInput] = useState('');
   const [activeSearch, setActiveSearch] = useState('');
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
-  const [isRealtimeSearch, setIsRealtimeSearch] = useState(true);
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
 
@@ -121,8 +120,6 @@ export default function AllUsersScreen() {
   }, [selectedRole]);
 
   useEffect(() => {
-    if (!isRealtimeSearch) return;
-
     if (debounceRef.current) {
       clearTimeout(debounceRef.current);
     }
@@ -147,13 +144,7 @@ export default function AllUsersScreen() {
         clearTimeout(debounceRef.current);
       }
     };
-  }, [searchInput, isRealtimeSearch, loadUsers]);
-
-  const submitSearch = () => {
-    const trimmed = searchInput.trim();
-    setActiveSearch(trimmed);
-    loadUsers(true, trimmed);
-  };
+  }, [searchInput, loadUsers]);
 
   const clearSearch = () => {
     setSearchInput('');
@@ -350,42 +341,13 @@ export default function AllUsersScreen() {
             value={searchInput}
             onChangeText={setSearchInput}
             returnKeyType="search"
-            onSubmitEditing={() => {
-              Keyboard.dismiss();
-              submitSearch();
-            }}
+            onSubmitEditing={() => Keyboard.dismiss()}
           />
           {searchInput.length > 0 && (
             <TouchableOpacity onPress={clearSearch}>
               <MaterialIcons name="close" size={18} color={Colors.textSecondary} />
             </TouchableOpacity>
           )}
-        </View>
-
-        <View style={styles.searchActionsRow}>
-          <TouchableOpacity
-            style={[styles.searchActionChip, isRealtimeSearch && styles.searchActionChipActive]}
-            onPress={() => setIsRealtimeSearch((prev) => !prev)}
-          >
-            <MaterialIcons
-              name={isRealtimeSearch ? 'flash-on' : 'flash-off'}
-              size={14}
-              color={isRealtimeSearch ? Colors.primaryContent : Colors.textSecondary}
-            />
-            <Text
-              style={[
-                styles.searchActionText,
-                isRealtimeSearch && styles.searchActionTextActive,
-              ]}
-            >
-              Realtime
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.searchButton} onPress={submitSearch}>
-            <MaterialIcons name="search" size={16} color={Colors.primaryContent} />
-            <Text style={styles.searchButtonText}>Search</Text>
-          </TouchableOpacity>
         </View>
 
         <View style={styles.filtersContainer}>
@@ -484,48 +446,6 @@ const createStyles = (Colors: any) =>
       fontSize: FontSizes.md,
       color: Colors.text,
       marginLeft: Spacing.xs,
-    },
-    searchActionsRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-    },
-    searchActionChip: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: Spacing.xs,
-      paddingHorizontal: Spacing.sm,
-      paddingVertical: Spacing.xs,
-      borderRadius: BorderRadius.full,
-      borderWidth: 1,
-      borderColor: Colors.border,
-      backgroundColor: Colors.card,
-    },
-    searchActionChipActive: {
-      backgroundColor: Colors.primary,
-      borderColor: Colors.primary,
-    },
-    searchActionText: {
-      fontSize: FontSizes.sm,
-      color: Colors.textSecondary,
-      fontWeight: FontWeights.medium,
-    },
-    searchActionTextActive: {
-      color: Colors.primaryContent,
-    },
-    searchButton: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-      borderRadius: BorderRadius.md,
-      backgroundColor: Colors.primary,
-      paddingHorizontal: Spacing.md,
-      paddingVertical: Spacing.xs,
-    },
-    searchButtonText: {
-      color: Colors.primaryContent,
-      fontWeight: FontWeights.semibold,
-      fontSize: FontSizes.sm,
     },
     filtersContainer: {
       flexDirection: 'row',

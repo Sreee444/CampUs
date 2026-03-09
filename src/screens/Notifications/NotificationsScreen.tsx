@@ -209,7 +209,7 @@ export default function NotificationsScreen() {
                 return;
             }
 
-            const request = await getUserJoinRequestStatus(teamId, user.id);
+            const request: any = await getUserJoinRequestStatus(teamId, user.id);
             if (!request || request.status !== 'pending') {
                 await markNotificationAsRead(notif.id);
                 setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
@@ -239,7 +239,7 @@ export default function NotificationsScreen() {
                 return;
             }
 
-            const request = await getUserJoinRequestStatus(teamId, user.id);
+            const request: any = await getUserJoinRequestStatus(teamId, user.id);
             if (request?.id && request.status === 'pending') {
                 await rejectProjectInvite(request.id);
             }
@@ -296,7 +296,7 @@ export default function NotificationsScreen() {
                 return;
             }
 
-            const request = await resolveProjectJoinRequest(notif);
+            const request: any = await resolveProjectJoinRequest(notif);
             await acceptJoinRequest(request.id, teamId, request.user_id);
             await markNotificationAsRead(notif.id);
             setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
@@ -311,7 +311,7 @@ export default function NotificationsScreen() {
     const handleDeclineProjectRequest = async (notif: Notification) => {
         try {
             setProcessingInviteId(notif.id);
-            const request = await resolveProjectJoinRequest(notif);
+            const request: any = await resolveProjectJoinRequest(notif);
             await rejectJoinRequest(request.id);
             await markNotificationAsRead(notif.id);
             setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
