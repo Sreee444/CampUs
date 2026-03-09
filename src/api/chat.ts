@@ -964,27 +964,38 @@ export const subscribeToTyping = (
   conversationId: string,
   callback: (typingUsers: string[]) => void
 ) => {
-  return supabase
-    .channel(`typing:${conversationId} `)
+  const fetchTypingUsers = async () => {
+    const staleCutoff = new Date(Date.now() - 8 * 1000).toISOString();
+    const { data } = await supabase
+      .from("typing_indicators")
+      .select("user_id")
+      .eq("conversation_id", conversationId)
+      .gte("started_at", staleCutoff);
+
+    callback(data?.map((d: any) => d.user_id) || []);
+  };
+
+  const channel = supabase
+    .channel(`typing:${conversationId}`)
     .on(
       "postgres_changes",
       {
         event: "*",
         schema: "public",
         table: "typing_indicators",
-        filter: `conversation_id = eq.${conversationId} `,
+        filter: `conversation_id=eq.${conversationId}`,
       },
       async () => {
-        // Fetch current typing users
-        const { data } = await supabase
-          .from("typing_indicators")
-          .select("user_id")
-          .eq("conversation_id", conversationId);
-
-        callback(data?.map((d: any) => d.user_id) || []);
+        await fetchTypingUsers();
       }
-    )
-    .subscribe();
+    );
+
+  fetchTypingUsers().catch((error) => {
+    console.error("Initial typing fetch error:", error);
+    callback([]);
+  });
+
+  return channel.subscribe();
 };
 
 // Subscribe to new messages

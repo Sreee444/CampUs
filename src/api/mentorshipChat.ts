@@ -451,3 +451,73 @@ export const getMentorshipMessageReactions = async (
 
   return reactionsMap;
 };
+
+// ========== TYPING INDICATORS ==========
+
+/**
+ * Set typing indicator for a user in a mentorship chat.
+ */
+export const setMentorshipTyping = async (chatId: string, userId: string) => {
+  // @ts-ignore - Supabase type inference issue
+  const { error } = await supabase.from("mentorship_typing_indicators").upsert({
+    chat_id: chatId,
+    user_id: userId,
+    started_at: new Date().toISOString(),
+  } as any);
+
+  if (error) console.error("Mentorship typing indicator error:", error);
+};
+
+/**
+ * Remove typing indicator for a user in a mentorship chat.
+ */
+export const removeMentorshipTyping = async (chatId: string, userId: string) => {
+  const { error } = await supabase
+    .from("mentorship_typing_indicators")
+    .delete()
+    .eq("chat_id", chatId)
+    .eq("user_id", userId);
+
+  if (error) console.error("Remove mentorship typing error:", error);
+};
+
+/**
+ * Subscribe to typing indicators in a mentorship chat.
+ */
+export const subscribeToMentorshipTyping = (
+  chatId: string,
+  callback: (typingUsers: string[]) => void
+) => {
+  const fetchTypingUsers = async () => {
+    const staleCutoff = new Date(Date.now() - 8 * 1000).toISOString();
+    const { data } = await supabase
+      .from("mentorship_typing_indicators")
+      .select("user_id")
+      .eq("chat_id", chatId)
+      .gte("started_at", staleCutoff);
+
+    callback(data?.map((d: any) => d.user_id) || []);
+  };
+
+  const channel = supabase
+    .channel(`mentorship_typing:${chatId}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "mentorship_typing_indicators",
+        filter: `chat_id=eq.${chatId}`,
+      },
+      async () => {
+        await fetchTypingUsers();
+      }
+    );
+
+  fetchTypingUsers().catch((error) => {
+    console.error("Initial mentorship typing fetch error:", error);
+    callback([]);
+  });
+
+  return channel.subscribe();
+};

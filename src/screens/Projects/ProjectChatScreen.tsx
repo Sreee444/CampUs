@@ -32,6 +32,9 @@ import {
     removeProjectMessageReaction,
     getProjectMessageReactions,
     MessageReaction,
+    setProjectTyping,
+    removeProjectTyping,
+    subscribeToProjectTyping,
 } from '../../api/projectChat';
 
 type Nav = StackNavigationProp<RootStackParamList, 'ProjectChat'>;
@@ -53,7 +56,13 @@ export default function ProjectChatScreen() {
     const [reactions, setReactions] = useState<Map<string, MessageReaction[]>>(new Map());
     const [showReactionPicker, setShowReactionPicker] = useState(false);
     const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
+    const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
     const listRef = useRef<FlatList>(null);
+    const typingStopTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const lastTypingSignalAtRef = useRef<number>(0);
+
+    const TYPING_HEARTBEAT_MS = 3000;
+    const TYPING_IDLE_MS = 5000;
 
     const availableEmojis = ['👍', '❤️', '😊', '😂', '🎉', '🔥', '👏', '🙌'];
 
@@ -68,6 +77,34 @@ export default function ProjectChatScreen() {
             };
         }, [user?.id])
     );
+
+    const clearTypingStopTimeout = () => {
+        if (typingStopTimeoutRef.current) {
+            clearTimeout(typingStopTimeoutRef.current);
+            typingStopTimeoutRef.current = null;
+        }
+    };
+
+    const stopTypingSignal = useCallback(async () => {
+        clearTypingStopTimeout();
+        if (!chatId || !user?.id) return;
+        await removeProjectTyping(chatId, user.id);
+    }, [chatId, user?.id]);
+
+    const sendTypingSignal = useCallback(() => {
+        if (!chatId || !user?.id) return;
+
+        const now = Date.now();
+        if (now - lastTypingSignalAtRef.current >= TYPING_HEARTBEAT_MS) {
+            lastTypingSignalAtRef.current = now;
+            setProjectTyping(chatId, user.id).catch(() => {});
+        }
+
+        clearTypingStopTimeout();
+        typingStopTimeoutRef.current = setTimeout(() => {
+            stopTypingSignal().catch(() => {});
+        }, TYPING_IDLE_MS);
+    }, [chatId, user?.id, stopTypingSignal]);
 
     const loadMessages = useCallback(async () => {
         if (!chatId) return;
@@ -106,11 +143,20 @@ export default function ProjectChatScreen() {
             });
         });
 
+        // Subscribe to typing indicators
+        setTypingUserIds([]);
+        const typingChannel = subscribeToProjectTyping(chatId, (ids) => {
+            setTypingUserIds(ids.filter((id) => id !== user?.id));
+        });
+
         return () => {
             console.log('[ProjectChatScreen] Cleaning up subscription');
             subscription?.unsubscribe?.();
+            typingChannel.unsubscribe();
+            clearTypingStopTimeout();
+            setTypingUserIds([]);
         };
-    }, [chatId, loadMessages]);
+    }, [chatId, loadMessages, user?.id]);
 
     // Auto-scroll to bottom on new messages
     useEffect(() => {
@@ -129,6 +175,7 @@ export default function ProjectChatScreen() {
         try {
             await sendProjectChatMessage(chatId, user.id, content);
             console.log('[ProjectChatScreen] Message sent successfully');
+            await stopTypingSignal();
         } catch (e: any) {
             console.error('[ProjectChatScreen] Failed to send message:', e);
             Toast.show({ type: 'error', text1: 'Failed to send', text2: e?.message });
@@ -149,6 +196,28 @@ export default function ProjectChatScreen() {
         if (toDay(date) === toDay(yesterday)) return 'Yesterday';
         return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
     };
+
+    const typingDisplayNames = React.useMemo(() => {
+        if (!typingUserIds.length) return [] as string[];
+
+        const names = typingUserIds.map((typingUserId) => {
+            const match = messages.find(
+                (msg) => msg.sender_id === typingUserId && !!msg.sender?.full_name
+            );
+            return match?.sender?.full_name || 'Someone';
+        });
+
+        return Array.from(new Set(names));
+    }, [typingUserIds, messages]);
+
+    const typingLabel = React.useMemo(() => {
+        if (!typingDisplayNames.length) return null;
+        if (typingDisplayNames.length === 1) return `${typingDisplayNames[0]} is typing...`;
+        if (typingDisplayNames.length === 2) {
+            return `${typingDisplayNames[0]} and ${typingDisplayNames[1]} are typing...`;
+        }
+        return `${typingDisplayNames[0]}, ${typingDisplayNames[1]} and others are typing...`;
+    }, [typingDisplayNames]);
 
     const handleReactionPress = (messageId: string) => {
         setSelectedMessageId(messageId);
@@ -348,6 +417,20 @@ export default function ProjectChatScreen() {
                 <View style={{ width: 40 }} />
             </View>
 
+            {typingLabel && (
+                <View style={{
+                    backgroundColor: Colors.surface,
+                    paddingVertical: 8,
+                    paddingHorizontal: 16,
+                    borderBottomWidth: 1,
+                    borderBottomColor: Colors.border,
+                }}>
+                    <Text style={{ color: Colors.textSecondary, fontSize: 12, fontStyle: 'italic' }}>
+                        {typingLabel}
+                    </Text>
+                </View>
+            )}
+
             <KeyboardAvoidingView
                 style={{ flex: 1 }}
                 behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -374,7 +457,12 @@ export default function ProjectChatScreen() {
                     <TextInput
                         style={S.input}
                         value={messageText}
-                        onChangeText={setMessageText}
+                        onChangeText={(text) => {
+                            setMessageText(text);
+                            if (text.trim().length > 0) {
+                                sendTypingSignal();
+                            }
+                        }}
                         placeholder="Message your team…"
                         placeholderTextColor={Colors.textSecondary}
                         multiline
