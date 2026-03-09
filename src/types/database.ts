@@ -222,6 +222,7 @@ export type Conversation = {
   is_group: boolean;
   group_name?: string;
   group_avatar?: string;
+  group_bio?: string;
   created_by: string;
   created_at: string;
   updated_at: string;

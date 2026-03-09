@@ -440,7 +440,7 @@ export default function TeamDetailsScreen() {
                 {/* Team Strength */}
                 <View style={st.section}>
                     <View style={st.sectionHeader}>
-                        <MaterialIcons name="lightning-bolt" size={16} color="#f59e0b" />
+                        <MaterialIcons name="flash-on" size={16} color="#f59e0b" />
                         <Text style={st.sectionLabel}>Team Strength</Text>
                     </View>
                     <LinearGradient

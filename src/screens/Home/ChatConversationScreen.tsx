@@ -15,6 +15,7 @@ import {
   ScrollView,
   Animated,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { useAnimatedStyle, useSharedValue, withRepeat, withTiming, Easing } from 'react-native-reanimated';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
@@ -25,6 +26,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   addMessageReaction,
+  addParticipantsToGroup,
   addConversationSupervisor,
   canFacultySupervise,
   chatWithAI,
@@ -42,6 +44,7 @@ import {
   sendMessage,
   setGroupParticipantAdmin,
   updateGroupConversation,
+  uploadGroupAvatar,
   pinMessage,
   unpinMessage,
   getPinnedMessages,
@@ -52,6 +55,7 @@ import {
   updateUserStatus,
   ChatMessageReaction,
 } from '../../api/chat';
+import { ConnectionWithProfile, getMyConnections } from '../../api/connections';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
 import ConfirmDialog from '../../components/ConfirmDialog';
@@ -190,12 +194,14 @@ type GroupParticipant = {
   id: string;
   user_id: string;
   is_admin: boolean;
+  role?: string;
   user?: {
     id: string;
     full_name?: string;
     avatar_url?: string;
     role?: string;
     department?: string;
+    bio?: string;
   };
 };
 
@@ -217,6 +223,7 @@ export default function ChatConversationScreen() {
   const [showChatOptions, setShowChatOptions] = useState(false);
   const [showMessageOptions, setShowMessageOptions] = useState(false);
   const [showGroupMembers, setShowGroupMembers] = useState(false);
+  const [showAddGroupMembers, setShowAddGroupMembers] = useState(false);
   const [showGroupEdit, setShowGroupEdit] = useState(false);
   const [selectedMessage, setSelectedMessage] = useState<ChatMessage | null>(null);
   const [selectedMember, setSelectedMember] = useState<GroupParticipant | null>(null);
@@ -225,8 +232,15 @@ export default function ChatConversationScreen() {
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
   const [groupNameDraft, setGroupNameDraft] = useState('');
   const [groupAvatarDraft, setGroupAvatarDraft] = useState('');
+  const [groupBioDraft, setGroupBioDraft] = useState('');
+  const [isUploadingGroupAvatar, setIsUploadingGroupAvatar] = useState(false);
   const [groupDetails, setGroupDetails] = useState<any>(null);
   const [groupMembers, setGroupMembers] = useState<GroupParticipant[]>([]);
+  const [availableConnections, setAvailableConnections] = useState<ConnectionWithProfile[]>([]);
+  const [selectedNewMemberIds, setSelectedNewMemberIds] = useState<string[]>([]);
+  const [memberSearchQuery, setMemberSearchQuery] = useState('');
+  const [loadingConnections, setLoadingConnections] = useState(false);
+  const [isAddingMembers, setIsAddingMembers] = useState(false);
   const [isSavingGroup, setIsSavingGroup] = useState(false);
   const [showPinnedMessages, setShowPinnedMessages] = useState(false);
   const [pinnedMessageCount, setPinnedMessageCount] = useState(0);
@@ -317,6 +331,7 @@ export default function ChatConversationScreen() {
       setGroupMembers(participants);
       setGroupNameDraft(details?.group_name || '');
       setGroupAvatarDraft(details?.group_avatar || '');
+      setGroupBioDraft(details?.group_bio || '');
     } catch (error) {
       console.error('Failed to load group details:', error);
     }
@@ -643,17 +658,66 @@ export default function ChatConversationScreen() {
 
     try {
       setIsSavingGroup(true);
-      await updateGroupConversation(conversationId, user.id, {
+      const updatedConversation: any = await updateGroupConversation(conversationId, user.id, {
         group_name: groupNameDraft,
         group_avatar: groupAvatarDraft || null,
+        group_bio: groupBioDraft,
       });
       await loadGroupDetails();
       setShowGroupEdit(false);
-      Toast.show({ type: 'success', text1: 'Group updated' });
+      if (updatedConversation?.__groupBioUnsupported) {
+        Toast.show({
+          type: 'info',
+          text1: 'Group updated (partial)',
+          text2: 'Name/image saved. Run DB migration to enable group bio.',
+        });
+      } else {
+        Toast.show({ type: 'success', text1: 'Group updated' });
+      }
     } catch (error: any) {
       Toast.show({ type: 'error', text1: 'Update failed', text2: error?.message || 'Try again' });
     } finally {
       setIsSavingGroup(false);
+    }
+  };
+
+  const handlePickGroupAvatar = async () => {
+    if (!user?.id) return;
+
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (permission.status !== 'granted') {
+        Toast.show({
+          type: 'info',
+          text1: 'Permission required',
+          text2: 'Allow photo access to upload group image.',
+        });
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (result.canceled || !result.assets?.length) {
+        return;
+      }
+
+      setIsUploadingGroupAvatar(true);
+      const uploadedUrl = await uploadGroupAvatar(user.id, result.assets[0].uri);
+      setGroupAvatarDraft(uploadedUrl);
+      Toast.show({ type: 'success', text1: 'Group image updated' });
+    } catch (error: any) {
+      Toast.show({
+        type: 'error',
+        text1: 'Upload failed',
+        text2: error?.message || 'Could not upload image',
+      });
+    } finally {
+      setIsUploadingGroupAvatar(false);
     }
   };
 
@@ -742,6 +806,59 @@ export default function ChatConversationScreen() {
       Toast.show({ type: 'error', text1: 'Failed to create announcement', text2: error?.message || 'Try again' });
     } finally {
       setIsCreatingAnnouncement(false);
+    }
+  };
+
+  const loadEligibleConnections = async () => {
+    if (!isGroup || !user?.id) return;
+
+    try {
+      setLoadingConnections(true);
+      const acceptedConnections = await getMyConnections('accepted');
+      const existingMemberIds = new Set(groupMembers.map((member) => member.user_id));
+      const eligible = acceptedConnections.filter(
+        (connection) => connection.profile?.id && !existingMemberIds.has(connection.profile.id)
+      );
+      setAvailableConnections(eligible);
+    } catch (error) {
+      Toast.show({ type: 'error', text1: 'Failed to load users' });
+    } finally {
+      setLoadingConnections(false);
+    }
+  };
+
+  const openAddMembersModal = async () => {
+    setShowChatOptions(false);
+    setSelectedNewMemberIds([]);
+    setMemberSearchQuery('');
+    setShowAddGroupMembers(true);
+    await loadEligibleConnections();
+  };
+
+  const handleToggleNewMember = (userId: string) => {
+    setSelectedNewMemberIds((prev) =>
+      prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId]
+    );
+  };
+
+  const handleAddMembersToGroup = async () => {
+    if (!conversationId || !user?.id || !selectedNewMemberIds.length) return;
+
+    try {
+      setIsAddingMembers(true);
+      const result = await addParticipantsToGroup(conversationId, user.id, selectedNewMemberIds);
+      await loadGroupDetails();
+      setShowAddGroupMembers(false);
+      setSelectedNewMemberIds([]);
+      setMemberSearchQuery('');
+      Toast.show({
+        type: 'success',
+        text1: result.addedCount > 0 ? 'Members added to group' : 'No new members were added',
+      });
+    } catch (error: any) {
+      Toast.show({ type: 'error', text1: 'Failed to add members', text2: error?.message || 'Try again' });
+    } finally {
+      setIsAddingMembers(false);
     }
   };
 
@@ -1070,8 +1187,12 @@ export default function ChatConversationScreen() {
       index === 0 ||
       new Date(previousMessage?.created_at || '').toDateString() !==
       new Date(message.created_at).toDateString();
-    const showAvatar = !isMyMessage && (!previousMessage || previousMessage.sender_id !== message.sender_id);
-    const showSenderLabel = !isMyMessage && isGroup && showAvatar;
+    const showGroupIdentity = isGroup;
+    const senderDisplayName = isMyMessage
+      ? profile?.full_name || message.sender?.full_name || 'You'
+      : message.sender?.full_name || 'Member';
+    const senderAvatarUri = isMyMessage ? profile?.avatar_url || message.sender?.avatar_url : message.sender?.avatar_url;
+    const senderRole = isMyMessage ? profile?.role || message.sender?.role : message.sender?.role;
     const messageTime = new Date(message.created_at).toLocaleTimeString('en-US', {
       hour: 'numeric',
       minute: '2-digit',
@@ -1100,19 +1221,15 @@ export default function ChatConversationScreen() {
             isMyMessage ? styles.myMessageWrapper : styles.otherMessageWrapper,
           ]}
         >
-          {!isMyMessage && (
-            <View style={styles.incomingAvatarWrap}>
-              {showAvatar ? (
-                <UserAvatar
-                  uri={message.sender?.avatar_url}
-                  name={message.sender?.full_name || 'User'}
-                  size={30}
-                  role={message.sender?.role}
-                  showRing={false}
-                />
-              ) : (
-                <View style={styles.avatarSpacer} />
-              )}
+          {showGroupIdentity && !isMyMessage && (
+            <View style={styles.avatarLaneStart}>
+              <UserAvatar
+                uri={senderAvatarUri}
+                name={senderDisplayName}
+                size={30}
+                role={senderRole}
+                showRing={false}
+              />
             </View>
           )}
 
@@ -1134,9 +1251,20 @@ export default function ChatConversationScreen() {
               delayLongPress={400}
               activeOpacity={0.8}
             >
-              {showSenderLabel && (
-                <Text style={styles.senderName} numberOfLines={1}>
-                  {message.sender?.full_name || 'Member'}
+              {showGroupIdentity && (
+                <Text
+                  style={[
+                    styles.senderName,
+                    isMyMessage && styles.senderNameMine,
+                    {
+                      color: isMyMessage
+                        ? chatTheme.textColor
+                        : chatTheme.incomingTextColor,
+                    },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {senderDisplayName}
                 </Text>
               )}
               <View style={styles.messageContentWrap}>
@@ -1188,6 +1316,18 @@ export default function ChatConversationScreen() {
               </View>
             )}
           </View>
+
+          {showGroupIdentity && isMyMessage && (
+            <View style={styles.avatarLaneEnd}>
+              <UserAvatar
+                uri={senderAvatarUri}
+                name={senderDisplayName}
+                size={30}
+                role={senderRole}
+                showRing={false}
+              />
+            </View>
+          )}
         </View>
       </View>
     );
@@ -1203,7 +1343,7 @@ export default function ChatConversationScreen() {
         <TouchableOpacity
           style={styles.headerMainInfo}
           onPress={() => {
-            if (isGroup && groupMembers.length > 0) {
+            if (isGroup) {
               setShowGroupMembers(true);
             } else if (!isGroup && directPartnerId) {
               navigation.navigate('PublicProfile', { userId: directPartnerId });
@@ -1234,6 +1374,15 @@ export default function ChatConversationScreen() {
             {isGroup ? (
               <View style={styles.groupHeaderMeta}>
                 <Text style={styles.headerStatus}>{groupMembers.length} members</Text>
+                <Text
+                  style={[
+                    styles.groupBioPreview,
+                    !groupDetails?.group_bio && styles.groupBioPreviewEmpty,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {groupDetails?.group_bio || 'No group bio yet'}
+                </Text>
                 <View style={styles.groupPreviewRow}>
                   {groupMembers.slice(0, 3).map((participant, index) => (
                     <View key={participant.id} style={[styles.groupPreviewAvatar, { marginLeft: index === 0 ? 0 : -8 }]}>
@@ -1546,6 +1695,16 @@ export default function ChatConversationScreen() {
             {isGroup && canManageGroup && (
               <TouchableOpacity
                 style={styles.optionRow}
+                onPress={openAddMembersModal}
+              >
+                <MaterialIcons name="person-add" size={20} color={Colors.text} />
+                <Text style={styles.optionText}>Add Users to Group</Text>
+              </TouchableOpacity>
+            )}
+
+            {isGroup && canManageGroup && (
+              <TouchableOpacity
+                style={styles.optionRow}
                 onPress={() => {
                   setShowChatOptions(false);
                   setShowGroupEdit(true);
@@ -1745,6 +1904,40 @@ export default function ChatConversationScreen() {
               </TouchableOpacity>
             </View>
 
+            <View style={styles.groupProfileCard}>
+              <View style={styles.groupProfileBadge}>
+                <MaterialIcons name="groups" size={12} color={Colors.primaryContent} />
+                <Text style={styles.groupProfileBadgeText}>Group Profile</Text>
+              </View>
+
+              <View style={styles.groupProfileMainRow}>
+                {groupDetails?.group_avatar ? (
+                  <Image source={{ uri: groupDetails.group_avatar }} style={styles.groupProfileAvatar} />
+                ) : (
+                  <View style={styles.groupProfileAvatarFallback}>
+                    <Text style={styles.groupProfileAvatarText}>{initials}</Text>
+                  </View>
+                )}
+                <View style={styles.groupProfileInfo}>
+                  <Text style={styles.groupProfileName} numberOfLines={1}>
+                    {groupDetails?.group_name || name}
+                  </Text>
+                  <Text style={styles.groupProfileMeta}>{groupMembers.length} members</Text>
+                  <Text
+                    style={[
+                      styles.groupProfileBio,
+                      !groupDetails?.group_bio && styles.groupProfileBioEmpty,
+                    ]}
+                    numberOfLines={2}
+                  >
+                    {groupDetails?.group_bio || 'No group bio yet'}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            <Text style={styles.membersSectionLabel}>Members</Text>
+
             <ScrollView showsVerticalScrollIndicator={false}>
               {groupMembers.map((member) => {
                 const isMainAdmin = member.user_id === groupDetails?.created_by;
@@ -1752,6 +1945,15 @@ export default function ChatConversationScreen() {
                   canManageGroup &&
                   member.user_id !== user?.id &&
                   member.user_id !== groupDetails?.created_by;
+                const groupRoleLabel = isMainAdmin
+                  ? 'Main admin'
+                  : member.is_admin
+                    ? 'Group admin'
+                    : member.role
+                      ? `${member.role.charAt(0).toUpperCase()}${member.role.slice(1)}`
+                      : 'Member';
+                const userRoleRaw = member.user?.role || 'member';
+                const userRoleLabel = `${userRoleRaw.charAt(0).toUpperCase()}${userRoleRaw.slice(1)}`;
 
                 return (
                   <View key={member.id} style={styles.memberItem}>
@@ -1768,13 +1970,12 @@ export default function ChatConversationScreen() {
                       />
                       <View style={styles.memberTextWrap}>
                         <Text style={styles.memberName}>{member.user?.full_name || 'Member'}</Text>
-                        <Text style={styles.memberMeta}>
-                          {isMainAdmin
-                            ? 'Main admin'
-                            : member.is_admin
-                              ? 'Group admin'
-                              : member.user?.role || 'Member'}
-                        </Text>
+                        <Text style={styles.memberMeta}>{`${groupRoleLabel} • ${userRoleLabel}`}</Text>
+                        {!!member.user?.bio && (
+                          <Text style={styles.memberBio} numberOfLines={2}>
+                            {member.user.bio}
+                          </Text>
+                        )}
                       </View>
                     </TouchableOpacity>
 
@@ -1790,6 +1991,111 @@ export default function ChatConversationScreen() {
                 );
               })}
             </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showAddGroupMembers}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowAddGroupMembers(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.membersSheet}>
+            <View style={styles.membersHeader}>
+              <Text style={styles.optionsTitle}>Add users to group</Text>
+              <TouchableOpacity onPress={() => setShowAddGroupMembers(false)}>
+                <MaterialIcons name="close" size={22} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.searchInputWrap}>
+              <MaterialIcons name="search" size={18} color={Colors.textSecondary} />
+              <TextInput
+                value={memberSearchQuery}
+                onChangeText={setMemberSearchQuery}
+                placeholder="Search connections"
+                placeholderTextColor={Colors.textSecondary}
+                style={styles.searchInputField}
+              />
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {loadingConnections ? (
+                <View style={styles.membersLoadingWrap}>
+                  <ActivityIndicator size="small" color={Colors.primary} />
+                </View>
+              ) : availableConnections.filter((connection) => {
+                const query = memberSearchQuery.trim().toLowerCase();
+                if (!query) return true;
+                const name = (connection.profile?.full_name || '').toLowerCase();
+                const dept = (connection.profile?.department || '').toLowerCase();
+                return name.includes(query) || dept.includes(query);
+              }).length === 0 ? (
+                <View style={styles.emptyMembersHint}>
+                  <Text style={styles.emptyMembersHintText}>No eligible connections to add.</Text>
+                </View>
+              ) : (
+                availableConnections
+                  .filter((connection) => {
+                    const query = memberSearchQuery.trim().toLowerCase();
+                    if (!query) return true;
+                    const name = (connection.profile?.full_name || '').toLowerCase();
+                    const dept = (connection.profile?.department || '').toLowerCase();
+                    return name.includes(query) || dept.includes(query);
+                  })
+                  .map((connection) => {
+                    const profileItem = connection.profile;
+                    if (!profileItem?.id) return null;
+                    const selected = selectedNewMemberIds.includes(profileItem.id);
+
+                    return (
+                      <TouchableOpacity
+                        key={connection.id}
+                        style={styles.memberItem}
+                        onPress={() => handleToggleNewMember(profileItem.id)}
+                        disabled={isAddingMembers}
+                      >
+                        <View style={styles.memberMainInfo}>
+                          <UserAvatar
+                            uri={profileItem.avatar_url}
+                            name={profileItem.full_name || 'User'}
+                            size={40}
+                            showRing={false}
+                            role={profileItem.role}
+                          />
+                          <View style={styles.memberTextWrap}>
+                            <Text style={styles.memberName}>{profileItem.full_name || 'User'}</Text>
+                            <Text style={styles.memberMeta}>{profileItem.department || profileItem.role || 'Connection'}</Text>
+                          </View>
+                        </View>
+
+                        <View style={[styles.selectionBadge, selected && styles.selectionBadgeActive]}>
+                          {selected && <MaterialIcons name="check" size={14} color="#ffffff" />}
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })
+              )}
+            </ScrollView>
+
+            <TouchableOpacity
+              style={[
+                styles.optionRow,
+                styles.primaryOption,
+                (!selectedNewMemberIds.length || isAddingMembers) && styles.disabledPrimaryOption,
+              ]}
+              onPress={handleAddMembersToGroup}
+              disabled={!selectedNewMemberIds.length || isAddingMembers}
+            >
+              {isAddingMembers ? (
+                <ActivityIndicator size="small" color={Colors.primaryContent} />
+              ) : (
+                <MaterialIcons name="person-add" size={20} color={Colors.primaryContent} />
+              )}
+              <Text style={[styles.optionText, { color: Colors.primaryContent }]}>Add Selected ({selectedNewMemberIds.length})</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -1813,14 +2119,50 @@ export default function ChatConversationScreen() {
               style={styles.groupInput}
             />
 
-            <Text style={styles.inputLabel}>Group avatar URL</Text>
+            <Text style={styles.inputLabel}>Group profile image</Text>
+            <View style={styles.groupAvatarEditorRow}>
+              <UserAvatar
+                uri={groupAvatarDraft || undefined}
+                name={groupNameDraft || groupDetails?.group_name || 'Group'}
+                size={52}
+                showRing={false}
+              />
+              <View style={styles.groupAvatarActionsCol}>
+                <TouchableOpacity
+                  style={[styles.optionRow, styles.avatarActionButton]}
+                  onPress={handlePickGroupAvatar}
+                  disabled={isUploadingGroupAvatar}
+                >
+                  {isUploadingGroupAvatar ? (
+                    <ActivityIndicator size="small" color={Colors.primaryContent} />
+                  ) : (
+                    <MaterialIcons name="photo-library" size={18} color={Colors.primaryContent} />
+                  )}
+                  <Text style={[styles.optionText, { color: Colors.primaryContent }]}>Upload image</Text>
+                </TouchableOpacity>
+
+                {!!groupAvatarDraft && (
+                  <TouchableOpacity
+                    style={[styles.optionRow, styles.avatarRemoveButton]}
+                    onPress={() => setGroupAvatarDraft('')}
+                    disabled={isUploadingGroupAvatar}
+                  >
+                    <MaterialIcons name="delete-outline" size={18} color={Colors.error} />
+                    <Text style={[styles.optionText, { color: Colors.error }]}>Remove image</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+
+            <Text style={styles.inputLabel}>Group bio</Text>
             <TextInput
-              value={groupAvatarDraft}
-              onChangeText={setGroupAvatarDraft}
-              placeholder="https://..."
+              value={groupBioDraft}
+              onChangeText={setGroupBioDraft}
+              placeholder="Say what this group is about"
               placeholderTextColor={Colors.textSecondary}
-              style={styles.groupInput}
-              autoCapitalize="none"
+              style={[styles.groupInput, styles.groupBioInput]}
+              multiline
+              maxLength={180}
             />
 
             <TouchableOpacity
@@ -2255,6 +2597,17 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       alignItems: 'center',
       gap: Spacing.sm,
       marginTop: 2,
+      flexWrap: 'wrap',
+    },
+    groupBioPreview: {
+      fontSize: FontSizes.xs,
+      color: Colors.textSecondary,
+      flexShrink: 1,
+      maxWidth: 180,
+    },
+    groupBioPreviewEmpty: {
+      fontStyle: 'italic',
+      opacity: 0.85,
     },
     groupPreviewRow: {
       flexDirection: 'row',
@@ -2432,6 +2785,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       flexDirection: 'row',
       alignItems: 'flex-end',
       marginBottom: 12,
+      width: '100%',
     },
     dateSeparatorContainer: {
       alignItems: 'center',
@@ -2475,19 +2829,23 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     },
     senderName: {
       fontSize: FontSizes.xs,
-      color: Colors.info,
       marginBottom: 3,
       fontWeight: FontWeights.semibold,
     },
-    incomingAvatarWrap: {
+    senderNameMine: {
+      textAlign: 'right',
+    },
+    avatarLaneStart: {
       width: 34,
       marginRight: 8,
       alignItems: 'flex-end',
       justifyContent: 'flex-end',
     },
-    avatarSpacer: {
-      width: 30,
-      height: 30,
+    avatarLaneEnd: {
+      width: 34,
+      marginLeft: 8,
+      alignItems: 'flex-start',
+      justifyContent: 'flex-end',
     },
     messageContentWrap: {
       paddingRight: 2,
@@ -2499,12 +2857,14 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     },
     myMessageText: {
       color: Colors.primaryContent,
+      textAlign: 'right',
     },
     otherMessageText: {
       color: Colors.text,
     },
     messageBubbleWrap: {
       width: 'auto',
+      maxWidth: '84%',
     },
     bubbleShort: {
       maxWidth: '42%',
@@ -2770,6 +3130,86 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       justifyContent: 'space-between',
       marginBottom: Spacing.sm,
     },
+    groupProfileCard: {
+      alignItems: 'flex-start',
+      gap: Spacing.sm,
+      borderWidth: 1,
+      borderColor: Colors.border,
+      borderRadius: BorderRadius.md,
+      backgroundColor: Colors.card,
+      paddingHorizontal: Spacing.sm,
+      paddingVertical: Spacing.sm,
+      marginBottom: Spacing.sm,
+    },
+    groupProfileBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      borderRadius: BorderRadius.full,
+      backgroundColor: Colors.primary,
+      paddingHorizontal: Spacing.sm,
+      paddingVertical: 4,
+    },
+    groupProfileBadgeText: {
+      fontSize: FontSizes.xs,
+      fontWeight: FontWeights.semibold,
+      color: Colors.primaryContent,
+    },
+    membersSectionLabel: {
+      fontSize: FontSizes.sm,
+      color: Colors.textSecondary,
+      fontWeight: FontWeights.semibold,
+      marginBottom: Spacing.xs,
+      marginLeft: 2,
+    },
+    groupProfileMainRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.sm,
+      width: '100%',
+    },
+    groupProfileAvatar: {
+      width: 50,
+      height: 50,
+      borderRadius: 25,
+      backgroundColor: Colors.surface,
+    },
+    groupProfileAvatarFallback: {
+      width: 50,
+      height: 50,
+      borderRadius: 25,
+      backgroundColor: Colors.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    groupProfileAvatarText: {
+      fontSize: FontSizes.md,
+      fontWeight: FontWeights.bold,
+      color: Colors.primaryContent,
+    },
+    groupProfileInfo: {
+      flex: 1,
+      minWidth: 0,
+    },
+    groupProfileName: {
+      fontSize: FontSizes.md,
+      color: Colors.text,
+      fontWeight: FontWeights.semibold,
+    },
+    groupProfileMeta: {
+      fontSize: FontSizes.sm,
+      color: Colors.textSecondary,
+      marginTop: 1,
+    },
+    groupProfileBio: {
+      fontSize: FontSizes.sm,
+      color: Colors.textSecondary,
+      marginTop: 3,
+    },
+    groupProfileBioEmpty: {
+      fontStyle: 'italic',
+      opacity: 0.85,
+    },
     memberItem: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -2800,6 +3240,12 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       fontSize: FontSizes.sm,
       color: Colors.textSecondary,
       marginTop: 2,
+    },
+    memberBio: {
+      fontSize: FontSizes.sm,
+      color: Colors.textSecondary,
+      marginTop: 4,
+      lineHeight: 18,
     },
     memberActionButton: {
       width: 34,
@@ -2918,9 +3364,82 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       fontSize: FontSizes.md,
       marginBottom: Spacing.sm,
     },
+    groupBioInput: {
+      minHeight: 90,
+      textAlignVertical: 'top',
+    },
+    groupAvatarEditorRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.md,
+      marginBottom: Spacing.sm,
+    },
+    groupAvatarActionsCol: {
+      flex: 1,
+      gap: Spacing.xs,
+    },
+    avatarActionButton: {
+      backgroundColor: Colors.primary,
+      borderColor: Colors.primary,
+      borderRadius: BorderRadius.md,
+      justifyContent: 'center',
+    },
+    avatarRemoveButton: {
+      borderRadius: BorderRadius.md,
+      borderWidth: 1,
+      borderColor: Colors.error,
+      justifyContent: 'center',
+    },
     primaryOption: {
       backgroundColor: Colors.primary,
       borderColor: Colors.primary,
       justifyContent: 'center',
+    },
+    searchInputWrap: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      borderWidth: 1,
+      borderColor: Colors.border,
+      borderRadius: BorderRadius.md,
+      paddingHorizontal: Spacing.md,
+      paddingVertical: 10,
+      marginBottom: Spacing.md,
+      backgroundColor: Colors.card,
+    },
+    searchInputField: {
+      flex: 1,
+      color: Colors.text,
+      fontSize: FontSizes.sm,
+    },
+    membersLoadingWrap: {
+      paddingVertical: Spacing.lg,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    emptyMembersHint: {
+      paddingVertical: Spacing.lg,
+      alignItems: 'center',
+    },
+    emptyMembersHintText: {
+      fontSize: FontSizes.sm,
+      color: Colors.textSecondary,
+    },
+    selectionBadge: {
+      width: 22,
+      height: 22,
+      borderRadius: 11,
+      borderWidth: 1,
+      borderColor: Colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: Colors.card,
+    },
+    selectionBadgeActive: {
+      borderColor: Colors.primary,
+      backgroundColor: Colors.primary,
+    },
+    disabledPrimaryOption: {
+      opacity: 0.5,
     },
   });

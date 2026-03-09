@@ -46,7 +46,6 @@ export default function ChatScreen() {
   const [conversations, setConversations] = useState<any[]>([]);
   const [searchInput, setSearchInput] = useState('');
   const [activeSearch, setActiveSearch] = useState('');
-  const [isRealtimeSearch, setIsRealtimeSearch] = useState(true);
   const [connectionSearchQuery, setConnectionSearchQuery] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [activeFilter, setActiveFilter] = useState<'all' | 'unread' | 'groups' | 'direct' | 'mentorship'>('all');
@@ -58,7 +57,6 @@ export default function ChatScreen() {
   const [connections, setConnections] = useState<ConnectionWithProfile[]>([]);
   const [loadingConnections, setLoadingConnections] = useState(false);
   const [creatingChat, setCreatingChat] = useState(false);
-  const [isGroupMode, setIsGroupMode] = useState(false);
   const [groupName, setGroupName] = useState('');
   const [selectedParticipantIds, setSelectedParticipantIds] = useState<string[]>([]);
 
@@ -120,8 +118,6 @@ export default function ChatScreen() {
 
 
   useEffect(() => {
-    if (!isRealtimeSearch) return;
-
     if (debounceRef.current) {
       clearTimeout(debounceRef.current);
     }
@@ -144,7 +140,7 @@ export default function ChatScreen() {
         clearTimeout(debounceRef.current);
       }
     };
-  }, [searchInput, isRealtimeSearch]);
+  }, [searchInput]);
 
   const submitSearch = () => {
     setActiveSearch(searchInput.trim());
@@ -220,7 +216,6 @@ export default function ChatScreen() {
       );
 
       setShowNewChatModal(false);
-      setIsGroupMode(false);
       setSelectedParticipantIds([]);
       setGroupName('');
       await loadConversations();
@@ -334,6 +329,16 @@ export default function ChatScreen() {
       return name.includes(query) || dept.includes(query) || role.includes(query);
     });
   }, [connections, connectionSearchQuery]);
+
+  const selectedConnections = useMemo(() => {
+    return connections.filter((connection) => {
+      const profileId = connection.profile?.id;
+      return !!profileId && selectedParticipantIds.includes(profileId);
+    });
+  }, [connections, selectedParticipantIds]);
+
+  const remainingMembersNeeded = Math.max(0, 2 - selectedParticipantIds.length);
+  const canCreateGroup = !!groupName.trim() && selectedParticipantIds.length >= 2 && !creatingChat;
 
   const currentUserId = user?.id || '';
   const unreadTotal = conversations.reduce((sum, conversation) => sum + (conversation.unread_count || 0), 0);
@@ -477,27 +482,6 @@ export default function ChatScreen() {
           )}
         </View>
 
-        <View style={styles.searchActionsRow}>
-          <TouchableOpacity
-            style={[styles.searchActionChip, isRealtimeSearch && styles.searchActionChipActive]}
-            onPress={() => setIsRealtimeSearch((prev) => !prev)}
-          >
-            <MaterialIcons
-              name={isRealtimeSearch ? 'flash-on' : 'flash-off'}
-              size={14}
-              color={isRealtimeSearch ? Colors.primaryContent : Colors.textSecondary}
-            />
-            <Text style={[styles.searchActionText, isRealtimeSearch && styles.searchActionTextActive]}>
-              Realtime
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.searchButton} onPress={submitSearch}>
-            <MaterialIcons name="search" size={16} color={Colors.primaryContent} />
-            <Text style={styles.searchButtonText}>Search</Text>
-          </TouchableOpacity>
-        </View>
-
         <FlatList
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -584,7 +568,9 @@ export default function ChatScreen() {
               onPress={() => {
                 setShowComposeMenu(false);
                 setShowNewChatModal(true);
-                setIsGroupMode(true);
+                setGroupName('');
+                setSelectedParticipantIds([]);
+                setConnectionSearchQuery('');
               }}
             >
               <MaterialIcons name="groups" size={20} color={Colors.text} />
@@ -624,94 +610,102 @@ export default function ChatScreen() {
           <View style={styles.modalContent}>
             {/* Modal Header */}
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>New Message</Text>
+              <View>
+                <Text style={styles.modalTitle}>Create Group</Text>
+                <Text style={styles.modalSubtitle}>Build a focused space for your connections.</Text>
+              </View>
               <TouchableOpacity onPress={() => setShowNewChatModal(false)}>
                 <MaterialIcons name="close" size={24} color={Colors.text} />
               </TouchableOpacity>
             </View>
 
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={styles.browseUsersButton}
-                onPress={() => {
-                  setShowNewChatModal(false);
-                  navigation.navigate('AllUsers');
-                }}
-              >
-                <MaterialIcons name="explore" size={20} color="#ffffff" />
-                <Text style={styles.browseUsersText}>Browse Users</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.groupModeButton, isGroupMode && styles.groupModeButtonActive]}
-                onPress={() => {
-                  setIsGroupMode((prev) => !prev);
-                  if (isGroupMode) {
-                    setSelectedParticipantIds([]);
-                    setGroupName('');
-                  }
-                }}
-              >
-                <MaterialIcons
-                  name={isGroupMode ? 'close' : 'group-add'}
-                  size={20}
-                  color={isGroupMode ? '#ffffff' : Colors.primary}
-                />
-                <Text style={[styles.groupModeButtonText, isGroupMode && styles.groupModeButtonTextActive]}>
-                  {isGroupMode ? 'Cancel Group' : 'Create Group'}
-                </Text>
-              </TouchableOpacity>
+            <View style={styles.groupHeroCard}>
+              <View style={styles.groupHeroIconWrap}>
+                <MaterialIcons name="diversity-3" size={18} color="#ffffff" />
+              </View>
+              <View style={styles.groupHeroContent}>
+                <Text style={styles.groupHeroTitle}>Group Details</Text>
+                <Text style={styles.groupHeroHint}>Pick a clear name and invite at least two members.</Text>
+              </View>
             </View>
 
-            {isGroupMode && (
-              <View style={styles.groupSetupCard}>
+            <View style={styles.groupSetupCard}>
+              <View style={styles.groupSetupRow}>
                 <Text style={styles.groupSetupLabel}>Group Name</Text>
-                <TextInput
-                  style={styles.groupNameInput}
-                  value={groupName}
-                  onChangeText={setGroupName}
-                  placeholder="Enter group name"
-                  placeholderTextColor={Colors.textSecondary}
-                  maxLength={60}
-                />
-                <Text style={styles.groupSetupHint}>Select at least 2 connections</Text>
-                <TouchableOpacity
-                  style={[
-                    styles.createGroupButton,
-                    (creatingChat || selectedParticipantIds.length < 2 || !groupName.trim()) &&
-                    styles.createGroupButtonDisabled,
-                  ]}
-                  onPress={handleCreateGroup}
-                  disabled={creatingChat || selectedParticipantIds.length < 2 || !groupName.trim()}
-                >
-                  {creatingChat ? (
-                    <ActivityIndicator size="small" color="#ffffff" />
-                  ) : (
-                    <>
-                      <MaterialIcons name="groups" size={20} color="#ffffff" />
-                      <Text style={styles.createGroupButtonText}>
-                        Create Group ({selectedParticipantIds.length + 1})
-                      </Text>
-                    </>
-                  )}
-                </TouchableOpacity>
+                <Text style={styles.groupNameCounter}>{groupName.length}/60</Text>
               </View>
-            )}
-
-            <View style={styles.modalSearchWrapper}>
-              <MaterialIcons name="search" size={18} color={Colors.textSecondary} />
               <TextInput
-                value={connectionSearchQuery}
-                onChangeText={setConnectionSearchQuery}
-                placeholder="Search users, role, department"
+                style={styles.groupNameInput}
+                value={groupName}
+                onChangeText={setGroupName}
+                placeholder="e.g. Hackathon Core Team"
                 placeholderTextColor={Colors.textSecondary}
-                style={styles.modalSearchInput}
+                maxLength={60}
               />
-              {!!connectionSearchQuery && (
-                <TouchableOpacity onPress={() => setConnectionSearchQuery('')}>
-                  <MaterialIcons name="close" size={18} color={Colors.textSecondary} />
-                </TouchableOpacity>
+
+              <View style={styles.groupStatsRow}>
+                <View style={styles.groupStatChip}>
+                  <MaterialIcons name="person" size={14} color={Colors.primary} />
+                  <Text style={styles.groupStatText}>You + {selectedParticipantIds.length}</Text>
+                </View>
+                <View style={styles.groupStatChip}>
+                  <MaterialIcons name="groups" size={14} color={Colors.primary} />
+                  <Text style={styles.groupStatText}>
+                    {remainingMembersNeeded === 0 ? 'Ready to create' : `${remainingMembersNeeded} more needed`}
+                  </Text>
+                </View>
+              </View>
+
+              {selectedConnections.length > 0 ? (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.selectedMembersRow}
+                >
+                  {selectedConnections.map((connection) => {
+                    const profile = connection.profile;
+                    if (!profile?.id) return null;
+                    return (
+                      <TouchableOpacity
+                        key={`selected_${profile.id}`}
+                        style={styles.selectedMemberChip}
+                        onPress={() => toggleGroupParticipant(profile.id!)}
+                        disabled={creatingChat}
+                      >
+                        <Text style={styles.selectedMemberChipText} numberOfLines={1}>
+                          {profile.full_name || 'Unknown'}
+                        </Text>
+                        <MaterialIcons name="close" size={14} color={Colors.primary} />
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              ) : (
+                <Text style={styles.groupSetupHint}>No members selected yet. Tap users below to add them.</Text>
               )}
+            </View>
+
+            <View style={styles.modalSearchSection}>
+              <View style={styles.modalSearchHeader}>
+                <Text style={styles.modalSearchTitle}>Search Users</Text>
+                <Text style={styles.modalSearchHint}>{filteredConnections.length} available</Text>
+              </View>
+
+              <View style={styles.modalSearchWrapper}>
+                <MaterialIcons name="search" size={18} color={Colors.primary} />
+                <TextInput
+                  value={connectionSearchQuery}
+                  onChangeText={setConnectionSearchQuery}
+                  placeholder="Type name, role, or department"
+                  placeholderTextColor={Colors.textSecondary}
+                  style={styles.modalSearchInput}
+                />
+                {!!connectionSearchQuery && (
+                  <TouchableOpacity style={styles.modalSearchClear} onPress={() => setConnectionSearchQuery('')}>
+                    <MaterialIcons name="close" size={16} color={Colors.textSecondary} />
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
 
             {/* Connections List */}
@@ -753,7 +747,10 @@ export default function ChatScreen() {
                   return (
                     <TouchableOpacity
                       key={connection.id}
-                      style={styles.connectionItem}
+                      style={[
+                        styles.connectionItem,
+                        profile.id && selectedParticipantIds.includes(profile.id) && styles.connectionItemSelected,
+                      ]}
                       onPress={() => {
                         if (profile.id) {
                           toggleGroupParticipant(profile.id);
@@ -791,15 +788,25 @@ export default function ChatScreen() {
                       {creatingChat ? (
                         <ActivityIndicator size="small" color={Colors.primary} />
                       ) : profile.id ? (
-                        <View
-                          style={[
-                            styles.participantCheckbox,
-                            selectedParticipantIds.includes(profile.id) && styles.participantCheckboxActive,
-                          ]}
-                        >
-                          {selectedParticipantIds.includes(profile.id) && (
-                            <MaterialIcons name="check" size={16} color="#ffffff" />
-                          )}
+                        <View style={styles.connectionSelectWrap}>
+                          <Text
+                            style={[
+                              styles.connectionSelectText,
+                              selectedParticipantIds.includes(profile.id) && styles.connectionSelectTextActive,
+                            ]}
+                          >
+                            {selectedParticipantIds.includes(profile.id) ? 'Added' : 'Add'}
+                          </Text>
+                          <View
+                            style={[
+                              styles.participantCheckbox,
+                              selectedParticipantIds.includes(profile.id) && styles.participantCheckboxActive,
+                            ]}
+                          >
+                            {selectedParticipantIds.includes(profile.id) && (
+                              <MaterialIcons name="check" size={16} color="#ffffff" />
+                            )}
+                          </View>
                         </View>
                       ) : (
                         <MaterialIcons name="chevron-right" size={24} color={Colors.textSecondary} />
@@ -809,6 +816,23 @@ export default function ChatScreen() {
                 })
               )}
             </ScrollView>
+
+            <View style={styles.groupComposerFooter}>
+              <TouchableOpacity
+                style={[styles.createGroupButton, !canCreateGroup && styles.createGroupButtonDisabled]}
+                onPress={handleCreateGroup}
+                disabled={!canCreateGroup}
+              >
+                {creatingChat ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <>
+                    <MaterialIcons name="rocket-launch" size={18} color="#ffffff" />
+                    <Text style={styles.createGroupButtonText}>Create Group ({selectedParticipantIds.length + 1})</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -881,48 +905,6 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     flex: 1,
     fontSize: FontSizes.md,
     color: Colors.text,
-  },
-  searchActionsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  searchActionChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs + 2,
-    borderRadius: BorderRadius.full,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: Colors.card,
-  },
-  searchActionChipActive: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
-  },
-  searchActionText: {
-    fontSize: FontSizes.sm,
-    color: Colors.textSecondary,
-    fontWeight: FontWeights.medium,
-  },
-  searchActionTextActive: {
-    color: Colors.primaryContent,
-  },
-  searchButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    borderRadius: BorderRadius.full,
-    backgroundColor: Colors.primary,
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.xs + 2,
-  },
-  searchButtonText: {
-    color: Colors.primaryContent,
-    fontWeight: FontWeights.semibold,
-    fontSize: FontSizes.sm,
   },
   filterRow: {
     gap: Spacing.sm,
@@ -1139,7 +1121,6 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     justifyContent: 'center',
     borderWidth: 2,
     borderColor: '#ffffff',
-    elevation: 12,
     zIndex: 20,
     ...Shadows.lg,
   },
@@ -1204,14 +1185,12 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   // New Chat Modal Styles
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: Colors.surface,
     justifyContent: 'flex-end',
   },
   modalContent: {
     backgroundColor: Colors.surface,
-    borderTopLeftRadius: BorderRadius.xl,
-    borderTopRightRadius: BorderRadius.xl,
-    maxHeight: '80%',
+    flex: 1,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -1227,61 +1206,94 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     fontWeight: FontWeights.semibold,
     color: Colors.text,
   },
-  modalScrollView: {
-    maxHeight: 500,
+  modalSubtitle: {
+    marginTop: 2,
+    fontSize: FontSizes.sm,
+    color: Colors.textSecondary,
   },
-  modalSearchWrapper: {
+  modalScrollView: {
+    flex: 1,
+  },
+  modalSearchSection: {
     marginHorizontal: Spacing.lg,
     marginBottom: Spacing.sm,
+    gap: Spacing.xs,
+  },
+  modalSearchHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  modalSearchTitle: {
+    fontSize: FontSizes.sm,
+    fontWeight: FontWeights.semibold,
+    color: Colors.text,
+  },
+  modalSearchHint: {
+    fontSize: FontSizes.xs,
+    color: Colors.textSecondary,
+    fontWeight: FontWeights.medium,
+  },
+  modalSearchWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.sm,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    borderWidth: 2,
+    borderColor: Colors.primary,
     borderRadius: BorderRadius.md,
-    backgroundColor: Colors.background,
+    backgroundColor: Colors.surface,
     paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
+    paddingVertical: Spacing.sm + 1,
   },
   modalSearchInput: {
     flex: 1,
     color: Colors.text,
     fontSize: FontSizes.md,
   },
+  modalSearchClear: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.card,
+  },
   modalLoading: {
     paddingVertical: Spacing.xxl,
     alignItems: 'center',
   },
-  modalActions: {
-    paddingHorizontal: Spacing.lg,
-    paddingBottom: Spacing.sm,
-    alignItems: 'flex-start',
-    flexDirection: 'row',
-    gap: Spacing.sm,
-    flexWrap: 'wrap',
-  },
-  groupModeButton: {
+  groupHeroCard: {
+    marginHorizontal: Spacing.lg,
+    marginBottom: Spacing.sm,
+    borderRadius: BorderRadius.lg,
+    backgroundColor: Colors.primary,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.sm,
-    borderWidth: 1,
-    borderColor: Colors.primary,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.md,
-    backgroundColor: Colors.surface,
-    marginTop: Spacing.lg,
   },
-  groupModeButtonActive: {
-    backgroundColor: Colors.primary,
+  groupHeroIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
-  groupModeButtonText: {
-    fontSize: FontSizes.md,
-    fontWeight: FontWeights.semibold,
-    color: Colors.primary,
+  groupHeroContent: {
+    flex: 1,
   },
-  groupModeButtonTextActive: {
+  groupHeroTitle: {
     color: '#ffffff',
+    fontSize: FontSizes.sm,
+    fontWeight: FontWeights.semibold,
+  },
+  groupHeroHint: {
+    marginTop: 1,
+    color: '#ffffff',
+    opacity: 0.9,
+    fontSize: FontSizes.xs,
   },
   groupSetupCard: {
     marginHorizontal: Spacing.lg,
@@ -1293,10 +1305,20 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     backgroundColor: Colors.card,
     gap: Spacing.sm,
   },
+  groupSetupRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   groupSetupLabel: {
     fontSize: FontSizes.sm,
     fontWeight: FontWeights.semibold,
     color: Colors.text,
+  },
+  groupNameCounter: {
+    fontSize: FontSizes.xs,
+    color: Colors.textSecondary,
+    fontWeight: FontWeights.medium,
   },
   groupNameInput: {
     borderWidth: 1,
@@ -1312,11 +1334,51 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     fontSize: FontSizes.xs,
     color: Colors.textSecondary,
   },
+  groupStatsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+  },
+  groupStatChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: Colors.primarySoft,
+    borderRadius: BorderRadius.full,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 6,
+  },
+  groupStatText: {
+    fontSize: FontSizes.sm,
+    color: Colors.primaryContent,
+    fontWeight: FontWeights.medium,
+  },
+  selectedMembersRow: {
+    paddingVertical: Spacing.xs,
+    gap: Spacing.sm,
+  },
+  selectedMemberChip: {
+    maxWidth: 180,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.surface,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 6,
+  },
+  selectedMemberChipText: {
+    maxWidth: 140,
+    color: Colors.text,
+    fontSize: FontSizes.sm,
+    fontWeight: FontWeights.medium,
+  },
   createGroupButton: {
-    marginTop: Spacing.xs,
     borderRadius: BorderRadius.md,
     backgroundColor: Colors.primary,
-    paddingVertical: Spacing.sm,
+    paddingVertical: Spacing.md,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
@@ -1370,6 +1432,9 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
   },
+  connectionItemSelected: {
+    backgroundColor: Colors.primarySoft,
+  },
   connectionAvatar: {
     width: 48,
     height: 48,
@@ -1415,5 +1480,26 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   participantCheckboxActive: {
     borderColor: Colors.primary,
     backgroundColor: Colors.primary,
+  },
+  connectionSelectWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  connectionSelectText: {
+    fontSize: FontSizes.sm,
+    color: Colors.textSecondary,
+    fontWeight: FontWeights.medium,
+  },
+  connectionSelectTextActive: {
+    color: Colors.primary,
+    fontWeight: FontWeights.semibold,
+  },
+  groupComposerFooter: {
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    backgroundColor: Colors.surface,
   },
 });
