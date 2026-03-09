@@ -19,6 +19,7 @@ import {
   UserEngagementMetrics,
   UserVerification,
   ConnectionSuggestion,
+  ChatPreference,
 } from "../types/database";
 import { moderateText } from "./ai";
 import { isAdminRole } from '../utils/roles';
@@ -2258,5 +2259,125 @@ export const getUnreadCount = async (userId: string) => {
 
   if (error) throw error;
   return data?.length || 0;
+};
+
+// ===== CHAT PREFERENCES (Background Images) =====
+
+// Get chat preference for a specific conversation
+export const getChatPreference = async (userId: string, conversationId: string) => {
+  const { data, error } = await supabase
+    .from("chat_preferences")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("conversation_id", conversationId)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data || null;
+};
+
+// Upload and set background image for a conversation
+export const setChatBackgroundImage = async (
+  userId: string,
+  conversationId: string,
+  imageUrl: string,
+  imageName: string
+) => {
+  // First check if preference exists
+  const existing = await getChatPreference(userId, conversationId);
+
+  if (existing) {
+    // Update existing preference
+    const { data, error } = await supabase
+      .from("chat_preferences")
+      .update({
+        background_image_url: imageUrl,
+        background_image_name: imageName,
+        updated_at: new Date().toISOString(),
+      } as any)
+      .eq("id", existing.id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  } else {
+    // Create new preference
+    const { data, error } = await supabase
+      .from("chat_preferences")
+      .insert({
+        user_id: userId,
+        conversation_id: conversationId,
+        background_image_url: imageUrl,
+        background_image_name: imageName,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      } as any)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  }
+};
+
+// Remove background image for a conversation
+export const removeChatBackgroundImage = async (userId: string, conversationId: string) => {
+  const { data, error } = await supabase
+    .from("chat_preferences")
+    .update({
+      background_image_url: null,
+      background_image_name: null,
+      updated_at: new Date().toISOString(),
+    } as any)
+    .eq("user_id", userId)
+    .eq("conversation_id", conversationId)
+    .select()
+    .maybeSingle();
+
+  if (error) throw error;
+  return data || null;
+};
+
+// Upload image to Supabase storage
+export const uploadChatBackgroundToStorage = async (
+  userId: string,
+  conversationId: string,
+  fileUri: string,
+  fileName: string
+) => {
+  try {
+    const fileData = await FileSystem.readAsStringAsync(fileUri, {
+      encoding: "base64",
+    });
+
+    const path = `chat-backgrounds/${userId}/${conversationId}/${fileName}`;
+
+    // Convert base64 to Uint8Array for React Native compatibility
+    const binaryString = atob(fileData);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+
+    const { data, error } = await supabase.storage
+      .from("avatars")
+      .upload(path, bytes, {
+        contentType: "image/*",
+        upsert: true,
+      });
+
+    if (error) throw error;
+
+    // Get public URL
+    const { data: urlData } = supabase.storage
+      .from("avatars")
+      .getPublicUrl(path);
+
+    return urlData?.publicUrl;
+  } catch (error) {
+    console.error("Error uploading background image:", error);
+    throw error;
+  }
 };
 

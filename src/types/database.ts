@@ -281,7 +281,6 @@ export type Message = {
   // Joined
   sender?: Profile;
   is_read?: boolean;
-  seen_by_others?: boolean;
 };
 
 export type MessageRead = {
@@ -700,4 +699,14 @@ export type StructuredMentorshipRequest = {
   updated_at: string;
   mentor?: Mentor & { profile?: Profile };
   mentee?: Profile;
+};
+
+export type ChatPreference = {
+  id: string;
+  user_id: string;
+  conversation_id: string;
+  background_image_url?: string;
+  background_image_name?: string;
+  created_at: string;
+  updated_at: string;
 };
