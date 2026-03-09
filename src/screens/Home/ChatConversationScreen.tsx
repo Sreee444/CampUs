@@ -42,6 +42,9 @@ import {
   removeConversationSupervisor,
   removeParticipantFromGroup,
   sendMessage,
+  setTyping,
+  removeTyping,
+  subscribeToTyping,
   setGroupParticipantAdmin,
   updateGroupConversation,
   uploadGroupAvatar,
@@ -260,12 +263,18 @@ export default function ChatConversationScreen() {
   const [reactionPickerVisible, setReactionPickerVisible] = useState(false);
   const [reactionTargetMessageId, setReactionTargetMessageId] = useState<string | null>(null);
   const [directPartnerStatus, setDirectPartnerStatus] = useState<'online' | 'away' | 'offline' | null>(null);
+  const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
   const announcementPulse = useSharedValue(1);
   const announcementSlide = useSharedValue(-100);
   const announcementScale = useSharedValue(0.95);
   const announcementIconRotate = useSharedValue(0);
   const listRef = useRef<FlatList>(null);
+  const typingStopTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastTypingSignalAtRef = useRef(0);
   const reactionChoices = ['👍', '❤️', '😂', '😮', '😢', '👏'];
+
+  const TYPING_IDLE_MS = 2200;
+  const TYPING_HEARTBEAT_MS = 1400;
 
   const [confirmDialog, setConfirmDialog] = useState<{
     visible: boolean;
@@ -320,6 +329,34 @@ export default function ChatConversationScreen() {
       );
     });
   };
+
+  const clearTypingStopTimeout = () => {
+    if (typingStopTimeoutRef.current) {
+      clearTimeout(typingStopTimeoutRef.current);
+      typingStopTimeoutRef.current = null;
+    }
+  };
+
+  const stopTypingSignal = React.useCallback(async () => {
+    clearTypingStopTimeout();
+    if (!conversationId || !user?.id || isAIChat) return;
+    await removeTyping(conversationId, user.id);
+  }, [conversationId, user?.id, isAIChat]);
+
+  const sendTypingSignal = React.useCallback(() => {
+    if (!conversationId || !user?.id || isAIChat) return;
+
+    const now = Date.now();
+    if (now - lastTypingSignalAtRef.current >= TYPING_HEARTBEAT_MS) {
+      lastTypingSignalAtRef.current = now;
+      setTyping(conversationId, user.id).catch(() => {});
+    }
+
+    clearTypingStopTimeout();
+    typingStopTimeoutRef.current = setTimeout(() => {
+      stopTypingSignal().catch(() => {});
+    }, TYPING_IDLE_MS);
+  }, [conversationId, user?.id, isAIChat, stopTypingSignal]);
 
   const loadGroupDetails = async () => {
     if (!conversationId || !isGroup || !user?.id) return;
@@ -516,6 +553,31 @@ export default function ChatConversationScreen() {
     return () => clearTimeout(timeout);
   }, [messages.length, showMessageSearch]);
 
+  useEffect(() => {
+    if (!conversationId || isAIChat || !user?.id) {
+      setTypingUserIds([]);
+      return;
+    }
+
+    const typingChannel = subscribeToTyping(conversationId, (ids) => {
+      setTypingUserIds(ids.filter((id) => id !== user.id));
+    });
+
+    return () => {
+      setTypingUserIds([]);
+      clearTypingStopTimeout();
+      stopTypingSignal().catch(() => {});
+      supabase.removeChannel(typingChannel);
+    };
+  }, [conversationId, isAIChat, user?.id, stopTypingSignal]);
+
+  useEffect(() => {
+    return () => {
+      clearTypingStopTimeout();
+      stopTypingSignal().catch(() => {});
+    };
+  }, [stopTypingSignal]);
+
   const checkSupervisionCapability = async () => {
     if (!conversationId || isAIChat || !user?.id || !isGroup) {
       return;
@@ -579,6 +641,8 @@ export default function ChatConversationScreen() {
     setMessageText('');
     setIsSending(true);
     setReplyingTo(null);
+    clearTypingStopTimeout();
+    stopTypingSignal().catch(() => {});
 
     try {
       if (isAIChat) {
@@ -944,6 +1008,35 @@ export default function ChatConversationScreen() {
     );
     return otherMessage?.sender || null;
   }, [isGroup, isAIChat, messages, user?.id, groupDetails?.participants]);
+
+  const typingDisplayNames = useMemo(() => {
+    if (!typingUserIds.length) return [] as string[];
+
+    const names = typingUserIds.map((typingUserId) => {
+      const participant = (groupDetails?.participants as any[] | undefined)?.find(
+        (entry: any) => entry.user_id === typingUserId
+      );
+      if (participant?.user?.full_name) return participant.user.full_name as string;
+
+      const match = messages.find(
+        (msg) => msg.sender_id === typingUserId && !!msg.sender?.full_name
+      );
+      return match?.sender?.full_name || 'Someone';
+    });
+
+    return Array.from(new Set(names));
+  }, [typingUserIds, groupDetails?.participants, messages]);
+
+  const groupTypingLabel = useMemo(() => {
+    if (!isGroup || !typingDisplayNames.length) return null;
+    if (typingDisplayNames.length === 1) return `${typingDisplayNames[0]} is typing...`;
+    if (typingDisplayNames.length === 2) {
+      return `${typingDisplayNames[0]} and ${typingDisplayNames[1]} are typing...`;
+    }
+    return `${typingDisplayNames[0]}, ${typingDisplayNames[1]} and others are typing...`;
+  }, [isGroup, typingDisplayNames]);
+
+  const isDirectPartnerTyping = !isGroup && !isAIChat && typingUserIds.length > 0;
 
   const normalizePresenceStatus = (status?: string | null, updatedAt?: string | null) => {
     const fallback: 'online' | 'away' | 'offline' = 'offline';
@@ -1373,7 +1466,9 @@ export default function ChatConversationScreen() {
             </Text>
             {isGroup ? (
               <View style={styles.groupHeaderMeta}>
-                <Text style={styles.headerStatus}>{groupMembers.length} members</Text>
+                <Text style={styles.headerStatus}>
+                  {groupTypingLabel || `${groupMembers.length} members`}
+                </Text>
                 <Text
                   style={[
                     styles.groupBioPreview,
@@ -1398,10 +1493,12 @@ export default function ChatConversationScreen() {
               </View>
             ) : (
               <View style={styles.directStatusRow}>
-                {!isAIChat && directPartnerStatus === 'online' && <View style={styles.onlineDot} />}
+                {!isAIChat && !isDirectPartnerTyping && directPartnerStatus === 'online' && <View style={styles.onlineDot} />}
                 <Text style={styles.headerStatus}>
                   {isAIChat
                     ? 'AI Assistant'
+                    : isDirectPartnerTyping
+                      ? 'Typing...'
                     : directPartnerStatus === 'online'
                       ? 'Online'
                       : directPartnerProfile?.role || 'Direct chat'}
@@ -1630,7 +1727,14 @@ export default function ChatConversationScreen() {
           <TextInput
             style={styles.input}
             value={messageText}
-            onChangeText={setMessageText}
+            onChangeText={(text) => {
+              setMessageText(text);
+              if (!text.trim()) {
+                stopTypingSignal().catch(() => {});
+                return;
+              }
+              sendTypingSignal();
+            }}
             placeholder="Type a message..."
             placeholderTextColor={Colors.textSecondary}
             multiline

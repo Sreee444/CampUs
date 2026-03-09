@@ -25,6 +25,9 @@ import {
   sendMentorshipMessage,
   subscribeToMentorshipMessages,
   MentorshipMessage,
+  setMentorshipTyping,
+  removeMentorshipTyping,
+  subscribeToMentorshipTyping,
 } from '../../api/mentorshipChat';
 import { updateUserStatus } from '../../api/chat';
 import { UserAvatar } from '../../components/UserAvatar';
@@ -49,8 +52,14 @@ export default function MentorshipChatScreen() {
   const [messages, setMessages] = useState<MentorshipMessage[]>([]);
   const [isSending, setIsSending] = useState(false);
   const [text, setText] = useState('');
+  const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
 
   const listRef = useRef<FlatList<MentorshipMessage>>(null);
+  const typingStopTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastTypingSignalAtRef = useRef<number>(0);
+
+  const TYPING_HEARTBEAT_MS = 3000;
+  const TYPING_IDLE_MS = 5000;
 
   const currentUserId = user?.id;
 
@@ -87,6 +96,34 @@ export default function MentorshipChatScreen() {
         year: 'numeric',
       })
     : '';
+
+  const clearTypingStopTimeout = () => {
+    if (typingStopTimeoutRef.current) {
+      clearTimeout(typingStopTimeoutRef.current);
+      typingStopTimeoutRef.current = null;
+    }
+  };
+
+  const stopTypingSignal = React.useCallback(async () => {
+    clearTypingStopTimeout();
+    if (!chatId || !currentUserId) return;
+    await removeMentorshipTyping(chatId, currentUserId);
+  }, [chatId, currentUserId]);
+
+  const sendTypingSignal = React.useCallback(() => {
+    if (!chatId || !currentUserId) return;
+
+    const now = Date.now();
+    if (now - lastTypingSignalAtRef.current >= TYPING_HEARTBEAT_MS) {
+      lastTypingSignalAtRef.current = now;
+      setMentorshipTyping(chatId, currentUserId).catch(() => {});
+    }
+
+    clearTypingStopTimeout();
+    typingStopTimeoutRef.current = setTimeout(() => {
+      stopTypingSignal().catch(() => {});
+    }, TYPING_IDLE_MS);
+  }, [chatId, currentUserId, stopTypingSignal]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -135,11 +172,20 @@ export default function MentorshipChatScreen() {
       }
     });
 
+    // Subscribe to typing indicators
+    setTypingUserIds([]);
+    const typingChannel = subscribeToMentorshipTyping(chatId, (ids) => {
+      setTypingUserIds(ids.filter((id) => id !== currentUserId));
+    });
+
     return () => {
       isMounted = false;
       channel?.unsubscribe?.();
+      typingChannel.unsubscribe();
+      clearTypingStopTimeout();
+      setTypingUserIds([]);
     };
-  }, [chatId]);
+  }, [chatId, currentUserId]);
 
   const handleSend = async () => {
     const trimmed = text.trim();
@@ -155,6 +201,7 @@ export default function MentorshipChatScreen() {
             new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
         )
       );
+      await stopTypingSignal();
       setTimeout(
         () => listRef.current?.scrollToOffset({ offset: 0, animated: true }),
         50
@@ -166,6 +213,28 @@ export default function MentorshipChatScreen() {
       setIsSending(false);
     }
   };
+
+  const typingDisplayNames = useMemo(() => {
+    if (!typingUserIds.length) return [] as string[];
+
+    const names = typingUserIds.map((typingUserId) => {
+      const match = messages.find(
+        (msg) => msg.sender_id === typingUserId && !!msg.sender?.full_name
+      );
+      return match?.sender?.full_name || 'Someone';
+    });
+
+    return Array.from(new Set(names));
+  }, [typingUserIds, messages]);
+
+  const typingLabel = useMemo(() => {
+    if (!typingDisplayNames.length) return null;
+    if (typingDisplayNames.length === 1) return `${typingDisplayNames[0]} is typing...`;
+    if (typingDisplayNames.length === 2) {
+      return `${typingDisplayNames[0]} and ${typingDisplayNames[1]} are typing...`;
+    }
+    return `${typingDisplayNames[0]}, ${typingDisplayNames[1]} and others are typing...`;
+  }, [typingDisplayNames]);
 
   const sortedMessages = useMemo(
     () =>
@@ -270,6 +339,20 @@ export default function MentorshipChatScreen() {
         </View>
       </View>
 
+      {typingLabel && (
+        <View style={{
+          backgroundColor: Colors.surface,
+          paddingVertical: 8,
+          paddingHorizontal: 16,
+          borderBottomWidth: 1,
+          borderBottomColor: Colors.border,
+        }}>
+          <Text style={{ color: Colors.textSecondary, fontSize: 12, fontStyle: 'italic' }}>
+            {typingLabel}
+          </Text>
+        </View>
+      )}
+
       {/* Mentor / student summary */}
       <View style={styles.summaryBar}>
         <MaterialIcons name="info-outline" size={16} color={Colors.textSecondary} />
@@ -314,7 +397,12 @@ export default function MentorshipChatScreen() {
               <TextInput
                 style={styles.input}
                 value={text}
-                onChangeText={setText}
+                onChangeText={(newText) => {
+                  setText(newText);
+                  if (newText.trim().length > 0 && !isClosed) {
+                    sendTypingSignal();
+                  }
+                }}
                 placeholder={
                   isClosed ? 'Mentorship is closed' : 'Type a message to your mentor...'
                 }
