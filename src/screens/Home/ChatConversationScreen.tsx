@@ -12,6 +12,7 @@ import {
   FlatList,
   Modal,
   Image,
+  ImageBackground,
   ScrollView,
   Animated,
 } from 'react-native';
@@ -57,6 +58,10 @@ import {
   forwardMessage,
   updateUserStatus,
   ChatMessageReaction,
+  getChatPreference,
+  setChatBackgroundImage,
+  removeChatBackgroundImage,
+  uploadChatBackgroundToStorage,
 } from '../../api/chat';
 import { ConnectionWithProfile, getMyConnections } from '../../api/connections';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -264,6 +269,9 @@ export default function ChatConversationScreen() {
   const [reactionTargetMessageId, setReactionTargetMessageId] = useState<string | null>(null);
   const [directPartnerStatus, setDirectPartnerStatus] = useState<'online' | 'away' | 'offline' | null>(null);
   const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
+  const [backgroundImageUrl, setBackgroundImageUrl] = useState<string | null>(null);
+  const [showBackgroundPicker, setShowBackgroundPicker] = useState(false);
+  const [isLoadingBackground, setIsLoadingBackground] = useState(false);
   const announcementPulse = useSharedValue(1);
   const announcementSlide = useSharedValue(-100);
   const announcementScale = useSharedValue(0.95);
@@ -309,6 +317,24 @@ export default function ChatConversationScreen() {
       }
     });
   }, []);
+
+  // Load chat background preference
+  useEffect(() => {
+    if (!conversationId || !user?.id || isAIChat) return;
+
+    const loadBackground = async () => {
+      try {
+        const preference = await getChatPreference(user.id, conversationId);
+        if (preference?.background_image_url) {
+          setBackgroundImageUrl(preference.background_image_url);
+        }
+      } catch (error) {
+        console.error('Failed to load background preference:', error);
+      }
+    };
+
+    loadBackground();
+  }, [conversationId, user?.id, isAIChat]);
 
   const selectChatTheme = (theme: ChatTheme) => {
     setChatTheme(theme);
@@ -950,6 +976,58 @@ export default function ChatConversationScreen() {
       Toast.show({ type: 'success', text1: 'Announcement deleted' });
     } catch (error: any) {
       Toast.show({ type: 'error', text1: 'Failed to delete announcement', text2: error?.message || 'Try again' });
+    }
+  };
+
+  const handlePickBackgroundImage = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [9, 16],
+        quality: 0.7,
+      });
+
+      if (!result.canceled && result.assets[0] && user?.id) {
+        setIsLoadingBackground(true);
+        const asset = result.assets[0];
+        const fileName = `bg-${Date.now()}.jpg`;
+
+        // Upload to Supabase storage
+        const imageUrl = await uploadChatBackgroundToStorage(
+          user.id,
+          conversationId,
+          asset.uri,
+          fileName
+        );
+
+        // Save preference
+        await setChatBackgroundImage(user.id, conversationId, imageUrl, fileName);
+        setBackgroundImageUrl(imageUrl);
+        setShowBackgroundPicker(false);
+        Toast.show({ type: 'success', text1: 'Background updated', text2: 'Custom background applied' });
+      }
+    } catch (error: any) {
+      console.error('Failed to set background:', error);
+      Toast.show({ type: 'error', text1: 'Failed to set background', text2: error?.message || 'Try again' });
+    } finally {
+      setIsLoadingBackground(false);
+    }
+  };
+
+  const handleRemoveBackground = async () => {
+    if (!user?.id) return;
+
+    try {
+      setIsLoadingBackground(true);
+      await removeChatBackgroundImage(user.id, conversationId);
+      setBackgroundImageUrl(null);
+      setShowBackgroundPicker(false);
+      Toast.show({ type: 'success', text1: 'Background removed' });
+    } catch (error: any) {
+      Toast.show({ type: 'error', text1: 'Failed to remove background', text2: error?.message || 'Try again' });
+    } finally {
+      setIsLoadingBackground(false);
     }
   };
 
@@ -1666,30 +1744,36 @@ export default function ChatConversationScreen() {
           <Text style={styles.loadingText}>Loading messages...</Text>
         </View>
       ) : (
-        <FlatList
-          ref={listRef}
-          data={filteredMessages}
-          keyExtractor={(item) => item.id}
-          renderItem={renderMessage}
+        <ImageBackground
+          source={backgroundImageUrl ? { uri: backgroundImageUrl } : undefined}
           style={styles.messagesContainer}
-          contentContainerStyle={styles.messagesContentContainer}
-          onContentSizeChange={() => {
-            if (!showMessageSearch) {
-              listRef.current?.scrollToEnd({ animated: false });
+          imageStyle={styles.backgroundImage}
+        >
+          <FlatList
+            ref={listRef}
+            data={filteredMessages}
+            keyExtractor={(item) => item.id}
+            renderItem={renderMessage}
+            style={styles.messagesListContainer}
+            contentContainerStyle={styles.messagesContentContainer}
+            onContentSizeChange={() => {
+              if (!showMessageSearch) {
+                listRef.current?.scrollToEnd({ animated: false });
+              }
+            }}
+            ListEmptyComponent={
+              <View style={styles.emptyContainer}>
+                <MaterialIcons name="chat-bubble-outline" size={64} color={Colors.textSecondary} />
+                <Text style={styles.emptyText}>
+                  {showMessageSearch ? 'No matching messages' : 'No messages yet'}
+                </Text>
+                <Text style={styles.emptySubtext}>
+                  {showMessageSearch ? 'Try another search term' : 'Start the conversation!'}
+                </Text>
+              </View>
             }
-          }}
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <MaterialIcons name="chat-bubble-outline" size={64} color={Colors.textSecondary} />
-              <Text style={styles.emptyText}>
-                {showMessageSearch ? 'No matching messages' : 'No messages yet'}
-              </Text>
-              <Text style={styles.emptySubtext}>
-                {showMessageSearch ? 'Try another search term' : 'Start the conversation!'}
-              </Text>
-            </View>
-          }
-        />
+          />
+        </ImageBackground>
       )}
 
       <KeyboardAvoidingView
@@ -1861,6 +1945,19 @@ export default function ChatConversationScreen() {
               <MaterialIcons name="palette" size={20} color={Colors.text} />
               <Text style={styles.optionText}>Change Chat Theme</Text>
             </TouchableOpacity>
+
+            {!isAIChat && (
+              <TouchableOpacity
+                style={styles.optionRow}
+                onPress={() => {
+                  setShowChatOptions(false);
+                  setShowBackgroundPicker(true);
+                }}
+              >
+                <MaterialIcons name="wallpaper" size={20} color={Colors.text} />
+                <Text style={styles.optionText}>Chat Background</Text>
+              </TouchableOpacity>
+            )}
 
             <TouchableOpacity
               style={styles.optionRow}
@@ -2578,6 +2675,63 @@ export default function ChatConversationScreen() {
         </View>
       </Modal>
 
+      {/* Chat Background Picker */}
+      <Modal
+        visible={showBackgroundPicker}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowBackgroundPicker(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.optionsSheet}>
+            <Text style={styles.optionsTitle}>Chat Background</Text>
+            <Text style={styles.themeSubtitle}>Customize your chat background</Text>
+
+            {backgroundImageUrl && (
+              <View style={styles.backgroundPreview}>
+                <Image
+                  source={{ uri: backgroundImageUrl }}
+                  style={styles.backgroundPreviewImage}
+                  resizeMode="cover"
+                />
+                <Text style={styles.backgroundPreviewLabel}>Current Background</Text>
+              </View>
+            )}
+
+            <TouchableOpacity
+              style={styles.optionRow}
+              onPress={handlePickBackgroundImage}
+              disabled={isLoadingBackground}
+            >
+              <MaterialIcons name="add-photo-alternate" size={20} color={Colors.primary} />
+              <Text style={styles.optionText}>
+                {backgroundImageUrl ? 'Change Background' : 'Choose from Gallery'}
+              </Text>
+              {isLoadingBackground && <ActivityIndicator size="small" color={Colors.primary} />}
+            </TouchableOpacity>
+
+            {backgroundImageUrl && (
+              <TouchableOpacity
+                style={styles.optionRow}
+                onPress={handleRemoveBackground}
+                disabled={isLoadingBackground}
+              >
+                <MaterialIcons name="delete" size={20} color={Colors.error} />
+                <Text style={[styles.optionText, { color: Colors.error }]}>Remove Background</Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity
+              style={[styles.optionRow, styles.optionCancel]}
+              onPress={() => setShowBackgroundPicker(false)}
+            >
+              <MaterialIcons name="close" size={20} color={Colors.textSecondary} />
+              <Text style={[styles.optionText, { color: Colors.textSecondary }]}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       <Modal
         visible={reactionPickerVisible}
         animationType="fade"
@@ -2879,6 +3033,30 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     },
     messagesContainer: {
       flex: 1,
+    },
+    messagesListContainer: {
+      flex: 1,
+      backgroundColor: 'transparent',
+    },
+    backgroundImage: {
+      opacity: 1,
+    },
+    backgroundPreview: {
+      alignItems: 'center',
+      marginVertical: Spacing.md,
+      borderRadius: BorderRadius.lg,
+      overflow: 'hidden',
+    },
+    backgroundPreviewImage: {
+      width: '100%',
+      height: 200,
+      borderRadius: BorderRadius.lg,
+    },
+    backgroundPreviewLabel: {
+      fontSize: FontSizes.sm,
+      color: Colors.textSecondary,
+      marginTop: Spacing.sm,
+      fontWeight: FontWeights.medium,
     },
     messagesContentContainer: {
       paddingHorizontal: Spacing.md,
