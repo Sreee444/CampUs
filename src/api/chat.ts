@@ -201,6 +201,63 @@ export const getConversations = async (userId: string) => {
 
 
 // Create 1-on-1 conversation
+const findDirectConversationBetweenUsers = async (
+  userAId: string,
+  userBId: string,
+  includeInactiveParticipants = false
+) => {
+  const { data: participantRows, error: participantError } = await supabase
+    .from("conversation_participants")
+    .select("conversation_id, user_id, left_at")
+    .in("user_id", [userAId, userBId]);
+
+  if (participantError) throw participantError;
+
+  const rows = (participantRows || []) as Array<{
+    conversation_id: string;
+    user_id: string;
+    left_at: string | null;
+  }>;
+
+  const grouped = new Map<
+    string,
+    { userIds: Set<string>; hasActiveA: boolean; hasActiveB: boolean }
+  >();
+
+  for (const row of rows) {
+    const existing = grouped.get(row.conversation_id) || {
+      userIds: new Set<string>(),
+      hasActiveA: false,
+      hasActiveB: false,
+    };
+
+    existing.userIds.add(row.user_id);
+    if (row.user_id === userAId && row.left_at === null) existing.hasActiveA = true;
+    if (row.user_id === userBId && row.left_at === null) existing.hasActiveB = true;
+    grouped.set(row.conversation_id, existing);
+  }
+
+  const candidateConversationIds = Array.from(grouped.entries())
+    .filter(([_, value]) => value.userIds.has(userAId) && value.userIds.has(userBId))
+    .filter(([_, value]) => includeInactiveParticipants || (value.hasActiveA && value.hasActiveB))
+    .map(([conversationId]) => conversationId);
+
+  if (!candidateConversationIds.length) {
+    return null;
+  }
+
+  const { data: directConversations, error: conversationError } = await supabase
+    .from("conversations")
+    .select("*")
+    .in("id", candidateConversationIds)
+    .eq("is_group", false)
+    .order("updated_at", { ascending: false })
+    .limit(1);
+
+  if (conversationError) throw conversationError;
+  return (directConversations || [])[0] || null;
+};
+
 export const createDirectConversation = async (
   user1Id: string,
   user2Id: string
@@ -225,34 +282,44 @@ export const createDirectConversation = async (
     console.warn('createDirectConversation called with mismatched user1Id; using authenticated user instead');
   }
 
-  // Check if conversation already exists
-  const { data: existingParticipants } = await supabase
-    .from("conversation_participants")
-    .select("conversation_id")
-    .in("user_id", [currentUserId, user2Id])
-    .is("left_at", null);
+  const existingActiveConversation = await findDirectConversationBetweenUsers(
+    currentUserId,
+    user2Id,
+    false
+  );
 
-  if (existingParticipants) {
-    // Find conversations where both users are participants
-    const conversationCounts = existingParticipants.reduce((acc: any, p: any) => {
-      acc[p.conversation_id] = (acc[p.conversation_id] || 0) + 1;
-      return acc;
-    }, {});
+  if (existingActiveConversation) {
+    return existingActiveConversation as Conversation;
+  }
 
-    const existingConvId = Object.keys(conversationCounts).find(
-      (id) => conversationCounts[id] === 2
-    );
+  const existingInactiveConversation = await findDirectConversationBetweenUsers(
+    currentUserId,
+    user2Id,
+    true
+  );
 
-    if (existingConvId) {
-      const { data } = await supabase
-        .from("conversations")
-        .select("*")
-        .eq("id", existingConvId)
-        .eq("is_group", false)
-        .single();
+  if (existingInactiveConversation) {
+    // Reactivate participants if a historical direct chat exists.
+    const { error: restoreParticipantsError } = await supabase
+      .from("conversation_participants")
+      .upsert(
+        [
+          { conversation_id: existingInactiveConversation.id, user_id: currentUserId, left_at: null },
+          { conversation_id: existingInactiveConversation.id, user_id: user2Id, left_at: null },
+        ] as any,
+        { onConflict: 'conversation_id,user_id' }
+      );
 
-      if (data) return data as Conversation;
+    if (restoreParticipantsError) {
+      throw restoreParticipantsError;
     }
+
+    await supabase
+      .from("conversations")
+      .update({ updated_at: new Date().toISOString() } as any)
+      .eq("id", existingInactiveConversation.id);
+
+    return existingInactiveConversation as Conversation;
   }
 
   // Create new conversation
@@ -286,6 +353,51 @@ export const createDirectConversation = async (
   }
 
   return conversation as Conversation;
+};
+
+// Delete a conversation for a user (soft delete by leaving conversation)
+export const deleteConversationForUser = async (
+  conversationId: string,
+  userId: string
+) => {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError) {
+    throw userError;
+  }
+
+  const currentUserId = user?.id;
+
+  if (!currentUserId) {
+    throw new Error('User must be authenticated to delete conversations');
+  }
+
+  if (userId && userId !== currentUserId) {
+    console.warn('deleteConversationForUser called with mismatched userId; using authenticated user instead');
+  }
+
+  const { error } = await supabase
+    .from("conversation_participants")
+    .update({ left_at: new Date().toISOString(), is_admin: false } as any)
+    .eq("conversation_id", conversationId)
+    .eq("user_id", currentUserId)
+    .is("left_at", null);
+
+  if (error) {
+    throw error;
+  }
+
+  // Best-effort cleanup for typing indicator rows.
+  await supabase
+    .from("typing_indicators")
+    .delete()
+    .eq("conversation_id", conversationId)
+    .eq("user_id", currentUserId);
+
+  return { success: true };
 };
 
 // Create group conversation

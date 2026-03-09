@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
   Image,
   RefreshControl,
+  Alert,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -23,7 +24,7 @@ import { RootStackParamList, MainTabParamList } from '../../navigation/types';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { getConversations, createGroupConversation, updateUserStatus } from '../../api/chat';
+import { getConversations, createGroupConversation, updateUserStatus, deleteConversationForUser } from '../../api/chat';
 import { supabase } from '../../api/supabase';
 import { getMyConnections, ConnectionWithProfile } from '../../api/connections';
 import { UserAvatar } from '../../components/UserAvatar';
@@ -266,6 +267,35 @@ export default function ChatScreen() {
     return colors[Math.abs(hash) % colors.length];
   };
 
+  const handleDeleteConversation = (conversation: any) => {
+    if (!user?.id) return;
+
+    const label = conversation.is_group ? 'Leave this group chat?' : 'Delete this chat from your list?';
+    Alert.alert('Delete Conversation', label, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: conversation.is_group ? 'Leave Group' : 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await deleteConversationForUser(conversation.id, user.id);
+            setConversations((prev) => prev.filter((item) => item.id !== conversation.id));
+            Toast.show({
+              type: 'success',
+              text1: conversation.is_group ? 'Left group chat' : 'Conversation deleted',
+            });
+          } catch (error: any) {
+            Toast.show({
+              type: 'error',
+              text1: 'Unable to delete conversation',
+              text2: error?.message || 'Please try again',
+            });
+          }
+        },
+      },
+    ]);
+  };
+
   const filteredConversations = useMemo(() => {
     let results = conversations;
 
@@ -400,6 +430,14 @@ export default function ChatScreen() {
             )}
           </View>
         </View>
+
+        <TouchableOpacity
+          style={styles.conversationMenuButton}
+          onPress={() => handleDeleteConversation(conversation)}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <MaterialIcons name="more-vert" size={20} color={Colors.textSecondary} />
+        </TouchableOpacity>
       </TouchableOpacity>
     );
   };
@@ -1015,6 +1053,12 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   conversationInfo: {
     flex: 1,
+  },
+  conversationMenuButton: {
+    width: 30,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    paddingTop: 2,
   },
   conversationHeader: {
     flexDirection: 'row',
