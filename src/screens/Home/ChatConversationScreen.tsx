@@ -980,6 +980,8 @@ export default function ChatConversationScreen() {
   };
 
   const handlePickBackgroundImage = async () => {
+    const previousBackgroundImage = backgroundImageUrl;
+
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -989,9 +991,13 @@ export default function ChatConversationScreen() {
       });
 
       if (!result.canceled && result.assets[0] && user?.id) {
-        setIsLoadingBackground(true);
         const asset = result.assets[0];
         const fileName = `bg-${Date.now()}.jpg`;
+
+        // Show the chosen image immediately for faster perceived response.
+        setBackgroundImageUrl(asset.uri);
+        setShowBackgroundPicker(false);
+        setIsLoadingBackground(true);
 
         // Upload to Supabase storage
         const imageUrl = await uploadChatBackgroundToStorage(
@@ -1004,11 +1010,11 @@ export default function ChatConversationScreen() {
         // Save preference
         await setChatBackgroundImage(user.id, conversationId, imageUrl, fileName);
         setBackgroundImageUrl(imageUrl);
-        setShowBackgroundPicker(false);
         Toast.show({ type: 'success', text1: 'Background updated', text2: 'Custom background applied' });
       }
     } catch (error: any) {
       console.error('Failed to set background:', error);
+      setBackgroundImageUrl(previousBackgroundImage);
       Toast.show({ type: 'error', text1: 'Failed to set background', text2: error?.message || 'Try again' });
     } finally {
       setIsLoadingBackground(false);
