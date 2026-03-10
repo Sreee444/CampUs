@@ -2283,42 +2283,26 @@ export const setChatBackgroundImage = async (
   imageUrl: string,
   imageName: string
 ) => {
-  // First check if preference exists
-  const existing = await getChatPreference(userId, conversationId);
-
-  if (existing) {
-    // Update existing preference
-    const { data, error } = await supabase
-      .from("chat_preferences")
-      .update({
-        background_image_url: imageUrl,
-        background_image_name: imageName,
-        updated_at: new Date().toISOString(),
-      } as any)
-      .eq("id", existing.id)
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data;
-  } else {
-    // Create new preference
-    const { data, error } = await supabase
-      .from("chat_preferences")
-      .insert({
+  const now = new Date().toISOString();
+  const { data, error } = await supabase
+    .from("chat_preferences")
+    .upsert(
+      {
         user_id: userId,
         conversation_id: conversationId,
         background_image_url: imageUrl,
         background_image_name: imageName,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      } as any)
-      .select()
-      .single();
+        updated_at: now,
+      } as any,
+      {
+        onConflict: "user_id,conversation_id",
+      }
+    )
+    .select()
+    .single();
 
-    if (error) throw error;
-    return data;
-  }
+  if (error) throw error;
+  return data;
 };
 
 // Remove background image for a conversation
@@ -2347,24 +2331,27 @@ export const uploadChatBackgroundToStorage = async (
   fileName: string
 ) => {
   try {
-    const fileData = await FileSystem.readAsStringAsync(fileUri, {
-      encoding: "base64",
-    });
-
     const path = `chat-backgrounds/${userId}/${conversationId}/${fileName}`;
+    const fileExt = (fileName.split('.').pop() || 'jpg').toLowerCase();
+    const contentType =
+      fileExt === 'png'
+        ? 'image/png'
+        : fileExt === 'webp'
+          ? 'image/webp'
+          : 'image/jpeg';
 
-    // Convert base64 to Uint8Array for React Native compatibility
-    const binaryString = atob(fileData);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
+    const response = await fetch(fileUri);
+    if (!response.ok) {
+      throw new Error('Failed to read selected image');
     }
+    const fileBuffer = await response.arrayBuffer();
 
-    const { data, error } = await supabase.storage
+    const { error } = await supabase.storage
       .from("avatars")
-      .upload(path, bytes, {
-        contentType: "image/*",
+      .upload(path, fileBuffer, {
+        contentType,
         upsert: true,
+        cacheControl: '3600',
       });
 
     if (error) throw error;
