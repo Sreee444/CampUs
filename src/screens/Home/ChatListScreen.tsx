@@ -24,7 +24,14 @@ import { RootStackParamList, MainTabParamList } from '../../navigation/types';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { getConversations, createGroupConversation, updateUserStatus, deleteConversationForUser } from '../../api/chat';
+import {
+  getConversations,
+  createGroupConversation,
+  updateUserStatus,
+  deleteConversationForUser,
+  searchPublicGroups,
+  requestToJoinPublicGroup,
+} from '../../api/chat';
 import { supabase } from '../../api/supabase';
 import { getMyConnections, ConnectionWithProfile } from '../../api/connections';
 import { UserAvatar } from '../../components/UserAvatar';
@@ -51,6 +58,7 @@ export default function ChatScreen() {
   const [activeFilter, setActiveFilter] = useState<'all' | 'unread' | 'groups' | 'direct' | 'mentorship'>('all');
   const [showComposeMenu, setShowComposeMenu] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const discoverSearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // New Chat Modal state
   const [showNewChatModal, setShowNewChatModal] = useState(false);
@@ -59,6 +67,13 @@ export default function ChatScreen() {
   const [creatingChat, setCreatingChat] = useState(false);
   const [groupName, setGroupName] = useState('');
   const [selectedParticipantIds, setSelectedParticipantIds] = useState<string[]>([]);
+
+  // Discover public groups modal
+  const [showDiscoverGroupsModal, setShowDiscoverGroupsModal] = useState(false);
+  const [discoverQuery, setDiscoverQuery] = useState('');
+  const [discoverResults, setDiscoverResults] = useState<any[]>([]);
+  const [loadingDiscoverGroups, setLoadingDiscoverGroups] = useState(false);
+  const [requestingGroupId, setRequestingGroupId] = useState<string | null>(null);
 
   const loadConversations = async () => {
     if (!user?.id) return;
@@ -159,6 +174,24 @@ export default function ChatScreen() {
     }
   }, [showNewChatModal]);
 
+  useEffect(() => {
+    if (!showDiscoverGroupsModal || !user?.id) return;
+
+    if (discoverSearchDebounceRef.current) {
+      clearTimeout(discoverSearchDebounceRef.current);
+    }
+
+    discoverSearchDebounceRef.current = setTimeout(() => {
+      loadDiscoverableGroups(discoverQuery);
+    }, 300);
+
+    return () => {
+      if (discoverSearchDebounceRef.current) {
+        clearTimeout(discoverSearchDebounceRef.current);
+      }
+    };
+  }, [showDiscoverGroupsModal, discoverQuery, user?.id]);
+
   const loadConnections = async () => {
     try {
       setLoadingConnections(true);
@@ -183,6 +216,59 @@ export default function ChatScreen() {
       }
       return [...prev, participantId];
     });
+  };
+
+  const loadDiscoverableGroups = async (query: string) => {
+    if (!user?.id) return;
+
+    const trimmed = query.trim();
+    if (trimmed.length < 2) {
+      setDiscoverResults([]);
+      setLoadingDiscoverGroups(false);
+      return;
+    }
+
+    try {
+      setLoadingDiscoverGroups(true);
+      const groups = await searchPublicGroups(user.id, trimmed);
+      setDiscoverResults(groups || []);
+    } catch (error: any) {
+      console.error('Error searching public groups:', error);
+      Toast.show({
+        type: 'error',
+        text1: 'Unable to search groups',
+        text2: error?.message || 'Try again in a moment',
+      });
+    } finally {
+      setLoadingDiscoverGroups(false);
+    }
+  };
+
+  const handleRequestGroupJoin = async (groupId: string) => {
+    if (!user?.id) return;
+
+    try {
+      setRequestingGroupId(groupId);
+      await requestToJoinPublicGroup(groupId, user.id);
+      setDiscoverResults((prev) =>
+        prev.map((item) =>
+          item.id === groupId ? { ...item, request_status: 'pending' } : item
+        )
+      );
+      Toast.show({
+        type: 'success',
+        text1: 'Request sent',
+        text2: 'Group admins will review your request',
+      });
+    } catch (error: any) {
+      Toast.show({
+        type: 'error',
+        text1: 'Request failed',
+        text2: error?.message || 'Please try again',
+      });
+    } finally {
+      setRequestingGroupId(null);
+    }
   };
 
   const handleCreateGroup = async () => {
@@ -581,6 +667,19 @@ export default function ChatScreen() {
               style={styles.composeActionRow}
               onPress={() => {
                 setShowComposeMenu(false);
+                setShowDiscoverGroupsModal(true);
+                setDiscoverQuery('');
+                setDiscoverResults([]);
+              }}
+            >
+              <MaterialIcons name="travel-explore" size={20} color={Colors.text} />
+              <Text style={styles.composeActionText}>Discover Public Groups</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.composeActionRow}
+              onPress={() => {
+                setShowComposeMenu(false);
                 navigation.navigate('AllUsers');
               }}
             >
@@ -600,6 +699,109 @@ export default function ChatScreen() {
       </Modal>
 
       {/* New Chat Modal */}
+      <Modal
+        visible={showDiscoverGroupsModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowDiscoverGroupsModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={styles.modalTitle}>Discover Public Groups</Text>
+                <Text style={styles.modalSubtitle}>Search by group name and request to join.</Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowDiscoverGroupsModal(false)}>
+                <MaterialIcons name="close" size={24} color={Colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.modalSearchSection}>
+              <View style={styles.modalSearchWrapper}>
+                <MaterialIcons name="search" size={18} color={Colors.primary} />
+                <TextInput
+                  value={discoverQuery}
+                  onChangeText={setDiscoverQuery}
+                  placeholder="Type group name"
+                  placeholderTextColor={Colors.textSecondary}
+                  style={styles.modalSearchInput}
+                />
+                {!!discoverQuery && (
+                  <TouchableOpacity style={styles.modalSearchClear} onPress={() => setDiscoverQuery('')}>
+                    <MaterialIcons name="close" size={16} color={Colors.textSecondary} />
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+
+            <ScrollView style={styles.modalScrollView} keyboardShouldPersistTaps="handled">
+              {discoverQuery.trim().length < 2 ? (
+                <View style={styles.emptyConnections}>
+                  <MaterialIcons name="manage-search" size={48} color={Colors.textSecondary} />
+                  <Text style={styles.emptyConnectionsText}>Search groups</Text>
+                  <Text style={styles.emptyConnectionsSubtext}>Enter at least 2 characters to find public groups.</Text>
+                </View>
+              ) : loadingDiscoverGroups ? (
+                <View style={styles.modalLoading}>
+                  <ActivityIndicator size="large" color={Colors.primary} />
+                </View>
+              ) : discoverResults.length === 0 ? (
+                <View style={styles.emptyConnections}>
+                  <MaterialIcons name="groups" size={52} color={Colors.textSecondary} />
+                  <Text style={styles.emptyConnectionsText}>No public groups found</Text>
+                  <Text style={styles.emptyConnectionsSubtext}>Try another name or ask admins to make their group public.</Text>
+                </View>
+              ) : (
+                discoverResults.map((group) => {
+                  const status = group.request_status;
+                  const isPending = status === 'pending';
+                  const isMember = !!group.is_member;
+                  const canRequest = !isPending && !isMember;
+
+                  return (
+                    <View key={group.id} style={styles.discoverGroupCard}>
+                      <View style={styles.discoverGroupInfo}>
+                        <UserAvatar
+                          uri={group.group_avatar}
+                          name={group.group_name || 'Group'}
+                          size={44}
+                          showRing={false}
+                        />
+                        <View style={styles.discoverGroupTextWrap}>
+                          <Text style={styles.discoverGroupName}>{group.group_name || 'Group'}</Text>
+                          <Text style={styles.discoverGroupMeta}>Public group</Text>
+                          <Text style={styles.discoverGroupBio} numberOfLines={2}>
+                            {group.group_bio || 'No group bio yet'}
+                          </Text>
+                        </View>
+                      </View>
+
+                      <TouchableOpacity
+                        style={[
+                          styles.discoverJoinButton,
+                          !canRequest && styles.discoverJoinButtonDisabled,
+                        ]}
+                        disabled={!canRequest || requestingGroupId === group.id}
+                        onPress={() => handleRequestGroupJoin(group.id)}
+                      >
+                        {requestingGroupId === group.id ? (
+                          <ActivityIndicator size="small" color="#ffffff" />
+                        ) : (
+                          <Text style={styles.discoverJoinButtonText}>
+                            {isMember ? 'Joined' : isPending ? 'Pending' : 'Request'}
+                          </Text>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
       <Modal
         visible={showNewChatModal}
         animationType="slide"
@@ -1501,5 +1703,57 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.md,
     backgroundColor: Colors.surface,
+  },
+  discoverGroupCard: {
+    marginHorizontal: Spacing.lg,
+    marginBottom: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.card,
+    padding: Spacing.sm,
+    gap: Spacing.sm,
+  },
+  discoverGroupInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  discoverGroupTextWrap: {
+    flex: 1,
+  },
+  discoverGroupName: {
+    fontSize: FontSizes.md,
+    fontWeight: FontWeights.semibold,
+    color: Colors.text,
+  },
+  discoverGroupMeta: {
+    fontSize: FontSizes.xs,
+    color: Colors.primary,
+    marginTop: 1,
+  },
+  discoverGroupBio: {
+    fontSize: FontSizes.sm,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
+  discoverJoinButton: {
+    alignSelf: 'flex-end',
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.primary,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 8,
+    minWidth: 88,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  discoverJoinButtonDisabled: {
+    backgroundColor: Colors.textSecondary,
+    opacity: 0.7,
+  },
+  discoverJoinButtonText: {
+    fontSize: FontSizes.sm,
+    fontWeight: FontWeights.semibold,
+    color: '#ffffff',
   },
 });
