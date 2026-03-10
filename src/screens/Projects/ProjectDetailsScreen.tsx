@@ -35,7 +35,9 @@ import {
   rejectProjectInvite,
   cancelProjectInvite,
   removeTeamMember,
+  removeProjectMentor,
 } from '../../api/projects';
+import { updateMentorshipRequestStatus } from '../../api/mentors';
 import { getProjectChatId, ensureProjectChat } from '../../api/projectChat';
 import { ProjectTeam } from '../../types/database';
 import { UserAvatar } from '../../components/UserAvatar';
@@ -87,6 +89,11 @@ export default function ProjectDetailsScreen() {
   const [invitedUserIds, setInvitedUserIds] = useState<Set<string>>(new Set());
   const [isHandlingInvite, setIsHandlingInvite] = useState(false);
   const [inviteFilter, setInviteFilter] = useState<'all' | 'best' | 'dept'>('all');
+  const [showRemoveMentorConfirmation, setShowRemoveMentorConfirmation] = useState(false);
+  const [isRemovingMentor, setIsRemovingMentor] = useState(false);
+  const [hasPendingProjectMentorRequest, setHasPendingProjectMentorRequest] = useState(false);
+  const [pendingProjectMentorRequestId, setPendingProjectMentorRequestId] = useState<string | null>(null);
+  const [isCancellingProjectMentorRequest, setIsCancellingProjectMentorRequest] = useState(false);
 
   // Status modal
   const [showStatusModal, setShowStatusModal] = useState(false);
@@ -205,6 +212,33 @@ export default function ProjectDetailsScreen() {
           }
         } else {
           setJoinRequestStatus(null);
+        }
+
+        const isProjectCreator = user.id === (data.created_by || data.creator?.id);
+        if (isProjectCreator && !(data as any)?.mentor_id) {
+          try {
+            const { data: pendingRequest, error: pendingMentorReqError } = await supabase
+              .from('mentorship_requests')
+              .select('id')
+              .eq('mentee_id', user.id)
+              .eq('project_id', teamId)
+              .eq('purpose', 'project')
+              .eq('status', 'pending')
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+
+            if (pendingMentorReqError) throw pendingMentorReqError;
+            setHasPendingProjectMentorRequest(!!pendingRequest?.id);
+            setPendingProjectMentorRequestId(pendingRequest?.id || null);
+          } catch (pendingErr) {
+            console.error('Failed to load pending mentorship request state', pendingErr);
+            setHasPendingProjectMentorRequest(false);
+            setPendingProjectMentorRequestId(null);
+          }
+        } else {
+          setHasPendingProjectMentorRequest(false);
+          setPendingProjectMentorRequestId(null);
         }
       }
 
@@ -875,6 +909,69 @@ export default function ProjectDetailsScreen() {
     }
   };
 
+  const handleRemoveMentor = async () => {
+    if (!team || !canManageTeam || !user?.id || !(team as any)?.mentor_id) return;
+
+    try {
+      setIsRemovingMentor(true);
+      await removeProjectMentor(teamId, user.id);
+
+      try {
+        await createNotification({
+          user_id: (team as any).mentor_id,
+          title: 'Removed from Project Mentor Role',
+          body: `You have been removed as mentor from ${team.name}`,
+          type: 'project_update',
+          related_id: teamId,
+        });
+      } catch (notifErr) {
+        console.error('Failed to notify removed mentor:', notifErr);
+      }
+
+      Toast.show({
+        type: 'success',
+        text1: 'Mentorship Ended',
+        text2: `${(team as any)?.mentor?.full_name || 'Mentor'} removed from project mentor role`,
+      });
+
+      setShowRemoveMentorConfirmation(false);
+      await loadTeamData();
+    } catch (err: any) {
+      console.error('Failed to remove mentor', err);
+      Toast.show({
+        type: 'error',
+        text1: 'Remove Failed',
+        text2: err?.message || 'Unable to remove mentor',
+      });
+    } finally {
+      setIsRemovingMentor(false);
+    }
+  };
+
+  const handleCancelProjectMentorRequest = async () => {
+    if (!pendingProjectMentorRequestId) return;
+
+    try {
+      setIsCancellingProjectMentorRequest(true);
+      await updateMentorshipRequestStatus(pendingProjectMentorRequestId, 'rejected');
+      Toast.show({
+        type: 'success',
+        text1: 'Request Cancelled',
+        text2: 'Pending mentor request has been cancelled.',
+      });
+      await loadTeamData();
+    } catch (err: any) {
+      console.error('Failed to cancel pending mentor request', err);
+      Toast.show({
+        type: 'error',
+        text1: 'Cancel Failed',
+        text2: err?.message || 'Unable to cancel mentor request',
+      });
+    } finally {
+      setIsCancellingProjectMentorRequest(false);
+    }
+  };
+
   const notifyAdmins = async (title: string, body: string) => {
     try {
       // Get all admin users
@@ -1333,18 +1430,52 @@ export default function ProjectDetailsScreen() {
                 </View>
                 <MaterialIcons name="chevron-right" size={24} color={Colors.textSecondary} />
               </TouchableOpacity>
+              {canManageTeam && (
+                <TouchableOpacity
+                  style={[styles.inviteMembersButton, { marginTop: 10, backgroundColor: '#ef4444' }]}
+                  onPress={() => setShowRemoveMentorConfirmation(true)}
+                  disabled={isRemovingMentor}
+                >
+                  <MaterialIcons name="person-remove" size={18} color="#fff" />
+                  <Text style={styles.inviteMembersText}>{isRemovingMentor ? 'Removing...' : 'Remove Mentor'}</Text>
+                </TouchableOpacity>
+              )}
             </View>
           ) : isCreator ? (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Project Mentor</Text>
-              <Text style={[styles.sectionSubtitle, { marginBottom: 8 }]}>No mentor assigned yet.</Text>
-              <TouchableOpacity
-                style={[styles.inviteMembersButton, { backgroundColor: '#4F46E5' }]}
-                onPress={() => (navigation as any).navigate('MentorHub', { prefillProjectId: teamId })}
-              >
-                <MaterialIcons name="school" size={18} color="#fff" />
-                <Text style={styles.inviteMembersText}>Find a Mentor</Text>
-              </TouchableOpacity>
+              <Text style={[styles.sectionSubtitle, { marginBottom: 8 }]}>
+                {hasPendingProjectMentorRequest
+                  ? 'Mentor request pending. Wait for mentor response before sending another request.'
+                  : 'No mentor assigned yet.'}
+              </Text>
+              {hasPendingProjectMentorRequest ? (
+                <TouchableOpacity
+                  style={[styles.inviteMembersButton, { backgroundColor: '#ef4444' }]}
+                  onPress={handleCancelProjectMentorRequest}
+                  disabled={isCancellingProjectMentorRequest}
+                >
+                  {isCancellingProjectMentorRequest ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <>
+                      <MaterialIcons name="cancel" size={18} color="#fff" />
+                      <Text style={styles.inviteMembersText}>Cancel Pending Request</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={[
+                    styles.inviteMembersButton,
+                    { backgroundColor: '#4F46E5' },
+                  ]}
+                  onPress={() => (navigation as any).navigate('MentorHub', { prefillProjectId: teamId })}
+                >
+                  <MaterialIcons name="school" size={18} color="#fff" />
+                  <Text style={styles.inviteMembersText}>Find a Mentor</Text>
+                </TouchableOpacity>
+              )}
             </View>
           ) : null}
 
@@ -1757,6 +1888,18 @@ export default function ProjectDetailsScreen() {
         cancelText="Stay"
         confirmColor="#ef4444"
         icon="exit-to-app"
+      />
+
+      <ConfirmBottomSheet
+        visible={showRemoveMentorConfirmation}
+        onClose={() => setShowRemoveMentorConfirmation(false)}
+        onConfirm={handleRemoveMentor}
+        title="Remove Project Mentor?"
+        message={`Are you sure you want to remove ${(team as any)?.mentor?.full_name || 'this mentor'} from ${team?.name}?`}
+        confirmText={isRemovingMentor ? 'Removing...' : 'Remove'}
+        cancelText="Cancel"
+        confirmColor="#ef4444"
+        icon="person-remove"
       />
 
       {/* Join Request Confirmation */}

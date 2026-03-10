@@ -265,6 +265,17 @@ export async function sendJoinRequest(params: {
     if (!reg) throw new Error('You must register for the event before joining a team.');
     if (reg.team_id) throw new Error('You are already in a team for this event.');
 
+    const { data: teamRow, error: teamRowError } = await (supabase as any)
+        .from('event_teams')
+        .select('id, max_members, is_recruiting, leader_id, name')
+        .eq('id', teamId)
+        .eq('event_id', eventId)
+        .maybeSingle();
+
+    if (teamRowError) throw teamRowError;
+    if (!teamRow) throw new Error('Team not found for this event.');
+    if (!teamRow.is_recruiting) throw new Error('This team is not accepting new requests right now.');
+
     // Check capacity
     const { count: memberCount } = await supabase
         .from('event_team_members')
@@ -294,7 +305,7 @@ export async function sendJoinRequest(params: {
 
     if (dup) throw new Error('You already have a pending request for this team.');
 
-    const { error } = await (supabase as any)
+    const { data: insertedReq, error } = await (supabase as any)
         .from('team_requests')
         .insert({
             team_id: teamId,
@@ -302,8 +313,37 @@ export async function sendJoinRequest(params: {
             requester_id: userId,
             type: 'join',
             status: 'pending',
-        });
+        })
+        .select('id')
+        .single();
     if (error) throw error;
+
+    // Notify team leader about incoming join request
+    if (teamRow.leader_id && teamRow.leader_id !== userId) {
+        const { data: requesterProfile } = await (supabase as any)
+            .from('profiles')
+            .select('full_name, email')
+            .eq('id', userId)
+            .maybeSingle();
+
+        await (supabase as any)
+            .from('notifications')
+            .insert({
+                user_id: teamRow.leader_id,
+                type: 'team_join_request',
+                title: 'New Team Join Request',
+                body: `${requesterProfile?.full_name || requesterProfile?.email || 'A user'} requested to join "${teamRow.name || teamName || 'your team'}"`,
+                related_id: teamId,
+                related_type: 'team',
+                is_read: false,
+                metadata: {
+                    team_request_id: insertedReq?.id,
+                    requester_user_id: userId,
+                    team_id: teamId,
+                    event_id: eventId,
+                },
+            });
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -340,6 +380,70 @@ export async function sendInvite(params: {
     message?: string;
 }): Promise<string> {
     const { teamId, eventId, leaderId, targetUserId, teamName, message } = params;
+
+    const { data: existingMember } = await (supabase as any)
+        .from('event_team_members')
+        .select(`
+            id,
+            team:event_teams!inner(
+                id,
+                event_id
+            )
+        `)
+        .eq('user_id', targetUserId)
+        .eq('status', 'active')
+        .eq('team.event_id', eventId)
+        .limit(1)
+        .maybeSingle();
+
+    if (existingMember) {
+        throw new Error('User is already in a team for this event.');
+    }
+
+    const { data: targetReg } = await (supabase as any)
+        .from('event_registrations')
+        .select('id, status')
+        .eq('event_id', eventId)
+        .eq('user_id', targetUserId)
+        .neq('status', 'cancelled')
+        .maybeSingle();
+
+    if (!targetReg) {
+        throw new Error('User must register for this event before receiving team invites.');
+    }
+
+    const { count: memberCount } = await supabase
+        .from('event_team_members')
+        .select('*', { count: 'exact', head: true })
+        .eq('team_id', teamId)
+        .eq('status', 'active');
+
+    const { data: teamData } = await (supabase as any)
+        .from('event_teams')
+        .select('max_members, is_recruiting')
+        .eq('id', teamId)
+        .eq('event_id', eventId)
+        .maybeSingle();
+
+    if (!teamData) throw new Error('Team not found for this event.');
+    if (!teamData.is_recruiting) throw new Error('Team is not recruiting right now.');
+    if ((memberCount ?? 0) >= (teamData.max_members ?? 999)) {
+        throw new Error('This team is full.');
+    }
+
+    const { data: existingPendingInvite } = await (supabase as any)
+        .from('team_requests')
+        .select('id')
+        .eq('team_id', teamId)
+        .eq('event_id', eventId)
+        .eq('target_user_id', targetUserId)
+        .eq('type', 'invite')
+        .eq('status', 'pending')
+        .maybeSingle();
+
+    if (existingPendingInvite) {
+        throw new Error('Invite already pending for this user.');
+    }
 
     const { data: reqRow, error: reqErr } = await (supabase as any)
         .from('team_requests')
@@ -405,6 +509,40 @@ export async function acceptJoinRequest(params: {
 }): Promise<void> {
     const { requestId, teamId, eventId, targetUserId } = params;
 
+    // Verify request still pending and valid
+    const { data: reqRow, error: reqLoadError } = await (supabase as any)
+        .from('team_requests')
+        .select('id, status, requester_id, target_user_id, type, team_id, event_id')
+        .eq('id', requestId)
+        .maybeSingle();
+
+    if (reqLoadError) throw reqLoadError;
+    if (!reqRow || reqRow.status !== 'pending' || reqRow.type !== 'join') {
+        throw new Error('This join request is no longer pending.');
+    }
+    if (reqRow.team_id !== teamId || reqRow.event_id !== eventId || reqRow.requester_id !== targetUserId) {
+        throw new Error('Join request does not match the target team/event/user.');
+    }
+
+    // Capacity check before accepting
+    const { count: memberCount } = await supabase
+        .from('event_team_members')
+        .select('*', { count: 'exact', head: true })
+        .eq('team_id', teamId)
+        .eq('status', 'active');
+
+    const { data: teamData } = await (supabase as any)
+        .from('event_teams')
+        .select('max_members')
+        .eq('id', teamId)
+        .eq('event_id', eventId)
+        .maybeSingle();
+
+    if (!teamData) throw new Error('Team not found for this event.');
+    if ((memberCount ?? 0) >= (teamData.max_members ?? 999)) {
+        throw new Error('This team is full.');
+    }
+
     // Add to event_team_members
     const { data: existing } = await (supabase as any)
         .from('event_team_members')
@@ -438,6 +576,72 @@ export async function acceptJoinRequest(params: {
         .update({ status: 'accepted' })
         .eq('id', requestId);
     if (reqErr) throw reqErr;
+
+    // Reject other pending join requests by same user in this event
+    await (supabase as any)
+        .from('team_requests')
+        .update({ status: 'rejected' })
+        .eq('event_id', eventId)
+        .eq('requester_id', targetUserId)
+        .eq('type', 'join')
+        .eq('status', 'pending')
+        .neq('id', requestId);
+
+    // Notify requester
+    await (supabase as any)
+        .from('notifications')
+        .insert({
+            user_id: targetUserId,
+            type: 'team_request_accepted',
+            title: 'Join Request Accepted',
+            body: 'Your request to join the team was accepted.',
+            related_id: teamId,
+            related_type: 'team',
+            is_read: false,
+            metadata: {
+                team_request_id: requestId,
+                team_id: teamId,
+                event_id: eventId,
+            },
+        });
+}
+
+export async function rejectJoinRequest(params: {
+    requestId: string;
+    teamId: string;
+    eventId: string;
+    targetUserId: string;
+}): Promise<void> {
+    const { requestId, teamId, eventId, targetUserId } = params;
+
+    const { error: reqErr } = await (supabase as any)
+        .from('team_requests')
+        .update({ status: 'rejected' })
+        .eq('id', requestId)
+        .eq('team_id', teamId)
+        .eq('event_id', eventId)
+        .eq('requester_id', targetUserId)
+        .eq('type', 'join')
+        .eq('status', 'pending');
+
+    if (reqErr) throw reqErr;
+
+    await (supabase as any)
+        .from('notifications')
+        .insert({
+            user_id: targetUserId,
+            type: 'team_request_rejected',
+            title: 'Join Request Rejected',
+            body: 'Your request to join the team was rejected. You can send another request later.',
+            related_id: teamId,
+            related_type: 'team',
+            is_read: false,
+            metadata: {
+                team_request_id: requestId,
+                team_id: teamId,
+                event_id: eventId,
+            },
+        });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

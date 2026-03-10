@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
+    Image,
     KeyboardAvoidingView,
     Platform,
     SafeAreaView,
@@ -16,10 +17,13 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
+import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import Toast from 'react-native-toast-message';
 import { RootStackParamList } from '../../../navigation/types';
 import { useAuth } from '../../../contexts/AuthContext';
 import { isFacultyOrAdminRole } from '../../../utils/roles';
+import { supabase } from '../../../api/supabase';
 import { getInterCampusEventById, updateInterCampusEvent } from '../api/intercampus';
 import { InterCampusEvent } from '../types/intercampus';
 
@@ -31,6 +35,17 @@ const toIso = (value: string) => {
     if (!raw) return null;
     const d = new Date(raw);
     return Number.isNaN(d.getTime()) ? null : d.toISOString();
+};
+
+const isValidHttpUrl = (value: string) => {
+    const raw = value.trim();
+    if (!raw) return false;
+    try {
+        const parsed = new URL(raw);
+        return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    } catch {
+        return false;
+    }
 };
 
 const Field = ({
@@ -88,6 +103,8 @@ export default function EditInterCampusEventScreen() {
     const [eventType, setEventType] = useState('');
     const [sourceUrl, setSourceUrl] = useState('');
     const [posterImage, setPosterImage] = useState('');
+    const [imageInputMode, setImageInputMode] = useState<'link' | 'upload'>('link');
+    const [uploadingImage, setUploadingImage] = useState(false);
 
     const isFaculty = isFacultyOrAdminRole(profile?.role);
 
@@ -118,6 +135,7 @@ export default function EditInterCampusEventScreen() {
             setEventType(data.event_type || '');
             setSourceUrl(data.source_url || '');
             setPosterImage(data.poster_image || data.banner_image || '');
+            setImageInputMode((data.poster_image || data.banner_image || '').trim() ? 'upload' : 'link');
         } catch (error: any) {
             Toast.show({ type: 'error', text1: 'Failed to load event', text2: error?.message });
             navigation.goBack();
@@ -127,6 +145,53 @@ export default function EditInterCampusEventScreen() {
     }, [route.params.eventId, user?.id]);
 
     useEffect(() => { load(); }, [load]);
+
+    const pickAndUploadImage = async () => {
+        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!permission.granted) {
+            Toast.show({ type: 'error', text1: 'Gallery permission is required' });
+            return;
+        }
+
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ['images'],
+            allowsEditing: true,
+            quality: 0.85,
+            aspect: [16, 9],
+        });
+
+        if (result.canceled || !result.assets?.[0]?.uri) return;
+
+        try {
+            setUploadingImage(true);
+            const uri = result.assets[0].uri;
+            const fileExt = (uri.split('.').pop()?.split('?')[0] ?? 'jpg').toLowerCase();
+            const fileName = `intercampus-edit-${Date.now()}.${fileExt}`;
+            const contentType = fileExt === 'png' ? 'image/png' : fileExt === 'webp' ? 'image/webp' : 'image/jpeg';
+
+            const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+            const byteCharacters = atob(base64);
+            const uint8Array = new Uint8Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i += 1) {
+                uint8Array[i] = byteCharacters.charCodeAt(i);
+            }
+
+            const { error } = await supabase.storage.from('event-banners').upload(fileName, uint8Array, {
+                contentType,
+                upsert: true,
+            });
+
+            if (error) throw error;
+
+            const { data } = supabase.storage.from('event-banners').getPublicUrl(fileName);
+            setPosterImage(data.publicUrl);
+            Toast.show({ type: 'success', text1: `${event?.is_fest ? 'Fest' : 'Event'} image uploaded` });
+        } catch (error: any) {
+            Toast.show({ type: 'error', text1: 'Image upload failed', text2: error?.message || 'Try again' });
+        } finally {
+            setUploadingImage(false);
+        }
+    };
 
     const handleSave = async () => {
         if (!title.trim()) {
@@ -145,6 +210,11 @@ export default function EditInterCampusEventScreen() {
                 Toast.show({ type: 'error', text1: 'Valid team size range required' });
                 return;
             }
+        }
+
+        if (imageInputMode === 'link' && posterImage.trim() && !isValidHttpUrl(posterImage)) {
+            Toast.show({ type: 'error', text1: 'Image URL is invalid' });
+            return;
         }
 
         try {
@@ -277,7 +347,45 @@ export default function EditInterCampusEventScreen() {
                         <Text style={styles.sectionTitle}>Links</Text>
                         <Field label="Registration Link" value={registrationLink} onChange={setRegistrationLink} placeholder="https://…" />
                         <Field label="Event Website" value={sourceUrl} onChange={setSourceUrl} placeholder="https://…" />
-                        <Field label="Poster/Banner Image URL" value={posterImage} onChange={setPosterImage} placeholder="https://…" />
+                        <Text style={styles.fieldLabel}>{isFestRow ? 'Fest Image' : 'Event Image'}</Text>
+                        <View style={styles.segRow}>
+                            <TouchableOpacity
+                                style={[styles.segBtn, imageInputMode === 'link' && styles.segBtnActive]}
+                                onPress={() => setImageInputMode('link')}
+                            >
+                                <Text style={[styles.segText, imageInputMode === 'link' && styles.segTextActive]}>Use Link</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.segBtn, imageInputMode === 'upload' && styles.segBtnActive]}
+                                onPress={() => setImageInputMode('upload')}
+                            >
+                                <Text style={[styles.segText, imageInputMode === 'upload' && styles.segTextActive]}>Upload Image</Text>
+                            </TouchableOpacity>
+                        </View>
+
+                        {imageInputMode === 'link' ? (
+                            <Field
+                                label="Image URL"
+                                value={posterImage}
+                                onChange={setPosterImage}
+                                placeholder="https://…"
+                            />
+                        ) : (
+                            <TouchableOpacity
+                                style={[styles.uploadBtn, uploadingImage && { opacity: 0.6 }]}
+                                onPress={pickAndUploadImage}
+                                disabled={uploadingImage}
+                            >
+                                <MaterialIcons name="upload" size={16} color="#0f766e" />
+                                <Text style={styles.uploadText}>
+                                    {uploadingImage ? 'Uploading...' : posterImage.trim() ? 'Change Image' : 'Upload Image'}
+                                </Text>
+                            </TouchableOpacity>
+                        )}
+
+                        {!!posterImage.trim() && (
+                            <Image source={{ uri: posterImage.trim() }} style={styles.previewImage} />
+                        )}
                     </View>
 
                     <TouchableOpacity
@@ -356,4 +464,25 @@ const styles = StyleSheet.create({
         gap: 8, backgroundColor: '#7c3aed', borderRadius: 14, paddingVertical: 15,
     },
     saveBigBtnText: { color: '#fff', fontSize: 15, fontWeight: '800' },
+
+    uploadBtn: {
+        marginTop: 6,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        paddingVertical: 12,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: '#99f6e4',
+        backgroundColor: '#ecfeff',
+    },
+    uploadText: { color: '#0f766e', fontWeight: '700', fontSize: 13 },
+    previewImage: {
+        marginTop: 10,
+        width: '100%',
+        height: 160,
+        borderRadius: 10,
+        backgroundColor: '#e2e8f0',
+    },
 });

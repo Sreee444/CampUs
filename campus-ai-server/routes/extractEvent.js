@@ -20,7 +20,7 @@ Rules:
 - Also provide eventStartTime in HH:mm format when available.
 - eventEndDate is optional. Keep empty if not available.
 - IMPORTANT: Extract fest-level dates (festStartDate, festEndDate) from overall fest duration.
-- IMPORTANT: Extract college location (city/state/country) if mentioned anywhere.
+- IMPORTANT: collegeLocation MUST be ONLY the location/city/state/country of the college. Look for phrases like "located in", "based in", "at [location]". If unclear, extract just the city or state name. NEVER put event descriptions, event details, or other content in collegeLocation.
 - Registration link rules:
   - Use explicit registration/form URL when present.
   - If only QR candidate URL exists, put that URL in registrationLink.
@@ -270,15 +270,63 @@ function inferFestDatesFromEvents(events) {
   return { start: dates[0], end: dates[dates.length - 1] };
 }
 
+function isValidCollegeLocation(value) {
+  const raw = String(value || '').trim();
+  if (!raw || raw.length > 100) return false;
+  
+  // Reject if contains suspicious keywords indicating it's not a location
+  const suspiciousPatterns = /\b(events?|workshop|hackathon|competition|technical|cultural|sports?|talk|seminar|lecture|department|compete|learn|participate)\b/i;
+  if (suspiciousPatterns.test(raw)) return false;
+  
+  // Reject if contains common description markers
+  if (/\.|,\s*[a-z].*\./i.test(raw)) return false;
+  
+  // Valid if contains city/state names
+  const validLocationIndicators = /\b(city|state|location|india|kerala|karnataka|tamil\s*nadu|telangana|maharashtra|delhi|punjab|gujrat|haryana|bengal|assam|himachal|uttar\s*pradesh|andhra|madhya|uttarakhand|jharkhand|odisha|rajasthan|goa|manipur|tripura|sikkim|mizoram|nagaland|meghalaya|arunachal|puducherry|lakshadweep|andaman|nicobar|ladakh|chandigarh|kochi|cochin|ernakulam|thiruvananthapuram|kannur|kozhikode|thrissur|alappuzha|pathanamthitta|idukki|wayanad|bangalore|bengaluru|mysore|mangalore|udupi|hassan|belagavi|kalaburagi|tumkur|shimoga|davangere|bellary|chikballapur|chikmagalur|kodagu|dakshina\s*kannada|uttara\s*kannada|gadag|viji|chamarajanagar|raichur|koppal|chickmagalur|ballari|yadgir|london|newyork|tokya|singapore|dubai|usa|uk|us|australia|canada|europe)\b/i;
+  if (validLocationIndicators.test(raw)) return true;
+  
+  // Allow simple city names (2-3 words, no dots, reasonable length)
+  if (/^[A-Za-z\s'-]{2,50}$/.test(raw)) return true;
+  
+  return false;
+}
+
 function inferCollegeLocationFromText(websiteText) {
   const text = String(websiteText || '');
-  const cityStateMatch = text.match(/\b([A-Za-z .'-]+,\s*[A-Za-z .'-]+)\b/);
-  if (cityStateMatch?.[1]) return cityStateMatch[1].trim();
-
-  const known = text.match(/\b(Kochi|Ernakulam|Kerala|Bangalore|Bengaluru|Chennai|Hyderabad|Mumbai|Delhi|India)\b/i);
-  if (known?.[1]) return known[1];
+  
+  // Look for explicit location patterns
+  const locationMatch = text.match(/(?:located|based|situated)\s+(?:in|at)\s+([A-Za-z\s,'.-]+?)(?:[,.]|\s+and)/i);
+  if (locationMatch?.[1]) {
+    const loc = locationMatch[1].trim();
+    if (isValidCollegeLocation(loc)) return loc;
+  }
+  
+  // Try city, state pattern
+  const cityStateMatch = text.match(/\b([A-Za-z .'-]+),\s*([A-Za-z .'-]+)\b/); 
+  if (cityStateMatch?.[1] && cityStateMatch?.[2]) {
+    const combined = `${cityStateMatch[1]}, ${cityStateMatch[2]}`.trim();
+    if (isValidCollegeLocation(combined)) return combined;
+  }
+  
+  // Look for known city/state names
+  const knownLocations = ['Kochi', 'Cochin', 'Ernakulam', 'Kerala', 'Thiruvananthapuram', 'Kannur', 'Kozhikode', 'Thrissur', 'Alappuzha', 'Pathanamthitta', 'Idukki', 'Wayanad', 'Bangalore', 'Bengaluru', 'Mysore', 'Mangalore', 'Chennai', 'Hyderabad', 'Mumbai', 'Delhi', 'Pune', 'Goa', 'Jaipur', 'Lucknow', 'Chandigarh', 'Indore'];
+  for (const location of knownLocations) {
+    const regex = new RegExp(`\\b${location}\\b`, 'i');
+    if (regex.test(text)) return location;
+  }
 
   return '';
+}
+
+function validateAndCleanCollegeLocation(value, websiteText) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  
+  // If the AI-returned value is valid, use it
+  if (isValidCollegeLocation(raw)) return raw;
+  
+  // Otherwise, try to infer from text
+  return inferCollegeLocationFromText(websiteText);
 }
 
 function extractTimeFromDateTime(value) {
@@ -594,7 +642,7 @@ function normalizeExtractResult(parsed, url, websiteText = '') {
   return {
     festName,
     collegeName,
-    collegeLocation: firstNonEmpty(source.collegeLocation, source.college_location, inferCollegeLocationFromText(websiteText)),
+    collegeLocation: validateAndCleanCollegeLocation(firstNonEmpty(source.collegeLocation, source.college_location), websiteText),
     collegeWebsite: firstNonEmpty(source.collegeWebsite, source.college_website),
     festStartDate: resolvedFestStartDate,
     festEndDate: resolvedFestEndDate,
@@ -607,7 +655,7 @@ function normalizeExtractResult(parsed, url, websiteText = '') {
     description: firstNonEmpty(firstEvent.description, source.description, source.event_description),
     event_description: firstNonEmpty(firstEvent.description, source.event_description, source.description),
     college_name: collegeName || firstNonEmpty(source.college_name, source.collegeName),
-    college_location: firstNonEmpty(source.college_location, source.collegeLocation, inferCollegeLocationFromText(websiteText)),
+    college_location: validateAndCleanCollegeLocation(firstNonEmpty(source.collegeLocation, source.college_location), websiteText),
     event_start_datetime: firstNonEmpty(source.event_start_datetime, source.eventStartDateTime, firstEvent.eventStartDateTime, fallback.fallbackDateTime),
     event_start_date: firstNonEmpty(source.event_start_date, source.eventStartDate, firstEvent.eventStartDate, resolvedFestStartDate, fallback.fallbackDate),
     event_start_time: firstNonEmpty(source.event_start_time, source.eventStartTime, firstEvent.eventStartTime, fallback.fallbackTime),

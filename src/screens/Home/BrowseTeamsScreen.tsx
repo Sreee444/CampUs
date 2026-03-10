@@ -153,8 +153,8 @@ export default function BrowseTeamsScreen() {
         try {
             setJoiningTeamId(team.id);
             await sendJoinRequest({ teamId: team.id, eventId, userId: user.id, teamName: team.name });
-            setTeams((prev) => prev.map((t) => (t.id === team.id ? { ...t, my_request_status: 'pending' } : t)));
             Toast.show({ type: 'success', text1: 'Request sent' });
+            await loadTeams();
         } catch (err: any) {
             Toast.show({ type: 'error', text1: 'Request failed', text2: err.message });
         } finally {
@@ -167,8 +167,8 @@ export default function BrowseTeamsScreen() {
         try {
             setJoiningTeamId(team.id);
             await cancelJoinRequest({ teamId: team.id, requesterId: user.id, eventId });
-            setTeams((prev) => prev.map((t) => (t.id === team.id ? { ...t, my_request_status: 'none', my_request_id: null } : t)));
             Toast.show({ type: 'info', text1: 'Request cancelled' });
+            await loadTeams();
         } catch (err: any) {
             Toast.show({ type: 'error', text1: 'Failed to cancel', text2: err.message });
         } finally {

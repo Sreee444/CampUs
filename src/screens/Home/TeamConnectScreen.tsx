@@ -23,6 +23,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../api/supabase';
 import { SkillRole, SKILL_ROLES } from '../../utils/teamUtils';
 import { sortByMatch, ParticipantWithMatch } from '../../utils/matchingUtils';
+import { sendInvite } from '../../utils/teamActions';
 
 type TeamConnectScreenNavigationProp = StackNavigationProp<RootStackParamList, 'TeamConnect'>;
 type TeamConnectScreenRouteProp = RouteProp<RootStackParamList, 'TeamConnect'>;
@@ -30,7 +31,7 @@ type TeamConnectScreenRouteProp = RouteProp<RootStackParamList, 'TeamConnect'>;
 export default function TeamConnectScreen() {
     const navigation = useNavigation<TeamConnectScreenNavigationProp>();
     const route = useRoute<TeamConnectScreenRouteProp>();
-    const { profile } = useAuth();
+    const { profile, user } = useAuth();
 
     const { eventId, requiredRoles, teamId } = route.params;
 
@@ -102,8 +103,15 @@ export default function TeamConnectScreen() {
                     // Filter out users who have a team_id in this event
                     const { data: teamMembers } = await (supabase as any)
                         .from('event_team_members')
-                        .select('user_id')
-                        .eq('event_id', eventId);
+                        .select(`
+                            user_id,
+                            team:event_teams!inner(
+                                id,
+                                event_id
+                            )
+                        `)
+                        .eq('team.event_id', eventId)
+                        .eq('status', 'active');
                     
                     const { data: registeredWithTeam } = await (supabase as any)
                         .from('event_registrations')
@@ -162,13 +170,15 @@ export default function TeamConnectScreen() {
             // Load existing invitations if teamId is provided
             if (teamId) {
                 const { data: invitesData } = await (supabase as any)
-                    .from('team_join_requests')
-                    .select('user_id')
+                    .from('team_requests')
+                    .select('target_user_id')
                     .eq('team_id', teamId)
+                    .eq('event_id', eventId)
+                    .eq('type', 'invite')
                     .eq('status', 'pending');
                 
                 if (invitesData) {
-                    const invitedIds = new Set<string>(invitesData.map((inv: any) => inv.user_id));
+                    const invitedIds = new Set<string>(invitesData.map((inv: any) => inv.target_user_id).filter(Boolean));
                     setInvitedUserIds(invitedIds);
                 }
             }
@@ -205,26 +215,30 @@ export default function TeamConnectScreen() {
     }, [participants, filterTab, profile?.department, onlyLooking]);
 
     const handleInviteUser = async (userId: string) => {
+        if (!teamId || !user?.id) return;
         try {
             setInvitingUserId(userId);
-            // Send notification to user (use only valid columns)
-            const { error: notifError } = await (supabase as any)
-                .from('notifications')
-                .insert({
-                    user_id: userId,
-                    type: 'team_invite',
-                    title: 'Team Invitation',
-                    is_read: false,
-                });
-            if (notifError) {
-                Toast.show({ type: 'error', text1: 'Failed to send invitation', text2: notifError.message });
-            } else {
-                Toast.show({ type: 'success', text1: 'Invitation sent', text2: 'User will see this in Browse Teams' });
-            }
+            const { data: teamData } = await (supabase as any)
+                .from('event_teams')
+                .select('name')
+                .eq('id', teamId)
+                .maybeSingle();
+
+            await sendInvite({
+                teamId,
+                eventId,
+                leaderId: user.id,
+                targetUserId: userId,
+                teamName: teamData?.name || 'Your Team',
+            });
+            setInvitedUserIds((prev) => new Set([...prev, userId]));
+            Toast.show({ type: 'success', text1: 'Invitation sent' });
+        } catch (err: any) {
+            Toast.show({ type: 'error', text1: 'Failed to send invitation', text2: err?.message || 'Try again' });
         } finally {
             setInvitingUserId(null);
         }
-    };;
+    };
 
     return (
         <View style={styles.container}>

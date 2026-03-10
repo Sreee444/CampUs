@@ -19,7 +19,8 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import { useAnimatedStyle, useSharedValue, withRepeat, withTiming, Easing } from 'react-native-reanimated';
 import { MaterialIcons } from '@expo/vector-icons';
-import EmojiPicker, { type EmojiType } from 'rn-emoji-keyboard';
+import EmojiPicker from 'rn-emoji-keyboard/lib/commonjs';
+import type { EmojiType } from 'rn-emoji-keyboard';
 import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../../navigation/types';

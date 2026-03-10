@@ -26,6 +26,12 @@ export type MentorshipChat = {
   } | null;
 };
 
+const isMissingMentorshipReactionTableError = (error: any) => {
+  const code = String(error?.code || '');
+  const message = String(error?.message || '').toLowerCase();
+  return code === 'PGRST205' || message.includes('mentorship_message_reactions') || message.includes('schema cache');
+};
+
 // Get all mentorship chats where the user is a participant
 export const getMentorshipChatsForUser = async (userId: string): Promise<MentorshipChat[]> => {
   // First, find chat IDs where the user is a participant
@@ -356,6 +362,29 @@ export const getProjectMentorshipChat = async (
   return chat?.id ?? null;
 };
 
+// ========== MESSAGE DELETE ==========
+
+/**
+ * Delete a mentorship message (hard delete).
+ */
+export const deleteMentorshipMessage = async (messageId: string): Promise<void> => {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError) throw userError;
+  if (!user?.id) throw new Error('User must be authenticated to delete messages');
+
+  const { error } = await supabase
+    .from('mentorship_messages')
+    .delete()
+    .eq('id', messageId)
+    .eq('sender_id', user.id);
+
+  if (error) throw error;
+};
+
 // ========== MESSAGE REACTIONS ==========
 
 export type MessageReaction = {
@@ -390,7 +419,10 @@ export const addMentorshipMessageReaction = async (
       emoji,
     } as any);
 
-  if (error && error.code !== '23505') throw error;
+  if (error && error.code !== '23505') {
+    if (isMissingMentorshipReactionTableError(error)) return;
+    throw error;
+  }
 };
 
 /**
@@ -415,7 +447,10 @@ export const removeMentorshipMessageReaction = async (
     .eq('user_id', user.id)
     .eq('emoji', emoji);
 
-  if (error) throw error;
+  if (error) {
+    if (isMissingMentorshipReactionTableError(error)) return;
+    throw error;
+  }
 };
 
 /**
@@ -438,7 +473,10 @@ export const getMentorshipMessageReactions = async (
     `)
     .in('message_id', messageIds);
 
-  if (error) throw error;
+  if (error) {
+    if (isMissingMentorshipReactionTableError(error)) return new Map();
+    throw error;
+  }
 
   const reactionsMap = new Map<string, MessageReaction[]>();
   for (const reaction of data || []) {

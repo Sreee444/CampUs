@@ -6,7 +6,6 @@ import {
     TouchableOpacity,
     ScrollView,
     StyleSheet,
-    Alert,
     ActivityIndicator,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -72,6 +71,11 @@ export default function JoinTeamScreen() {
                 data: { user: authUser },
             } = await supabase.auth.getUser();
 
+            if (!authUser?.id) {
+                Toast.show({ type: 'error', text1: 'Authentication Required' });
+                return;
+            }
+
             const { data: existing } = await (supabase as any)
                 .from('event_team_members')
                 .select(`
@@ -98,7 +102,7 @@ export default function JoinTeamScreen() {
         }
     };
 
-    // 🚀 JOIN TEAM
+    // 🚀 DIRECT JOIN TEAM BY CODE
     const handleJoin = async () => {
         if (!foundTeam) return;
 
@@ -110,96 +114,66 @@ export default function JoinTeamScreen() {
             } = await supabase.auth.getUser();
 
             if (!authUser) {
-                Alert.alert('Authentication Required');
+                Toast.show({ type: 'error', text1: 'Authentication Required' });
                 return;
             }
 
-            // 1️⃣ REGISTRATION CHECK
             const { data: regRow } = await (supabase as any)
                 .from('event_registrations')
                 .select('id, team_id')
                 .eq('event_id', eventId)
                 .eq('user_id', authUser.id)
-                .single();
+                .eq('status', 'registered')
+                .maybeSingle();
 
             if (!regRow) {
-                Alert.alert(
-                    'Registration Required',
-                    'Please register for this event first.'
-                );
+                Toast.show({ type: 'error', text1: 'Registration Required', text2: 'Please register for this event first.' });
                 return;
             }
 
             if (regRow.team_id) {
-                Alert.alert('Already in a Team');
+                Toast.show({ type: 'error', text1: 'Already in a Team' });
                 return;
             }
 
-            const { data: scopedMembership, error: scopedMembershipError } = await (supabase as any)
-                .from('event_team_members')
-                .select(`
-                    id,
-                    team_id,
-                    team:event_teams!inner(
-                        id,
-                        event_id
-                    )
-                `)
-                .eq('user_id', authUser.id)
-                .eq('status', 'active')
-                .eq('team.event_id', eventId)
-                .limit(1)
-                .maybeSingle();
-
-            if (scopedMembershipError) throw scopedMembershipError;
-            if (scopedMembership) {
-                Alert.alert('Already in a Team', 'You are already in a team for this event.');
-                return;
-            }
-
-            // 2️⃣ FRESH MEMBER COUNT
             const { count: freshCount } = await supabase
                 .from('event_team_members')
                 .select('*', { count: 'exact', head: true })
                 .eq('team_id', foundTeam.id)
                 .eq('status', 'active');
 
-            if ((freshCount ?? 0) >= foundTeam.max_members) {
+            if ((freshCount ?? 0) >= (foundTeam.max_members ?? 999)) {
                 Toast.show({ type: 'error', text1: 'Team is full' });
                 return;
             }
 
-            // 3️⃣ DUPLICATE MEMBER CHECK
-            const { data: existingMember } = await supabase
+            const { data: existingMember } = await (supabase as any)
                 .from('event_team_members')
                 .select('id')
                 .eq('team_id', foundTeam.id)
                 .eq('user_id', authUser.id)
+                .eq('status', 'active')
                 .maybeSingle();
 
-            if (existingMember) {
-                Toast.show({ type: 'error', text1: 'Already a member' });
-                return;
+            if (!existingMember) {
+                const { error: insertError } = await (supabase as any)
+                    .from('event_team_members')
+                    .insert({
+                        team_id: foundTeam.id,
+                        user_id: authUser.id,
+                        role: 'member',
+                        status: 'active',
+                    });
+
+                if (insertError) throw insertError;
             }
 
-            // 4️⃣ INSERT MEMBER
-            const { error: insertError } = await supabase
-                .from('event_team_members')
-                .insert({
-                    team_id: foundTeam.id,
-                    user_id: authUser.id,
-                    role: 'member',
-                    status: 'active',
-                } as any);
-
-            if (insertError) throw insertError;
-
-            // 5️⃣ UPDATE REGISTRATION
             const { error: updateError } = await (supabase as any)
                 .from('event_registrations')
                 .update({
-                    team_id: (foundTeam as any).id,
+                    team_id: foundTeam.id,
                     looking_for_team: false,
+                    status: 'registered',
                 })
                 .eq('event_id', eventId)
                 .eq('user_id', authUser.id);
@@ -274,6 +248,10 @@ export default function JoinTeamScreen() {
                         {alreadyMember ? (
                             <Text style={{ marginTop: 10 }}>
                                 You are already a member.
+                            </Text>
+                        ) : (membersCount >= (foundTeam.max_members ?? 5)) ? (
+                            <Text style={{ marginTop: 10 }}>
+                                This team is full.
                             </Text>
                         ) : (
                             <TouchableOpacity

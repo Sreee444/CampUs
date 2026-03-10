@@ -900,11 +900,146 @@ export const rejectInterCampusEvent = async (eventId: string, approverId: string
 };
 
 export const deleteInterCampusEvent = async (eventId: string) => {
+  const { data: targetEvent, error: targetError } = await supabase
+    .from('intercampus_events')
+    .select('id, title, is_fest, college_name, fest_year')
+    .eq('id', eventId)
+    .single();
+
+  if (targetError) throw targetError;
+
+  if (targetEvent?.is_fest) {
+    const { error: linkedChildDeleteError } = await supabase
+      .from('intercampus_events')
+      .delete()
+      .eq('parent_fest_id', targetEvent.id);
+
+    if (linkedChildDeleteError) throw linkedChildDeleteError;
+
+    const festTitle = String(targetEvent.title || '').trim();
+    if (festTitle) {
+      let legacyChildrenDeleteQuery = supabase
+        .from('intercampus_events')
+        .delete()
+        .eq('is_fest', false)
+        .is('parent_fest_id', null)
+        .eq('fest_name', festTitle);
+
+      if (targetEvent.college_name) {
+        legacyChildrenDeleteQuery = legacyChildrenDeleteQuery.eq('college_name', targetEvent.college_name);
+      }
+      if (typeof targetEvent.fest_year === 'number') {
+        legacyChildrenDeleteQuery = legacyChildrenDeleteQuery.eq('fest_year', targetEvent.fest_year);
+      }
+
+      const { error: legacyChildDeleteError } = await legacyChildrenDeleteQuery;
+      if (legacyChildDeleteError) throw legacyChildDeleteError;
+    }
+  }
+
   const { error } = await supabase
     .from('intercampus_events')
     .delete()
     .eq('id', eventId);
   if (error) throw error;
+};
+
+export const deleteInterCampusFest = async (festOrEventId: string) => {
+  try {
+    const { data: targetEvent, error: targetError } = await supabase
+      .from('intercampus_events')
+      .select('id, title, fest_name, is_fest, parent_fest_id, college_name, fest_year')
+      .eq('id', festOrEventId)
+      .single();
+
+    if (targetError) throw targetError;
+
+    let festRow = targetEvent;
+    if (!targetEvent?.is_fest) {
+      if (targetEvent?.parent_fest_id) {
+        const { data: parentFest, error: parentError } = await supabase
+          .from('intercampus_events')
+          .select('id, title, fest_name, is_fest, parent_fest_id, college_name, fest_year')
+          .eq('id', targetEvent.parent_fest_id)
+          .single();
+        if (parentError) throw parentError;
+        festRow = parentFest;
+      } else {
+        const festName = String(targetEvent?.fest_name || '').trim();
+        if (!festName) {
+          throw new Error('Selected record is not a fest');
+        }
+
+        let festQuery = supabase
+          .from('intercampus_events')
+          .select('id, title, fest_name, is_fest, parent_fest_id, college_name, fest_year')
+          .eq('is_fest', true)
+          .eq('title', festName)
+          .limit(1);
+
+        if (targetEvent?.college_name) {
+          festQuery = festQuery.eq('college_name', targetEvent.college_name);
+        }
+        if (typeof targetEvent?.fest_year === 'number') {
+          festQuery = festQuery.eq('fest_year', targetEvent.fest_year);
+        }
+
+        const { data: fests, error: festLookupError } = await festQuery;
+        if (festLookupError) throw festLookupError;
+
+        const matchedFest = (fests || [])[0];
+        if (!matchedFest) {
+          throw new Error('Could not resolve fest record to delete');
+        }
+
+        festRow = matchedFest;
+      }
+    }
+
+    if (!festRow?.is_fest) {
+      throw new Error('Selected record is not a fest');
+    }
+
+    const { error: linkedChildDeleteError } = await supabase
+      .from('intercampus_events')
+      .delete()
+      .eq('parent_fest_id', festRow.id);
+
+    if (linkedChildDeleteError) throw linkedChildDeleteError;
+
+    const festTitle = String(festRow.title || '').trim();
+    if (festTitle) {
+      let legacyChildrenDeleteQuery = supabase
+        .from('intercampus_events')
+        .delete()
+        .eq('is_fest', false)
+        .is('parent_fest_id', null)
+        .eq('fest_name', festTitle);
+
+      if (festRow.college_name) {
+        legacyChildrenDeleteQuery = legacyChildrenDeleteQuery.eq('college_name', festRow.college_name);
+      }
+      if (typeof festRow.fest_year === 'number') {
+        legacyChildrenDeleteQuery = legacyChildrenDeleteQuery.eq('fest_year', festRow.fest_year);
+      }
+
+      const { error: legacyChildDeleteError } = await legacyChildrenDeleteQuery;
+      if (legacyChildDeleteError) throw legacyChildDeleteError;
+    }
+
+    const { error: festDeleteError } = await supabase
+      .from('intercampus_events')
+      .delete()
+      .eq('id', festRow.id);
+
+    if (festDeleteError) throw festDeleteError;
+  } catch (error: any) {
+    const message = String(error?.message || '').toLowerCase();
+    if (message.includes('permission denied') || message.includes('row-level security')) {
+      throw new Error('Delete blocked by database permissions. Apply latest Supabase migrations and retry.');
+    }
+    throw error;
+  }
 };
 
 export const updateInterCampusEvent = async (eventId: string, payload: Record<string, any>) => {

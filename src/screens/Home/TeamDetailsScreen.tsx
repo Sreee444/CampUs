@@ -23,6 +23,7 @@ import StatusBadge from '../../components/StatusBadge';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import DropdownSheet from '../../components/DropdownSheet';
 import { computeTeamStatus, SKILL_ROLES, analyzeTeamStrength } from '../../utils/teamUtils';
+import { acceptJoinRequest as acceptEventJoinRequest, rejectJoinRequest as rejectEventJoinRequest } from '../../utils/teamActions';
 
 type TeamDetailsScreenNavigationProp = StackNavigationProp<RootStackParamList, 'TeamDetails'>;
 type TeamDetailsScreenRouteProp = RouteProp<RootStackParamList, 'TeamDetails'>;
@@ -109,11 +110,15 @@ export default function TeamDetailsScreen() {
             // Load join requests (for leader)
             if (sorted.some((m: any) => m.user_id === user?.id && m.role === 'leader')) {
                 const { data: requests } = await supabase
-                    .from('team_join_requests')
-                    .select('*, user:profiles(full_name, avatar_url, department, year, skills)')
+                    .from('team_requests')
+                    .select('id, requester_id, status, message, created_at, user:profiles!team_requests_requester_id_fkey(full_name, avatar_url, department, year, skills)')
+                    .eq('event_id', eventId)
                     .eq('team_id', teamId)
+                    .eq('type', 'join')
                     .eq('status', 'pending');
                 setJoinRequests(requests || []);
+            } else {
+                setJoinRequests([]);
             }
 
             // Load event deadline
@@ -187,23 +192,11 @@ export default function TeamDetailsScreen() {
 
     const handleAcceptRequest = async (requestId: string, userId: string) => {
         try {
-            await (supabase.from('team_join_requests') as any).update({ status: 'accepted' }).eq('id', requestId);
-            await (supabase.from('event_team_members') as any).insert({ team_id: teamId, user_id: userId, role: 'member' });
-            await (supabase.from('event_registrations') as any)
-                .upsert(
-                    { event_id: eventId, user_id: userId, status: 'registered', team_id: teamId, looking_for_team: false },
-                    { onConflict: 'event_id,user_id' }
-                );
-
-            // Notify user
-            const { createNotification } = require('../../api/notifications');
-            await createNotification({
-                user_id: userId,
-                type: 'team',
-                title: 'Request Accepted',
-                body: 'Your request to join ' + team?.name + ' has been accepted!',
-                related_id: teamId,
-                related_type: 'team',
+            await acceptEventJoinRequest({
+                requestId,
+                teamId,
+                eventId,
+                targetUserId: userId,
             });
 
             Toast.show({ type: 'success', text1: 'Request accepted' });
@@ -215,16 +208,11 @@ export default function TeamDetailsScreen() {
 
     const handleRejectRequest = async (requestId: string, userId: string) => {
         try {
-            await (supabase.from('team_join_requests') as any).update({ status: 'rejected' }).eq('id', requestId);
-
-            const { createNotification } = require('../../api/notifications');
-            await createNotification({
-                user_id: userId,
-                type: 'team',
-                title: 'Request Declined',
-                body: 'Your request to join ' + team?.name + ' was declined.',
-                related_id: teamId,
-                related_type: 'team',
+            await rejectEventJoinRequest({
+                requestId,
+                teamId,
+                eventId,
+                targetUserId: userId,
             });
 
             Toast.show({ type: 'success', text1: 'Request rejected' });
@@ -560,13 +548,13 @@ export default function TeamDetailsScreen() {
                                     <View style={st.requestActions}>
                                         <TouchableOpacity
                                             style={st.acceptBtn}
-                                            onPress={() => handleAcceptRequest(req.id, req.user_id)}
+                                            onPress={() => handleAcceptRequest(req.id, req.requester_id)}
                                         >
                                             <MaterialIcons name="check" size={18} color="#fff" />
                                         </TouchableOpacity>
                                         <TouchableOpacity
                                             style={st.rejectBtn}
-                                            onPress={() => handleRejectRequest(req.id, req.user_id)}
+                                            onPress={() => handleRejectRequest(req.id, req.requester_id)}
                                         >
                                             <MaterialIcons name="close" size={18} color="#ef4444" />
                                         </TouchableOpacity>

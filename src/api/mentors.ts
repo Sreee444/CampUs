@@ -164,67 +164,6 @@ export const createMentorshipRequest = async (data: {
     throw new Error(`You already have a pending or active ${data.purpose} request with this mentor.`);
   }
 
-  let preAssignMentorUserId: string | null = null;
-
-  // For project mentorship, assign mentor to project BEFORE inserting request.
-  // This guarantees project assignment and team-member sync at request creation time.
-  if (data.purpose === 'project' && data.project_id) {
-    const { data: mentorRow, error: mentorLookupError } = await supabase
-      .from('mentors')
-      .select('user_id')
-      .eq('id', data.mentor_id)
-      .single();
-
-    if (mentorLookupError) throw mentorLookupError;
-    preAssignMentorUserId = mentorRow?.user_id || null;
-    if (!preAssignMentorUserId) {
-      throw new Error('Selected mentor profile is invalid.');
-    }
-
-    const { data: updatedProject, error: teamUpdateError } = await supabase
-      .from('project_teams')
-      .update({ mentor_id: preAssignMentorUserId })
-      .eq('id', data.project_id)
-      .eq('created_by', data.mentee_id)
-      .select('id, mentor_id')
-      .maybeSingle();
-
-    if (teamUpdateError) throw teamUpdateError;
-    if (!updatedProject) {
-      throw new Error('Failed to assign mentor to project. Please ensure you are the project creator.');
-    }
-
-    const { data: existingMembers, error: memberLookupError } = await supabase
-      .from('project_team_members')
-      .select('id, role')
-      .eq('team_id', data.project_id)
-      .eq('user_id', preAssignMentorUserId)
-      .order('joined_at', { ascending: false });
-
-    if (memberLookupError) throw memberLookupError;
-
-    const existingMember = (existingMembers || [])[0] || null;
-
-    if (!existingMember) {
-      const { error: memberInsertError } = await supabase
-        .from('project_team_members')
-        .insert({
-          team_id: data.project_id,
-          user_id: preAssignMentorUserId,
-          role: 'advisor',
-        } as any);
-
-      if (memberInsertError) throw memberInsertError;
-    } else if (existingMember.role !== 'advisor') {
-      const { error: memberRoleUpdateError } = await supabase
-        .from('project_team_members')
-        .update({ role: 'advisor' })
-        .eq('id', existingMember.id);
-
-      if (memberRoleUpdateError) throw memberRoleUpdateError;
-    }
-  }
-
   const { data: result, error } = await supabase
     .from('mentorship_requests')
     .insert({
@@ -328,7 +267,7 @@ export const updateMentorshipRequestStatus = async (
 
   const { data: existing, error: existingError } = await supabase
     .from('mentorship_requests')
-    .select('id, status, mentee_id, purpose, project_id, mentor:mentors(user_id)')
+    .select('id, status, mentee_id, mentor_id, purpose, project_id, mentor:mentors(user_id)')
     .eq('id', requestId)
     .single();
 
@@ -346,14 +285,18 @@ export const updateMentorshipRequestStatus = async (
   const currentStatus = existing.status;
 
   // Transition rules:
-  // - pending -> accepted/rejected (mentor only)
+  // - pending -> accepted (mentor only)
+  // - pending -> rejected (mentor can reject, mentee can cancel)
   // - accepted -> closed (mentor or mentee)
   if (currentStatus === 'pending') {
     if (!(status === 'accepted' || status === 'rejected')) {
       throw new Error('Pending requests can only be accepted or rejected.');
     }
-    if (!isMentor) {
-      throw new Error('Only the mentor can accept or reject a pending request.');
+    if (status === 'accepted' && !isMentor) {
+      throw new Error('Only the mentor can accept a pending request.');
+    }
+    if (status === 'rejected' && !isMentor && !isMentee) {
+      throw new Error('Only the mentor or mentee can reject a pending request.');
     }
   } else if (currentStatus === 'accepted') {
     if (status !== 'closed') {
@@ -364,6 +307,71 @@ export const updateMentorshipRequestStatus = async (
     }
   } else {
     throw new Error('This mentorship request is already finalized.');
+  }
+
+  // For project mentorship, assign mentor to project only when mentor ACCEPTS.
+  // If this fails, we abort status transition to avoid accepted-without-assignment state.
+  if (
+    currentStatus === 'pending' &&
+    status === 'accepted' &&
+    existing.purpose === 'project' &&
+    existing.project_id
+  ) {
+    const { data: mentorRow, error: mentorLookupError } = await supabase
+      .from('mentors')
+      .select('user_id')
+      .eq('id', existing.mentor_id)
+      .single();
+
+    if (mentorLookupError) throw mentorLookupError;
+
+    const mentorUserId = mentorRow?.user_id;
+    if (!mentorUserId) {
+      throw new Error('Selected mentor profile is invalid.');
+    }
+
+    const { data: updatedProject, error: teamUpdateError } = await supabase
+      .from('project_teams')
+      .update({ mentor_id: mentorUserId })
+      .eq('id', existing.project_id)
+      .eq('created_by', existing.mentee_id)
+      .select('id, mentor_id')
+      .maybeSingle();
+
+    if (teamUpdateError) throw teamUpdateError;
+    if (!updatedProject) {
+      throw new Error('Failed to assign mentor to project. Ensure the mentee is still the project creator.');
+    }
+
+    const { data: existingMembers, error: memberLookupError } = await supabase
+      .from('project_team_members')
+      .select('id, role')
+      .eq('team_id', existing.project_id)
+      .eq('user_id', mentorUserId)
+      .order('joined_at', { ascending: false });
+
+    if (memberLookupError) throw memberLookupError;
+
+    const existingMember = (existingMembers || [])[0] || null;
+
+    if (!existingMember) {
+      const { error: memberInsertError } = await supabase
+        .from('project_team_members')
+        .insert({
+          team_id: existing.project_id,
+          user_id: mentorUserId,
+          role: 'advisor',
+        } as any);
+
+      if (memberInsertError) throw memberInsertError;
+    } else if (existingMember.role !== 'advisor') {
+      const { error: memberRoleUpdateError } = await supabase
+        .from('project_team_members')
+        .update({ role: 'advisor' })
+        .eq('id', existingMember.id);
+
+      if (memberRoleUpdateError) throw memberRoleUpdateError;
+    }
   }
 
   const { data, error } = await supabase
@@ -467,17 +475,29 @@ export const updateMentorshipRequestStatus = async (
     }
   }
 
-  // Notify mentee
+  // Notify counterpart (avoid notifying the same actor about their own action)
   try {
-    await createNotification({
-      user_id: data.mentee_id,
-      type: 'mentor_request',
-      title: 'Mentorship Update',
-      body: `Your mentorship request was ${status}.${status === 'accepted' ? ' You can now chat with your mentor in Mentor Hub!' : ''}`,
-      related_id: requestId,
-      related_type: 'mentorship_request',
-      is_read: false,
-    });
+    if (status === 'rejected' && isMentee && mentorUserId) {
+      await createNotification({
+        user_id: mentorUserId,
+        type: 'mentor_request',
+        title: 'Mentorship Request Cancelled',
+        body: 'A mentorship request was cancelled by the mentee.',
+        related_id: requestId,
+        related_type: 'mentorship_request',
+        is_read: false,
+      });
+    } else {
+      await createNotification({
+        user_id: data.mentee_id,
+        type: 'mentor_request',
+        title: 'Mentorship Update',
+        body: `Your mentorship request was ${status}.${status === 'accepted' ? ' You can now chat with your mentor in Mentor Hub!' : ''}`,
+        related_id: requestId,
+        related_type: 'mentorship_request',
+        is_read: false,
+      });
+    }
   } catch (_) {
     // Non-fatal
   }

@@ -288,6 +288,20 @@ export const assignMentor = async (
   mentorId: string,
   mentorUserId: string
 ) => {
+  const { data: acceptedRequest, error: requestError } = await supabase
+    .from('mentorship_requests')
+    .select('id')
+    .eq('project_id', teamId)
+    .eq('mentor_id', mentorId)
+    .eq('purpose', 'project')
+    .eq('status', 'accepted')
+    .maybeSingle();
+
+  if (requestError) throw requestError;
+  if (!acceptedRequest) {
+    throw new Error('Mentor can only be assigned after accepting the project mentorship request.');
+  }
+
   // Update the project team with the mentor_id
   const { error: teamError } = await supabase
     .from('project_teams')
@@ -326,6 +340,80 @@ export const removeMentor = async (teamId: string, mentorId: string) => {
     .eq("team_id", teamId)
     .eq("user_id", mentorId)
     .in("role", ["mentor", "advisor"]);
+};
+
+export const removeProjectMentor = async (teamId: string, actorId: string) => {
+  const { data: team, error: teamError } = await supabase
+    .from('project_teams')
+    .select('created_by, mentor_id')
+    .eq('id', teamId)
+    .single();
+
+  if (teamError) throw teamError;
+  if (!team?.mentor_id) {
+    throw new Error('No mentor assigned to this project.');
+  }
+
+  const isCreator = team.created_by === actorId;
+  let isAdmin = false;
+
+  if (!isCreator) {
+    const { data: actorProfile, error: actorError } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', actorId)
+      .single();
+
+    if (actorError) throw actorError;
+    isAdmin = actorProfile?.role === 'admin';
+  }
+
+  if (!isCreator && !isAdmin) {
+    throw new Error('Only project lead or admin can remove the mentor.');
+  }
+
+  const mentorUserId = team.mentor_id;
+
+  const { data: mentorRecord, error: mentorRecordError } = await supabase
+    .from('mentors')
+    .select('id')
+    .eq('user_id', mentorUserId)
+    .maybeSingle();
+
+  if (mentorRecordError) throw mentorRecordError;
+
+  // End active project mentorship link for this project + mentor.
+  // We close accepted requests when mentor is removed from the project.
+  if (mentorRecord?.id) {
+    const { error: closeMentorshipError } = await supabase
+      .from('mentorship_requests')
+      .update({ status: 'closed' })
+      .eq('project_id', teamId)
+      .eq('mentor_id', mentorRecord.id)
+      .eq('purpose', 'project')
+      .eq('status', 'accepted');
+
+    if (closeMentorshipError) throw closeMentorshipError;
+  }
+
+  const { error: clearMentorError } = await supabase
+    .from('project_teams')
+    .update({ mentor_id: null })
+    .eq('id', teamId)
+    .eq('mentor_id', mentorUserId);
+
+  if (clearMentorError) throw clearMentorError;
+
+  const { error: removeAdvisorError } = await supabase
+    .from('project_team_members')
+    .delete()
+    .eq('team_id', teamId)
+    .eq('user_id', mentorUserId)
+    .in('role', ['mentor', 'advisor']);
+
+  if (removeAdvisorError) throw removeAdvisorError;
+
+  return true;
 };
 
 // Update project status (Students can update, Faculty can override)

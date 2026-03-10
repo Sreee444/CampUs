@@ -130,6 +130,7 @@ export default function MentorHubScreen() {
   const [endingId, setEndingId] = useState<string | null>(null);
   const [openingChatId, setOpeningChatId] = useState<string | null>(null);
   const [assigningId, setAssigningId] = useState<string | null>(null);
+  const [cancellingRequestId, setCancellingRequestId] = useState<string | null>(null);
 
   const switchTab = (tab: 'discover' | 'requests' | 'active') => {
     Animated.timing(tabAnim, { toValue: 0, duration: 100, useNativeDriver: true }).start(() => {
@@ -278,6 +279,19 @@ export default function MentorHubScreen() {
       Toast.show({ type: 'error', text1: 'Failed', text2: e?.message });
     } finally {
       setEndingId(null);
+    }
+  };
+
+  const handleCancelRequest = async (requestId: string) => {
+    try {
+      setCancellingRequestId(requestId);
+      await updateMentorshipRequestStatus(requestId, 'rejected');
+      Toast.show({ type: 'success', text1: 'Request cancelled' });
+      await loadData();
+    } catch (e: any) {
+      Toast.show({ type: 'error', text1: 'Failed', text2: e?.message });
+    } finally {
+      setCancellingRequestId(null);
     }
   };
 
@@ -506,6 +520,20 @@ export default function MentorHubScreen() {
                       </View>
                       <Text style={S.descText} numberOfLines={2}>{req.description}</Text>
                     </View>
+                    {req.status === 'pending' && (
+                      <View style={S.actionRow}>
+                        <TouchableOpacity
+                          style={S.endBtn}
+                          onPress={() => handleCancelRequest(req.id)}
+                          disabled={cancellingRequestId === req.id}
+                        >
+                          {cancellingRequestId === req.id
+                            ? <ActivityIndicator size="small" color="#4F46E5" />
+                            : <Text style={S.endBtnText}>Cancel Request</Text>
+                          }
+                        </TouchableOpacity>
+                      </View>
+                    )}
                     {req.status === 'accepted' && req.purpose !== 'project' && conv && (
                       <TouchableOpacity
                         style={S.openChatBtn}

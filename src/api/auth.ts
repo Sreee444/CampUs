@@ -170,20 +170,9 @@ export const updatePassword = async (newPassword: string) => {
     throw new Error('Session expired. Please log in again.');
   }
 
-  // Avoid indefinite loading if network/auth endpoint hangs.
-  const updatePromise = supabase.auth.updateUser({
+  const { error } = await supabase.auth.updateUser({
     password: newPassword,
   });
-
-  const timeoutPromise = new Promise<{ error: Error }>((resolve) => {
-    setTimeout(() => {
-      resolve({
-        error: new Error('Password update timed out. Please check your internet and try again.'),
-      });
-    }, 15000);
-  });
-
-  const { error } = await Promise.race([updatePromise, timeoutPromise]);
   if (error) throw error;
 };
 

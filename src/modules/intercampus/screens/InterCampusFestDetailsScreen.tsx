@@ -25,6 +25,7 @@ import { isFacultyOrAdminRole } from '../../../utils/roles';
 import {
   approveInterCampusEvent,
   deleteInterCampusEvent,
+  deleteInterCampusFest,
   getFestEventsPaginated,
   getInterCampusEventById,
   rejectInterCampusEvent,
@@ -67,6 +68,7 @@ export default function InterCampusFestDetailsScreen() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [eventPage, setEventPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
+  const [resolvedFestId, setResolvedFestId] = useState<string | null>(route.params.festId);
   const [approvalLoading, setApprovalLoading] = useState<'approve' | 'reject' | null>(null);
   const [facultyNotes, setFacultyNotes] = useState('');
   const [deleting, setDeleting] = useState(false);
@@ -77,7 +79,8 @@ export default function InterCampusFestDetailsScreen() {
   const isVerified = fest?.verification_status === 'verified';
 
   const handleDeleteFest = () => {
-    if (!fest?.id) return;
+    const targetFestId = resolvedFestId || fest?.id;
+    if (!targetFestId || !fest?.id) return;
     Alert.alert(
       'Delete Fest',
       `Permanently delete "${fest.title}" and all its events? This cannot be undone.`,
@@ -89,7 +92,7 @@ export default function InterCampusFestDetailsScreen() {
           onPress: async () => {
             setDeleting(true);
             try {
-              await deleteInterCampusEvent(fest.id);
+              await deleteInterCampusFest(targetFestId);
               Toast.show({ type: 'success', text1: 'Fest deleted' });
               navigation.goBack();
             } catch (error: any) {
@@ -133,20 +136,32 @@ export default function InterCampusFestDetailsScreen() {
   const loadFest = useCallback(async () => {
     try {
       setLoadingFest(true);
-      const data = await getInterCampusEventById(route.params.festId, user?.id, true);
-      setFest(data);
+      const data = await getInterCampusEventById(resolvedFestId || route.params.festId, user?.id, true);
+
+      if (data?.is_fest) {
+        setFest(data);
+        setResolvedFestId(data.id);
+      } else if (data?.parent_fest_id) {
+        const parentFest = await getInterCampusEventById(data.parent_fest_id, user?.id, true);
+        setFest(parentFest);
+        setResolvedFestId(parentFest?.id || data.parent_fest_id);
+      } else {
+        setFest(data);
+        setResolvedFestId(data?.id || route.params.festId);
+      }
     } catch (error: any) {
       Toast.show({ type: 'error', text1: 'Failed to load fest', text2: error?.message });
     } finally {
       setLoadingFest(false);
     }
-  }, [route.params.festId, user?.id]);
+  }, [resolvedFestId, route.params.festId, user?.id]);
 
   const loadFestEvents = useCallback(async (page = 1, append = false) => {
     try {
+      const festIdToLoad = resolvedFestId || route.params.festId;
       if (append) setLoadingMore(true);
       else setLoadingEvents(true);
-      const result = await getFestEventsPaginated(route.params.festId, { page, pageSize: 10 });
+      const result = await getFestEventsPaginated(festIdToLoad, { page, pageSize: 10 });
       setEvents((prev) => (append ? [...prev, ...result.data] : result.data));
       setHasMore(result.hasMore);
       setEventPage(page);
@@ -156,7 +171,7 @@ export default function InterCampusFestDetailsScreen() {
       setLoadingEvents(false);
       setLoadingMore(false);
     }
-  }, [route.params.festId]);
+  }, [resolvedFestId, route.params.festId]);
 
   useEffect(() => {
     loadFest();
