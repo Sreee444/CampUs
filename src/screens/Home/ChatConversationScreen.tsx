@@ -19,6 +19,7 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import { useAnimatedStyle, useSharedValue, withRepeat, withTiming, Easing } from 'react-native-reanimated';
 import { MaterialIcons } from '@expo/vector-icons';
+import EmojiPicker, { type EmojiType } from 'rn-emoji-keyboard';
 import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../../navigation/types';
@@ -176,6 +177,28 @@ const CHAT_THEMES: ChatTheme[] = [
   },
 ];
 
+const withHexAlpha = (hexColor: string, alpha: number): string => {
+  const normalized = hexColor.replace('#', '');
+  const expanded =
+    normalized.length === 3
+      ? normalized
+          .split('')
+          .map((ch) => ch + ch)
+          .join('')
+      : normalized;
+
+  if (!/^[0-9a-fA-F]{6}$/.test(expanded)) {
+    return hexColor;
+  }
+
+  const clampedAlpha = Math.min(1, Math.max(0, alpha));
+  const alphaHex = Math.round(clampedAlpha * 255)
+    .toString(16)
+    .padStart(2, '0');
+
+  return `#${expanded}${alphaHex}`;
+};
+
 type ChatConversationScreenNavigationProp = StackNavigationProp<RootStackParamList, 'ChatConversation'>;
 type ChatConversationScreenRouteProp = RouteProp<RootStackParamList, 'ChatConversation'>;
 
@@ -272,11 +295,13 @@ export default function ChatConversationScreen() {
   const [backgroundImageUrl, setBackgroundImageUrl] = useState<string | null>(null);
   const [showBackgroundPicker, setShowBackgroundPicker] = useState(false);
   const [isLoadingBackground, setIsLoadingBackground] = useState(false);
+  const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
   const announcementPulse = useSharedValue(1);
   const announcementSlide = useSharedValue(-100);
   const announcementScale = useSharedValue(0.95);
   const announcementIconRotate = useSharedValue(0);
   const listRef = useRef<FlatList>(null);
+  const messageInputRef = useRef<TextInput | null>(null);
   const typingStopTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingSignalAtRef = useRef(0);
   const reactionChoices = ['👍', '❤️', '😂', '😮', '😢', '👏'];
@@ -342,6 +367,28 @@ export default function ChatConversationScreen() {
     setShowThemePicker(false);
     Toast.show({ type: 'success', text1: `${theme.label} theme applied` });
   };
+
+  const handleEmojiSelected = React.useCallback((selection: EmojiType) => {
+    setMessageText((prev) => `${prev}${selection.emoji}`);
+    setIsEmojiPickerOpen(false);
+    sendTypingSignal();
+    requestAnimationFrame(() => {
+      messageInputRef.current?.focus();
+    });
+  }, [sendTypingSignal]);
+
+  const headerChromeColor = useMemo(
+    () => withHexAlpha(chatTheme.bubbleColor, backgroundImageUrl ? 0.28 : 0.16),
+    [chatTheme.bubbleColor, backgroundImageUrl]
+  );
+  const headerChromeBorder = useMemo(
+    () => withHexAlpha(chatTheme.bubbleColor, 0.35),
+    [chatTheme.bubbleColor]
+  );
+  const composerBorderColor = useMemo(
+    () => withHexAlpha(chatTheme.bubbleColor, 0.3),
+    [chatTheme.bubbleColor]
+  );
 
   const upsertMessage = (nextMessage: ChatMessage) => {
     setMessages((prev) => {
@@ -1512,7 +1559,7 @@ export default function ChatConversationScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { backgroundColor: headerChromeColor, borderBottomColor: headerChromeBorder }]}>
         <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
           <MaterialIcons name="arrow-back" size={24} color={Colors.text} />
         </TouchableOpacity>
@@ -1607,7 +1654,7 @@ export default function ChatConversationScreen() {
       </View>
 
       {showMessageSearch && (
-        <View style={styles.messageSearchBar}>
+        <View style={[styles.messageSearchBar, { backgroundColor: headerChromeColor, borderBottomColor: headerChromeBorder }]}>
           <MaterialIcons name="search" size={18} color={Colors.textSecondary} />
           <TextInput
             value={messageSearchQuery}
@@ -1779,75 +1826,98 @@ export default function ChatConversationScreen() {
               </View>
             }
           />
+
+          <KeyboardAvoidingView
+            style={styles.composerOverlay}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+          >
+            {replyingTo && (
+              <View style={styles.replyBar}>
+                <View style={styles.replyTextWrap}>
+                  <Text style={styles.replyLabel}>Replying to</Text>
+                  <Text style={styles.replyText} numberOfLines={1}>
+                    {replyingTo.content}
+                  </Text>
+                </View>
+                <TouchableOpacity onPress={() => setReplyingTo(null)}>
+                  <MaterialIcons name="close" size={18} color={Colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+            )}
+
+            <View style={styles.inputContainer}>
+              <View
+                style={[
+                  styles.inputMain,
+                  { backgroundColor: Colors.surface, borderColor: composerBorderColor },
+                ]}
+              >
+                <TouchableOpacity
+                  style={styles.emojiButton}
+                  onPress={() => setIsEmojiPickerOpen(true)}
+                >
+                  <MaterialIcons name="emoji-emotions" size={22} color={Colors.textSecondary} />
+                </TouchableOpacity>
+
+                <TextInput
+                  ref={messageInputRef}
+                  style={styles.input}
+                  value={messageText}
+                  onChangeText={(text) => {
+                    setMessageText(text);
+                    if (!text.trim()) {
+                      stopTypingSignal().catch(() => {});
+                      return;
+                    }
+                    sendTypingSignal();
+                  }}
+                  placeholder="Type a message"
+                  placeholderTextColor={Colors.textSecondary}
+                  multiline
+                  maxLength={500}
+                  editable={!isSending}
+                />
+
+                <TouchableOpacity
+                  style={styles.attachButton}
+                  onPress={() =>
+                    Toast.show({
+                      type: 'info',
+                      text1: 'Attachments',
+                      text2: 'Attachment picker will be added next.',
+                    })
+                  }
+                >
+                  <MaterialIcons name="attach-file" size={24} color={Colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+
+              <TouchableOpacity
+                style={[
+                  styles.sendButton,
+                  { backgroundColor: chatTheme.bubbleColor },
+                  (isSending || !messageText.trim()) && styles.sendButtonDisabled,
+                ]}
+                onPress={handleSend}
+                disabled={isSending || !messageText.trim()}
+              >
+                {isSending ? (
+                  <ActivityIndicator size="small" color={chatTheme.textColor} />
+                ) : (
+                  <MaterialIcons name="send" size={22} color={chatTheme.textColor} />
+                )}
+              </TouchableOpacity>
+            </View>
+          </KeyboardAvoidingView>
         </ImageBackground>
       )}
 
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-      >
-        {replyingTo && (
-          <View style={styles.replyBar}>
-            <View style={styles.replyTextWrap}>
-              <Text style={styles.replyLabel}>Replying to</Text>
-              <Text style={styles.replyText} numberOfLines={1}>
-                {replyingTo.content}
-              </Text>
-            </View>
-            <TouchableOpacity onPress={() => setReplyingTo(null)}>
-              <MaterialIcons name="close" size={18} color={Colors.textSecondary} />
-            </TouchableOpacity>
-          </View>
-        )}
-
-        <View style={styles.inputContainer}>
-          <TouchableOpacity
-            style={styles.attachButton}
-            onPress={() =>
-              Toast.show({
-                type: 'info',
-                text1: 'Attachments',
-                text2: 'Attachment picker will be added next.',
-              })
-            }
-          >
-            <MaterialIcons name="attach-file" size={24} color={Colors.textSecondary} />
-          </TouchableOpacity>
-
-          <TextInput
-            style={styles.input}
-            value={messageText}
-            onChangeText={(text) => {
-              setMessageText(text);
-              if (!text.trim()) {
-                stopTypingSignal().catch(() => {});
-                return;
-              }
-              sendTypingSignal();
-            }}
-            placeholder="Type a message..."
-            placeholderTextColor={Colors.textSecondary}
-            multiline
-            maxLength={500}
-            editable={!isSending}
-          />
-
-          <TouchableOpacity
-            style={[
-              styles.sendButton,
-              (isSending || !messageText.trim()) && styles.sendButtonDisabled,
-            ]}
-            onPress={handleSend}
-            disabled={isSending || !messageText.trim()}
-          >
-            {isSending ? (
-              <ActivityIndicator size="small" color={Colors.primaryContent} />
-            ) : (
-              <MaterialIcons name="send" size={22} color={Colors.primaryContent} />
-            )}
-          </TouchableOpacity>
-        </View>
-      </KeyboardAvoidingView>
+      <EmojiPicker
+        open={isEmojiPickerOpen}
+        onClose={() => setIsEmojiPickerOpen(false)}
+        onEmojiSelected={handleEmojiSelected}
+      />
 
       <Modal
         visible={showChatOptions}
@@ -3067,7 +3137,13 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     messagesContentContainer: {
       paddingHorizontal: Spacing.md,
       paddingTop: Spacing.md,
-      paddingBottom: Spacing.md,
+      paddingBottom: 120,
+    },
+    composerOverlay: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      bottom: 0,
     },
     messageWrapper: {
       flexDirection: 'row',
@@ -3291,31 +3367,43 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       flexDirection: 'row',
       alignItems: 'flex-end',
       paddingHorizontal: Spacing.md,
-      paddingVertical: 12,
-      backgroundColor: Colors.surface,
-      borderTopWidth: 1,
-      borderTopColor: Colors.border,
+      paddingTop: 6,
+      paddingBottom: Platform.OS === 'ios' ? 10 : 8,
       gap: 8,
+    },
+    inputMain: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderWidth: 1,
+      borderRadius: 24,
+      paddingLeft: 4,
+      paddingRight: 4,
+      paddingVertical: 3,
+      ...Shadows.sm,
+    },
+    emojiButton: {
+      padding: 8,
+      marginBottom: 1,
     },
     attachButton: {
       padding: 8,
+      marginBottom: 1,
     },
     input: {
       flex: 1,
-      backgroundColor: Colors.background,
-      borderWidth: 1,
-      borderColor: Colors.border,
-      borderRadius: BorderRadius.lg,
-      paddingHorizontal: 16,
+      backgroundColor: 'transparent',
+      borderWidth: 0,
+      paddingHorizontal: 6,
       paddingVertical: 10,
       fontSize: FontSizes.md,
       color: Colors.text,
-      maxHeight: 100,
+      maxHeight: 110,
     },
     sendButton: {
-      width: 44,
-      height: 44,
-      borderRadius: 22,
+      width: 46,
+      height: 46,
+      borderRadius: 23,
       backgroundColor: Colors.primary,
       alignItems: 'center',
       justifyContent: 'center',
