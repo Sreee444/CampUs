@@ -274,8 +274,8 @@ export default function AdminDashboardScreen() {
               <Text style={[styles.statLabel, { color: Colors.textSecondary }]}>Events</Text>
             </View>
             <View style={[styles.statCard, { borderColor: Colors.border, backgroundColor: Colors.background }]}>
-              <Text style={[styles.statValue, { color: '#8b5cf6' }]}>{metrics.totalTeams}</Text>
-              <Text style={[styles.statLabel, { color: Colors.textSecondary }]}>Teams</Text>
+              <Text style={[styles.statValue, { color: '#8b5cf6' }]}>{metrics.totalProjects ?? metrics.totalTeams ?? 0}</Text>
+              <Text style={[styles.statLabel, { color: Colors.textSecondary }]}>Projects</Text>
             </View>
           </View>
         </View>

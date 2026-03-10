@@ -563,6 +563,7 @@ export type EngagementMetrics = {
   usersByRole: Record<string, number>;
   totalPosts: number;
   totalEvents: number;
+  totalProjects: number;
   totalTeams: number;
   recentMessages: number;
   recentPosts: number;
@@ -608,6 +609,8 @@ export const getEngagementMetrics = async (
     usersByRole,
     totalPosts: postsRes.count ?? 0,
     totalEvents: eventsRes.count ?? 0,
+    // Prefer project naming for dashboard cards while keeping teams for existing consumers.
+    totalProjects: teamsRes.count ?? 0,
     totalTeams: teamsRes.count ?? 0,
     recentMessages: messagesRes.count ?? 0,
     recentPosts: recentPostsRes.count ?? 0,

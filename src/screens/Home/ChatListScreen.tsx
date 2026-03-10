@@ -451,6 +451,9 @@ export default function ChatScreen() {
         minute: '2-digit',
       })
       : '';
+    const isPublicGroup = conversation.group_visibility === 'public';
+    const groupRingColor = isPublicGroup ? '#FF0000' : '#00FF00';
+    const groupBadgeColor = isPublicGroup ? '#FF0000' : '#00FF00';
 
     return (
       <TouchableOpacity
@@ -463,14 +466,21 @@ export default function ChatScreen() {
         })}
       >
         <View style={styles.avatarWrapper}>
-          <UserAvatar
-            uri={avatarUri}
-            name={name}
-            size={48}
-            showRing={false}
-          />
+          <View
+            style={[
+              styles.avatarRing,
+              conversation.is_group && { borderColor: groupRingColor },
+            ]}
+          >
+            <UserAvatar
+              uri={avatarUri}
+              name={name}
+              size={48}
+              showRing={false}
+            />
+          </View>
           {conversation.is_group && (
-            <View style={styles.groupBadge}>
+            <View style={[styles.groupBadge, { backgroundColor: groupBadgeColor }]}>
               <MaterialIcons name="people" size={12} color={Colors.surface} />
             </View>
           )}
@@ -762,12 +772,14 @@ export default function ChatScreen() {
                   return (
                     <View key={group.id} style={styles.discoverGroupCard}>
                       <View style={styles.discoverGroupInfo}>
-                        <UserAvatar
-                          uri={group.group_avatar}
-                          name={group.group_name || 'Group'}
-                          size={44}
-                          showRing={false}
-                        />
+                        <View style={[styles.avatarRingSmall, { borderColor: '#FF0000' }]}>
+                          <UserAvatar
+                            uri={group.group_avatar}
+                            name={group.group_name || 'Group'}
+                            size={44}
+                            showRing={false}
+                          />
+                        </View>
                         <View style={styles.discoverGroupTextWrap}>
                           <Text style={styles.discoverGroupName}>{group.group_name || 'Group'}</Text>
                           <Text style={styles.discoverGroupMeta}>Public group</Text>
@@ -1181,6 +1193,17 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   avatarWrapper: {
     position: 'relative',
     marginRight: 12,
+  },
+  avatarRing: {
+    borderWidth: 2,
+    borderColor: 'transparent',
+    borderRadius: 26,
+    padding: 1,
+  },
+  avatarRingSmall: {
+    borderWidth: 2,
+    borderRadius: 24,
+    padding: 1,
   },
   avatar: {
     width: 48,
