@@ -64,6 +64,8 @@ import {
   setChatBackgroundImage,
   removeChatBackgroundImage,
   uploadChatBackgroundToStorage,
+  getPendingGroupJoinRequests,
+  reviewGroupJoinRequest,
 } from '../../api/chat';
 import { ConnectionWithProfile, getMyConnections } from '../../api/connections';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -265,6 +267,7 @@ export default function ChatConversationScreen() {
   const [groupNameDraft, setGroupNameDraft] = useState('');
   const [groupAvatarDraft, setGroupAvatarDraft] = useState('');
   const [groupBioDraft, setGroupBioDraft] = useState('');
+  const [groupVisibilityDraft, setGroupVisibilityDraft] = useState<'private' | 'public'>('private');
   const [isUploadingGroupAvatar, setIsUploadingGroupAvatar] = useState(false);
   const [groupDetails, setGroupDetails] = useState<any>(null);
   const [groupMembers, setGroupMembers] = useState<GroupParticipant[]>([]);
@@ -274,6 +277,9 @@ export default function ChatConversationScreen() {
   const [loadingConnections, setLoadingConnections] = useState(false);
   const [isAddingMembers, setIsAddingMembers] = useState(false);
   const [isSavingGroup, setIsSavingGroup] = useState(false);
+  const [pendingGroupJoinRequests, setPendingGroupJoinRequests] = useState<any[]>([]);
+  const [isLoadingGroupJoinRequests, setIsLoadingGroupJoinRequests] = useState(false);
+  const [activeJoinReviewId, setActiveJoinReviewId] = useState<string | null>(null);
   const [showPinnedMessages, setShowPinnedMessages] = useState(false);
   const [pinnedMessageCount, setPinnedMessageCount] = useState(0);
   const [latestPinnedMessage, setLatestPinnedMessage] = useState<any>(null);
@@ -443,8 +449,28 @@ export default function ChatConversationScreen() {
       setGroupNameDraft(details?.group_name || '');
       setGroupAvatarDraft(details?.group_avatar || '');
       setGroupBioDraft(details?.group_bio || '');
+      setGroupVisibilityDraft(details?.group_visibility === 'public' ? 'public' : 'private');
     } catch (error) {
       console.error('Failed to load group details:', error);
+    }
+  };
+
+  const loadPendingJoinRequests = async () => {
+    if (!conversationId || !isGroup || !user?.id || !canManageGroup) return;
+
+    try {
+      setIsLoadingGroupJoinRequests(true);
+      const data = await getPendingGroupJoinRequests(conversationId, user.id);
+      setPendingGroupJoinRequests(data || []);
+    } catch (error: any) {
+      const message = `${error?.message || ''}`.toLowerCase();
+      if (message.includes('not enabled') || message.includes('group_join_requests')) {
+        setPendingGroupJoinRequests([]);
+        return;
+      }
+      console.error('Failed to load group join requests:', error);
+    } finally {
+      setIsLoadingGroupJoinRequests(false);
     }
   };
 
@@ -620,6 +646,12 @@ export default function ChatConversationScreen() {
       supabase.removeChannel(channel);
     };
   }, [conversationId, user?.id, isAIChat, isGroup]);
+
+  useEffect(() => {
+    if (showGroupMembers && canManageGroup) {
+      loadPendingJoinRequests();
+    }
+  }, [showGroupMembers, canManageGroup, conversationId, user?.id]);
 
   useEffect(() => {
     if (!messages.length || showMessageSearch) return;
@@ -800,6 +832,7 @@ export default function ChatConversationScreen() {
         group_name: groupNameDraft,
         group_avatar: groupAvatarDraft || null,
         group_bio: groupBioDraft,
+        ...(isMainAdmin ? { group_visibility: groupVisibilityDraft } : {}),
       });
       await loadGroupDetails();
       setShowGroupEdit(false);
@@ -808,6 +841,12 @@ export default function ChatConversationScreen() {
           type: 'info',
           text1: 'Group updated (partial)',
           text2: 'Name/image saved. Run DB migration to enable group bio.',
+        });
+      } else if (updatedConversation?.__groupVisibilityUnsupported) {
+        Toast.show({
+          type: 'info',
+          text1: 'Group updated (partial)',
+          text2: 'Run DB migration to enable public/private visibility.',
         });
       } else {
         Toast.show({ type: 'success', text1: 'Group updated' });
@@ -1290,6 +1329,33 @@ export default function ChatConversationScreen() {
     if (!isGroup || !user?.id) return false;
     return groupDetails?.created_by === user.id || !!currentUserParticipant?.is_admin;
   }, [groupDetails?.created_by, currentUserParticipant?.is_admin, isGroup, user?.id]);
+
+  const isMainAdmin = useMemo(() => {
+    if (!isGroup || !user?.id) return false;
+    return groupDetails?.created_by === user.id;
+  }, [groupDetails?.created_by, isGroup, user?.id]);
+
+  const handleReviewJoinRequest = async (requestId: string, action: 'accept' | 'reject') => {
+    if (!conversationId || !user?.id) return;
+
+    try {
+      setActiveJoinReviewId(requestId);
+      await reviewGroupJoinRequest(conversationId, requestId, user.id, action);
+      await Promise.all([loadGroupDetails(), loadPendingJoinRequests()]);
+      Toast.show({
+        type: 'success',
+        text1: action === 'accept' ? 'Request accepted' : 'Request rejected',
+      });
+    } catch (error: any) {
+      Toast.show({
+        type: 'error',
+        text1: 'Action failed',
+        text2: error?.message || 'Please try again',
+      });
+    } finally {
+      setActiveJoinReviewId(null);
+    }
+  };
 
   const initials = getInitials(groupDetails?.group_name || name);
   const color = isAIChat ? Colors.primary : getAvatarColor(groupDetails?.group_name || name);
@@ -2201,6 +2267,9 @@ export default function ChatConversationScreen() {
                     {groupDetails?.group_name || name}
                   </Text>
                   <Text style={styles.groupProfileMeta}>{groupMembers.length} members</Text>
+                  <Text style={styles.groupProfileVisibility}>
+                    {groupDetails?.group_visibility === 'public' ? 'Public group' : 'Private group'}
+                  </Text>
                   <Text
                     style={[
                       styles.groupProfileBio,
@@ -2215,6 +2284,69 @@ export default function ChatConversationScreen() {
             </View>
 
             <Text style={styles.membersSectionLabel}>Members</Text>
+
+            {canManageGroup && (
+              <View style={styles.joinRequestsSection}>
+                <View style={styles.joinRequestsHeader}>
+                  <Text style={styles.membersSectionLabel}>Pending Join Requests</Text>
+                  <TouchableOpacity onPress={loadPendingJoinRequests}>
+                    <MaterialIcons name="refresh" size={18} color={Colors.textSecondary} />
+                  </TouchableOpacity>
+                </View>
+
+                {isLoadingGroupJoinRequests ? (
+                  <View style={styles.membersLoadingWrap}>
+                    <ActivityIndicator size="small" color={Colors.primary} />
+                  </View>
+                ) : pendingGroupJoinRequests.length === 0 ? (
+                  <View style={styles.emptyMembersHint}>
+                    <Text style={styles.emptyMembersHintText}>No pending requests.</Text>
+                  </View>
+                ) : (
+                  pendingGroupJoinRequests.map((request) => (
+                    <View key={request.id} style={styles.joinRequestCard}>
+                      <View style={styles.memberMainInfo}>
+                        <UserAvatar
+                          uri={request.requester?.avatar_url}
+                          name={request.requester?.full_name || 'User'}
+                          size={38}
+                          showRing={false}
+                          role={request.requester?.role}
+                        />
+                        <View style={styles.memberTextWrap}>
+                          <Text style={styles.memberName}>{request.requester?.full_name || 'User'}</Text>
+                          <Text style={styles.memberMeta}>
+                            {request.requester?.department || request.requester?.role || 'Requested to join'}
+                          </Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.joinRequestActions}>
+                        <TouchableOpacity
+                          style={[styles.joinRequestButton, styles.joinRequestAccept]}
+                          onPress={() => handleReviewJoinRequest(request.id, 'accept')}
+                          disabled={activeJoinReviewId === request.id}
+                        >
+                          {activeJoinReviewId === request.id ? (
+                            <ActivityIndicator size="small" color="#ffffff" />
+                          ) : (
+                            <Text style={styles.joinRequestButtonText}>Accept</Text>
+                          )}
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={[styles.joinRequestButton, styles.joinRequestReject]}
+                          onPress={() => handleReviewJoinRequest(request.id, 'reject')}
+                          disabled={activeJoinReviewId === request.id}
+                        >
+                          <Text style={styles.joinRequestButtonText}>Reject</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ))
+                )}
+              </View>
+            )}
 
             <ScrollView showsVerticalScrollIndicator={false}>
               {groupMembers.map((member) => {
@@ -2442,6 +2574,60 @@ export default function ChatConversationScreen() {
               multiline
               maxLength={180}
             />
+
+            <Text style={styles.inputLabel}>Group visibility</Text>
+            <View style={styles.visibilityToggleRow}>
+              <TouchableOpacity
+                style={[
+                  styles.visibilityOption,
+                  groupVisibilityDraft === 'private' && styles.visibilityOptionActive,
+                ]}
+                onPress={() => isMainAdmin && setGroupVisibilityDraft('private')}
+                disabled={!isMainAdmin}
+              >
+                <MaterialIcons
+                  name="lock"
+                  size={16}
+                  color={groupVisibilityDraft === 'private' ? Colors.primaryContent : Colors.textSecondary}
+                />
+                <Text
+                  style={[
+                    styles.visibilityOptionText,
+                    groupVisibilityDraft === 'private' && styles.visibilityOptionTextActive,
+                  ]}
+                >
+                  Private
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.visibilityOption,
+                  groupVisibilityDraft === 'public' && styles.visibilityOptionActive,
+                ]}
+                onPress={() => isMainAdmin && setGroupVisibilityDraft('public')}
+                disabled={!isMainAdmin}
+              >
+                <MaterialIcons
+                  name="public"
+                  size={16}
+                  color={groupVisibilityDraft === 'public' ? Colors.primaryContent : Colors.textSecondary}
+                />
+                <Text
+                  style={[
+                    styles.visibilityOptionText,
+                    groupVisibilityDraft === 'public' && styles.visibilityOptionTextActive,
+                  ]}
+                >
+                  Public
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.visibilityHelpText}>
+              {isMainAdmin
+                ? 'Public groups are searchable and users can request to join. Private groups stay invite-only.'
+                : 'Only the main admin can change visibility.'}
+            </Text>
 
             <TouchableOpacity
               style={[styles.optionRow, styles.primaryOption]}
@@ -3578,6 +3764,12 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       color: Colors.textSecondary,
       marginTop: 1,
     },
+    groupProfileVisibility: {
+      fontSize: FontSizes.xs,
+      color: Colors.primary,
+      marginTop: 2,
+      fontWeight: FontWeights.semibold,
+    },
     groupProfileBio: {
       fontSize: FontSizes.sm,
       color: Colors.textSecondary,
@@ -3586,6 +3778,48 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     groupProfileBioEmpty: {
       fontStyle: 'italic',
       opacity: 0.85,
+    },
+    joinRequestsSection: {
+      marginBottom: Spacing.md,
+      gap: Spacing.xs,
+    },
+    joinRequestsHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    joinRequestCard: {
+      borderWidth: 1,
+      borderColor: Colors.border,
+      borderRadius: BorderRadius.md,
+      backgroundColor: Colors.card,
+      padding: Spacing.sm,
+      marginBottom: Spacing.sm,
+      gap: Spacing.sm,
+    },
+    joinRequestActions: {
+      flexDirection: 'row',
+      gap: Spacing.sm,
+      justifyContent: 'flex-end',
+    },
+    joinRequestButton: {
+      borderRadius: BorderRadius.md,
+      paddingHorizontal: Spacing.md,
+      paddingVertical: 7,
+      minWidth: 78,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    joinRequestAccept: {
+      backgroundColor: Colors.success,
+    },
+    joinRequestReject: {
+      backgroundColor: Colors.error,
+    },
+    joinRequestButtonText: {
+      fontSize: FontSizes.sm,
+      color: '#ffffff',
+      fontWeight: FontWeights.semibold,
     },
     memberItem: {
       flexDirection: 'row',
@@ -3744,6 +3978,41 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     groupBioInput: {
       minHeight: 90,
       textAlignVertical: 'top',
+    },
+    visibilityToggleRow: {
+      flexDirection: 'row',
+      gap: Spacing.sm,
+      marginBottom: Spacing.xs,
+    },
+    visibilityOption: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      borderWidth: 1,
+      borderColor: Colors.border,
+      borderRadius: BorderRadius.md,
+      backgroundColor: Colors.card,
+      paddingVertical: Spacing.sm,
+    },
+    visibilityOptionActive: {
+      borderColor: Colors.primary,
+      backgroundColor: Colors.primary,
+    },
+    visibilityOptionText: {
+      fontSize: FontSizes.sm,
+      color: Colors.textSecondary,
+      fontWeight: FontWeights.medium,
+    },
+    visibilityOptionTextActive: {
+      color: Colors.primaryContent,
+      fontWeight: FontWeights.semibold,
+    },
+    visibilityHelpText: {
+      fontSize: FontSizes.xs,
+      color: Colors.textSecondary,
+      marginBottom: Spacing.sm,
     },
     groupAvatarEditorRow: {
       flexDirection: 'row',

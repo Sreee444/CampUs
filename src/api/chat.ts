@@ -20,6 +20,7 @@ import {
   UserVerification,
   ConnectionSuggestion,
   ChatPreference,
+  GroupJoinRequest,
 } from "../types/database";
 import { moderateText } from "./ai";
 import { isAdminRole } from '../utils/roles';
@@ -438,16 +439,37 @@ export const createGroupConversation = async (
     throw new Error('Group must include at least 2 additional members');
   }
 
-  // @ts-ignore - Supabase type inference issue
-  const { data: conversation, error: convError } = await supabase
-    .from("conversations")
-    .insert({
-      is_group: true,
-      group_name: groupName.trim(),
-      created_by: currentUserId,
-    } as any)
-    .select()
-    .single();
+  const basePayload = {
+    is_group: true,
+    group_name: groupName.trim(),
+    created_by: currentUserId,
+  } as any;
+
+  const runCreate = async (payload: Record<string, any>) => {
+    return await supabase
+      .from("conversations")
+      .insert(payload as any)
+      .select()
+      .single();
+  };
+
+  let { data: conversation, error: convError } = await runCreate({
+    ...basePayload,
+    group_visibility: 'private',
+  });
+
+  // Backward compatibility for deployments where group_visibility migration is not applied yet.
+  if (convError) {
+    const message = `${(convError as any)?.message || ''}`.toLowerCase();
+    const isMissingVisibilityColumn =
+      message.includes('group_visibility') && (message.includes('column') || message.includes('could not find'));
+
+    if (isMissingVisibilityColumn) {
+      const fallbackResult = await runCreate(basePayload);
+      conversation = fallbackResult.data;
+      convError = fallbackResult.error;
+    }
+  }
 
   if (convError) throw convError;
 
@@ -519,7 +541,12 @@ const ensureGroupAdminPermission = async (conversationId: string, actorId: strin
 export const updateGroupConversation = async (
   conversationId: string,
   actorId: string,
-  updates: { group_name?: string; group_avatar?: string | null; group_bio?: string | null }
+  updates: {
+    group_name?: string;
+    group_avatar?: string | null;
+    group_bio?: string | null;
+    group_visibility?: 'private' | 'public';
+  }
 ) => {
   const details = await ensureGroupAdminPermission(conversationId, actorId);
 
@@ -542,6 +569,18 @@ export const updateGroupConversation = async (
     payload.group_bio = nextBio || null;
   }
 
+  if (typeof updates.group_visibility !== 'undefined') {
+    if (details.created_by !== actorId) {
+      throw new Error('Only the main admin can change group visibility');
+    }
+
+    if (!['private', 'public'].includes(updates.group_visibility)) {
+      throw new Error('Invalid group visibility value');
+    }
+
+    payload.group_visibility = updates.group_visibility;
+  }
+
   if (Object.keys(payload).length === 0) {
     return details;
   }
@@ -557,6 +596,7 @@ export const updateGroupConversation = async (
 
   let { data, error } = await runUpdate(payload);
   let groupBioUnsupported = false;
+  let groupVisibilityUnsupported = false;
 
   // Backward compatibility for deployments where group_bio migration is not applied yet.
   if (error && typeof payload.group_bio !== 'undefined') {
@@ -581,15 +621,288 @@ export const updateGroupConversation = async (
     }
   }
 
+  // Backward compatibility for deployments where group_visibility migration is not applied yet.
+  if (error && typeof payload.group_visibility !== 'undefined') {
+    const message = `${(error as any)?.message || ''}`.toLowerCase();
+    const isMissingVisibilityColumn =
+      message.includes('group_visibility') && (message.includes('column') || message.includes('could not find'));
+
+    if (isMissingVisibilityColumn) {
+      groupVisibilityUnsupported = true;
+      const fallbackPayload = { ...payload };
+      delete fallbackPayload.group_visibility;
+
+      if (Object.keys(fallbackPayload).length === 0) {
+        throw new Error(
+          'Group visibility is not supported yet in this database. Please run the migration to add conversations.group_visibility.'
+        );
+      }
+
+      const fallbackResult = await runUpdate(fallbackPayload);
+      data = fallbackResult.data;
+      error = fallbackResult.error;
+    }
+  }
+
   if (error) throw error;
-  if (groupBioUnsupported) {
+  if (groupBioUnsupported || groupVisibilityUnsupported) {
     return {
       ...(data || details),
-      __groupBioUnsupported: true,
+      __groupBioUnsupported: groupBioUnsupported,
+      __groupVisibilityUnsupported: groupVisibilityUnsupported,
     } as any;
   }
 
   return data;
+};
+
+const GROUP_JOIN_REQUESTS_TABLE = 'group_join_requests';
+
+const throwGroupJoinRequestTableMissing = (error: any) => {
+  const message = `${error?.message || ''}`.toLowerCase();
+  const isMissingTable = message.includes('group_join_requests') && (message.includes('relation') || message.includes('does not exist'));
+
+  if (isMissingTable) {
+    throw new Error('Group join requests are not enabled in this database yet. Please create the group_join_requests table first.');
+  }
+
+  throw error;
+};
+
+export const searchPublicGroups = async (userId: string, rawQuery: string) => {
+  const query = rawQuery.trim();
+  if (query.length < 2) {
+    return [];
+  }
+
+  const { data: groups, error: groupsError } = await supabase
+    .from('conversations')
+    .select('id, group_name, group_avatar, group_bio, group_visibility, created_by, updated_at')
+    .eq('is_group', true)
+    .eq('group_visibility', 'public')
+    .ilike('group_name', `%${query}%`)
+    .order('updated_at', { ascending: false })
+    .limit(40);
+
+  if (groupsError) {
+    const message = `${groupsError?.message || ''}`.toLowerCase();
+    const isMissingVisibilityColumn =
+      message.includes('group_visibility') && (message.includes('column') || message.includes('could not find'));
+
+    if (isMissingVisibilityColumn) {
+      throw new Error('Public group search requires conversations.group_visibility. Please run the DB migration first.');
+    }
+
+    throw groupsError;
+  }
+
+  const groupRows = groups || [];
+  if (!groupRows.length) {
+    return [];
+  }
+
+  const groupIds = groupRows.map((group: any) => group.id);
+
+  const [membershipResult, requestResult] = await Promise.all([
+    supabase
+      .from('conversation_participants')
+      .select('conversation_id')
+      .eq('user_id', userId)
+      .is('left_at', null)
+      .in('conversation_id', groupIds),
+    supabase
+      .from(GROUP_JOIN_REQUESTS_TABLE)
+      .select('conversation_id, status')
+      .eq('requester_id', userId)
+      .in('conversation_id', groupIds),
+  ]);
+
+  if (membershipResult.error) throw membershipResult.error;
+  if (requestResult.error) throwGroupJoinRequestTableMissing(requestResult.error);
+
+  const membershipSet = new Set<string>((membershipResult.data || []).map((row: any) => row.conversation_id));
+
+  const latestRequestMap = new Map<string, string>();
+  (requestResult.data || []).forEach((row: any) => {
+    if (!row?.conversation_id) return;
+    latestRequestMap.set(row.conversation_id, row.status || 'pending');
+  });
+
+  return groupRows.map((group: any) => ({
+    ...group,
+    is_member: membershipSet.has(group.id),
+    request_status: latestRequestMap.get(group.id) || null,
+  }));
+};
+
+export const requestToJoinPublicGroup = async (conversationId: string, requesterId: string) => {
+  const { data: group, error: groupError } = await supabase
+    .from('conversations')
+    .select('id, is_group, group_name, group_visibility, created_by')
+    .eq('id', conversationId)
+    .single();
+
+  if (groupError) throw groupError;
+  if (!group?.is_group) {
+    throw new Error('This is not a group conversation');
+  }
+  if (group?.group_visibility !== 'public') {
+    throw new Error('Join requests are only available for public groups');
+  }
+
+  const { count: memberCount, error: memberError } = await supabase
+    .from('conversation_participants')
+    .select('id', { count: 'exact', head: true })
+    .eq('conversation_id', conversationId)
+    .eq('user_id', requesterId)
+    .is('left_at', null);
+
+  if (memberError) throw memberError;
+  if ((memberCount || 0) > 0) {
+    throw new Error('You are already a member of this group');
+  }
+
+  const { data: existingPending, error: pendingError } = await supabase
+    .from(GROUP_JOIN_REQUESTS_TABLE)
+    .select('id, status')
+    .eq('conversation_id', conversationId)
+    .eq('requester_id', requesterId)
+    .eq('status', 'pending')
+    .limit(1)
+    .maybeSingle();
+
+  if (pendingError) throwGroupJoinRequestTableMissing(pendingError);
+  if (existingPending?.id) {
+    return existingPending;
+  }
+
+  const { data: createdRequest, error: createError } = await supabase
+    .from(GROUP_JOIN_REQUESTS_TABLE)
+    .insert({
+      conversation_id: conversationId,
+      requester_id: requesterId,
+      status: 'pending',
+    } as any)
+    .select('*')
+    .single();
+
+  if (createError) throwGroupJoinRequestTableMissing(createError);
+
+  const { data: requesterProfile } = await supabase
+    .from('profiles')
+    .select('full_name')
+    .eq('id', requesterId)
+    .maybeSingle();
+
+  await supabase.from('notifications').insert({
+    user_id: group.created_by,
+    type: 'group_join_request',
+    title: 'New Group Join Request',
+    body: `${requesterProfile?.full_name || 'A user'} requested to join ${group.group_name || 'your group'}`,
+    related_id: conversationId,
+    related_type: 'conversation',
+    metadata: {
+      requester_id: requesterId,
+      request_id: createdRequest?.id,
+      conversation_id: conversationId,
+    },
+    is_read: false,
+  } as any);
+
+  return createdRequest;
+};
+
+export const getPendingGroupJoinRequests = async (conversationId: string, actorId: string) => {
+  await ensureGroupAdminPermission(conversationId, actorId);
+
+  const { data, error } = await supabase
+    .from(GROUP_JOIN_REQUESTS_TABLE)
+    .select('*, requester:profiles!group_join_requests_requester_id_fkey(*)')
+    .eq('conversation_id', conversationId)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: true });
+
+  if (error) throwGroupJoinRequestTableMissing(error);
+  return (data || []) as GroupJoinRequest[];
+};
+
+export const reviewGroupJoinRequest = async (
+  conversationId: string,
+  requestId: string,
+  actorId: string,
+  action: 'accept' | 'reject'
+) => {
+  const details = await ensureGroupAdminPermission(conversationId, actorId);
+
+  const { data: request, error: requestError } = await supabase
+    .from(GROUP_JOIN_REQUESTS_TABLE)
+    .select('*')
+    .eq('id', requestId)
+    .eq('conversation_id', conversationId)
+    .maybeSingle();
+
+  if (requestError) throwGroupJoinRequestTableMissing(requestError);
+  if (!request) {
+    throw new Error('Join request not found');
+  }
+  if (request.status !== 'pending') {
+    throw new Error('This join request is no longer pending');
+  }
+
+  const nextStatus = action === 'accept' ? 'accepted' : 'rejected';
+
+  if (action === 'accept') {
+    const { error: upsertError } = await supabase
+      .from('conversation_participants')
+      .upsert(
+        {
+          conversation_id: conversationId,
+          user_id: request.requester_id,
+          left_at: null,
+          is_admin: false,
+        } as any,
+        { onConflict: 'conversation_id,user_id' }
+      );
+
+    if (upsertError) throw upsertError;
+  }
+
+  const { error: updateError } = await supabase
+    .from(GROUP_JOIN_REQUESTS_TABLE)
+    .update({
+      status: nextStatus,
+      reviewed_by: actorId,
+      reviewed_at: new Date().toISOString(),
+    } as any)
+    .eq('id', requestId);
+
+  if (updateError) throwGroupJoinRequestTableMissing(updateError);
+
+  if (action === 'accept') {
+    await supabase
+      .from('conversations')
+      .update({ updated_at: new Date().toISOString() } as any)
+      .eq('id', conversationId);
+  }
+
+  await supabase.from('notifications').insert({
+    user_id: request.requester_id,
+    type: action === 'accept' ? 'group_join_accepted' : 'group_join_rejected',
+    title: action === 'accept' ? 'Join Request Accepted' : 'Join Request Rejected',
+    body:
+      action === 'accept'
+        ? `You were added to ${details.group_name || 'the group'}`
+        : `Your request to join ${details.group_name || 'the group'} was declined`,
+    related_id: conversationId,
+    related_type: 'conversation',
+    metadata: {
+      request_id: requestId,
+      conversation_id: conversationId,
+    },
+    is_read: false,
+  } as any);
+
+  return { success: true };
 };
 
 export const removeParticipantFromGroup = async (

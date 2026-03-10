@@ -223,6 +223,7 @@ export type Conversation = {
   group_name?: string;
   group_avatar?: string;
   group_bio?: string;
+  group_visibility?: 'private' | 'public';
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -253,6 +254,22 @@ export type ConversationParticipant = {
   
   // Joined
   user?: Profile;
+};
+
+export type GroupJoinRequestStatus = 'pending' | 'accepted' | 'rejected';
+
+export type GroupJoinRequest = {
+  id: string;
+  conversation_id: string;
+  requester_id: string;
+  status: GroupJoinRequestStatus;
+  reviewed_by?: string;
+  reviewed_at?: string;
+  created_at: string;
+  updated_at?: string;
+
+  requester?: Profile;
+  reviewer?: Profile;
 };
 
 export type MessageType = 'text' | 'image' | 'file' | 'system';
