@@ -67,6 +67,8 @@ import {
   reviewGroupJoinRequest,
 } from '../../api/chat';
 import { ConnectionWithProfile, getMyConnections } from '../../api/connections';
+import { getEvents } from '../../api/events';
+import { getProjectTeams } from '../../api/projects';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
 import ConfirmDialog from '../../components/ConfirmDialog';
@@ -210,6 +212,17 @@ type ChatMessage = {
   content?: string;
   created_at: string;
   seen_by_others?: boolean;
+  aiOptions?: Array<{
+    id: string;
+    label: string;
+    action: string;
+    itemType?: 'event' | 'project';
+    itemTitle?: string;
+  }>;
+  aiContext?: {
+    itemType?: 'event' | 'project';
+    itemTitle?: string;
+  };
   sender?: {
     id?: string;
     full_name?: string;
@@ -237,6 +250,30 @@ type GroupParticipant = {
     bio?: string;
   };
 };
+
+const createAiMessage = (
+  content: string,
+  options?: ChatMessage['aiOptions'],
+  aiContext?: ChatMessage['aiContext']
+): ChatMessage => ({
+  id: `${Date.now()}-ai-${Math.random().toString(36).slice(2, 8)}`,
+  content,
+  sender_id: 'ai',
+  created_at: new Date().toISOString(),
+  aiOptions: options,
+  aiContext,
+  sender: {
+    id: 'ai',
+    full_name: 'Campus AI',
+  },
+});
+
+const createUserDraftMessage = (content: string, senderId: string): ChatMessage => ({
+  id: `${Date.now()}-self-${Math.random().toString(36).slice(2, 8)}`,
+  content,
+  sender_id: senderId,
+  created_at: new Date().toISOString(),
+});
 
 export default function ChatConversationScreen() {
   const navigation = useNavigation<ChatConversationScreenNavigationProp>();
@@ -401,6 +438,153 @@ export default function ChatConversationScreen() {
       );
     });
   };
+
+  const appendAiSequence = React.useCallback((nextEntries: ChatMessage[]) => {
+    setMessages((prev) => [...prev, ...nextEntries]);
+  }, []);
+
+  const buildAiItemQuestion = React.useCallback((itemType: 'event' | 'project', itemTitle: string) => {
+    if (itemType === 'event') {
+      return createAiMessage(
+        `What should I tell you about ${itemTitle}?`,
+        [
+          { id: `${itemTitle}-details`, label: 'Details', action: 'event-details', itemType, itemTitle },
+          { id: `${itemTitle}-venue`, label: 'Venue', action: 'event-venue', itemType, itemTitle },
+          { id: `${itemTitle}-date`, label: 'Date & time', action: 'event-date', itemType, itemTitle },
+          { id: `${itemTitle}-status`, label: 'Status', action: 'event-status', itemType, itemTitle },
+        ],
+        { itemType, itemTitle }
+      );
+    }
+
+    return createAiMessage(
+      `What should I tell you about ${itemTitle}?`,
+      [
+        { id: `${itemTitle}-details`, label: 'Details', action: 'project-details', itemType, itemTitle },
+        { id: `${itemTitle}-status`, label: 'Status', action: 'project-status', itemType, itemTitle },
+        { id: `${itemTitle}-recruiting`, label: 'Recruiting', action: 'project-recruiting', itemType, itemTitle },
+      ],
+      { itemType, itemTitle }
+    );
+  }, []);
+
+  const seedAiChat = React.useCallback(async () => {
+    if (!user?.id) {
+      setMessages([
+        createAiMessage('Ask me about events, projects, dates, venues, or titles to get live campus details.'),
+      ]);
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      const [upcomingEvents, recruitingProjects] = await Promise.all([
+        getEvents(user.id, undefined, 'upcoming'),
+        getProjectTeams(user.id, true),
+      ]);
+
+      const upcomingEventOptions = (upcomingEvents || []).slice(0, 4).map((event: any) => ({
+        id: `event-${event.id}`,
+        label: event.title,
+        action: 'select-event',
+        itemType: 'event' as const,
+        itemTitle: event.title,
+      }));
+
+      const projectOptions = (recruitingProjects || []).slice(0, 4).map((project: any) => ({
+        id: `project-${project.id}`,
+        label: project.name,
+        action: 'select-project',
+        itemType: 'project' as const,
+        itemTitle: project.name,
+      }));
+
+      const seededMessages: ChatMessage[] = [
+        createAiMessage(
+          'Here are some upcoming events. Pick one and I will guide you with venue, details, date, or status.',
+          upcomingEventOptions.length ? upcomingEventOptions : undefined
+        ),
+        createAiMessage(
+          'Here are some active projects. Pick one and I will help with details, status, or recruiting info.',
+          projectOptions.length ? projectOptions : undefined
+        ),
+        createAiMessage('You can also type an event or project title directly and I will show its details.'),
+      ];
+
+      setMessages(seededMessages);
+    } catch (error) {
+      console.error('Failed to seed AI chat:', error);
+      setMessages([
+        createAiMessage('Ask me about events, projects, dates, venues, or titles to get live campus details.'),
+      ]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user?.id]);
+
+  const handleAiOptionPress = React.useCallback(async (option: NonNullable<ChatMessage['aiOptions']>[number]) => {
+    if (!user?.id || isSending) return;
+
+    const title = option.itemTitle || option.label;
+    const userMessage = createUserDraftMessage(option.label, user.id);
+    appendAiSequence([userMessage]);
+
+    if (option.action === 'select-event' && title) {
+      appendAiSequence([buildAiItemQuestion('event', title)]);
+      return;
+    }
+
+    if (option.action === 'select-project' && title) {
+      appendAiSequence([buildAiItemQuestion('project', title)]);
+      return;
+    }
+
+    setIsSending(true);
+    try {
+      let prompt = title;
+
+      if (option.action === 'event-details') prompt = `Give event details for ${title}`;
+      if (option.action === 'event-venue') prompt = `What is the venue of event ${title}`;
+      if (option.action === 'event-date') prompt = `What is the date and time of event ${title}`;
+      if (option.action === 'event-status') prompt = `What is the status of event ${title}`;
+      if (option.action === 'project-details') prompt = `Give project details for ${title}`;
+      if (option.action === 'project-status') prompt = `What is the status of project ${title}`;
+      if (option.action === 'project-recruiting') prompt = `Is project ${title} recruiting`;
+
+      const aiResponse = await chatWithAI(user.id, prompt);
+      appendAiSequence([
+        createAiMessage(aiResponse, title && option.itemType ? [
+          {
+            id: `${title}-again-1`,
+            label: option.itemType === 'event' ? 'More details' : 'Details',
+            action: option.itemType === 'event' ? 'event-details' : 'project-details',
+            itemType: option.itemType,
+            itemTitle: title,
+          },
+          {
+            id: `${title}-again-2`,
+            label: 'Status',
+            action: option.itemType === 'event' ? 'event-status' : 'project-status',
+            itemType: option.itemType,
+            itemTitle: title,
+          },
+          ...(option.itemType === 'event'
+            ? [{ id: `${title}-again-3`, label: 'Venue', action: 'event-venue', itemType: 'event' as const, itemTitle: title }]
+            : [{ id: `${title}-again-3`, label: 'Recruiting', action: 'project-recruiting', itemType: 'project' as const, itemTitle: title }]),
+        ] : undefined, { itemType: option.itemType, itemTitle: title })
+      ]);
+    } catch (error) {
+      console.error('Failed AI option request:', error);
+      Toast.show({
+        type: 'error',
+        text1: 'AI request failed',
+        text2: error instanceof Error ? error.message : 'Unknown error',
+      });
+    } finally {
+      setIsSending(false);
+    }
+  }, [appendAiSequence, buildAiItemQuestion, isSending, user?.id]);
 
   const clearTypingStopTimeout = () => {
     if (typingStopTimeoutRef.current) {
@@ -649,6 +833,11 @@ export default function ChatConversationScreen() {
   }, [conversationId, user?.id, isAIChat, isGroup]);
 
   useEffect(() => {
+    if (!isAIChat) return;
+    seedAiChat();
+  }, [isAIChat, seedAiChat]);
+
+  useEffect(() => {
     const canManageCurrentGroup =
       !!user?.id &&
       isGroup &&
@@ -660,11 +849,11 @@ export default function ChatConversationScreen() {
     }
   }, [
     showGroupMembers,
-    conversationId,
     isGroup,
     groupDetails?.created_by,
     groupMembers,
     user?.id,
+    loadPendingJoinRequests,
   ]);
 
   useEffect(() => {
@@ -767,21 +956,9 @@ export default function ChatConversationScreen() {
     try {
       if (isAIChat) {
         const aiResponse = await chatWithAI(user?.id || '', content);
-        const now = new Date().toISOString();
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `${Date.now()}-self`,
-            content,
-            sender_id: user?.id || 'self',
-            created_at: now,
-          },
-          {
-            id: `${Date.now()}-ai`,
-            content: aiResponse,
-            sender_id: 'ai',
-            created_at: now,
-          },
+        appendAiSequence([
+          createUserDraftMessage(content, user?.id || 'self'),
+          createAiMessage(aiResponse),
         ]);
       } else if (conversationId && user?.id) {
         await sendMessage(conversationId, user.id, content, 'text');
@@ -1585,6 +1762,20 @@ export default function ChatConversationScreen() {
                   {message.content}
                 </Text>
               </View>
+              {!!message.aiOptions?.length && !isMyMessage && (
+                <View style={styles.aiOptionsWrap}>
+                  {message.aiOptions.map((option) => (
+                    <TouchableOpacity
+                      key={option.id}
+                      style={styles.aiOptionChip}
+                      onPress={() => handleAiOptionPress(option)}
+                      disabled={isSending}
+                    >
+                      <Text style={styles.aiOptionChipText}>{option.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
               <View style={[styles.messageFooter, isMyMessage ? styles.myMessageFooter : styles.otherMessageFooter]}>
                 <Text
                   style={[
@@ -1964,25 +2155,27 @@ export default function ChatConversationScreen() {
                     }
                     sendTypingSignal();
                   }}
-                  placeholder="Type a message"
+                  placeholder={isAIChat ? 'Ask about an event, project, date, or pick an option above' : 'Type a message'}
                   placeholderTextColor={Colors.textSecondary}
                   multiline
                   maxLength={500}
                   editable={!isSending}
                 />
 
-                <TouchableOpacity
-                  style={styles.attachButton}
-                  onPress={() =>
-                    Toast.show({
-                      type: 'info',
-                      text1: 'Attachments',
-                      text2: 'Attachment picker will be added next.',
-                    })
-                  }
-                >
-                  <MaterialIcons name="attach-file" size={24} color={Colors.textSecondary} />
-                </TouchableOpacity>
+                {!isAIChat && (
+                  <TouchableOpacity
+                    style={styles.attachButton}
+                    onPress={() =>
+                      Toast.show({
+                        type: 'info',
+                        text1: 'Attachments',
+                        text2: 'Attachment picker will be added next.',
+                      })
+                    }
+                  >
+                    <MaterialIcons name="attach-file" size={24} color={Colors.textSecondary} />
+                  </TouchableOpacity>
+                )}
               </View>
 
               <TouchableOpacity
@@ -3434,6 +3627,25 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     },
     messageContentWrap: {
       paddingRight: 2,
+    },
+    aiOptionsWrap: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+      marginTop: 10,
+    },
+    aiOptionChip: {
+      borderRadius: BorderRadius.full,
+      borderWidth: 1,
+      borderColor: Colors.primary,
+      backgroundColor: `${Colors.primary}15`,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+    },
+    aiOptionChipText: {
+      fontSize: FontSizes.sm,
+      color: Colors.primary,
+      fontWeight: FontWeights.semibold,
     },
     messageText: {
       fontSize: FontSizes.md,

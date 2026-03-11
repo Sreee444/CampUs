@@ -1478,46 +1478,420 @@ export const uploadGroupAvatar = async (userId: string, fileUri: string) => {
   return publicUrl;
 };
 
-const aiResponseLibrary = [
-  {
-    keywords: ['event', 'workshop', 'hackathon'],
-    response:
-      'You can register for campus events directly from the Events tab. Remember to RSVP before the deadline and bring any prework materials.'
-  },
-  {
-    keywords: ['project', 'team', 'collaboration'],
-    response:
-      'Head to Projects to explore ongoing teams. You can filter by skills, join a recruiting team, and start a chat with the members.'
-  },
-  {
-    keywords: ['mentor', 'guide', 'alumni'],
-    response:
-      'Mentorship is available through your profile. Complete your interests and skills so the AI can recommend the best mentor matching your goals.'
-  },
-  {
-    keywords: ['exam', 'deadline', 'assignment'],
-    response:
-      'Check the Feed for academic announcements and pinned reminders. You can also set a personal reminder in Notifications for upcoming deadlines.'
-  },
-];
+const DAY_IN_MS = 24 * 60 * 60 * 1000;
 
-export const chatWithAI = async (userId: string, prompt: string) => {
+const formatDateTime = (value?: string | null) => {
+  if (!value) return 'Unknown time';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return 'Unknown time';
+  return parsed.toLocaleString();
+};
+
+const formatDateOnly = (value: Date) => {
+  return value.toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+};
+
+const parseRequestedDate = (text: string): Date | null => {
+  const lower = text.toLowerCase();
+  const now = new Date();
+
+  if (lower.includes('today')) return now;
+  if (lower.includes('tomorrow')) return new Date(now.getTime() + DAY_IN_MS);
+  if (lower.includes('yesterday')) return new Date(now.getTime() - DAY_IN_MS);
+
+  const isoMatch = lower.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+  if (isoMatch) {
+    const parsed = new Date(`${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}T00:00:00`);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+
+  const dmyMatch = lower.match(/\b(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})\b/);
+  if (dmyMatch) {
+    const dd = dmyMatch[1].padStart(2, '0');
+    const mm = dmyMatch[2].padStart(2, '0');
+    const yyyy = dmyMatch[3];
+    const parsed = new Date(`${yyyy}-${mm}-${dd}T00:00:00`);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+
+  return null;
+};
+
+const getDateRange = (value: Date) => {
+  const start = new Date(value);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(value);
+  end.setHours(23, 59, 59, 999);
+
+  return {
+    startIso: start.toISOString(),
+    endIso: end.toISOString(),
+  };
+};
+
+const normalizeSearchTerm = (prompt: string) => {
+  return prompt
+    .trim()
+    .replace(/[^a-zA-Z0-9\s-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .slice(0, 80);
+};
+
+const isDateIntent = (prompt: string) => {
+  const lower = prompt.toLowerCase();
+  return (
+    !!parseRequestedDate(prompt) ||
+    /\b(date|day|today|tomorrow|yesterday|schedule|happening|on)\b/.test(lower)
+  );
+};
+
+const getEventLifecycleStatus = (startDate?: string | null, endDate?: string | null) => {
+  const now = Date.now();
+  const start = startDate ? new Date(startDate).getTime() : Number.NaN;
+  const end = endDate ? new Date(endDate).getTime() : Number.NaN;
+
+  if (!Number.isNaN(end) && end < now) return 'Finished';
+  if (!Number.isNaN(start) && start > now) return 'Upcoming';
+  if (!Number.isNaN(start) && !Number.isNaN(end) && start <= now && end >= now) return 'Live';
+  return 'Scheduled';
+};
+
+const getProjectLifecycleStatus = (status?: string | null) => {
+  const normalized = (status || '').toLowerCase().trim();
+  if (normalized === 'completed' || normalized === 'cancelled') return 'Finished';
+  if (normalized === 'on-hold') return 'On hold';
+  if (normalized === 'planning' || normalized === 'recruiting' || normalized === 'in-progress') {
+    return 'Ongoing';
+  }
+  return 'Active';
+};
+
+const isDetailIntent = (prompt: string) => {
+  return /\b(detail|details|about|info|information|describe|explain|full)\b/.test(prompt);
+};
+
+const extractEntityHint = (prompt: string) => {
+  return prompt
+    .toLowerCase()
+    .replace(/\b(give|show|tell|me|about|details|detail|info|information|project|projects|event|events|of|the|a|an|for|what|is|venue|location|where|date|time|status|and)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+const getPrimaryLookupTerm = (prompt: string, entityHint: string) => {
+  const cleanedHint = normalizeSearchTerm(entityHint);
+  if (cleanedHint) return cleanedHint;
+  return normalizeSearchTerm(prompt);
+};
+
+const scoreMatch = (candidate: string, hint: string) => {
+  if (!hint) return 0;
+  const candidateLower = candidate.toLowerCase();
+  let score = 0;
+
+  if (candidateLower.includes(hint)) score += 10;
+
+  const tokens = hint.split(' ').filter((token) => token.length > 2);
+  for (const token of tokens) {
+    if (candidateLower.includes(token)) score += 2;
+  }
+
+  return score;
+};
+
+const pickBestEvent = (events: any[], hint: string) => {
+  if (!events.length) return null;
+  if (!hint) return events[0];
+
+  return [...events]
+    .sort((a, b) => {
+      const aText = `${a.title || ''} ${a.description || ''} ${a.venue || ''}`;
+      const bText = `${b.title || ''} ${b.description || ''} ${b.venue || ''}`;
+      return scoreMatch(bText, hint) - scoreMatch(aText, hint);
+    })[0];
+};
+
+const pickBestProject = (projects: any[], hint: string) => {
+  if (!projects.length) return null;
+  if (!hint) return projects[0];
+
+  return [...projects]
+    .sort((a, b) => {
+      const aText = `${a.name || ''} ${a.description || ''} ${a.category || ''}`;
+      const bText = `${b.name || ''} ${b.description || ''} ${b.category || ''}`;
+      return scoreMatch(bText, hint) - scoreMatch(aText, hint);
+    })[0];
+};
+
+const normalizeForComparison = (value: string) => {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+const shouldAutoShowDetails = (
+  prompt: string,
+  events: any[],
+  projects: any[],
+  wantsEvents: boolean,
+  wantsProjects: boolean,
+  wantsVenue: boolean,
+  requestedDate: Date | null
+) => {
+  if (requestedDate || wantsVenue) return false;
+
+  const normalizedPrompt = normalizeForComparison(prompt);
+  if (!normalizedPrompt || normalizedPrompt.length < 3) return false;
+
+  const eventExactMatch = wantsEvents
+    ? events.some((event) => normalizeForComparison(event.title || '') === normalizedPrompt)
+    : false;
+
+  const projectExactMatch = wantsProjects
+    ? projects.some((project) => normalizeForComparison(project.name || '') === normalizedPrompt)
+    : false;
+
+  if (eventExactMatch || projectExactMatch) return true;
+
+  const eventStrongMatch = wantsEvents
+    ? events.some((event) => scoreMatch(`${event.title || ''} ${event.description || ''}`, normalizedPrompt) >= 10)
+    : false;
+
+  const projectStrongMatch = wantsProjects
+    ? projects.some((project) => scoreMatch(`${project.name || ''} ${project.description || ''}`, normalizedPrompt) >= 10)
+    : false;
+
+  return eventStrongMatch || projectStrongMatch;
+};
+
+export const chatWithAI = async (_userId: string, prompt: string) => {
   const trimmed = prompt.trim();
-  if (!trimmed) return 'Share a question, and I can help you with campus info or study suggestions.';
+  if (!trimmed) {
+    return 'Ask me about campus events, projects, venues, or a date (for example: today or 2026-03-11).';
+  }
 
   const isAllowed = await moderateText(trimmed);
   if (!isAllowed) {
     throw new Error('Your message was flagged for review. Try rephrasing without sensitive terms.');
   }
 
-  const context = trimmed.toLowerCase();
-  for (const entry of aiResponseLibrary) {
-    if (entry.keywords.some((keyword) => context.includes(keyword))) {
-      return entry.response;
+  const lower = trimmed.toLowerCase();
+  const genericCampusLookup = !/\b(announcement|notice|feed|update|updates|news|venue|location|where|date|today|tomorrow|yesterday)\b/.test(lower);
+  const requestedDate = parseRequestedDate(trimmed);
+  const wantsEvents = /\b(event|events|workshop|hackathon|seminar|competition|fest)\b/.test(lower) || !!requestedDate || genericCampusLookup;
+  const wantsProjects = /\b(project|projects|team|teams)\b/.test(lower) || !!requestedDate || genericCampusLookup;
+  const wantsOther = /\b(other|announcement|notice|feed|update|updates|news)\b/.test(lower) || !!requestedDate;
+  const wantsVenue = /\b(venue|location|where)\b/.test(lower);
+  const wantsStatus = /\bstatus\b/.test(lower);
+  const wantsDateTime = /\b(date|time|when)\b/.test(lower);
+  const wantsDetails = isDetailIntent(lower) || /\b(tell me about|what is|more about)\b/.test(lower);
+  const entityHint = extractEntityHint(lower);
+  const searchTerm = getPrimaryLookupTerm(trimmed, entityHint);
+
+  let events: any[] = [];
+  let projects: any[] = [];
+  let feedPosts: any[] = [];
+
+  if (wantsEvents || wantsProjects || wantsOther || wantsVenue || isDateIntent(trimmed)) {
+    if (requestedDate) {
+      const { startIso, endIso } = getDateRange(requestedDate);
+
+      const [eventsResult, projectsResult, postsResult] = await Promise.all([
+        supabase
+          .from('events')
+          .select('id,title,description,start_date,end_date,venue,is_online,meeting_link')
+          .lte('start_date', endIso)
+          .gte('end_date', startIso)
+          .order('start_date', { ascending: true })
+          .limit(8),
+        supabase
+          .from('project_teams')
+          .select('id,name,description,status,category,is_recruiting,created_at,updated_at')
+          .gte('created_at', startIso)
+          .lte('created_at', endIso)
+          .order('created_at', { ascending: false })
+          .limit(8),
+        supabase
+          .from('feed_posts')
+          .select('id,content,type,created_at')
+          .eq('is_approved', true)
+          .gte('created_at', startIso)
+          .lte('created_at', endIso)
+          .order('created_at', { ascending: false })
+          .limit(6),
+      ]);
+
+      if (eventsResult.error) throw eventsResult.error;
+      if (projectsResult.error) throw projectsResult.error;
+      if (postsResult.error) throw postsResult.error;
+
+      events = eventsResult.data || [];
+      projects = projectsResult.data || [];
+      feedPosts = postsResult.data || [];
+    } else {
+      const likeToken = `%${searchTerm}%`;
+      const [eventsResult, projectsResult, postsResult] = await Promise.all([
+        supabase
+          .from('events')
+          .select('id,title,description,start_date,end_date,venue,is_online,meeting_link')
+          .or(`title.ilike.${likeToken},description.ilike.${likeToken},venue.ilike.${likeToken}`)
+          .order('start_date', { ascending: true })
+          .limit(8),
+        supabase
+          .from('project_teams')
+          .select('id,name,description,status,category,is_recruiting,created_at,updated_at')
+          .or(`name.ilike.${likeToken},description.ilike.${likeToken},category.ilike.${likeToken}`)
+          .order('updated_at', { ascending: false })
+          .limit(8),
+        supabase
+          .from('feed_posts')
+          .select('id,content,type,created_at')
+          .eq('is_approved', true)
+          .ilike('content', likeToken)
+          .order('created_at', { ascending: false })
+          .limit(6),
+      ]);
+
+      if (eventsResult.error) throw eventsResult.error;
+      if (projectsResult.error) throw projectsResult.error;
+      if (postsResult.error) throw postsResult.error;
+
+      events = eventsResult.data || [];
+      projects = projectsResult.data || [];
+      feedPosts = postsResult.data || [];
     }
   }
 
-  return `Thanks for asking! Here is a quick tip: review the Feed or Events tab for more context, and feel free to ask follow-up questions.`;
+  const output: string[] = [];
+  const matchedEvent = wantsEvents && events.length ? pickBestEvent(events, entityHint || searchTerm.toLowerCase()) : null;
+  const matchedProject = wantsProjects && projects.length ? pickBestProject(projects, entityHint || searchTerm.toLowerCase()) : null;
+  const autoShowDetails = shouldAutoShowDetails(
+    trimmed,
+    events,
+    projects,
+    wantsEvents,
+    wantsProjects,
+    wantsVenue,
+    requestedDate
+  );
+
+  if (wantsVenue && matchedEvent) {
+    const venueLabel = matchedEvent.venue || (matchedEvent.is_online ? 'Online' : 'Venue not specified');
+    const outputLines = [
+      `${matchedEvent.title} venue: ${venueLabel}`,
+    ];
+    if (matchedEvent.meeting_link) {
+      outputLines.push(`Meeting link: ${matchedEvent.meeting_link}`);
+    }
+    return outputLines.join('\n');
+  }
+
+  if (wantsDateTime && matchedEvent) {
+    return [
+      `${matchedEvent.title} schedule:`,
+      `- Start: ${formatDateTime(matchedEvent.start_date)}`,
+      `- End: ${formatDateTime(matchedEvent.end_date)}`,
+      `- Status: ${getEventLifecycleStatus(matchedEvent.start_date, matchedEvent.end_date)}`,
+    ].join('\n');
+  }
+
+  if (wantsStatus && matchedEvent) {
+    return `${matchedEvent.title} status: ${getEventLifecycleStatus(matchedEvent.start_date, matchedEvent.end_date)}`;
+  }
+
+  if (wantsStatus && matchedProject) {
+    const status = matchedProject.status || (matchedProject.is_recruiting ? 'recruiting' : 'active');
+    return `${matchedProject.name} status: ${status} (${getProjectLifecycleStatus(status)})`;
+  }
+
+  if (/\brecruiting\b/.test(lower) && matchedProject) {
+    return `${matchedProject.name} recruiting: ${matchedProject.is_recruiting ? 'Yes' : 'No'}`;
+  }
+
+  if (wantsDetails || autoShowDetails) {
+    if (matchedEvent) {
+      const event = matchedEvent;
+      if (event) {
+        const venueLabel = event.venue || (event.is_online ? 'Online' : 'Venue not specified');
+        const lifecycle = getEventLifecycleStatus(event.start_date, event.end_date);
+        output.push(`Event details:`);
+        output.push(`- Title: ${event.title}`);
+        output.push(`- Status: ${lifecycle}`);
+        output.push(`- Start: ${formatDateTime(event.start_date)}`);
+        output.push(`- End: ${formatDateTime(event.end_date)}`);
+        output.push(`- Venue: ${venueLabel}`);
+        if (event.meeting_link) output.push(`- Meeting link: ${event.meeting_link}`);
+        if (event.description) output.push(`- Description: ${event.description}`);
+      }
+    }
+
+    if (matchedProject) {
+      const project = matchedProject;
+      if (project) {
+        const status = project.status || (project.is_recruiting ? 'recruiting' : 'active');
+        const lifecycle = getProjectLifecycleStatus(status);
+        output.push(`Project details:`);
+        output.push(`- Name: ${project.name}`);
+        output.push(`- Status: ${status} (${lifecycle})`);
+        output.push(`- Category: ${project.category || 'general'}`);
+        output.push(`- Recruiting: ${project.is_recruiting ? 'Yes' : 'No'}`);
+        if (project.description) output.push(`- Description: ${project.description}`);
+        output.push(`- Last updated: ${formatDateTime(project.updated_at || project.created_at)}`);
+      }
+    }
+
+    if (output.length) {
+      output.push('I answer from live campus data, so details update as records change.');
+      return output.join('\n');
+    }
+  }
+
+  if (requestedDate) {
+    output.push(`Here is what is scheduled for ${formatDateOnly(requestedDate)}:`);
+  }
+
+  if (events.length) {
+    output.push(`Events (${events.length}):`);
+    for (const event of events.slice(0, 5)) {
+      const venueLabel = event.venue || (event.is_online ? 'Online' : 'Venue not specified');
+      const lifecycle = getEventLifecycleStatus(event.start_date, event.end_date);
+      output.push(`- ${event.title} | ${formatDateTime(event.start_date)} | Venue: ${venueLabel} | Status: ${lifecycle}`);
+    }
+  }
+
+  if (projects.length) {
+    output.push(`Projects (${projects.length}):`);
+    for (const project of projects.slice(0, 5)) {
+      const status = project.status || (project.is_recruiting ? 'recruiting' : 'active');
+      const lifecycle = getProjectLifecycleStatus(status);
+      output.push(`- ${project.name} | Status: ${status} (${lifecycle}) | Category: ${project.category || 'general'}`);
+    }
+  }
+
+  if (feedPosts.length) {
+    output.push(`Other updates (${feedPosts.length}):`);
+    for (const post of feedPosts.slice(0, 4)) {
+      const preview = (post.content || '').replace(/\s+/g, ' ').trim().slice(0, 90);
+      output.push(`- [${post.type}] ${preview}${preview.length >= 90 ? '...' : ''}`);
+    }
+  }
+
+  if (!output.length && wantsVenue) {
+    return 'I could not find matching venues right now. Try an event name or a date like 2026-03-11.';
+  }
+
+  if (!output.length) {
+    return 'I could not find matching events, projects, or updates. Try asking with a date (today, tomorrow, or YYYY-MM-DD) or include a specific keyword.';
+  }
+
+  output.push('I answer from live campus data, so responses update as events and projects change.');
+  return output.join('\n');
 };
 
 // ===== FACULTY SUPERVISION =====
