@@ -833,14 +833,11 @@ export default function ChatConversationScreen() {
   }, [conversationId, user?.id, isAIChat, isGroup]);
 
   useEffect(() => {
-<<<<<<< HEAD
     if (!isAIChat) return;
     seedAiChat();
   }, [isAIChat, seedAiChat]);
 
   useEffect(() => {
-    if (showGroupMembers && canManageGroup) {
-=======
     const canManageCurrentGroup =
       !!user?.id &&
       isGroup &&
@@ -848,16 +845,15 @@ export default function ChatConversationScreen() {
         groupMembers.some((participant) => participant.user_id === user.id && participant.is_admin));
 
     if (showGroupMembers && canManageCurrentGroup) {
->>>>>>> d9f0aa664a4a0c3d909c024208cb68ed0e552c42
       loadPendingJoinRequests();
     }
   }, [
     showGroupMembers,
-    conversationId,
     isGroup,
     groupDetails?.created_by,
     groupMembers,
     user?.id,
+    loadPendingJoinRequests,
   ]);
 
   useEffect(() => {
