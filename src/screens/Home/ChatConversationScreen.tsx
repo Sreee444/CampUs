@@ -19,8 +19,7 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import { useAnimatedStyle, useSharedValue, withRepeat, withTiming, Easing } from 'react-native-reanimated';
 import { MaterialIcons } from '@expo/vector-icons';
-import EmojiPicker from 'rn-emoji-keyboard/lib/commonjs';
-import type { EmojiType } from 'rn-emoji-keyboard';
+import EmojiPicker, { type EmojiType } from 'rn-emoji-keyboard';
 import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../../navigation/types';
@@ -393,7 +392,9 @@ export default function ChatConversationScreen() {
 
     const loadBackground = async () => {
       try {
-        const preference = await getChatPreference(user.id, conversationId);
+        const preference = (await getChatPreference(user.id, conversationId)) as
+          | { background_image_url?: string | null }
+          | null;
         if (preference?.background_image_url) {
           setBackgroundImageUrl(preference.background_image_url);
         }
@@ -411,15 +412,6 @@ export default function ChatConversationScreen() {
     setShowThemePicker(false);
     Toast.show({ type: 'success', text1: `${theme.label} theme applied` });
   };
-
-  const handleEmojiSelected = React.useCallback((selection: EmojiType) => {
-    setMessageText((prev) => `${prev}${selection.emoji}`);
-    setIsEmojiPickerOpen(false);
-    sendTypingSignal();
-    requestAnimationFrame(() => {
-      messageInputRef.current?.focus();
-    });
-  }, [sendTypingSignal]);
 
   const headerChromeColor = useMemo(
     () => withHexAlpha(chatTheme.bubbleColor, backgroundImageUrl ? 0.28 : 0.16),
@@ -621,6 +613,15 @@ export default function ChatConversationScreen() {
       stopTypingSignal().catch(() => {});
     }, TYPING_IDLE_MS);
   }, [conversationId, user?.id, isAIChat, stopTypingSignal]);
+
+  const handleEmojiSelected = React.useCallback((selection: EmojiType) => {
+    setMessageText((prev) => `${prev}${selection.emoji}`);
+    setIsEmojiPickerOpen(false);
+    sendTypingSignal();
+    requestAnimationFrame(() => {
+      messageInputRef.current?.focus();
+    });
+  }, [sendTypingSignal]);
 
   const loadGroupDetails = async () => {
     if (!conversationId || !isGroup || !user?.id) return;
@@ -832,15 +833,32 @@ export default function ChatConversationScreen() {
   }, [conversationId, user?.id, isAIChat, isGroup]);
 
   useEffect(() => {
+<<<<<<< HEAD
     if (!isAIChat) return;
     seedAiChat();
   }, [isAIChat, seedAiChat]);
 
   useEffect(() => {
     if (showGroupMembers && canManageGroup) {
+=======
+    const canManageCurrentGroup =
+      !!user?.id &&
+      isGroup &&
+      (groupDetails?.created_by === user.id ||
+        groupMembers.some((participant) => participant.user_id === user.id && participant.is_admin));
+
+    if (showGroupMembers && canManageCurrentGroup) {
+>>>>>>> d9f0aa664a4a0c3d909c024208cb68ed0e552c42
       loadPendingJoinRequests();
     }
-  }, [showGroupMembers, canManageGroup, conversationId, user?.id]);
+  }, [
+    showGroupMembers,
+    conversationId,
+    isGroup,
+    groupDetails?.created_by,
+    groupMembers,
+    user?.id,
+  ]);
 
   useEffect(() => {
     if (!messages.length || showMessageSearch) return;
@@ -1536,6 +1554,7 @@ export default function ChatConversationScreen() {
 
   const initials = getInitials(groupDetails?.group_name || name);
   const color = isAIChat ? Colors.primary : getAvatarColor(groupDetails?.group_name || name);
+  const groupVisibilityRingColor = groupDetails?.group_visibility === 'public' ? '#FF0000' : '#00FF00';
 
   const getDateLabel = (isoDate: string) => {
     const date = new Date(isoDate);
@@ -1834,7 +1853,9 @@ export default function ChatConversationScreen() {
           activeOpacity={0.8}
         >
           {isGroup && groupDetails?.group_avatar ? (
-            <Image source={{ uri: groupDetails.group_avatar }} style={styles.headerAvatarImage} />
+            <View style={[styles.groupVisibilityRingHeader, { borderColor: groupVisibilityRingColor }]}>
+              <Image source={{ uri: groupDetails.group_avatar }} style={styles.headerAvatarImage} />
+            </View>
           ) : !isGroup && directPartnerProfile ? (
             <UserAvatar
               uri={directPartnerProfile.avatar_url}
@@ -1844,8 +1865,16 @@ export default function ChatConversationScreen() {
               showRing={false}
             />
           ) : (
-            <View style={[styles.headerAvatar, { backgroundColor: color }]}>
-              <Text style={styles.headerAvatarText}>{initials}</Text>
+            <View
+              style={[
+                isGroup
+                  ? [styles.groupVisibilityRingHeader, { borderColor: groupVisibilityRingColor }]
+                  : undefined,
+              ]}
+            >
+              <View style={[styles.headerAvatar, { backgroundColor: color }]}>
+                <Text style={styles.headerAvatarText}>{initials}</Text>
+              </View>
             </View>
           )}
 
@@ -2449,10 +2478,14 @@ export default function ChatConversationScreen() {
 
               <View style={styles.groupProfileMainRow}>
                 {groupDetails?.group_avatar ? (
-                  <Image source={{ uri: groupDetails.group_avatar }} style={styles.groupProfileAvatar} />
+                  <View style={[styles.groupVisibilityRingProfile, { borderColor: groupVisibilityRingColor }]}>
+                    <Image source={{ uri: groupDetails.group_avatar }} style={styles.groupProfileAvatar} />
+                  </View>
                 ) : (
-                  <View style={styles.groupProfileAvatarFallback}>
-                    <Text style={styles.groupProfileAvatarText}>{initials}</Text>
+                  <View style={[styles.groupVisibilityRingProfile, { borderColor: groupVisibilityRingColor }]}>
+                    <View style={styles.groupProfileAvatarFallback}>
+                      <Text style={styles.groupProfileAvatarText}>{initials}</Text>
+                    </View>
                   </View>
                 )}
                 <View style={styles.groupProfileInfo}>
@@ -3276,6 +3309,11 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       borderRadius: 20,
       backgroundColor: Colors.card,
     },
+    groupVisibilityRingHeader: {
+      borderWidth: 2,
+      borderRadius: 22,
+      padding: 1,
+    },
     headerAvatarText: {
       fontSize: 16,
       fontWeight: FontWeights.bold,
@@ -3948,6 +3986,11 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       height: 50,
       borderRadius: 25,
       backgroundColor: Colors.surface,
+    },
+    groupVisibilityRingProfile: {
+      borderWidth: 2,
+      borderRadius: 27,
+      padding: 1,
     },
     groupProfileAvatarFallback: {
       width: 50,

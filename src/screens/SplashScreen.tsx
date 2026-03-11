@@ -107,7 +107,7 @@ export default function SplashScreen() {
             ]}
           />
         </View>
-        <Text style={styles.versionText}>Version 2.0</Text>
+        <Text style={styles.versionText}>Version 1.0</Text>
       </View>
     </View>
   );

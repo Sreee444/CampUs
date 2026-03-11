@@ -103,11 +103,13 @@ export default function CreateEventScreen() {
   }>({ field: null, mode: 'date', show: false });
 
   // Check permissions
-  const canCreateEvent = profile && (
-    profile.role === 'faculty' ||
-    profile.role === 'admin' ||
-    profile.is_club_coordinator ||
-    profile.is_volunteer
+  const canCreateEvent = Boolean(
+    profile && (
+      profile.role === 'faculty' ||
+      isAdminRole(profile.role) ||
+      profile.is_club_coordinator ||
+      profile.is_volunteer
+    )
   );
 
   // ─── Image Upload ─────────────────
@@ -345,7 +347,7 @@ export default function CreateEventScreen() {
           </View>
           <Text style={st.accessDeniedTitle}>Access Restricted</Text>
           <Text style={st.accessDeniedText}>
-            Only faculty, coordinators, and volunteers can create events.
+            Only faculty, admin/developer, coordinators, and volunteers can create events.
           </Text>
           <TouchableOpacity style={st.accessDeniedBtn} onPress={() => navigation.goBack()}>
             <Text style={st.accessDeniedBtnText}>Go Back</Text>

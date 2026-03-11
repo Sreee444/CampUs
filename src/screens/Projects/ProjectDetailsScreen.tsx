@@ -226,7 +226,7 @@ export default function ProjectDetailsScreen() {
               .eq('status', 'pending')
               .order('created_at', { ascending: false })
               .limit(1)
-              .maybeSingle();
+              .maybeSingle<{ id: string }>();
 
             if (pendingMentorReqError) throw pendingMentorReqError;
             setHasPendingProjectMentorRequest(!!pendingRequest?.id);
