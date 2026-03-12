@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -19,7 +19,6 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import { useAnimatedStyle, useSharedValue, withRepeat, withTiming, Easing } from 'react-native-reanimated';
 import { MaterialIcons } from '@expo/vector-icons';
-import EmojiPicker, { type EmojiType } from 'rn-emoji-keyboard';
 import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../../navigation/types';
@@ -236,6 +235,17 @@ type GroupedReaction = {
   hasCurrentUser: boolean;
 };
 
+type ChatPollPayload = {
+  question: string;
+  options: string[];
+  allowsMultiple?: boolean;
+  createdBy?: string;
+  createdAt?: string;
+};
+
+const POLL_MESSAGE_PREFIX = '__poll__:';
+const POLL_REACTION_PREFIX = 'poll:';
+
 type GroupParticipant = {
   id: string;
   user_id: string;
@@ -330,6 +340,10 @@ export default function ChatConversationScreen() {
   const [isCreatingAnnouncement, setIsCreatingAnnouncement] = useState(false);
   const [chatTheme, setChatTheme] = useState<ChatTheme>(CHAT_THEMES[0]);
   const [showThemePicker, setShowThemePicker] = useState(false);
+  const [showCreatePoll, setShowCreatePoll] = useState(false);
+  const [pollQuestion, setPollQuestion] = useState('');
+  const [pollOptions, setPollOptions] = useState<string[]>(['', '']);
+  const [isCreatingPoll, setIsCreatingPoll] = useState(false);
   const [messageReactions, setMessageReactions] = useState<Map<string, ChatMessageReaction[]>>(new Map());
   const [reactionPickerVisible, setReactionPickerVisible] = useState(false);
   const [reactionTargetMessageId, setReactionTargetMessageId] = useState<string | null>(null);
@@ -338,7 +352,6 @@ export default function ChatConversationScreen() {
   const [backgroundImageUrl, setBackgroundImageUrl] = useState<string | null>(null);
   const [showBackgroundPicker, setShowBackgroundPicker] = useState(false);
   const [isLoadingBackground, setIsLoadingBackground] = useState(false);
-  const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
   const announcementPulse = useSharedValue(1);
   const announcementSlide = useSharedValue(-100);
   const announcementScale = useSharedValue(0.95);
@@ -411,6 +424,43 @@ export default function ChatConversationScreen() {
     AsyncStorage.setItem(CHAT_THEME_KEY, theme.key);
     setShowThemePicker(false);
     Toast.show({ type: 'success', text1: `${theme.label} theme applied` });
+  };
+
+  const parsePollPayload = useCallback((content?: string): ChatPollPayload | null => {
+    if (!content || !content.startsWith(POLL_MESSAGE_PREFIX)) return null;
+    try {
+      const raw = content.slice(POLL_MESSAGE_PREFIX.length);
+      const parsed = JSON.parse(raw) as ChatPollPayload;
+      const validOptions = Array.isArray(parsed.options)
+        ? parsed.options.map((item) => `${item || ''}`.trim()).filter(Boolean)
+        : [];
+      if (!parsed.question?.trim() || validOptions.length < 2) return null;
+      return {
+        ...parsed,
+        question: parsed.question.trim(),
+        options: validOptions,
+      };
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const getPollReactionKey = (optionIndex: number) => `${POLL_REACTION_PREFIX}${optionIndex}`;
+
+  const resetPollDraft = () => {
+    setPollQuestion('');
+    setPollOptions(['', '']);
+  };
+
+  const updatePollOption = (index: number, value: string) => {
+    setPollOptions((prev) => prev.map((item, idx) => (idx === index ? value : item)));
+  };
+
+  const addPollOptionField = () => {
+    setPollOptions((prev) => {
+      if (prev.length >= 6) return prev;
+      return [...prev, ''];
+    });
   };
 
   const headerChromeColor = useMemo(
@@ -613,15 +663,6 @@ export default function ChatConversationScreen() {
       stopTypingSignal().catch(() => {});
     }, TYPING_IDLE_MS);
   }, [conversationId, user?.id, isAIChat, stopTypingSignal]);
-
-  const handleEmojiSelected = React.useCallback((selection: EmojiType) => {
-    setMessageText((prev) => `${prev}${selection.emoji}`);
-    setIsEmojiPickerOpen(false);
-    sendTypingSignal();
-    requestAnimationFrame(() => {
-      messageInputRef.current?.focus();
-    });
-  }, [sendTypingSignal]);
 
   const loadGroupDetails = async () => {
     if (!conversationId || !isGroup || !user?.id) return;
@@ -974,6 +1015,69 @@ export default function ChatConversationScreen() {
       setReplyingTo(originalReply);
     } finally {
       setIsSending(false);
+    }
+  };
+
+  const handleCreatePoll = async () => {
+    if (!isGroup || !conversationId || !user?.id) return;
+
+    const question = pollQuestion.trim();
+    const options = pollOptions.map((item) => item.trim()).filter(Boolean);
+    if (!question || options.length < 2) {
+      Toast.show({ type: 'error', text1: 'Add a question and at least 2 options' });
+      return;
+    }
+
+    try {
+      setIsCreatingPoll(true);
+      const payload: ChatPollPayload = {
+        question,
+        options,
+        allowsMultiple: false,
+        createdBy: user.id,
+        createdAt: new Date().toISOString(),
+      };
+      await sendMessage(conversationId, user.id, `${POLL_MESSAGE_PREFIX}${JSON.stringify(payload)}`, 'text');
+      resetPollDraft();
+      setShowCreatePoll(false);
+      Toast.show({ type: 'success', text1: 'Poll created' });
+    } catch (error: any) {
+      Toast.show({ type: 'error', text1: 'Failed to create poll', text2: error?.message || 'Try again' });
+    } finally {
+      setIsCreatingPoll(false);
+    }
+  };
+
+  const handlePollVote = async (messageId: string, payload: ChatPollPayload, optionIndex: number) => {
+    if (!user?.id || isAIChat) return;
+    if (!payload.options?.[optionIndex]) return;
+
+    const allReactions = messageReactions.get(messageId) || [];
+    const myPollVotes = allReactions.filter(
+      (reaction) =>
+        reaction.user_id === user.id &&
+        typeof reaction.emoji === 'string' &&
+        reaction.emoji.startsWith(POLL_REACTION_PREFIX)
+    );
+    const nextReactionKey = getPollReactionKey(optionIndex);
+    const hasCurrentVote = myPollVotes.some((reaction) => reaction.emoji === nextReactionKey);
+
+    try {
+      if (hasCurrentVote) {
+        await removeMessageReaction(messageId, nextReactionKey);
+        removeLocalReaction(messageId, nextReactionKey);
+        return;
+      }
+
+      for (const vote of myPollVotes) {
+        await removeMessageReaction(messageId, vote.emoji);
+        removeLocalReaction(messageId, vote.emoji);
+      }
+
+      await addMessageReaction(messageId, nextReactionKey);
+      upsertLocalReaction(messageId, nextReactionKey);
+    } catch (error: any) {
+      Toast.show({ type: 'error', text1: 'Failed to submit vote', text2: error?.message || 'Try again' });
     }
   };
 
@@ -1682,6 +1786,23 @@ export default function ChatConversationScreen() {
     });
     const groupedReactions = getGroupedReactions(message.id);
     const groupedReactionEntries = Object.entries(groupedReactions);
+    const pollPayload = parsePollPayload(message.content);
+    const pollReactions = (messageReactions.get(message.id) || []).filter(
+      (reaction) => typeof reaction.emoji === 'string' && reaction.emoji.startsWith(POLL_REACTION_PREFIX)
+    );
+    const pollVoteCounts = pollPayload
+      ? pollPayload.options.map((_, optionIndex) => {
+          const key = getPollReactionKey(optionIndex);
+          return pollReactions.filter((reaction) => reaction.emoji === key).length;
+        })
+      : [];
+    const totalPollVotes = pollVoteCounts.reduce((sum, count) => sum + count, 0);
+    const myPollVoteIndex = pollPayload
+      ? pollPayload.options.findIndex((_, optionIndex) => {
+          const key = getPollReactionKey(optionIndex);
+          return pollReactions.some((reaction) => reaction.user_id === user?.id && reaction.emoji === key);
+        })
+      : -1;
     const messageLength = (message.content || '').trim().length;
     const bubbleWidthStyle =
       messageLength <= 12
@@ -1751,18 +1872,110 @@ export default function ChatConversationScreen() {
                 </Text>
               )}
               <View style={styles.messageContentWrap}>
-                <Text
-                  style={[
-                    styles.messageText,
-                    isMyMessage
-                      ? [styles.myMessageText, { color: chatTheme.textColor }]
-                      : [styles.otherMessageText, { color: chatTheme.incomingTextColor }],
-                  ]}
-                >
-                  {message.content}
-                </Text>
+                {pollPayload ? (
+                  <View style={[styles.pollCard, isMyMessage ? styles.myPollCard : styles.otherPollCard]}>
+                    <View style={styles.pollHeaderRow}>
+                      <MaterialIcons
+                        name="poll"
+                        size={16}
+                        color={isMyMessage ? chatTheme.textColor : chatTheme.incomingTextColor}
+                      />
+                      <Text
+                        style={[
+                          styles.pollHeaderLabel,
+                          { color: isMyMessage ? chatTheme.textColor : chatTheme.incomingTextColor },
+                        ]}
+                      >
+                        Poll
+                      </Text>
+                    </View>
+                    <Text
+                      style={[
+                        styles.pollQuestion,
+                        { color: isMyMessage ? chatTheme.textColor : chatTheme.incomingTextColor },
+                      ]}
+                    >
+                      {pollPayload.question}
+                    </Text>
+                    <View style={styles.pollOptionsWrap}>
+                      {pollPayload.options.map((option, optionIndex) => {
+                        const votes = pollVoteCounts[optionIndex] || 0;
+                        const votePercent = totalPollVotes > 0 ? Math.round((votes / totalPollVotes) * 100) : 0;
+                        const isMyVote = myPollVoteIndex === optionIndex;
+
+                        return (
+                          <TouchableOpacity
+                            key={`${message.id}-poll-option-${optionIndex}`}
+                            style={[
+                              styles.pollOption,
+                              isMyVote && styles.pollOptionActive,
+                              isMyMessage && styles.pollOptionMine,
+                            ]}
+                            onPress={() => handlePollVote(message.id, pollPayload, optionIndex)}
+                            activeOpacity={0.8}
+                          >
+                            <View
+                              style={[
+                                styles.pollOptionProgress,
+                                {
+                                  width: `${votePercent}%`,
+                                  backgroundColor: isMyVote
+                                    ? 'rgba(34, 197, 94, 0.40)'
+                                    : 'rgba(34, 197, 94, 0.22)',
+                                },
+                              ]}
+                            />
+                            <View style={styles.pollOptionContent}>
+                              <Text
+                                style={[
+                                  styles.pollOptionText,
+                                  {
+                                    color: isMyMessage ? chatTheme.textColor : chatTheme.incomingTextColor,
+                                  },
+                                ]}
+                              >
+                                {option}
+                              </Text>
+                              <Text
+                                style={[
+                                  styles.pollVoteText,
+                                  {
+                                    color: isMyMessage ? chatTheme.timeColor : chatTheme.incomingTimeColor,
+                                  },
+                                ]}
+                              >
+                                {votes} • {votePercent}%
+                              </Text>
+                            </View>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                    <Text
+                      style={[
+                        styles.pollFooter,
+                        {
+                          color: isMyMessage ? chatTheme.timeColor : chatTheme.incomingTimeColor,
+                        },
+                      ]}
+                    >
+                      {totalPollVotes} vote{totalPollVotes === 1 ? '' : 's'}
+                    </Text>
+                  </View>
+                ) : (
+                  <Text
+                    style={[
+                      styles.messageText,
+                      isMyMessage
+                        ? [styles.myMessageText, { color: chatTheme.textColor }]
+                        : [styles.otherMessageText, { color: chatTheme.incomingTextColor }],
+                    ]}
+                  >
+                    {message.content}
+                  </Text>
+                )}
               </View>
-              {!!message.aiOptions?.length && !isMyMessage && (
+              {!!message.aiOptions?.length && !isMyMessage && !pollPayload && (
                 <View style={styles.aiOptionsWrap}>
                   {message.aiOptions.map((option) => (
                     <TouchableOpacity
@@ -1798,7 +2011,7 @@ export default function ChatConversationScreen() {
               </View>
             </TouchableOpacity>
 
-            {groupedReactionEntries.length > 0 && (
+            {!pollPayload && groupedReactionEntries.length > 0 && (
               <View style={[styles.reactionRow, isMyMessage ? styles.myReactionRow : styles.otherReactionRow]}>
                 {groupedReactionEntries.map(([emoji, info]) => (
                   <TouchableOpacity
@@ -2136,13 +2349,6 @@ export default function ChatConversationScreen() {
                   { backgroundColor: Colors.surface, borderColor: composerBorderColor },
                 ]}
               >
-                <TouchableOpacity
-                  style={styles.emojiButton}
-                  onPress={() => setIsEmojiPickerOpen(true)}
-                >
-                  <MaterialIcons name="emoji-emotions" size={22} color={Colors.textSecondary} />
-                </TouchableOpacity>
-
                 <TextInput
                   ref={messageInputRef}
                   style={styles.input}
@@ -2161,6 +2367,15 @@ export default function ChatConversationScreen() {
                   maxLength={500}
                   editable={!isSending}
                 />
+
+                {isGroup && !isAIChat && (
+                  <TouchableOpacity
+                    style={styles.pollComposerButton}
+                    onPress={() => setShowCreatePoll(true)}
+                  >
+                    <MaterialIcons name="poll" size={22} color={Colors.primary} />
+                  </TouchableOpacity>
+                )}
 
                 {!isAIChat && (
                   <TouchableOpacity
@@ -2197,13 +2412,6 @@ export default function ChatConversationScreen() {
           </KeyboardAvoidingView>
         </ImageBackground>
       )}
-
-      <EmojiPicker
-        open={isEmojiPickerOpen}
-        onClose={() => setIsEmojiPickerOpen(false)}
-        onEmojiSelected={handleEmojiSelected}
-      />
-
       <Modal
         visible={showChatOptions}
         animationType="slide"
@@ -2347,12 +2555,96 @@ export default function ChatConversationScreen() {
               </TouchableOpacity>
             )}
 
+            {isGroup && !isAIChat && (
+              <TouchableOpacity
+                style={styles.optionRow}
+                onPress={() => {
+                  setShowChatOptions(false);
+                  setShowCreatePoll(true);
+                }}
+              >
+                <MaterialIcons name="poll" size={20} color={Colors.primary} />
+                <Text style={styles.optionText}>Create Poll</Text>
+              </TouchableOpacity>
+            )}
+
             <TouchableOpacity
               style={[styles.optionRow, styles.optionCancel]}
               onPress={() => setShowChatOptions(false)}
             >
               <MaterialIcons name="close" size={20} color={Colors.textSecondary} />
               <Text style={[styles.optionText, { color: Colors.textSecondary }]}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showCreatePoll}
+        animationType="slide"
+        transparent
+        onRequestClose={() => {
+          setShowCreatePoll(false);
+          resetPollDraft();
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.optionsSheet}>
+            <Text style={styles.optionsTitle}>Create Poll</Text>
+            <Text style={styles.themeSubtitle}>Ask a question and let members vote.</Text>
+
+            <TextInput
+              value={pollQuestion}
+              onChangeText={setPollQuestion}
+              placeholder="Poll question"
+              placeholderTextColor={Colors.textSecondary}
+              style={styles.pollInput}
+              maxLength={180}
+            />
+
+            <View style={styles.pollInputGroup}>
+              {pollOptions.map((option, optionIndex) => (
+                <TextInput
+                  key={`poll-option-${optionIndex}`}
+                  value={option}
+                  onChangeText={(value) => updatePollOption(optionIndex, value)}
+                  placeholder={`Option ${optionIndex + 1}`}
+                  placeholderTextColor={Colors.textSecondary}
+                  style={styles.pollInput}
+                  maxLength={80}
+                />
+              ))}
+            </View>
+
+            {pollOptions.length < 6 && (
+              <TouchableOpacity style={styles.optionRow} onPress={addPollOptionField}>
+                <MaterialIcons name="add-circle-outline" size={20} color={Colors.text} />
+                <Text style={styles.optionText}>Add Option</Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity
+              style={[styles.optionRow, styles.createPollButton, isCreatingPoll && { opacity: 0.7 }]}
+              onPress={handleCreatePoll}
+              disabled={isCreatingPoll}
+            >
+              {isCreatingPoll ? (
+                <ActivityIndicator size="small" color="#ffffff" />
+              ) : (
+                <MaterialIcons name="send" size={20} color="#ffffff" />
+              )}
+              <Text style={styles.createPollButtonText}>Post Poll</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.optionRow, styles.optionCancel]}
+              onPress={() => {
+                setShowCreatePoll(false);
+                resetPollDraft();
+              }}
+            >
+              <MaterialIcons name="close" size={20} color={Colors.textSecondary} />
+              <Text style={[styles.optionText, { color: Colors.textSecondary }]}>Cancel</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -3744,6 +4036,82 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     reactionPillCountActive: {
       color: Colors.primary,
     },
+    pollCard: {
+      borderRadius: BorderRadius.md,
+      borderWidth: 1,
+      padding: Spacing.sm,
+      gap: 8,
+    },
+    myPollCard: {
+      borderColor: 'rgba(255,255,255,0.28)',
+      backgroundColor: 'rgba(255,255,255,0.08)',
+    },
+    otherPollCard: {
+      borderColor: Colors.border,
+      backgroundColor: Colors.surface,
+    },
+    pollHeaderRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    pollHeaderLabel: {
+      fontSize: FontSizes.xs,
+      fontWeight: FontWeights.semibold,
+      textTransform: 'uppercase',
+      letterSpacing: 0.4,
+    },
+    pollQuestion: {
+      fontSize: FontSizes.md,
+      fontWeight: FontWeights.semibold,
+      lineHeight: 20,
+    },
+    pollOptionsWrap: {
+      gap: 6,
+    },
+    pollOption: {
+      borderRadius: BorderRadius.md,
+      borderWidth: 1,
+      borderColor: Colors.border,
+      overflow: 'hidden',
+      position: 'relative',
+      backgroundColor: Colors.card,
+    },
+    pollOptionMine: {
+      borderColor: 'rgba(255,255,255,0.24)',
+      backgroundColor: 'rgba(255,255,255,0.06)',
+    },
+    pollOptionActive: {
+      borderColor: Colors.primary,
+    },
+    pollOptionProgress: {
+      position: 'absolute',
+      left: 0,
+      top: 0,
+      bottom: 0,
+      minWidth: 2,
+    },
+    pollOptionContent: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: Spacing.sm,
+      paddingVertical: 8,
+      gap: 8,
+    },
+    pollOptionText: {
+      flex: 1,
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.medium,
+    },
+    pollVoteText: {
+      fontSize: FontSizes.xs,
+      fontWeight: FontWeights.semibold,
+    },
+    pollFooter: {
+      fontSize: FontSizes.xs,
+      fontWeight: FontWeights.medium,
+    },
     reactionPickerSheet: {
       width: '88%',
       maxWidth: 340,
@@ -3810,16 +4178,16 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       alignItems: 'center',
       borderWidth: 1,
       borderRadius: 24,
-      paddingLeft: 4,
+      paddingLeft: 10,
       paddingRight: 4,
       paddingVertical: 3,
       ...Shadows.sm,
     },
-    emojiButton: {
+    attachButton: {
       padding: 8,
       marginBottom: 1,
     },
-    attachButton: {
+    pollComposerButton: {
       padding: 8,
       marginBottom: 1,
     },
@@ -4143,6 +4511,30 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     },
     optionCancel: {
       marginTop: Spacing.xs,
+    },
+    pollInputGroup: {
+      gap: 8,
+      marginBottom: Spacing.sm,
+    },
+    pollInput: {
+      borderWidth: 1,
+      borderColor: Colors.border,
+      borderRadius: BorderRadius.md,
+      backgroundColor: Colors.card,
+      color: Colors.text,
+      fontSize: FontSizes.md,
+      paddingHorizontal: Spacing.md,
+      paddingVertical: 10,
+    },
+    createPollButton: {
+      backgroundColor: Colors.primary,
+      borderColor: Colors.primary,
+      justifyContent: 'center',
+    },
+    createPollButtonText: {
+      fontSize: FontSizes.md,
+      color: '#ffffff',
+      fontWeight: FontWeights.semibold,
     },
     themeSubtitle: {
       fontSize: FontSizes.sm,

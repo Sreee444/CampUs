@@ -14,7 +14,6 @@ import {
     Modal,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import EmojiPicker, { type EmojiType } from 'rn-emoji-keyboard';
 import { useFocusEffect, useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../../navigation/types';
@@ -98,7 +97,6 @@ export default function MentorshipChatScreen() {
     const [reactionPickerVisible, setReactionPickerVisible] = useState(false);
     const [reactionTargetMessageId, setReactionTargetMessageId] = useState<string | null>(null);
     const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
-    const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
     const [directPartnerStatus, setDirectPartnerStatus] = useState<'online' | 'away' | 'offline' | null>(null);
     const listRef = useRef<FlatList>(null);
     const messageInputRef = useRef<TextInput | null>(null);
@@ -128,13 +126,6 @@ export default function MentorshipChatScreen() {
         setShowThemePicker(false);
         Toast.show({ type: 'success', text1: `${theme.label} theme applied` });
     };
-
-    const handleEmojiSelected = useCallback((selection: EmojiType) => {
-        setMessageText((prev) => `${prev}${selection.emoji}`);
-        setIsEmojiPickerOpen(false);
-        sendTypingSignal();
-        requestAnimationFrame(() => messageInputRef.current?.focus());
-    }, []);
 
     const headerChromeColor = useMemo(() => withHexAlpha(chatTheme.bubbleColor, 0.16), [chatTheme.bubbleColor]);
     const headerChromeBorder = useMemo(() => withHexAlpha(chatTheme.bubbleColor, 0.35), [chatTheme.bubbleColor]);
@@ -521,9 +512,6 @@ export default function MentorshipChatScreen() {
                 <KeyboardAvoidingView style={styles.composerOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}>
                     <View style={styles.inputContainer}>
                         <View style={[styles.inputMain, { backgroundColor: Colors.surface, borderColor: composerBorderColor }]}>
-                            <TouchableOpacity style={styles.emojiButton} onPress={() => setIsEmojiPickerOpen(true)}>
-                                <MaterialIcons name="emoji-emotions" size={22} color={Colors.textSecondary} />
-                            </TouchableOpacity>
                             <TextInput ref={messageInputRef} style={styles.input} value={messageText}
                                 onChangeText={(text) => { setMessageText(text); if (!text.trim()) { stopTypingSignal().catch(() => { }); return; } sendTypingSignal(); }}
                                 placeholder="Type a message" placeholderTextColor={Colors.textSecondary} multiline maxLength={2000} editable={!isSending} />
@@ -535,10 +523,6 @@ export default function MentorshipChatScreen() {
                     </View>
                 </KeyboardAvoidingView>
             </View>
-
-            {/* Emoji Picker */}
-            <EmojiPicker open={isEmojiPickerOpen} onClose={() => setIsEmojiPickerOpen(false)} onEmojiSelected={handleEmojiSelected} />
-
             {/* Chat Options Modal */}
             <Modal visible={showChatOptions} animationType="slide" transparent onRequestClose={() => setShowChatOptions(false)}>
                 <View style={styles.modalOverlay}><View style={styles.optionsSheet}>
@@ -687,7 +671,6 @@ const createStyles = (Colors: any) =>
         reactionChoiceText: { fontSize: 21 },
         inputContainer: { flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: Spacing.md, paddingTop: 6, paddingBottom: Platform.OS === 'ios' ? 10 : 8, gap: 8 },
         inputMain: { flex: 1, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderRadius: 24, paddingLeft: 4, paddingRight: 4, paddingVertical: 3, ...Shadows.sm },
-        emojiButton: { padding: 8, marginBottom: 1 },
         input: { flex: 1, backgroundColor: 'transparent', borderWidth: 0, paddingHorizontal: 6, paddingVertical: 10, fontSize: FontSizes.md, color: Colors.text, maxHeight: 110 },
         sendButton: { width: 46, height: 46, borderRadius: 23, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center', ...Shadows.sm },
         sendButtonDisabled: { opacity: 0.5 },
