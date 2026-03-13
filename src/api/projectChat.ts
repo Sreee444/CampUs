@@ -1,5 +1,14 @@
 // @ts-nocheck
 import { supabase } from './supabase';
+import { encryptMessage, decryptMessage } from "../../utils/encryption";
+
+const decryptProjectChatMessage = (msg: any) => {
+    if (!msg) return msg;
+    return {
+        ...msg,
+        content: typeof msg?.content === "string" && msg.content ? decryptMessage(msg.content) : msg?.content,
+    };
+};
 
 export type ProjectChatMessage = {
     id: string;
@@ -159,7 +168,7 @@ export const getProjectChatMessages = async (chatId: string): Promise<ProjectCha
         throw error;
     }
     console.log('[ProjectChat] getMessages - Retrieved', (data || []).length, 'messages');
-    return (data || []) as ProjectChatMessage[];
+    return (data || []).map((m: any) => decryptProjectChatMessage(m)) as ProjectChatMessage[];
 };
 
 /**
@@ -172,9 +181,12 @@ export const sendProjectChatMessage = async (
 ): Promise<void> => {
     console.log('[ProjectChat] sendMessage - chatId:', chatId, '| senderId:', senderId, '| length:', content.length);
 
+    // Encrypt on the client before storing in Supabase (DB stores only encrypted text).
+    const encryptedContent = encryptMessage(content);
+
     const { error } = await supabase
         .from('project_chat_messages')
-        .insert({ chat_id: chatId, sender_id: senderId, content });
+        .insert({ chat_id: chatId, sender_id: senderId, content: encryptedContent });
 
     if (error) {
         console.error('[ProjectChat] sendMessage - Error:', error);
@@ -219,7 +231,7 @@ export const subscribeToProjectChatMessages = (
 
                 const message = { ...payload.new, sender: senderData ?? null };
                 console.log('[ProjectChat] Realtime - Delivering message to UI, sender:', senderData?.full_name || 'unknown');
-                onInsert(message);
+                onInsert(decryptProjectChatMessage(message));
             }
         )
         .subscribe((status) => {

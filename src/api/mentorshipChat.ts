@@ -1,6 +1,15 @@
 // @ts-nocheck
 import { supabase } from './supabase';
 import { MentorshipPurpose, MentorshipStatus, Profile } from '../types/database';
+import { encryptMessage, decryptMessage } from "../../utils/encryption";
+
+const decryptMentorshipMessage = (msg: any) => {
+  if (!msg) return msg;
+  return {
+    ...msg,
+    content: typeof msg?.content === "string" && msg.content ? decryptMessage(msg.content) : msg?.content,
+  };
+};
 
 export type MentorshipChat = {
   id: string;
@@ -113,7 +122,7 @@ export const getMentorshipChatsForUser = async (userId: string): Promise<Mentors
 
   return visibleChats.map((chat) => ({
     ...chat,
-    last_message: latestByChat.get(chat.id) || null,
+    last_message: decryptMentorshipMessage(latestByChat.get(chat.id)) || null,
   }));
 };
 
@@ -189,7 +198,7 @@ export const getMentorshipMessages = async (
 
   if (error) throw error;
   // Reverse so oldest is first
-  return (data || []).reverse() as MentorshipMessage[];
+  return (data || []).reverse().map((m: any) => decryptMentorshipMessage(m)) as MentorshipMessage[];
 };
 
 // Send a message in a mentorship chat
@@ -207,12 +216,15 @@ export const sendMentorshipMessage = async (
 
   console.log('[SendMsg] sender:', user.id, '| chatId:', chatId);
 
+  // Encrypt on the client before storing in Supabase (DB stores only encrypted text).
+  const encryptedContent = encryptMessage(content);
+
   const { data, error } = await supabase
     .from('mentorship_messages')
     .insert({
       chat_id: chatId,
       sender_id: user.id,
-      content,
+      content: encryptedContent,
     } as any)
     .select(`
       *,
@@ -230,7 +242,8 @@ export const sendMentorshipMessage = async (
     throw error;
   }
   console.log('[SendMsg] message inserted OK, id:', data?.id);
-  return data as MentorshipMessage;
+  // Decrypt only when returning to UI.
+  return decryptMentorshipMessage(data) as MentorshipMessage;
 };
 
 
@@ -276,7 +289,7 @@ export const subscribeToMentorshipMessages = (
           console.log('[Realtime] delivering message to UI');
           callback({
             type: 'insert',
-            message: data as MentorshipMessage,
+            message: decryptMentorshipMessage(data) as MentorshipMessage,
           });
         } else {
           console.warn('[Realtime] re-fetch returned null — RLS blocking SELECT?');

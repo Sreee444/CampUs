@@ -74,6 +74,7 @@ import ConfirmDialog from '../../components/ConfirmDialog';
 import { UserAvatar } from '../../components/UserAvatar';
 import PinnedMessagesModal from '../../components/PinnedMessagesModal';
 import { supabase } from '../../api/supabase';
+import { decryptMessage } from '../../../utils/encryption';
 
 const CHAT_THEME_KEY = 'chat_color_theme';
 
@@ -822,6 +823,10 @@ export default function ChatConversationScreen() {
 
           const newMessage = {
             ...payload.new,
+            content:
+              typeof payload.new?.content === 'string' && payload.new.content
+                ? decryptMessage(payload.new.content)
+                : payload.new?.content,
             sender: senderData || undefined,
           } as ChatMessage;
 

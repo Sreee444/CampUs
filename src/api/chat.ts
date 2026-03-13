@@ -24,6 +24,29 @@ import {
 } from "../types/database";
 import { moderateText } from "./ai";
 import { isAdminRole } from '../utils/roles';
+import { encryptMessage, decryptMessage } from "../../utils/encryption";
+
+const decryptContentField = (value: any) => {
+  if (value == null) return value;
+  if (typeof value !== "string") return value;
+  if (!value) return value;
+  return decryptMessage(value);
+};
+
+const decryptMessageObject = (msg: any): any => {
+  if (!msg) return msg;
+  const next = { ...msg };
+  if ("content" in next) {
+    next.content = decryptContentField((next as any).content);
+  }
+  if ((next as any).reply_to_message) {
+    (next as any).reply_to_message = decryptMessageObject((next as any).reply_to_message);
+  }
+  if ((next as any).forwarded_from_message) {
+    (next as any).forwarded_from_message = decryptMessageObject((next as any).forwarded_from_message);
+  }
+  return next;
+};
 
 // ===== CONNECTIONS (Friend Requests) =====
 
@@ -171,7 +194,9 @@ export const getConversations = async (userId: string) => {
       return {
         ...conversation,
         participants: participantsResult.data?.map((p: any) => p.user) || [],
-        last_message: messagesResult.data?.[0] || null,
+        last_message: messagesResult.data?.[0]
+          ? decryptMessageObject(messagesResult.data?.[0])
+          : null,
         unread_count: unreadResult.count || 0,
       };
     })
@@ -1040,7 +1065,7 @@ export const getMessages = async (
   }
 
   return msgs.reverse().map((message: any) => ({
-    ...message,
+    ...decryptMessageObject(message),
     is_read: readSet.has(message.id),
     seen_by_others: message.sender_id === userId ? seenByOthersSet.has(message.id) : undefined,
   })) as Message[];
@@ -1073,12 +1098,15 @@ export const sendMessage = async (
     console.warn('sendMessage called with mismatched senderId; using authenticated user instead');
   }
 
+  // Encrypt on the client before storing in Supabase (DB stores only encrypted text).
+  const encryptedContent = encryptMessage(content);
+
   const { data, error } = await supabase
     .from("messages")
     .insert({
       conversation_id: conversationId,
       sender_id: currentUserId,
-      content,
+      content: encryptedContent,
       message_type: messageType,
       attachment_url: attachmentUrl,
     } as any)
@@ -1100,7 +1128,8 @@ export const sendMessage = async (
     .update({ updated_at: new Date().toISOString() } as any)
     .eq("id", conversationId);
 
-  return data as Message;
+  // Decrypt only when returning to UI.
+  return decryptMessageObject(data) as Message;
 };
 
 // Delete message
@@ -1345,7 +1374,7 @@ export const subscribeToMessages = (
         if (data) {
           callback({
             type: "insert",
-            message: data as Message,
+            message: decryptMessageObject(data) as Message,
             messageId: payload.new.id,
           });
         }
@@ -1382,7 +1411,7 @@ export const subscribeToMessages = (
         if (data) {
           callback({
             type: "update",
-            message: data as Message,
+            message: decryptMessageObject(data) as Message,
             messageId: updated.id,
           });
         }
@@ -2316,12 +2345,15 @@ export const sendReplyMessage = async (
   if (userError) throw userError;
   const currentUserId = user?.id;
 
+  // Encrypt on the client before storing in Supabase (DB stores only encrypted text).
+  const encryptedContent = encryptMessage(content);
+
   const { data, error } = await supabase
     .from("messages")
     .insert({
       conversation_id: conversationId,
       sender_id: currentUserId,
-      content,
+      content: encryptedContent,
       message_type: "text",
       reply_to_message_id: replyToMessageId,
     } as any)
@@ -2343,7 +2375,8 @@ export const sendReplyMessage = async (
     .update({ updated_at: new Date().toISOString() } as any)
     .eq("id", conversationId);
 
-  return data;
+  // Decrypt only when returning to UI.
+  return decryptMessageObject(data);
 };
 
 // ===== 7. MESSAGE FORWARDING =====
@@ -2398,7 +2431,8 @@ export const forwardMessage = async (
     .update({ updated_at: new Date().toISOString() } as any)
     .eq("id", toConversationId);
 
-  return data;
+  // Decrypt only when returning to UI.
+  return decryptMessageObject(data);
 };
 
 // ===== 8. MESSAGE SEARCH WITH FILTERS =====
@@ -2412,6 +2446,8 @@ export const searchMessages = async (
     messageType?: string;
   }
 ) => {
+  // Messages are stored encrypted, so DB-level `ilike(content, ...)` won't work.
+  // Fetch a filtered set, decrypt client-side, then search in decrypted text.
   let q = supabase
     .from("messages")
     .select(`
@@ -2419,8 +2455,7 @@ export const searchMessages = async (
       sender:profiles!messages_sender_id_fkey(*)
     `)
     .eq("conversation_id", conversationId)
-    .eq("is_deleted", false)
-    .ilike("content", `%${query}%`);
+    .eq("is_deleted", false);
 
   if (filters?.senderId) {
     q = q.eq("sender_id", filters.senderId);
@@ -2438,10 +2473,18 @@ export const searchMessages = async (
     q = q.lte("created_at", filters.endDate);
   }
 
-  const { data, error } = await q.order("created_at", { ascending: false });
+  const { data, error } = await q.order("created_at", { ascending: false }).limit(500);
 
   if (error) throw error;
-  return data;
+
+  const decrypted = (data || []).map((m: any) => decryptMessageObject(m));
+  const needle = String(query || "").trim().toLowerCase();
+  if (!needle) return decrypted;
+
+  return decrypted.filter((m: any) => {
+    const content = typeof m?.content === "string" ? m.content : "";
+    return content.toLowerCase().includes(needle);
+  });
 };
 
 // ===== 9. PINNED MESSAGES & GROUP ANNOUNCEMENTS =====
@@ -2486,7 +2529,10 @@ export const getPinnedMessages = async (conversationId: string) => {
     .order("created_at", { ascending: false });
 
   if (error) throw error;
-  return data || [];
+  return (data || []).map((row: any) => ({
+    ...row,
+    message: row?.message ? decryptMessageObject(row.message) : row?.message,
+  }));
 };
 
 export const createGroupAnnouncement = async (
@@ -2497,13 +2543,17 @@ export const createGroupAnnouncement = async (
 ) => {
   await ensureGroupAdminPermission(conversationId, createdByAdminId);
 
+  // Encrypt on the client before storing in Supabase (DB stores only encrypted text).
+  const encryptedTitle = encryptMessage(title);
+  const encryptedContent = encryptMessage(content);
+
   const { data, error } = await supabase
     .from("group_announcements")
     .insert({
       conversation_id: conversationId,
       created_by: createdByAdminId,
-      title,
-      content,
+      title: encryptedTitle,
+      content: encryptedContent,
       is_active: true,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -2512,7 +2562,12 @@ export const createGroupAnnouncement = async (
     .single();
 
   if (error) throw error;
-  return data;
+  // Decrypt only when returning to UI.
+  return {
+    ...data,
+    title: decryptContentField((data as any)?.title),
+    content: decryptContentField((data as any)?.content),
+  };
 };
 
 export const getGroupAnnouncements = async (conversationId: string) => {
@@ -2524,7 +2579,11 @@ export const getGroupAnnouncements = async (conversationId: string) => {
     .order("created_at", { ascending: false });
 
   if (error) throw error;
-  return data;
+  return (data || []).map((a: any) => ({
+    ...a,
+    title: decryptContentField(a?.title),
+    content: decryptContentField(a?.content),
+  }));
 };
 
 export const deactivateGroupAnnouncement = async (announcementId: string) => {
@@ -2609,12 +2668,15 @@ export const scheduleMessage = async (
     throw new Error("Scheduled time must be in the future");
   }
 
+  // Encrypt on the client before storing in Supabase (DB stores only encrypted text).
+  const encryptedContent = encryptMessage(content);
+
   const { data, error } = await supabase
     .from("scheduled_messages")
     .insert({
       conversation_id: conversationId,
       sender_id: currentUserId,
-      content,
+      content: encryptedContent,
       message_type: messageType,
       scheduled_for: scheduledDate.toISOString(),
       status: "pending",
@@ -2624,7 +2686,11 @@ export const scheduleMessage = async (
     .single();
 
   if (error) throw error;
-  return data;
+  // Decrypt only when returning to UI.
+  return {
+    ...data,
+    content: decryptContentField((data as any)?.content),
+  };
 };
 
 export const getScheduledMessages = async (conversationId: string) => {
@@ -2636,7 +2702,10 @@ export const getScheduledMessages = async (conversationId: string) => {
     .order("scheduled_for", { ascending: true });
 
   if (error) throw error;
-  return data;
+  return (data || []).map((m: any) => ({
+    ...m,
+    content: decryptContentField(m?.content),
+  }));
 };
 
 export const cancelScheduledMessage = async (messageId: string) => {
