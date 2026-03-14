@@ -6,6 +6,7 @@ interface CountdownTimerProps {
   onExpire?: () => void;
   showDays?: boolean;
   compact?: boolean;
+  compactVariant?: 'pill' | 'details';
 }
 
 interface TimeLeft {
@@ -20,7 +21,8 @@ export function CountdownTimer({
   targetDate, 
   onExpire, 
   showDays = true, 
-  compact = false 
+  compact = false,
+  compactVariant = 'pill'
 }: CountdownTimerProps) {
   const [timeLeft, setTimeLeft] = useState<TimeLeft>({
     days: 0,
@@ -79,6 +81,19 @@ export function CountdownTimer({
   }
 
   if (compact) {
+    if (compactVariant === 'details') {
+      return (
+        <View style={styles.compactDetailsContainer}>
+          <Text style={styles.compactDetailsValue}>
+            {timeLeft.days}d {timeLeft.hours.toString().padStart(2, '0')}:{timeLeft.minutes
+              .toString()
+              .padStart(2, '0')}:{timeLeft.seconds.toString().padStart(2, '0')}
+          </Text>
+          <Text style={styles.compactDetailsLabels}>DAY   HRS   MIN   SEC</Text>
+        </View>
+      );
+    }
+
     return (
       <View style={styles.containerCompact}>
         <Text style={styles.compactTimer}>
@@ -181,6 +196,28 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
     color: '#10b981',
+  },
+  compactDetailsContainer: {
+    borderRadius: 10,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    alignItems: 'flex-start',
+  },
+  compactDetailsValue: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#A16207',
+    letterSpacing: 0.2,
+  },
+  compactDetailsLabels: {
+    marginTop: 2,
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#9CA3AF',
+    letterSpacing: 0.6,
   },
   expiredText: {
     fontSize: 16,

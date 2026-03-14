@@ -117,7 +117,7 @@ export default function PremiumTabBar({ state, descriptors, navigation }: Bottom
   };
 
   return (
-    <View style={[styles.outerWrap, { paddingBottom: 0, marginBottom: 0 }]}> 
+    <View style={[styles.outerWrap, { paddingBottom: 0, marginBottom: 0 }]}>
       <View style={styles.glassBar}>
         <View style={styles.row}>
           {renderTabSlot('Projects')}
@@ -179,18 +179,19 @@ const styles = StyleSheet.create({
     height: 75,
     paddingTop: 6,
     paddingBottom: 12,
-    marginBottom: 0,
-    borderTopLeftRadius: 0,
-    borderTopRightRadius: 0,
-    borderWidth: 1,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
     borderColor: BORDER,
     overflow: 'hidden',
     backgroundColor: '#ffffff',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 4,
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 8,
   },
   row: {
     flexDirection: 'row',
@@ -211,7 +212,7 @@ const styles = StyleSheet.create({
   },
   homeWrap: {
     position: 'absolute',
-    bottom: 30,
+    bottom: 28,
     alignSelf: 'center',
     alignItems: 'center',
     justifyContent: 'center',
