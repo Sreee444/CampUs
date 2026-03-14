@@ -350,18 +350,15 @@ export default function ChatConversationScreen() {
 
   const handleChatPollVote = async (pollMessageId: string, optionIndex: number) => {
     if (!conversationId || !user?.id) return;
-    const existingVote = messages.find(m => {
+    const latestMyVoteMessage = [...messages].reverse().find(m => {
       const v = parseChatVote(m.content);
       return v?.pollMessageId === pollMessageId && m.sender_id === user.id;
     });
+    const previousVote = latestMyVoteMessage ? parseChatVote(latestMyVoteMessage.content) : null;
     try {
-      if (existingVote) {
-        const prev = parseChatVote(existingVote.content);
-        if (prev?.optionIndex === optionIndex) {
-          await sendMessage(conversationId, user.id, `${CHAT_VOTE_PREFIX}${JSON.stringify({ pollMessageId, optionIndex: -1 })}`, 'text');
-        } else {
-          await sendMessage(conversationId, user.id, `${CHAT_VOTE_PREFIX}${JSON.stringify({ pollMessageId, optionIndex })}`, 'text');
-        }
+      if (previousVote?.optionIndex === optionIndex) {
+        // Send -1 to represent vote removal.
+        await sendMessage(conversationId, user.id, `${CHAT_VOTE_PREFIX}${JSON.stringify({ pollMessageId, optionIndex: -1 })}`, 'text');
       } else {
         await sendMessage(conversationId, user.id, `${CHAT_VOTE_PREFIX}${JSON.stringify({ pollMessageId, optionIndex })}`, 'text');
       }
@@ -688,11 +685,16 @@ export default function ChatConversationScreen() {
     };
   }, [conversationId, user?.id, isAIChat, isGroup]);
 
+  const visibleMessages = useMemo(
+    () => messages.filter((message) => !parseChatVote(message.content)),
+    [messages]
+  );
+
   useEffect(() => {
-    if (!messages.length || showMessageSearch) return;
+    if (!visibleMessages.length || showMessageSearch) return;
     const timeout = setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
     return () => clearTimeout(timeout);
-  }, [messages.length, showMessageSearch]);
+  }, [visibleMessages.length, showMessageSearch]);
 
   useEffect(() => {
     if (!conversationId || isAIChat || !user?.id) {
@@ -1170,12 +1172,12 @@ export default function ChatConversationScreen() {
 
   const filteredMessages = useMemo(() => {
     if (!showMessageSearch || !messageSearchQuery.trim()) {
-      return messages;
+      return visibleMessages;
     }
 
     const query = messageSearchQuery.trim().toLowerCase();
-    return messages.filter((message) => (message.content || '').toLowerCase().includes(query));
-  }, [messages, messageSearchQuery, showMessageSearch]);
+    return visibleMessages.filter((message) => (message.content || '').toLowerCase().includes(query));
+  }, [visibleMessages, messageSearchQuery, showMessageSearch]);
 
   const directPartnerId = useMemo(() => {
     if (isGroup || isAIChat || !user?.id) return null;
@@ -1578,7 +1580,7 @@ export default function ChatConversationScreen() {
                   );
                   const allVotes = messages.filter(m => {
                     const v = parseChatVote(m.content);
-                    return v?.pollMessageId === message.id && v.optionIndex >= 0;
+                    return v?.pollMessageId === message.id;
                   });
                   const latestVotePerUser = new Map<string, { optionIndex: number }>();
                   for (const vm of allVotes) {
