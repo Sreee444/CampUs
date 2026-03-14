@@ -1644,7 +1644,7 @@ const isDetailIntent = (prompt: string) => {
 const extractEntityHint = (prompt: string) => {
   return prompt
     .toLowerCase()
-    .replace(/\b(give|show|tell|me|about|details|detail|info|information|project|projects|event|events|of|the|a|an|for|what|is|venue|location|where|date|time|status|and)\b/g, ' ')
+    .replace(/\b(give|show|tell|me|about|details|detail|info|information|project|projects|event|events|of|the|a|an|for|what|is|venue|location|where|date|time|status|and|how|can|should|do|i|prepare|preparation|ready|readiness|tips|tip|to)\b/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 };
@@ -1758,13 +1758,98 @@ const askGroqFallback = async (userMessage: string, venueHint?: string): Promise
   return venueHint || smartLocalAI(userMessage);
 };
 
+const stripMarkdownCodeFence = (text: string) => {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('```')) return trimmed;
+  return trimmed
+    .replace(/^```[a-zA-Z0-9_-]*\s*/i, '')
+    .replace(/\s*```$/, '')
+    .trim();
+};
+
+const looksLikeCodeSnippet = (text: string) => {
+  const cleaned = stripMarkdownCodeFence(text);
+  const lines = cleaned.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (!lines.length) return false;
+
+  const codeSignalRegex = /(;|\{|\}|=>|\bfunction\b|\bclass\b|\breturn\b|\bif\b|\bfor\b|\bwhile\b|\bconst\b|\blet\b|\bvar\b|\bimport\b|\bfrom\b|\bdef\b|\bprint\(|\bconsole\.log\(|#include\s*<|public\s+static\s+void\s+main)/i;
+  const signalCount = lines.reduce((count, line) => count + (codeSignalRegex.test(line) ? 1 : 0), 0);
+  const indentationCount = lines.reduce((count, line) => count + (/^(\s{2,}|\t)/.test(line) ? 1 : 0), 0);
+
+  return signalCount >= 2 || (signalCount >= 1 && (lines.length >= 3 || indentationCount >= 1));
+};
+
+const detectCodeLanguage = (code: string) => {
+  const text = code.toLowerCase();
+  if (/\bimport\s+react\b|\bjsx\b|\btsx\b/.test(text)) return 'React/TypeScript';
+  if (/\binterface\b|:\s*(string|number|boolean|any)\b|\btype\b/.test(text)) return 'TypeScript';
+  if (/\bconst\b|\blet\b|=>|console\.log\(/.test(text)) return 'JavaScript';
+  if (/\bdef\b|\bprint\(|\bimport\s+[a-z_]+/.test(text)) return 'Python';
+  if (/\bpublic\s+class\b|system\.out\.println\(/.test(text)) return 'Java';
+  if (/#include\s*<|\bstd::|\bint\s+main\s*\(/.test(text)) return 'C/C++';
+  if (/\bselect\b.+\bfrom\b|\bwhere\b|\bjoin\b/.test(text)) return 'SQL';
+  return 'programming code';
+};
+
+const explainPastedCode = (input: string) => {
+  const code = stripMarkdownCodeFence(input);
+  const lines = code.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const sample = lines.slice(0, 40);
+  const joined = sample.join(' ').toLowerCase();
+  const language = detectCodeLanguage(code);
+
+  const findings: string[] = [];
+  if (/\bfunction\b|=>|\bdef\b/.test(joined)) findings.push('Defines one or more functions/methods to organize logic.');
+  if (/\bif\b|\belse\b|\bswitch\b/.test(joined)) findings.push('Uses conditional branching to handle different cases.');
+  if (/\bfor\b|\bwhile\b|\.map\(|\.filter\(|\.reduce\(/.test(joined)) findings.push('Iterates over data to transform or process values.');
+  if (/\basync\b|\bawait\b|\.then\(|fetch\(|axios\./.test(joined)) findings.push('Performs asynchronous operations (likely API/network or async I/O).');
+  if (/try\s*\{|catch\s*\(/.test(joined)) findings.push('Includes error handling using try/catch patterns.');
+  if (/\bclass\b|constructor\s*\(/.test(joined)) findings.push('Uses class-based structure (object-oriented style).');
+  if (/console\.log\(|print\(/.test(joined)) findings.push('Prints/debugs output for visibility during execution.');
+  if (/\breturn\b/.test(joined)) findings.push('Returns values to the caller as function output.');
+
+  const firstInterestingLine = sample.find((line) => /function|def |class |=>|for |while |if |return |fetch\(|axios\.|select |insert |update /i.test(line));
+  const response: string[] = [];
+  response.push(`I can explain this ${language} snippet.`);
+  response.push('');
+  response.push('What it is doing:');
+  if (findings.length) {
+    for (const finding of findings.slice(0, 6)) {
+      response.push(`- ${finding}`);
+    }
+  } else {
+    response.push('- The snippet defines basic logic flow and executes statements in sequence.');
+  }
+
+  if (firstInterestingLine) {
+    response.push('');
+    response.push('Key line:');
+    response.push(`- ${firstInterestingLine}`);
+  }
+
+  response.push('');
+  response.push('If you want, I can also break it down line-by-line.');
+  response.push('Reply with: "Explain line by line" or "Find bugs in this code".');
+  return response.join('\n');
+};
+
 // ── Smart local AI ────────────────────────────────────────────────────────────
 // Handles all question types without requiring any external server.
 // Campus-specific queries are already handled by Supabase lookups above;
 // this covers everything else a student might ask.
 // ─────────────────────────────────────────────────────────────────────────────
 const smartLocalAI = (message: string): string => {
-  const m = message.trim().toLowerCase();
+  const raw = message.trim();
+  const m = raw.toLowerCase();
+
+  const asksCodeExplanation = /\b(explain(\s+this)?\s+code|explain\s+the\s+code|what\s+does\s+this\s+code\s+do|how\s+does\s+this\s+code\s+work|code\s+explain|understand\s+this\s+code|explain\s+this|can\s+you\s+explain)\b/.test(m);
+  if (looksLikeCodeSnippet(raw) && asksCodeExplanation) {
+    return explainPastedCode(raw);
+  }
+
+  if (looksLikeCodeSnippet(raw) && /```/.test(raw)) {
+    return explainPastedCode(raw);
+  }
 
   // ── Greetings ──
   if (/^(hi|hello|hey|hii+|helo+|yo|howdy|sup|what'?s up|good\s*(morning|afternoon|evening|night))[!?.]*$/.test(m)) {
@@ -1875,6 +1960,47 @@ const smartLocalAI = (message: string): string => {
   // ── Default fallback — still helpful ──
   return `I got your message! Here's how I can best help:\n\n📅 For campus events — ask "what events are today?" or "show events this week"\n🚀 For projects — ask "show recruiting projects" or a project name\n📚 For study/career/coding advice — ask anything like "study tips" or "resume help"\n💬 For general questions — try rephrasing or add more detail\n\nWhat would you like to know? 😊`;
 };
+
+const buildEventPreparationPlan = (event: any): string => {
+  const title = event?.title || 'this event';
+  const description = (event?.description || '').toLowerCase();
+  const titleLower = String(title).toLowerCase();
+  const text = `${titleLower} ${description}`;
+  const isHackathon = /hackathon|code|coding|build/.test(text);
+  const isWorkshop = /workshop|bootcamp|masterclass|training/.test(text);
+  const isTalkOrSeminar = /seminar|talk|webinar|lecture|conference|summit/.test(text);
+
+  const lines: string[] = [];
+  lines.push(`Preparation plan for ${title}:`);
+  lines.push(`- Read the event details and agenda carefully.`);
+  lines.push(`- Confirm date/time: ${formatDateTime(event?.start_date)}.`);
+  lines.push(`- Save venue/location: ${event?.venue || (event?.is_online ? 'Online' : 'Venue TBA')}.`);
+  if (event?.meeting_link) {
+    lines.push(`- Keep meeting link ready: ${event.meeting_link}`);
+  }
+  lines.push(`- Carry essentials: ID card, charged phone, notebook, and water.`);
+
+  if (isHackathon) {
+    lines.push('Hackathon-specific:');
+    lines.push('- Prepare your team roles (builder, designer, presenter).');
+    lines.push('- Set up your dev environment and test tools before the event.');
+    lines.push('- Keep a simple MVP idea and demo script ready.');
+  } else if (isWorkshop) {
+    lines.push('Workshop-specific:');
+    lines.push('- Revise basic concepts so you can follow hands-on parts quickly.');
+    lines.push('- Install required software in advance.');
+    lines.push('- Write 3 questions you want to ask the instructor.');
+  } else if (isTalkOrSeminar) {
+    lines.push('Seminar/Talk-specific:');
+    lines.push('- Read about the topic/speaker beforehand.');
+    lines.push('- Note key points and actionable takeaways during the session.');
+    lines.push('- Prepare one thoughtful networking question.');
+  }
+
+  lines.push('- Arrive 10–15 minutes early to avoid last-minute stress.');
+  lines.push('- After the event, capture learnings and next steps while fresh.');
+  return lines.join('\n');
+};
 export const chatWithAI = async (_userId: string, prompt: string) => {
   const trimmed = prompt.trim();
   if (!trimmed) {
@@ -1886,10 +2012,19 @@ export const chatWithAI = async (_userId: string, prompt: string) => {
     throw new Error('Your message was flagged for review. Try rephrasing without sensitive terms.');
   }
 
+  // Prioritize pasted-code explanation before campus keyword routing.
+  // Code often contains words like "event" or "date" which can accidentally
+  // trigger campus lookup and hide the code explanation behavior.
+  const lowerPrompt = trimmed.toLowerCase();
+  const asksCodeExplanationEarly = /\b(explain(\s+this)?\s+code|explain\s+the\s+code|what\s+does\s+this\s+code\s+do|how\s+does\s+this\s+code\s+work|code\s+explain|understand\s+this\s+code|explain\s+this|can\s+you\s+explain)\b/.test(lowerPrompt);
+  if ((looksLikeCodeSnippet(trimmed) && asksCodeExplanationEarly) || (looksLikeCodeSnippet(trimmed) && /```/.test(trimmed))) {
+    return explainPastedCode(trimmed);
+  }
+
   const lower = trimmed.toLowerCase();
 
   // If the query has no campus-related keywords at all, skip DB lookup and go straight to Groq
-  const hasCampusKeyword = /\b(event|events|workshop|hackathon|seminar|competition|fest|project|projects|team|teams|campus|venue|location|where|date|today|tomorrow|yesterday|announcement|notice|feed|update|updates|news|recruiting|schedule|when|status)\b/.test(lower);
+  const hasCampusKeyword = /\b(event|events|workshop|hackathon|seminar|competition|fest|project|projects|team|teams|campus|venue|location|where|date|today|tomorrow|yesterday|announcement|notice|feed|update|updates|news|recruiting|schedule|when|status|prepare|preparation)\b/.test(lower);
   if (!hasCampusKeyword) {
     return askGroqFallback(trimmed);
   }
@@ -1902,6 +2037,7 @@ export const chatWithAI = async (_userId: string, prompt: string) => {
   const wantsVenue = /\b(venue|location|where)\b/.test(lower);
   const wantsStatus = /\bstatus\b/.test(lower);
   const wantsDateTime = /\b(date|time|when)\b/.test(lower);
+  const wantsPreparation = /\b(prepare|preparation|ready|readiness|practice|how\s+do\s+i\s+prepare|how\s+can\s+i\s+prepare|what\s+should\s+i\s+prepare)\b/.test(lower);
   const wantsDetails = isDetailIntent(lower) || /\b(tell me about|what is|more about)\b/.test(lower);
   const entityHint = extractEntityHint(lower);
   const searchTerm = getPrimaryLookupTerm(trimmed, entityHint);
@@ -2020,6 +2156,10 @@ export const chatWithAI = async (_userId: string, prompt: string) => {
   if (wantsStatus && matchedProject) {
     const status = matchedProject.status || (matchedProject.is_recruiting ? 'recruiting' : 'active');
     return `${matchedProject.name} status: ${status} (${getProjectLifecycleStatus(status)})`;
+  }
+
+  if (wantsPreparation && matchedEvent) {
+    return buildEventPreparationPlan(matchedEvent);
   }
 
   if (/\brecruiting\b/.test(lower) && matchedProject) {

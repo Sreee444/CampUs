@@ -520,6 +520,7 @@ export default function ChatConversationScreen() {
           { id: `${itemTitle}-venue`, label: 'Venue', action: 'event-venue', itemType, itemTitle },
           { id: `${itemTitle}-date`, label: 'Date & time', action: 'event-date', itemType, itemTitle },
           { id: `${itemTitle}-status`, label: 'Status', action: 'event-status', itemType, itemTitle },
+          { id: `${itemTitle}-preparation`, label: 'Preparation', action: 'event-preparation', itemType, itemTitle },
         ],
         { itemType, itemTitle }
       );
@@ -616,6 +617,7 @@ export default function ChatConversationScreen() {
       if (option.action === 'event-venue') prompt = `What is the venue of event ${title}`;
       if (option.action === 'event-date') prompt = `What is the date and time of event ${title}`;
       if (option.action === 'event-status') prompt = `What is the status of event ${title}`;
+      if (option.action === 'event-preparation') prompt = `How do I prepare for event ${title}`;
       if (option.action === 'project-details') prompt = `Give project details for ${title}`;
       if (option.action === 'project-status') prompt = `What is the status of project ${title}`;
       if (option.action === 'project-recruiting') prompt = `Is project ${title} recruiting`;
@@ -638,7 +640,10 @@ export default function ChatConversationScreen() {
             itemTitle: title,
           },
           ...(option.itemType === 'event'
-            ? [{ id: `${title}-again-3`, label: 'Venue', action: 'event-venue', itemType: 'event' as const, itemTitle: title }]
+            ? [
+              { id: `${title}-again-3`, label: 'Venue', action: 'event-venue', itemType: 'event' as const, itemTitle: title },
+              { id: `${title}-again-4`, label: 'Preparation', action: 'event-preparation', itemType: 'event' as const, itemTitle: title },
+            ]
             : [{ id: `${title}-again-3`, label: 'Recruiting', action: 'project-recruiting', itemType: 'project' as const, itemTitle: title }]),
         ] : undefined, { itemType: option.itemType, itemTitle: title })
       ]);
