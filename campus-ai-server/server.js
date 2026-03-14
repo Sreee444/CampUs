@@ -5,7 +5,6 @@ const cors = require('cors');
 
 const extractEventRoute = require('./routes/extractEvent');
 const extractPosterRoute = require('./routes/extractPoster');
-const chatRoute = require('./routes/chat');
 
 const app = express();
 
@@ -24,7 +23,6 @@ app.use((req, res, next) => {
 
 app.use('/ai/extract-event', extractEventRoute);
 app.use('/ai/extract-poster', extractPosterRoute);
-app.use('/ai/chat', chatRoute);
 
 app.get('/health', (_req, res) => {
   res.json({ ok: true });

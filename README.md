@@ -238,10 +238,7 @@ EXPO_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 EXPO_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
 
 # AES chat encryption secret (messages stored encrypted in DB)
-EXPO_PUBLIC_CHAT_SECRET=campus-chat-secret-key
-
-# Backward-compatible alias (optional)
-# NEXT_PUBLIC_CHAT_SECRET=campus-chat-secret-key
+NEXT_PUBLIC_CHAT_SECRET=campus-chat-secret-key
 ```
 
 ### 4. Run the App

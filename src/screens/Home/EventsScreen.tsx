@@ -3,7 +3,6 @@ import {
   View,
   Text,
   TouchableOpacity,
-  Pressable,
   StyleSheet,
   SafeAreaView,
   ScrollView,
@@ -13,7 +12,6 @@ import {
   Platform,
   Modal,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { CompositeNavigationProp } from '@react-navigation/native';
@@ -224,13 +222,6 @@ export default function EventsScreen() {
   };
 
   return (
-    <LinearGradient
-      colors={['#F5E6D8', '#EDEBFF', '#DFF3EE']}
-      locations={[0, 0.5, 1]}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 0, y: 1 }}
-      style={styles.gradientBg}
-    >
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
@@ -259,46 +250,32 @@ export default function EventsScreen() {
 
       {/* Tab Selection */}
       <View style={styles.tabsContainer}>
-        <Pressable
-          style={({ pressed }) => [
-            styles.tab,
-            styles.tabWithGap,
-            activeTab === 'upcoming' && styles.tabActive,
-            pressed && styles.tabPressed,
-          ]}
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'upcoming' && styles.tabActive]}
           onPress={() => setActiveTab('upcoming')}
         >
           <Text style={[styles.tabText, activeTab === 'upcoming' && styles.tabTextActive]}>
-            Upcoming
+            📅 Upcoming
           </Text>
-        </Pressable>
+        </TouchableOpacity>
 
-        <Pressable
-          style={({ pressed }) => [
-            styles.tab,
-            styles.tabWithGap,
-            activeTab === 'live' && styles.tabActive,
-            pressed && styles.tabPressed,
-          ]}
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'live' && styles.tabActive]}
           onPress={() => setActiveTab('live')}
         >
           <Text style={[styles.tabText, activeTab === 'live' && styles.tabTextActive]}>
-            Live
+            🔴 Live
           </Text>
-        </Pressable>
+        </TouchableOpacity>
 
-        <Pressable
-          style={({ pressed }) => [
-            styles.tab,
-            activeTab === 'past' && styles.tabActive,
-            pressed && styles.tabPressed,
-          ]}
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'past' && styles.tabActive]}
           onPress={() => setActiveTab('past')}
         >
           <Text style={[styles.tabText, activeTab === 'past' && styles.tabTextActive]}>
-            Past
+            ⏰ Past
           </Text>
-        </Pressable>
+        </TouchableOpacity>
       </View>
 
       {/* Category Filter */}
@@ -369,12 +346,12 @@ export default function EventsScreen() {
         ) : (
           filteredEvents.map((event) => {
             const eventTypeColors: { [key: string]: { bg: string; color: string; icon: string } } = {
-              workshop: { bg: '#F3E8FF', color: '#7C3AED', icon: 'build' },
-              seminar: { bg: '#F3E8FF', color: '#7C3AED', icon: 'lightbulb' },
-              hackathon: { bg: '#F3E8FF', color: '#7C3AED', icon: 'code' },
-              competition: { bg: '#F3E8FF', color: '#7C3AED', icon: 'emoji-events' },
-              fest: { bg: '#F3E8FF', color: '#7C3AED', icon: 'celebration' },
-              other: { bg: '#F3E8FF', color: '#7C3AED', icon: 'event' },
+              workshop: { bg: '#fef3c7', color: '#d97706', icon: 'build' },
+              seminar: { bg: '#dbeafe', color: '#2563eb', icon: 'lightbulb' },
+              hackathon: { bg: '#fce7f3', color: '#db2777', icon: 'code' },
+              competition: { bg: '#fee2e2', color: '#dc2626', icon: 'emoji-events' },
+              fest: { bg: '#e0e7ff', color: '#6366f1', icon: 'celebration' },
+              other: { bg: '#e5e7eb', color: '#6b7280', icon: 'event' },
             };
             const typeStyle = eventTypeColors[event.event_type] || eventTypeColors.other;
             
@@ -499,18 +476,18 @@ export default function EventsScreen() {
                 const regDeadline = new Date(event.registration_deadline || event.start_date);
                 const eventStart = new Date(event.start_date);
                 const isRegClosed = regDeadline < now;
-                const timerLabel = isRegClosed ? 'EVENT STARTS IN' : 'REGISTRATION DETAILS';
+                const timerLabel = isRegClosed ? 'Event starts in' : 'Registration closes in';
                 const targetDate = isRegClosed ? event.start_date : (event.registration_deadline || event.start_date);
 
                 return (
                   <View style={styles.premiumTimerContainer}>
                     <View style={styles.timerLabel}>
+                      <MaterialIcons name="timer" size={14} color={SEMANTIC_COLORS.warning} />
                       <Text style={styles.timerLabelText}>{timerLabel}</Text>
                     </View>
                     <CountdownTimer
                       targetDate={targetDate}
                       compact={true}
-                      compactVariant="details"
                     />
                   </View>
                 );
@@ -643,7 +620,6 @@ export default function EventsScreen() {
         icon="delete-forever"
       />
     </SafeAreaView>
-    </LinearGradient>
   );
 }
 
@@ -683,7 +659,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   eventsContainer: {
     flex: 1,
-    backgroundColor: 'transparent',
+    backgroundColor: '#fdfbf7',
   },
   eventsContent: {
     padding: Spacing.md,
@@ -756,11 +732,8 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
 
   container: {
     flex: 1,
-    backgroundColor: 'transparent',
+    backgroundColor: '#fdfbf7',
     ...(Platform.OS === 'web' && ({ height: '100vh', width: '100vw' } as any)),
-  },
-  gradientBg: {
-    flex: 1,
   },
   header: {
     flexDirection: 'row',
@@ -768,7 +741,9 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     justifyContent: 'space-between',
     paddingHorizontal: Spacing.md,
     paddingVertical: 12,
-    backgroundColor: 'transparent',
+    backgroundColor: 'rgba(255,255,255,0.8)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.5)',
   },
   headerTitle: {
     fontSize: FontSizes.xl,
@@ -785,7 +760,9 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   categoriesContainer: {
     maxHeight: 50,
-    backgroundColor: 'transparent',
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.5)',
   },
   categoriesContent: {
     paddingHorizontal: Spacing.md,
@@ -796,12 +773,13 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: BorderRadius.full,
-    backgroundColor: '#F3F4F6',
-    borderWidth: 0,
+    backgroundColor: 'rgba(255,255,255,0.6)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.8)',
   },
   categoryChipActive: {
-    backgroundColor: '#EDEBFF',
-    borderColor: '#EDEBFF',
+    backgroundColor: '#4f46e5',
+    borderColor: '#4f46e5',
   },
   categoryText: {
     fontSize: FontSizes.sm,
@@ -809,59 +787,32 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     color: SEMANTIC_COLORS.textSecondary,
   },
   categoryTextActive: {
-    color: '#6366F1',
+    color: '#ffffff',
     fontWeight: '700',
   },
   tabsContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'stretch',
-    justifyContent: 'space-between',
-    marginTop: 12,
-    marginBottom: 10,
-    paddingHorizontal: Spacing.md,
-    padding: 0,
-    borderRadius: 0,
-    backgroundColor: 'transparent',
+    backgroundColor: '#ffffff',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.06)',
   },
   tab: {
     flex: 1,
-    borderRadius: 999,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    minHeight: 36,
+    paddingVertical: 12,
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  tabWithGap: {
-    marginRight: 10,
   },
   tabActive: {
-    backgroundColor: '#EDEBFF',
-    borderColor: '#EDEBFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 2,
-  },
-  tabPressed: {
-    backgroundColor: '#DDD6FE',
-    borderColor: '#DDD6FE',
+    borderBottomWidth: 2,
+    borderBottomColor: '#4f46e5',
   },
   tabText: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: '500',
-    color: '#6B7280',
-    textAlign: 'center',
+    fontSize: FontSizes.sm,
+    fontWeight: FontWeights.medium,
+    color: '#64748b',
   },
   tabTextActive: {
-    color: '#6366F1',
-    fontWeight: '500',
+    color: '#4f46e5',
+    fontWeight: FontWeights.semibold,
   },
   scrollView: {
     flex: 1,
@@ -888,15 +839,16 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   eventCard: {
     backgroundColor: '#ffffff',
-    borderRadius: 20,
-    padding: 18,
-    marginBottom: 16,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 12,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.08,
-    shadowRadius: 30,
-    elevation: 6,
-    borderWidth: 0,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 5,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
     overflow: 'hidden',
   },
   eventBanner: {
@@ -960,8 +912,8 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     flex: 1,
   },
   eventTitle: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 16,
+    fontWeight: '700',
     color: '#111827',
     marginBottom: 8,
     lineHeight: 22,
@@ -1024,13 +976,13 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     color: '#334155',
   },
   premiumTimerContainer: {
-    borderRadius: 14,
-    padding: 10,
-    marginTop: 10,
-    marginBottom: 10,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+    backgroundColor: SEMANTIC_COLORS.warningLight,
+    borderRadius: BorderRadius.md,
+    padding: 8,
+    marginTop: 8,
+    marginBottom: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: SEMANTIC_COLORS.warning,
   },
   timerLabel: {
     flexDirection: 'row',
@@ -1041,9 +993,9 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   timerLabelText: {
     fontSize: 11,
     fontWeight: FontWeights.medium,
-    color: '#9CA3AF',
+    color: '#92400e',
     textTransform: 'uppercase',
-    letterSpacing: 0.7,
+    letterSpacing: 0.5,
   },
   registrationBadge: {
     flexDirection: 'row',
@@ -1063,7 +1015,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     fontWeight: '600',
   },
   registerButton: {
-    borderRadius: 14,
+    borderRadius: BorderRadius.md,
     paddingVertical: 11,
     paddingHorizontal: 20,
     flexDirection: 'row',

@@ -41,7 +41,7 @@ import {
   getConnectionStatus,
   ConnectionStatusResult,
 } from '../../api/connections';
-import { getUserVerifications, getMutualConnections, createDirectConversation } from '../../api/chat';
+import { getUserVerifications, getMutualConnections } from '../../api/chat';
 import UserProfileCard from '../../components/UserProfileCard';
 
 type PublicProfileScreenNavigationProp = StackNavigationProp<RootStackParamList, 'PublicProfile'>;
@@ -254,27 +254,8 @@ export default function PublicProfileScreen() {
     }
   };
 
-  const handleMessage = async () => {
-    if (!user?.id || !profile?.id) {
-      Toast.show({ type: 'error', text1: 'Unavailable', text2: 'Unable to open chat right now' });
-      return;
-    }
-
-    try {
-      const conversation = await createDirectConversation(user.id, profile.id);
-      navigation.navigate('ChatConversation', {
-        conversationId: conversation.id,
-        name: profile.full_name || 'User',
-        isGroup: false,
-        partnerUserId: profile.id,
-      });
-    } catch (error: any) {
-      Toast.show({
-        type: 'error',
-        text1: 'Could not open chat',
-        text2: error?.message || 'Please try again',
-      });
-    }
+  const handleMessage = () => {
+    Toast.show({ type: 'info', text1: 'Coming Soon', text2: 'Direct messaging will be available soon' });
   };
 
   // =====================================
@@ -427,13 +408,6 @@ export default function PublicProfileScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <LinearGradient
-        colors={['#F5E6D8', '#EDEBFF', '#DFF3EE']}
-        locations={[0, 0.5, 1]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 0, y: 1 }}
-        style={styles.screenGradient}
-      >
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
@@ -449,7 +423,7 @@ export default function PublicProfileScreen() {
         <View style={styles.heroCard}>
           {/* Gradient banner */}
           <LinearGradient
-            colors={['#F5E6D8', '#EDEBFF', '#DFF3EE']}
+            colors={roleConfig.gradient as any}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={styles.heroBanner}
@@ -661,7 +635,6 @@ export default function PublicProfileScreen() {
         )}
 
       </ScrollView>
-      </LinearGradient>
     </SafeAreaView>
   );
 }
@@ -674,10 +647,7 @@ const createStyles = (Colors: any, isDark: boolean) =>
   StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: isDark ? '#0f0f13' : '#F5E6D8',
-    },
-    screenGradient: {
-      flex: 1,
+      backgroundColor: isDark ? '#0f0f13' : '#f3f4f6',
     },
 
     // Header
@@ -687,13 +657,15 @@ const createStyles = (Colors: any, isDark: boolean) =>
       justifyContent: 'space-between',
       paddingHorizontal: Spacing.md,
       paddingVertical: 12,
-      backgroundColor: 'transparent',
+      backgroundColor: Colors.surface,
+      borderBottomWidth: 1,
+      borderBottomColor: Colors.border,
     },
     backBtn: {
       width: 40,
       height: 40,
       borderRadius: BorderRadius.md,
-      backgroundColor: 'rgba(255,255,255,0.7)',
+      backgroundColor: Colors.backgroundAlt,
       justifyContent: 'center',
       alignItems: 'center',
     },
@@ -706,16 +678,12 @@ const createStyles = (Colors: any, isDark: boolean) =>
     // Hero card
     heroCard: {
       margin: 16,
-      backgroundColor: '#FFFFFF',
+      backgroundColor: Colors.surface,
       borderRadius: 24,
       overflow: 'hidden',
       alignItems: 'center',
       paddingBottom: 24,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 10 },
-      shadowOpacity: 0.08,
-      shadowRadius: 30,
-      elevation: 6,
+      ...Shadows.md,
     },
     heroBanner: {
       width: '100%',
@@ -956,14 +924,10 @@ const createStyles = (Colors: any, isDark: boolean) =>
     infoCard: {
       marginHorizontal: 16,
       marginBottom: 12,
-      backgroundColor: '#FFFFFF',
+      backgroundColor: Colors.surface,
       borderRadius: 20,
       padding: 18,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 10 },
-      shadowOpacity: 0.08,
-      shadowRadius: 30,
-      elevation: 4,
+      ...Shadows.sm,
     },
     cardHeader: {
       flexDirection: 'row',

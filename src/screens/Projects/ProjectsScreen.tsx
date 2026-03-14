@@ -3,7 +3,6 @@ import {
   View,
   Text,
   TouchableOpacity,
-  Pressable,
   StyleSheet,
   SafeAreaView,
   ScrollView,
@@ -12,7 +11,6 @@ import {
   Platform,
 } from 'react-native';
 import { RefreshControl } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { CompositeNavigationProp } from '@react-navigation/native';
@@ -156,13 +154,6 @@ export default function ProjectsScreen() {
   }, [projectTeams, searchQuery, selectedCategory]);
 
   return (
-    <LinearGradient
-      colors={['#F5E6D8', '#EDEBFF', '#DFF3EE']}
-      locations={[0, 0.5, 1]}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 0, y: 1 }}
-      style={styles.gradientBg}
-    >
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Projects</Text>
@@ -179,45 +170,33 @@ export default function ProjectsScreen() {
 
       {/* Tab Selection */}
       <View style={styles.tabsContainer}>
-        <Pressable
-          style={({ pressed }) => [
-            styles.tab,
-            selectedTab === 'all' && styles.tabActive,
-            pressed && styles.tabPressed,
-          ]}
+        <TouchableOpacity
+          style={[styles.tab, selectedTab === 'all' && styles.tabActive]}
           onPress={() => setSelectedTab('all')}
         >
           <Text style={[styles.tabText, selectedTab === 'all' && styles.tabTextActive]}>
             All Projects
           </Text>
-        </Pressable>
+        </TouchableOpacity>
 
-        <Pressable
-          style={({ pressed }) => [
-            styles.tab,
-            selectedTab === 'my' && styles.tabActive,
-            pressed && styles.tabPressed,
-          ]}
+        <TouchableOpacity
+          style={[styles.tab, selectedTab === 'my' && styles.tabActive]}
           onPress={() => setSelectedTab('my')}
         >
           <Text style={[styles.tabText, selectedTab === 'my' && styles.tabTextActive]}>
             My Projects
           </Text>
-        </Pressable>
+        </TouchableOpacity>
 
         {isFacultyOrAlumni && (
-          <Pressable
-            style={({ pressed }) => [
-              styles.tab,
-              selectedTab === 'mentoring' && styles.tabActive,
-              pressed && styles.tabPressed,
-            ]}
+          <TouchableOpacity
+            style={[styles.tab, selectedTab === 'mentoring' && styles.tabActive]}
             onPress={() => setSelectedTab('mentoring')}
           >
             <Text style={[styles.tabText, selectedTab === 'mentoring' && styles.tabTextActive]}>
               Mentoring
             </Text>
-          </Pressable>
+          </TouchableOpacity>
         )}
       </View>
 
@@ -323,7 +302,10 @@ export default function ProjectsScreen() {
               return (
                 <TouchableOpacity
                   key={project.id}
-                  style={styles.projectCard}
+                  style={[
+                    styles.projectCard,
+                    { borderLeftColor: projectStatus.color }
+                  ]}
                   onPress={() => navigation.navigate('ProjectDetails', { teamId: project.id })}
                 >
                   {/* Featured Badge */}
@@ -469,17 +451,13 @@ export default function ProjectsScreen() {
       )}
 
     </SafeAreaView>
-    </LinearGradient>
   );
 }
 
 const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create({
-  gradientBg: {
-    flex: 1,
-  },
   container: {
     flex: 1,
-    backgroundColor: 'transparent',
+    backgroundColor: '#fdfbf7',
     ...(Platform.OS === 'web' && ({ height: '100vh', width: '100vw' } as any)),
   },
   header: {
@@ -488,7 +466,9 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     justifyContent: 'space-between',
     paddingHorizontal: Spacing.md,
     paddingVertical: 12,
-    backgroundColor: 'transparent',
+    backgroundColor: 'rgba(255,255,255,0.8)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.5)',
   },
   headerTitle: {
     fontSize: FontSizes.xl,
@@ -498,69 +478,57 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   addButton: {
     width: 40,
     height: 40,
-    borderRadius: 12,
-    backgroundColor: '#6366F1',
+    borderRadius: 20,
+    backgroundColor: '#4f46e5',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.2,
-    shadowRadius: 18,
-    elevation: 6,
+    shadowColor: '#4f46e5',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
   },
   tabsContainer: {
     flexDirection: 'row',
-    alignSelf: 'flex-start',
-    alignItems: 'center',
-    marginTop: 10,
-    marginBottom: 10,
+    backgroundColor: 'rgba(255,255,255,0.8)',
     paddingHorizontal: Spacing.md,
-    gap: 10,
-    backgroundColor: 'transparent',
+    gap: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.5)',
   },
   tab: {
-    borderRadius: 999,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    minHeight: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
   },
   tabActive: {
-    backgroundColor: '#EDEBFF',
-    borderColor: '#EDEBFF',
-  },
-  tabPressed: {
-    backgroundColor: '#DDD6FE',
-    borderColor: '#DDD6FE',
+    borderBottomColor: '#4f46e5',
   },
   tabText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#6B7280',
+    fontSize: FontSizes.sm,
+    fontWeight: FontWeights.medium,
+    color: Colors.textSecondary,
   },
   tabTextActive: {
-    color: '#6366F1',
-    fontWeight: '500',
+    color: '#4f46e5',
+    fontWeight: FontWeights.semibold,
   },
   searchSection: {
     paddingHorizontal: Spacing.md,
     paddingVertical: 12,
-    backgroundColor: 'transparent',
+    backgroundColor: 'rgba(255,255,255,0.7)',
   },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.7)',
-    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.6)',
+    borderRadius: BorderRadius.lg,
     paddingHorizontal: 12,
-    paddingVertical: 12,
+    paddingVertical: 10,
     gap: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.75)',
+    borderColor: 'rgba(255,255,255,0.8)',
   },
   searchInput: {
     flex: 1,
@@ -569,7 +537,9 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   categoriesContainer: {
     maxHeight: 50,
-    backgroundColor: 'transparent',
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.5)',
   },
   categoriesContent: {
     paddingHorizontal: Spacing.md,
@@ -577,20 +547,21 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     gap: 8,
   },
   categoryChip: {
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: BorderRadius.full,
-    backgroundColor: '#F3F4F6',
-    borderWidth: 0,
+    backgroundColor: 'rgba(255,255,255,0.6)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.8)',
   },
   categoryChipActive: {
-    backgroundColor: '#6366F1',
-    borderColor: '#6366F1',
+    backgroundColor: '#4f46e5',
+    borderColor: '#4f46e5',
   },
   categoryText: {
     fontSize: FontSizes.sm,
     fontWeight: FontWeights.medium,
-    color: '#6B7280',
+    color: SEMANTIC_COLORS.textSecondary,
   },
   categoryTextActive: {
     color: '#ffffff',
@@ -610,17 +581,17 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   projectCard: {
     backgroundColor: '#ffffff',
-    borderRadius: 20,
-    padding: 16,
-    marginBottom: 14,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.md,
+    marginBottom: 12,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.08,
-    shadowRadius: 30,
-    elevation: 6,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
     position: 'relative',
-    borderLeftWidth: 0,
-    borderLeftColor: 'transparent',
+    borderLeftWidth: 4,
+    borderLeftColor: '#fda4af',
     overflow: 'hidden',
   },
   featuredBadge: {
