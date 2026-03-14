@@ -212,6 +212,7 @@ type ChatMessage = {
   content?: string;
   created_at: string;
   seen_by_others?: boolean;
+  seen_by_user_ids?: string[];
   aiOptions?: Array<{
     id: string;
     label: string;
@@ -242,6 +243,21 @@ type ChatPollPayload = {
   allowsMultiple?: boolean;
   createdBy?: string;
   createdAt?: string;
+};
+
+type PollVoter = {
+  id: string;
+  name: string;
+  avatarUrl?: string;
+};
+
+type PollVotesSheetState = {
+  messageId: string;
+  question: string;
+  options: string[];
+  counts: number[];
+  totalVotes: number;
+  votersByOption: PollVoter[][];
 };
 
 const POLL_MESSAGE_PREFIX = '__poll__:';
@@ -345,6 +361,7 @@ export default function ChatConversationScreen() {
   const [pollQuestion, setPollQuestion] = useState('');
   const [pollOptions, setPollOptions] = useState<string[]>(['', '']);
   const [isCreatingPoll, setIsCreatingPoll] = useState(false);
+  const [pollVotesSheet, setPollVotesSheet] = useState<PollVotesSheetState | null>(null);
   const [messageReactions, setMessageReactions] = useState<Map<string, ChatMessageReaction[]>>(new Map());
   const [reactionPickerVisible, setReactionPickerVisible] = useState(false);
   const [reactionTargetMessageId, setReactionTargetMessageId] = useState<string | null>(null);
@@ -522,7 +539,7 @@ export default function ChatConversationScreen() {
   const seedAiChat = React.useCallback(async () => {
     if (!user?.id) {
       setMessages([
-        createAiMessage('Ask me about events, projects, dates, venues, or titles to get live campus details.'),
+        createAiMessage("Hi! I'm CampUs AI 👋\n\nI can answer any question — campus events, projects, study tips, career advice, coding help, and more.\n\nWhat would you like to know?"),
       ]);
       setIsLoading(false);
       return;
@@ -560,14 +577,14 @@ export default function ChatConversationScreen() {
           'Here are some active projects. Pick one and I will help with details, status, or recruiting info.',
           projectOptions.length ? projectOptions : undefined
         ),
-        createAiMessage('You can also type an event or project title directly and I will show its details.'),
+        createAiMessage("You can also ask me anything — type an event or project name, a date like 'today' or 'tomorrow', or any question about studying, career, coding, and more! 😊"),
       ];
 
       setMessages(seededMessages);
     } catch (error) {
       console.error('Failed to seed AI chat:', error);
       setMessages([
-        createAiMessage('Ask me about events, projects, dates, venues, or titles to get live campus details.'),
+        createAiMessage("Hi! I'm CampUs AI 👋\n\nAsk me anything — events, projects, study tips, career advice, coding help, and more!"),
       ]);
     } finally {
       setIsLoading(false);
@@ -858,10 +875,24 @@ export default function ChatConversationScreen() {
           // When someone else reads a message, update its seen status
           if (payload.new.user_id !== user.id) {
             const readMessageId = payload.new.message_id;
+            const readerUserId = payload.new.user_id as string;
             setMessages((prev) =>
               prev.map((msg) =>
                 msg.id === readMessageId && msg.sender_id === user.id
-                  ? { ...msg, seen_by_others: true }
+                  ? (() => {
+                      const nextReaderSet = new Set(msg.seen_by_user_ids || []);
+                      nextReaderSet.add(readerUserId);
+                      const nextReaderIds = Array.from(nextReaderSet);
+                      const seenByOthers = isGroup
+                        ? groupOtherMemberCount > 0 && nextReaderIds.length >= groupOtherMemberCount
+                        : nextReaderIds.length > 0;
+
+                      return {
+                        ...msg,
+                        seen_by_user_ids: nextReaderIds,
+                        seen_by_others: seenByOthers,
+                      };
+                    })()
                   : msg
               )
             );
@@ -876,7 +907,7 @@ export default function ChatConversationScreen() {
       console.log("Removing channel:", conversationId);
       supabase.removeChannel(channel);
     };
-  }, [conversationId, user?.id, isAIChat, isGroup]);
+  }, [conversationId, user?.id, isAIChat, isGroup, groupOtherMemberCount]);
 
   useEffect(() => {
     if (!isAIChat) return;
@@ -988,6 +1019,94 @@ export default function ChatConversationScreen() {
     }
   };
 
+  const buildTomorrowAiResponse = React.useCallback(async (query: string): Promise<ChatMessage | null> => {
+    const normalized = query.trim().toLowerCase();
+    const hasTomorrowIntent = /\b(tomorrow|tommorrow)\b/i.test(normalized);
+    if (!hasTomorrowIntent) return null;
+
+    const asksEvents = /\b(event|events|workshop|seminar|hackathon|competition|fest)\b/i.test(normalized);
+    const asksProjects = /\b(project|projects|team|teams|recruiting)\b/i.test(normalized);
+    const shouldCheckEvents = asksEvents || (!asksEvents && !asksProjects);
+    const shouldCheckProjects = asksProjects || (!asksEvents && !asksProjects);
+
+    if (!user?.id) {
+      return createAiMessage('I can help with tomorrow\'s events and projects once you are signed in.');
+    }
+
+    const tomorrowStart = new Date();
+    tomorrowStart.setHours(0, 0, 0, 0);
+    tomorrowStart.setDate(tomorrowStart.getDate() + 1);
+
+    const tomorrowEnd = new Date(tomorrowStart);
+    tomorrowEnd.setDate(tomorrowEnd.getDate() + 1);
+
+    const [upcomingEvents, recruitingProjects] = await Promise.all([
+      shouldCheckEvents ? getEvents(user.id, undefined, 'upcoming') : Promise.resolve([] as any[]),
+      shouldCheckProjects ? getProjectTeams(user.id, true) : Promise.resolve([] as any[]),
+    ]);
+
+    const tomorrowEvents = (upcomingEvents || []).filter((event: any) => {
+      const eventStartMs = new Date(event.start_date).getTime();
+      if (!Number.isFinite(eventStartMs)) return false;
+      return eventStartMs >= tomorrowStart.getTime() && eventStartMs < tomorrowEnd.getTime();
+    });
+
+    const tomorrowLabel = tomorrowStart.toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'short',
+      day: 'numeric',
+    });
+
+    const lines: string[] = [`For tomorrow (${tomorrowLabel}):`];
+    const responseOptions: NonNullable<ChatMessage['aiOptions']> = [];
+
+    if (shouldCheckEvents) {
+      if (tomorrowEvents.length) {
+        lines.push(`Events (${tomorrowEvents.length}):`);
+        tomorrowEvents.slice(0, 5).forEach((event: any) => {
+          const start = new Date(event.start_date);
+          const timeText = Number.isFinite(start.getTime())
+            ? start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+            : 'time TBA';
+          const venue = event.venue || (event.is_online ? 'Online' : 'Venue TBA');
+          lines.push(`- ${event.title} at ${timeText} (${venue})`);
+          responseOptions.push({
+            id: `tomorrow-event-${event.id}`,
+            label: event.title,
+            action: 'select-event',
+            itemType: 'event',
+            itemTitle: event.title,
+          });
+        });
+      } else {
+        lines.push('No events are scheduled for tomorrow.');
+      }
+    }
+
+    if (shouldCheckProjects) {
+      const openProjects = (recruitingProjects || []).slice(0, 5);
+      if (openProjects.length) {
+        lines.push(`Open projects you can join (${openProjects.length}):`);
+        openProjects.forEach((project: any) => {
+          const status = project.status || (project.is_recruiting ? 'recruiting' : 'active');
+          lines.push(`- ${project.name} (${status})`);
+          responseOptions.push({
+            id: `tomorrow-project-${project.id}`,
+            label: project.name,
+            action: 'select-project',
+            itemType: 'project',
+            itemTitle: project.name,
+          });
+        });
+      } else {
+        lines.push('No recruiting projects are available right now.');
+      }
+    }
+
+    lines.push('Tap an item below for details.');
+    return createAiMessage(lines.join('\n'), responseOptions.length ? responseOptions : undefined);
+  }, [user?.id]);
+
   const handleSend = async () => {
     if (!messageText.trim() || isSending) return;
 
@@ -1001,11 +1120,15 @@ export default function ChatConversationScreen() {
 
     try {
       if (isAIChat) {
-        const aiResponse = await chatWithAI(user?.id || '', content);
-        appendAiSequence([
-          createUserDraftMessage(content, user?.id || 'self'),
-          createAiMessage(aiResponse),
-        ]);
+        const userDraft = createUserDraftMessage(content, user?.id || 'self');
+        const tomorrowResponse = await buildTomorrowAiResponse(content);
+
+        if (tomorrowResponse) {
+          appendAiSequence([userDraft, tomorrowResponse]);
+        } else {
+          const aiResponse = await chatWithAI(user?.id || '', content);
+          appendAiSequence([userDraft, createAiMessage(aiResponse)]);
+        }
       } else if (conversationId && user?.id) {
         await sendMessage(conversationId, user.id, content, 'text');
       }
@@ -1509,6 +1632,16 @@ export default function ChatConversationScreen() {
 
   const isDirectPartnerTyping = !isGroup && !isAIChat && typingUserIds.length > 0;
 
+  const groupOtherMemberCount = useMemo(() => {
+    if (!isGroup || !user?.id) return 0;
+    const uniqueOtherMemberIds = new Set(
+      groupMembers
+        .map((member) => member.user_id)
+        .filter((memberUserId): memberUserId is string => !!memberUserId && memberUserId !== user.id)
+    );
+    return uniqueOtherMemberIds.size;
+  }, [groupMembers, isGroup, user?.id]);
+
   const normalizePresenceStatus = (status?: string | null, updatedAt?: string | null) => {
     const fallback: 'online' | 'away' | 'offline' = 'offline';
     const nextStatus = (status as 'online' | 'away' | 'offline' | null) || fallback;
@@ -1700,6 +1833,61 @@ export default function ChatConversationScreen() {
     return grouped;
   };
 
+  const resolvePollVoter = (reaction: ChatMessageReaction): PollVoter => {
+    const fallbackName = reaction.user_id === user?.id
+      ? profile?.full_name || 'You'
+      : 'Member';
+
+    const profileFromGroup = groupMembers.find((member) => member.user_id === reaction.user_id)?.user;
+    const profileFromMessages = messages.find((msg) => msg.sender_id === reaction.user_id)?.sender;
+
+    return {
+      id: reaction.user_id,
+      name:
+        reaction.user?.full_name ||
+        profileFromGroup?.full_name ||
+        profileFromMessages?.full_name ||
+        fallbackName,
+      avatarUrl:
+        reaction.user?.avatar_url ||
+        profileFromGroup?.avatar_url ||
+        profileFromMessages?.avatar_url ||
+        undefined,
+    };
+  };
+
+  const openPollVotesSheet = (
+    messageId: string,
+    payload: ChatPollPayload,
+    pollReactions: ChatMessageReaction[],
+    pollVoteCounts: number[],
+    totalPollVotes: number
+  ) => {
+    const votersByOption = payload.options.map((_, optionIndex) => {
+      const reactionKey = getPollReactionKey(optionIndex);
+      const votersMap = new Map<string, PollVoter>();
+      pollReactions
+        .filter((reaction) => reaction.emoji === reactionKey)
+        .forEach((reaction) => {
+          const voter = resolvePollVoter(reaction);
+          if (!votersMap.has(voter.id)) {
+            votersMap.set(voter.id, voter);
+          }
+        });
+
+      return Array.from(votersMap.values());
+    });
+
+    setPollVotesSheet({
+      messageId,
+      question: payload.question,
+      options: payload.options,
+      counts: pollVoteCounts,
+      totalVotes: totalPollVotes,
+      votersByOption,
+    });
+  };
+
   const openReactionPicker = (messageId: string) => {
     setReactionTargetMessageId(messageId);
     setReactionPickerVisible(true);
@@ -1791,6 +1979,16 @@ export default function ChatConversationScreen() {
     });
     const groupedReactions = getGroupedReactions(message.id);
     const groupedReactionEntries = Object.entries(groupedReactions);
+    const seenByUserIds = message.seen_by_user_ids || [];
+    const seenByCount = isGroup
+      ? seenByUserIds.length
+      : seenByUserIds.length > 0
+        ? seenByUserIds.length
+        : message.seen_by_others
+          ? 1
+          : 0;
+    const requiredSeenCount = isGroup ? groupOtherMemberCount : 1;
+    const isSeenByAll = requiredSeenCount > 0 && seenByCount >= requiredSeenCount;
     const pollPayload = parsePollPayload(message.content);
     const pollReactions = (messageReactions.get(message.id) || []).filter(
       (reaction) => typeof reaction.emoji === 'string' && reaction.emoji.startsWith(POLL_REACTION_PREFIX)
@@ -1879,21 +2077,6 @@ export default function ChatConversationScreen() {
               <View style={styles.messageContentWrap}>
                 {pollPayload ? (
                   <View style={[styles.pollCard, isMyMessage ? styles.myPollCard : styles.otherPollCard]}>
-                    <View style={styles.pollHeaderRow}>
-                      <MaterialIcons
-                        name="poll"
-                        size={16}
-                        color={isMyMessage ? chatTheme.textColor : chatTheme.incomingTextColor}
-                      />
-                      <Text
-                        style={[
-                          styles.pollHeaderLabel,
-                          { color: isMyMessage ? chatTheme.textColor : chatTheme.incomingTextColor },
-                        ]}
-                      >
-                        Poll
-                      </Text>
-                    </View>
                     <Text
                       style={[
                         styles.pollQuestion,
@@ -1902,11 +2085,36 @@ export default function ChatConversationScreen() {
                     >
                       {pollPayload.question}
                     </Text>
+                    <View style={styles.pollHeaderRow}>
+                      <MaterialIcons
+                        name={pollPayload.allowsMultiple ? 'done-all' : 'check-circle-outline'}
+                        size={15}
+                        color={isMyMessage ? chatTheme.timeColor : chatTheme.incomingTimeColor}
+                      />
+                      <Text
+                        style={[
+                          styles.pollHeaderLabel,
+                          { color: isMyMessage ? chatTheme.timeColor : chatTheme.incomingTimeColor },
+                        ]}
+                      >
+                        {pollPayload.allowsMultiple ? 'Select one or more' : 'Select one option'}
+                      </Text>
+                    </View>
                     <View style={styles.pollOptionsWrap}>
                       {pollPayload.options.map((option, optionIndex) => {
                         const votes = pollVoteCounts[optionIndex] || 0;
                         const votePercent = totalPollVotes > 0 ? Math.round((votes / totalPollVotes) * 100) : 0;
                         const isMyVote = myPollVoteIndex === optionIndex;
+                        const fillWidth = votes > 0 ? Math.max(votePercent, 8) : 0;
+                        const reactionKey = getPollReactionKey(optionIndex);
+                        const optionVoters = pollReactions
+                          .filter((r) => r.emoji === reactionKey)
+                          .map((r) => resolvePollVoter(r))
+                          .filter(
+                            (voter, idx, arr) =>
+                              arr.findIndex((v) => v.id === voter.id) === idx
+                          )
+                          .slice(0, 4);
 
                         return (
                           <TouchableOpacity
@@ -1919,18 +2127,30 @@ export default function ChatConversationScreen() {
                             onPress={() => handlePollVote(message.id, pollPayload, optionIndex)}
                             activeOpacity={0.8}
                           >
-                            <View
-                              style={[
-                                styles.pollOptionProgress,
-                                {
-                                  width: `${votePercent}%`,
-                                  backgroundColor: isMyVote
-                                    ? 'rgba(34, 197, 94, 0.40)'
-                                    : 'rgba(34, 197, 94, 0.22)',
-                                },
-                              ]}
-                            />
+                            <View style={styles.pollOptionProgressTrack}>
+                              <View
+                                style={[
+                                  styles.pollOptionProgress,
+                                  {
+                                    width: `${fillWidth}%`,
+                                    backgroundColor: isMyVote
+                                      ? 'rgba(34, 197, 94, 0.42)'
+                                      : 'rgba(148, 163, 184, 0.24)',
+                                  },
+                                ]}
+                              />
+                            </View>
                             <View style={styles.pollOptionContent}>
+                              <View
+                                style={[
+                                  styles.pollOptionIndicator,
+                                  isMyVote && styles.pollOptionIndicatorActive,
+                                ]}
+                              >
+                                {isMyVote ? (
+                                  <MaterialIcons name="check" size={12} color="#0B6E3C" />
+                                ) : null}
+                              </View>
                               <Text
                                 style={[
                                   styles.pollOptionText,
@@ -1941,6 +2161,26 @@ export default function ChatConversationScreen() {
                               >
                                 {option}
                               </Text>
+                              {optionVoters.length > 0 && (
+                                <View style={styles.pollVoterAvatarRow}>
+                                  {optionVoters.map((voter, aIdx) => (
+                                    <View
+                                      key={`${message.id}-${optionIndex}-av-${voter.id}`}
+                                      style={[
+                                        styles.pollVoterAvatarWrap,
+                                        { marginLeft: aIdx === 0 ? 0 : -6 },
+                                      ]}
+                                    >
+                                      <UserAvatar
+                                        uri={voter.avatarUrl}
+                                        name={voter.name}
+                                        size={20}
+                                        showRing={false}
+                                      />
+                                    </View>
+                                  ))}
+                                </View>
+                              )}
                               <Text
                                 style={[
                                   styles.pollVoteText,
@@ -1949,23 +2189,30 @@ export default function ChatConversationScreen() {
                                   },
                                 ]}
                               >
-                                {votes} • {votePercent}%
+                                {votes}
                               </Text>
                             </View>
                           </TouchableOpacity>
                         );
                       })}
                     </View>
-                    <Text
-                      style={[
-                        styles.pollFooter,
-                        {
-                          color: isMyMessage ? chatTheme.timeColor : chatTheme.incomingTimeColor,
-                        },
-                      ]}
-                    >
-                      {totalPollVotes} vote{totalPollVotes === 1 ? '' : 's'}
-                    </Text>
+                    <View style={styles.pollFooter}>
+                      <TouchableOpacity
+                        style={styles.pollFooterButton}
+                        onPress={() =>
+                          openPollVotesSheet(
+                            message.id,
+                            pollPayload,
+                            pollReactions,
+                            pollVoteCounts,
+                            totalPollVotes
+                          )
+                        }
+                        activeOpacity={0.75}
+                      >
+                        <Text style={styles.pollFooterAction}>View votes</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 ) : (
                   <Text
@@ -2007,9 +2254,9 @@ export default function ChatConversationScreen() {
                 </Text>
                 {isMyMessage && !isAIChat && (
                   <MaterialIcons
-                    name={message.seen_by_others ? 'done-all' : 'done'}
+                    name={isSeenByAll ? 'done-all' : 'done'}
                     size={14}
-                    color={message.seen_by_others ? '#4FC3F7' : chatTheme.timeColor}
+                    color={isSeenByAll ? '#4FC3F7' : chatTheme.timeColor}
                     style={styles.seenIndicator}
                   />
                 )}
@@ -3515,6 +3762,65 @@ export default function ChatConversationScreen() {
       </Modal>
 
       <Modal
+        visible={!!pollVotesSheet}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setPollVotesSheet(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.optionsSheet, styles.pollVotesSheet]}>
+            <View style={styles.membersHeader}>
+              <Text style={styles.optionsTitle}>Poll Votes</Text>
+              <TouchableOpacity onPress={() => setPollVotesSheet(null)}>
+                <MaterialIcons name="close" size={22} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            {pollVotesSheet && (
+              <>
+                <Text style={styles.pollVotesQuestion}>{pollVotesSheet.question}</Text>
+                <Text style={styles.pollVotesMeta}>
+                  {pollVotesSheet.totalVotes} total vote{pollVotesSheet.totalVotes === 1 ? '' : 's'}
+                </Text>
+
+                <ScrollView style={styles.pollVotesList} showsVerticalScrollIndicator={false}>
+                  {pollVotesSheet.options.map((option, optionIndex) => {
+                    const voters = pollVotesSheet.votersByOption[optionIndex] || [];
+                    const voteCount = pollVotesSheet.counts[optionIndex] || 0;
+
+                    return (
+                      <View key={`${pollVotesSheet.messageId}-votes-${optionIndex}`} style={styles.pollVoteOptionCard}>
+                        <View style={styles.pollVoteOptionHeader}>
+                          <Text style={styles.pollVoteOptionTitle}>{option}</Text>
+                          <Text style={styles.pollVoteOptionCount}>{voteCount}</Text>
+                        </View>
+
+                        {voters.length ? (
+                          voters.map((voter) => (
+                            <View key={`${pollVotesSheet.messageId}-${optionIndex}-${voter.id}`} style={styles.pollVoterRow}>
+                              <UserAvatar
+                                uri={voter.avatarUrl}
+                                name={voter.name}
+                                size={26}
+                                showRing={false}
+                              />
+                              <Text style={styles.pollVoterName}>{voter.name}</Text>
+                            </View>
+                          ))
+                        ) : (
+                          <Text style={styles.pollVoterEmpty}>No votes yet</Text>
+                        )}
+                      </View>
+                    );
+                  })}
+                </ScrollView>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
         visible={reactionPickerVisible}
         animationType="fade"
         transparent
@@ -4042,18 +4348,20 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       color: Colors.primary,
     },
     pollCard: {
-      borderRadius: BorderRadius.md,
+      borderRadius: BorderRadius.lg,
       borderWidth: 1,
-      padding: Spacing.sm,
-      gap: 8,
+      paddingTop: Spacing.sm,
+      paddingHorizontal: Spacing.sm,
+      paddingBottom: 0,
+      gap: 10,
     },
     myPollCard: {
-      borderColor: 'rgba(255,255,255,0.28)',
-      backgroundColor: 'rgba(255,255,255,0.08)',
+      borderColor: 'rgba(255,255,255,0.18)',
+      backgroundColor: 'rgba(13, 148, 136, 0.18)',
     },
     otherPollCard: {
-      borderColor: Colors.border,
-      backgroundColor: Colors.surface,
+      borderColor: `${Colors.border}D0`,
+      backgroundColor: `${Colors.surface}F2`,
     },
     pollHeaderRow: {
       flexDirection: 'row',
@@ -4062,60 +4370,166 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     },
     pollHeaderLabel: {
       fontSize: FontSizes.xs,
-      fontWeight: FontWeights.semibold,
-      textTransform: 'uppercase',
-      letterSpacing: 0.4,
+      fontWeight: FontWeights.medium,
     },
     pollQuestion: {
-      fontSize: FontSizes.md,
+      fontSize: FontSizes.lg,
       fontWeight: FontWeights.semibold,
-      lineHeight: 20,
+      lineHeight: 24,
     },
     pollOptionsWrap: {
-      gap: 6,
+      gap: 8,
     },
     pollOption: {
       borderRadius: BorderRadius.md,
       borderWidth: 1,
-      borderColor: Colors.border,
+      borderColor: 'rgba(148, 163, 184, 0.32)',
       overflow: 'hidden',
       position: 'relative',
-      backgroundColor: Colors.card,
+      backgroundColor: 'rgba(15, 23, 42, 0.08)',
     },
     pollOptionMine: {
-      borderColor: 'rgba(255,255,255,0.24)',
-      backgroundColor: 'rgba(255,255,255,0.06)',
+      borderColor: 'rgba(255,255,255,0.2)',
+      backgroundColor: 'rgba(255,255,255,0.07)',
     },
     pollOptionActive: {
-      borderColor: Colors.primary,
+      borderColor: 'rgba(34, 197, 94, 0.8)',
+    },
+    pollOptionProgressTrack: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      top: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(15, 23, 42, 0.08)',
     },
     pollOptionProgress: {
       position: 'absolute',
       left: 0,
       top: 0,
       bottom: 0,
-      minWidth: 2,
+      minWidth: 0,
     },
     pollOptionContent: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
+      justifyContent: 'flex-start',
       paddingHorizontal: Spacing.sm,
-      paddingVertical: 8,
+      paddingVertical: 10,
       gap: 8,
+    },
+    pollOptionIndicator: {
+      width: 22,
+      height: 22,
+      borderRadius: 11,
+      borderWidth: 2,
+      borderColor: 'rgba(148, 163, 184, 0.65)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'rgba(248, 250, 252, 0.68)',
+    },
+    pollOptionIndicatorActive: {
+      borderColor: '#16A34A',
+      backgroundColor: '#DCFCE7',
     },
     pollOptionText: {
       flex: 1,
-      fontSize: FontSizes.sm,
+      fontSize: FontSizes.md,
       fontWeight: FontWeights.medium,
     },
     pollVoteText: {
-      fontSize: FontSizes.xs,
+      fontSize: FontSizes.sm,
       fontWeight: FontWeights.semibold,
     },
+    pollVoterAvatarRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    pollVoterAvatarWrap: {
+      borderRadius: 12,
+      borderWidth: 1.5,
+      borderColor: 'rgba(255,255,255,0.85)',
+      overflow: 'hidden',
+    },
     pollFooter: {
-      fontSize: FontSizes.xs,
+      borderTopWidth: 1,
+      borderTopColor: 'rgba(148, 163, 184, 0.28)',
+      marginTop: 2,
+    },
+    pollFooterButton: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 12,
+    },
+    pollFooterAction: {
+      fontSize: FontSizes.md,
       fontWeight: FontWeights.medium,
+      color: '#22C55E',
+    },
+    pollVotesSheet: {
+      maxHeight: '78%',
+    },
+    pollVotesQuestion: {
+      fontSize: FontSizes.md,
+      color: Colors.text,
+      fontWeight: FontWeights.semibold,
+      marginBottom: 2,
+    },
+    pollVotesMeta: {
+      fontSize: FontSizes.sm,
+      color: Colors.textSecondary,
+      marginBottom: Spacing.sm,
+    },
+    pollVotesList: {
+      maxHeight: 420,
+    },
+    pollVoteOptionCard: {
+      borderWidth: 1,
+      borderColor: Colors.border,
+      borderRadius: BorderRadius.md,
+      backgroundColor: Colors.card,
+      paddingHorizontal: Spacing.sm,
+      paddingVertical: Spacing.sm,
+      marginBottom: Spacing.sm,
+      gap: 8,
+    },
+    pollVoteOptionHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    pollVoteOptionTitle: {
+      flex: 1,
+      fontSize: FontSizes.md,
+      color: Colors.text,
+      fontWeight: FontWeights.medium,
+      marginRight: Spacing.sm,
+    },
+    pollVoteOptionCount: {
+      minWidth: 26,
+      textAlign: 'center',
+      fontSize: FontSizes.sm,
+      color: Colors.primary,
+      fontWeight: FontWeights.bold,
+      borderRadius: BorderRadius.full,
+      backgroundColor: `${Colors.primary}20`,
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+    },
+    pollVoterRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.sm,
+    },
+    pollVoterName: {
+      fontSize: FontSizes.sm,
+      color: Colors.text,
+      fontWeight: FontWeights.medium,
+    },
+    pollVoterEmpty: {
+      fontSize: FontSizes.sm,
+      color: Colors.textSecondary,
+      fontStyle: 'italic',
     },
     reactionPickerSheet: {
       width: '88%',

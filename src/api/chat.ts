@@ -25,6 +25,7 @@ import {
 import { moderateText } from "./ai";
 import { isAdminRole } from '../utils/roles';
 import { encryptMessage, decryptMessage } from "../../utils/encryption";
+import { ENV } from '../config/env';
 
 const decryptContentField = (value: any) => {
   if (value == null) return value;
@@ -207,19 +208,33 @@ export const getConversations = async (userId: string) => {
     .filter((c: any) => c.last_message && c.last_message.sender_id === userId)
     .map((c: any) => c.last_message.id);
 
-  const seenSet = new Set<string>();
+  const seenReadersByMessage = new Map<string, Set<string>>();
   if (sentLastMessageIds.length > 0) {
     const { data: seenData } = await supabase
       .from("message_reads")
-      .select("message_id")
+      .select("message_id, user_id")
       .neq("user_id", userId)
       .in("message_id", sentLastMessageIds);
-    (seenData || []).forEach((r: any) => seenSet.add(r.message_id));
+
+    (seenData || []).forEach((r: any) => {
+      if (!r?.message_id || !r?.user_id) return;
+      const existing = seenReadersByMessage.get(r.message_id) || new Set<string>();
+      existing.add(r.user_id);
+      seenReadersByMessage.set(r.message_id, existing);
+    });
   }
 
   for (const conv of conversationsWithData) {
     if ((conv as any).last_message && (conv as any).last_message.sender_id === userId) {
-      (conv as any).last_message.seen_by_others = seenSet.has((conv as any).last_message.id);
+      const lastMessageId = (conv as any).last_message.id;
+      const readerCount = (seenReadersByMessage.get(lastMessageId) || new Set<string>()).size;
+      const participantCount = Array.isArray((conv as any).participants)
+        ? (conv as any).participants.length
+        : 0;
+      const requiredReaders = Math.max(participantCount - 1, 0);
+
+      (conv as any).last_message.seen_by_others =
+        requiredReaders > 0 && readerCount >= requiredReaders;
     }
   }
 
@@ -1028,6 +1043,15 @@ export const getMessages = async (
   limit = 50,
   offset = 0
 ) => {
+  const { data: participantsData } = await supabase
+    .from("conversation_participants")
+    .select("user_id")
+    .eq("conversation_id", conversationId)
+    .is("left_at", null);
+
+  const uniqueParticipantIds = new Set((participantsData || []).map((p: any) => p.user_id).filter(Boolean));
+  const otherParticipantCount = Array.from(uniqueParticipantIds).filter((id) => id !== userId).length;
+
   const { data, error } = await supabase
     .from("messages")
     .select(`*, sender: profiles!messages_sender_id_fkey(*)`)
@@ -1052,22 +1076,36 @@ export const getMessages = async (
     (readData || []).forEach((r: any) => readSet.add(r.message_id));
   }
 
-  // Check which of the current user's sent messages have been seen by others
+  // Check which of the current user's sent messages have been seen by others.
+  // Keep unique reader IDs per message so group UI can show "all seen" accurately.
   const sentMessageIds = msgs.filter((m: any) => m.sender_id === userId).map((m: any) => m.id);
-  const seenByOthersSet = new Set<string>();
+  const seenReadersByMessage = new Map<string, Set<string>>();
   if (sentMessageIds.length > 0) {
     const { data: seenData } = await supabase
       .from("message_reads")
-      .select("message_id")
+      .select("message_id, user_id")
       .neq("user_id", userId)
       .in("message_id", sentMessageIds);
-    (seenData || []).forEach((r: any) => seenByOthersSet.add(r.message_id));
+
+    (seenData || []).forEach((r: any) => {
+      if (!r?.message_id || !r?.user_id) return;
+      const existing = seenReadersByMessage.get(r.message_id) || new Set<string>();
+      existing.add(r.user_id);
+      seenReadersByMessage.set(r.message_id, existing);
+    });
   }
 
   return msgs.reverse().map((message: any) => ({
     ...decryptMessageObject(message),
     is_read: readSet.has(message.id),
-    seen_by_others: message.sender_id === userId ? seenByOthersSet.has(message.id) : undefined,
+    seen_by_others:
+      message.sender_id === userId
+        ? otherParticipantCount > 0 && (seenReadersByMessage.get(message.id)?.size || 0) >= otherParticipantCount
+        : undefined,
+    seen_by_user_ids:
+      message.sender_id === userId
+        ? Array.from(seenReadersByMessage.get(message.id) || [])
+        : undefined,
   })) as Message[];
 };
 
@@ -1699,10 +1737,148 @@ const shouldAutoShowDetails = (
   return eventStrongMatch || projectStrongMatch;
 };
 
+// Try the Groq server first if configured, else use local smart AI
+const askGroqFallback = async (userMessage: string, venueHint?: string): Promise<string> => {
+  const baseUrl = (ENV.aiApiBaseUrl || '').trim().replace(/\/+$/, '');
+  if (baseUrl) {
+    try {
+      const response = await fetch(`${baseUrl}/ai/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: userMessage }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data?.reply) return data.reply;
+      }
+    } catch (_err) {
+      // server not reachable — fall through to local AI
+    }
+  }
+  return venueHint || smartLocalAI(userMessage);
+};
+
+// ── Smart local AI ────────────────────────────────────────────────────────────
+// Handles all question types without requiring any external server.
+// Campus-specific queries are already handled by Supabase lookups above;
+// this covers everything else a student might ask.
+// ─────────────────────────────────────────────────────────────────────────────
+const smartLocalAI = (message: string): string => {
+  const m = message.trim().toLowerCase();
+
+  // ── Greetings ──
+  if (/^(hi|hello|hey|hii+|helo+|yo|howdy|sup|what'?s up|good\s*(morning|afternoon|evening|night))[!?.]*$/.test(m)) {
+    return "Hi there! 👋 I'm CampUs AI, your campus assistant.\n\nI can help you with:\n- Upcoming events and schedules\n- Active and recruiting projects\n- Study tips, career advice, and coding help\n- General questions\n\nWhat would you like to know?";
+  }
+
+  // ── Identity ──
+  if (/\b(who are you|what are you|your name|introduce yourself|about you)\b/.test(m)) {
+    return "I'm CampUs AI — your smart campus assistant! 🎓\n\nI can answer questions about:\n• Campus events (dates, venues, status)\n• Projects and teams (recruiting, details)\n• Study strategies and productivity\n• Career and resume advice\n• Coding and tech questions\n• General knowledge\n\nJust ask me anything!";
+  }
+
+  if (/\b(what can you do|help me|how (do|can) (i|you)|your (features?|capabilities|skills))\b/.test(m)) {
+    return "Here's what I can help with:\n\n📅 Campus Events — ask about upcoming events, dates, venues, or event status.\n\n🚀 Projects & Teams — find recruiting projects, check status, or get team details.\n\n📚 Academics — study tips, exam strategies, time management, note-taking.\n\n💼 Career Help — resume tips, interview prep, LinkedIn profile, internships.\n\n💻 Coding & Tech — explain concepts, debug logic, suggest resources.\n\n🌐 General Q&A — ask me anything you're curious about!\n\nTry typing an event name, a date like 'today' or 'tomorrow', or any question.";
+  }
+
+  // ── How are you ──
+  if (/\b(how are you|how r u|how do you do|you okay|u ok)\b/.test(m)) {
+    return "I'm doing great, thanks for asking! 😊 Ready to help you with campus events, projects, or any questions you have. What's on your mind?";
+  }
+
+  // ── Thank you ──
+  if (/^(thank you|thanks|thank u|ty|thx|cheers|nice|great|awesome|perfect|cool)[!.]*$/.test(m) || /\b(thank you|thanks a lot|many thanks)\b/.test(m)) {
+    return "You're welcome! 😊 Feel free to ask anything else — I'm always here to help.";
+  }
+
+  // ── Goodbye ──
+  if (/^(bye|goodbye|see you|see ya|later|take care|cya)[!.]*$/.test(m)) {
+    return "Goodbye! 👋 Come back anytime you have questions. Good luck with your studies!";
+  }
+
+  // ── Study tips ──
+  if (/\b(study|studying|revision|revise|memorize|learn|learning|remember|retention|focus|concentration|distraction)\b/.test(m)) {
+    return "Here are proven study strategies that actually work:\n\n📖 Spaced Repetition — review material at increasing intervals (1 day, 3 days, 1 week, 2 weeks) instead of cramming.\n\n🍅 Pomodoro Technique — study 25 minutes, break 5 minutes, repeat. After 4 rounds, take a 20-min break.\n\n✍️ Active Recall — test yourself instead of re-reading. Use flashcards (try Anki), past papers, or teach the topic to someone.\n\n🧠 Feynman Technique — explain concepts in simple words as if teaching a 12-year-old. Gaps reveal what you don't understand.\n\n🎯 One Topic at a Time — context-switching kills productivity. Block 2-3 hours per subject.\n\n😴 Sleep — memory consolidation happens during sleep. Don't sacrifice it for late-night cramming.";
+  }
+
+  // ── Exam tips ──
+  if (/\b(exam|exams|test|quiz|finals?|midterm|preparation|prep|paper|marks?|grade|cgpa|gpa)\b/.test(m)) {
+    return "Exam preparation tips:\n\n📋 Before the exam:\n• Start revising at least 1–2 weeks early\n• Solve past papers under timed conditions\n• Focus on high-weight topics first\n• Make concise notes or mind maps\n\n⏳ During the exam:\n• Read all questions before starting\n• Tackle easy questions first for confidence\n• Allocate time per section before you begin\n• Leave time to review your answers\n\n🧘 Manage exam anxiety:\n• Deep breathing before entering the hall\n• Focus on what you know, not what you don't\n• Adequate sleep the night before beats last-minute cramming every time\n\nYou've got this! 💪";
+  }
+
+  // ── Time management / productivity ──
+  if (/\b(time management|productivity|procrastinat|schedule|planner|organiz|priorit|deadline|busy|overwhelm|stress)\b/.test(m)) {
+    return "Time management strategies for students:\n\n📅 Weekly Plan — every Sunday, map out your week. Assign specific subjects to specific time slots.\n\n✅ To-do Lists — write down 3 most important tasks (MITs) each morning. Do them first.\n\n🚫 Kill Distractions — use app blockers (Forest, Cold Turkey) during study hours. Phone face-down, notifications off.\n\n⚡ Eat the Frog — tackle the hardest or most dreaded task first thing in the morning.\n\n📊 Eisenhower Matrix — categorize tasks into: (1) Urgent + Important, (2) Important but not Urgent, (3) Urgent but not Important, (4) Neither. Focus on category 2 to prevent fires.\n\n💤 Guard your sleep — 7–8 hours is a productivity multiplier, not a luxury.";
+  }
+
+  // ── Career advice ──
+  if (/\b(career|job|internship|placement|interview|hire|hiring|resume|cv|linkedin|portfolio|salary|offer|company|recruiter)\b/.test(m)) {
+    return "Career advice for students:\n\n📝 Resume Tips:\n• Keep it to 1 page if you have < 3 years experience\n• Lead with measurable achievements (e.g., 'Reduced load time by 40%')\n• Tailor it to each job\n• Use strong action verbs: built, led, designed, optimized\n\n💼 Interview Prep:\n• Research the company — know their product, mission, recent news\n• Practice STAR format answers (Situation, Task, Action, Result)\n• Prepare 3–5 smart questions to ask the interviewer\n• Mock interview with a friend or record yourself\n\n🔗 LinkedIn:\n• Add a professional photo and custom headline\n• Write a summary that tells your story\n• Connect with professors, seniors, and recruiters\n\n🏆 Stand out:\n• Build projects and put them on GitHub\n• Contribute to open source\n• Get one solid internship early\n\nCheck the Projects section in CampUs for recruiting teams you can join!";
+  }
+
+  // ── Coding / programming ──
+  if (/\b(code|coding|programming|algorithm|data structure|bug|debug|function|class|object|variable|loop|array|string|python|javascript|java|c\+\+|react|node|sql|database|api|web|app|software)\b/.test(m)) {
+    return "I'm happy to help with coding! 💻 Here are some tips depending on what you need:\n\n🐛 Debugging:\n• Read the error message carefully — it usually tells you exactly what's wrong\n• Add console.log / print statements to trace variable values\n• Rubber duck debugging — explain your code out loud, line by line\n• Check Stack Overflow or MDN Docs for errors\n\n📚 Learning to code:\n• Practice over theory — build something real as you learn\n• FreeCodeCamp, The Odin Project, and CS50 are excellent free resources\n• Solve problems on LeetCode or HackerRank daily (start easy)\n\n🏗️ Project ideas for beginners:\n• Todo app, calculator, weather app, quiz game, chat app\n\nFor a specific question (like 'how does async/await work?'), just ask and I'll explain it clearly!";
+  }
+
+  // ── Mental health / wellbeing ──
+  if (/\b(stress|anxiety|depress|lonely|overwhelm|burnout|mental health|feeling (bad|sad|low|down|tired)|not okay|help me|struggling)\b/.test(m)) {
+    return "I hear you, and it's okay to feel overwhelmed sometimes. Here are some things that can genuinely help:\n\n🧘 Immediate relief:\n• Take 5 slow deep breaths (4 counts in, hold 4, out 6)\n• Step away from your screen for 10 minutes\n• Go for a short walk — even 15 minutes shifts your mood\n\n📣 Talk to someone:\n• A friend, family member, or mentor\n• Your college counselor or student support services\n\n⚡ Daily habits that protect mental health:\n• Consistent sleep schedule\n• Regular exercise (even 20 min/day)\n• Limit social media scroll time\n• Connect with people in person\n\nYou're not alone in this. Taking one small step at a time is enough. 💙";
+  }
+
+  // ── Mathematics ──
+  if (/\b(math|maths|mathematics|calculus|algebra|geometry|statistics|probability|derivative|integral|matrix|vector|equation|formula|theorem)\b/.test(m)) {
+    return "For math topics, here are some great resources:\n\n📘 Khan Academy (khanacademy.org) — free, excellent for all levels from basics to calculus\n📐 Wolfram Alpha (wolframalpha.com) — solves equations and shows step-by-step working\n📺 3Blue1Brown on YouTube — beautiful visual explanations of calculus, linear algebra\n📚 Paul's Online Math Notes — extremely clear notes for calculus and algebra\n\n✏️ For solving problems:\n• Always write out what you know and what you need to find\n• Draw a diagram when possible\n• Work backwards from the answer on practice problems\n• Check your answer by plugging it back into the original equation\n\nWant me to explain a specific concept? Just ask in plain words!";
+  }
+
+  // ── Networking / connections ──
+  if (/\b(network|networking|connect|connect with|friend|meet people|socialize|club|society|community)\b/.test(m)) {
+    return "Networking as a student:\n\n🤝 On campus:\n• Join clubs and student societies related to your interests\n• Attend workshops, hackathons, and seminars — the CampUs Events section has listings!\n• Introduce yourself to classmates in subjects you find interesting\n\n💻 Online:\n• LinkedIn — connect with professors, alumni, seniors\n• GitHub — contribute to projects, follow developers\n• Twitter/X — follow thought leaders in your field\n\n💡 Tips:\n• Lead with genuine interest, not \"let me ask for a favour\"\n• Follow up after meeting someone within 24–48 hours\n• Share value — interesting articles, resources, opportunities\n\nAlso check the Projects section to join teams and work alongside talented peers!";
+  }
+
+  // ── Hackathons / competitions ──
+  if (/\b(hackathon|competition|contest|challenge|participate|team up|build)\b/.test(m)) {
+    return "Hackathon tips to help you win (or learn a ton):\n\n🧠 Before:\n• Form a balanced team: developer(s), designer, presenter\n• Choose an idea you can demo in the time limit\n• Prepare your dev environment ahead of time\n\n⚡ During:\n• Spend the first hour on planning and wireframing\n• Build a working MVP first, polish later\n• Prioritize the demo flow, not feature completeness\n• Communicate clearly with your team\n\n🎤 Presentation:\n• Clearly state the problem you're solving\n• Show a live demo (judges love this)\n• Explain impact: who benefits and by how much?\n• Practice your pitch to fit the time limit\n\nCheck the Campus Events section for upcoming hackathons. Good luck! 🚀";
+  }
+
+  // ── General knowledge / misc factual ──
+  if (/\b(what is|what are|explain|how does|how do|define|meaning of|tell me about|describe)\b/.test(m)) {
+    const topic = m.replace(/^(what is|what are|explain|how does|how do|define|meaning of|tell me about|describe)\s+/i, '').replace(/[?!.]+$/, '').trim();
+    const topicDisplay = topic.length > 0 ? `"${topic.charAt(0).toUpperCase() + topic.slice(1)}"` : 'that topic';
+    return `Great question about ${topicDisplay}! 🤔\n\nFor a detailed and accurate explanation, I'd recommend:\n\n🔍 Google Search — for quick answers and Wikipedia overviews\n📖 Wikipedia — for in-depth background\n🎥 YouTube — for visual explanations (search "${topic} explained")\n📚 Khan Academy — if it's an academic topic\n\nIf this is related to campus events, projects, or schedules, I can answer directly from live campus data — just include keywords like the event/project name, a date, or a specific campus question.`;
+  }
+
+  // ── Jokes ──
+  if (/\b(joke|funny|humor|laugh|meme|pun)\b/.test(m)) {
+    const jokes = [
+      "Why do programmers prefer dark mode?\n\nBecause light attracts bugs! 🐛😄",
+      "A SQL query walks into a bar, walks up to two tables and asks...\n\"Can I join you?\" 😂",
+      "Why did the student eat his homework?\n\nBecause the teacher told him it was a piece of cake! 🍰😄",
+      "What's a computer's favourite snack?\n\nMicrochips! 💻🍟",
+      "I told my computer I needed a break. Now it won't stop sending me vacation ads. 🏖️😅",
+    ];
+    return jokes[Math.floor(Math.random() * jokes.length)];
+  }
+
+  // ── Motivation ──
+  if (/\b(motivat|inspire|quote|demotivat|give up|can't do|difficult|hard|impossible|struggle)\b/.test(m)) {
+    const quotes = [
+      '"The secret of getting ahead is getting started." — Mark Twain',
+      '"Don\'t watch the clock; do what it does. Keep going." — Sam Levenson',
+      '"Success is the sum of small efforts, repeated day in and day out." — R. Collier',
+      '"The expert in anything was once a beginner." — Helen Hayes',
+      '"You don\'t have to be great to start, but you have to start to be great." — Zig Ziglar',
+    ];
+    const quote = quotes[Math.floor(Math.random() * quotes.length)];
+    return `Here's a thought for you 💪:\n\n${quote}\n\nYou've got this! Every step, no matter how small, moves you forward. What are you working on?`;
+  }
+
+  // ── Default fallback — still helpful ──
+  return `I got your message! Here's how I can best help:\n\n📅 For campus events — ask "what events are today?" or "show events this week"\n🚀 For projects — ask "show recruiting projects" or a project name\n📚 For study/career/coding advice — ask anything like "study tips" or "resume help"\n💬 For general questions — try rephrasing or add more detail\n\nWhat would you like to know? 😊`;
+};
 export const chatWithAI = async (_userId: string, prompt: string) => {
   const trimmed = prompt.trim();
   if (!trimmed) {
-    return 'Ask me about campus events, projects, venues, or a date (for example: today or 2026-03-11).';
+    return 'Ask me about campus events, projects, venues, or any question — I am here to help!';
   }
 
   const isAllowed = await moderateText(trimmed);
@@ -1711,6 +1887,13 @@ export const chatWithAI = async (_userId: string, prompt: string) => {
   }
 
   const lower = trimmed.toLowerCase();
+
+  // If the query has no campus-related keywords at all, skip DB lookup and go straight to Groq
+  const hasCampusKeyword = /\b(event|events|workshop|hackathon|seminar|competition|fest|project|projects|team|teams|campus|venue|location|where|date|today|tomorrow|yesterday|announcement|notice|feed|update|updates|news|recruiting|schedule|when|status)\b/.test(lower);
+  if (!hasCampusKeyword) {
+    return askGroqFallback(trimmed);
+  }
+
   const genericCampusLookup = !/\b(announcement|notice|feed|update|updates|news|venue|location|where|date|today|tomorrow|yesterday)\b/.test(lower);
   const requestedDate = parseRequestedDate(trimmed);
   const wantsEvents = /\b(event|events|workshop|hackathon|seminar|competition|fest)\b/.test(lower) || !!requestedDate || genericCampusLookup;
@@ -1912,11 +2095,11 @@ export const chatWithAI = async (_userId: string, prompt: string) => {
   }
 
   if (!output.length && wantsVenue) {
-    return 'I could not find matching venues right now. Try an event name or a date like 2026-03-11.';
+    return askGroqFallback(trimmed, 'I could not find matching venues in campus data right now.');
   }
 
   if (!output.length) {
-    return 'I could not find matching events, projects, or updates. Try asking with a date (today, tomorrow, or YYYY-MM-DD) or include a specific keyword.';
+    return askGroqFallback(trimmed);
   }
 
   output.push('I answer from live campus data, so responses update as events and projects change.');

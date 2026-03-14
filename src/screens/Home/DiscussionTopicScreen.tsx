@@ -10,6 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Modal,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -37,6 +38,43 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 import ConfirmDialog from '../../components/ConfirmDialog';
 
 dayjs.extend(relativeTime);
+
+const DISCUSSION_POLL_PREFIX = '__discussion_poll__:';
+const DISCUSSION_VOTE_PREFIX = '__discussion_vote__:';
+
+type DiscussionPollPayload = {
+  question: string;
+  options: string[];
+  allowsMultiple?: boolean;
+  createdBy?: string;
+  createdAt?: string;
+};
+
+type DiscussionVotePayload = {
+  pollReplyId: string;
+  optionIndex: number;
+};
+
+type DiscPollVoter = { id: string; name: string };
+
+type DiscPollVotesSheetState = {
+  pollReplyId: string;
+  question: string;
+  options: string[];
+  counts: number[];
+  totalVotes: number;
+  votersByOption: DiscPollVoter[][];
+};
+
+const parsePollReply = (content?: string): DiscussionPollPayload | null => {
+  if (!content?.startsWith(DISCUSSION_POLL_PREFIX)) return null;
+  try { return JSON.parse(content.slice(DISCUSSION_POLL_PREFIX.length)); } catch { return null; }
+};
+
+const parseVoteReply = (content?: string): DiscussionVotePayload | null => {
+  if (!content?.startsWith(DISCUSSION_VOTE_PREFIX)) return null;
+  try { return JSON.parse(content.slice(DISCUSSION_VOTE_PREFIX.length)); } catch { return null; }
+};
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'DiscussionTopic'>;
 type RouteParams = RouteProp<RootStackParamList, 'DiscussionTopic'>;
@@ -78,6 +116,12 @@ export default function DiscussionTopicScreen() {
     message: string;
     onConfirm: () => void;
   }>({ visible: false, title: '', message: '', onConfirm: () => {} });
+
+  const [showCreatePoll, setShowCreatePoll] = useState(false);
+  const [pollQuestion, setPollQuestion] = useState('');
+  const [pollOptions, setPollOptions] = useState<string[]>(['', '']);
+  const [isCreatingPoll, setIsCreatingPoll] = useState(false);
+  const [pollVotesSheet, setPollVotesSheet] = useState<DiscPollVotesSheetState | null>(null);
 
   const isFacultyOrAdmin = isFacultyOrAdminRole(profile?.role);
   const isTopicCreator = topic?.created_by === user?.id;
@@ -260,6 +304,81 @@ export default function DiscussionTopicScreen() {
     }
   };
 
+  const voteReplies = replies.filter(r => r.content?.startsWith(DISCUSSION_VOTE_PREFIX));
+  const normalReplies = replies.filter(r => !r.content?.startsWith(DISCUSSION_VOTE_PREFIX));
+
+  const handleDiscussionPollVote = async (pollReplyId: string, optionIndex: number) => {
+    if (!user?.id) return;
+    const myVotesForPoll = voteReplies.filter(r => {
+      if (r.user_id !== user.id) return false;
+      const v = parseVoteReply(r.content);
+      return v?.pollReplyId === pollReplyId;
+    });
+    const alreadySelected = myVotesForPoll.some(r => parseVoteReply(r.content)?.optionIndex === optionIndex);
+    try {
+      if (myVotesForPoll.length > 0) {
+        await Promise.all(myVotesForPoll.map(vote => deleteReply(vote.id)));
+      }
+
+      // Single-select poll: tapping selected option clears vote, otherwise sets one vote.
+      if (!alreadySelected) {
+        await postReply(topicId, user.id, `${DISCUSSION_VOTE_PREFIX}${JSON.stringify({ pollReplyId, optionIndex })}`);
+      } else {
+        Toast.show({ type: 'success', text1: 'Vote removed' });
+      }
+      await loadTopic();
+    } catch (error: any) {
+      Toast.show({ type: 'error', text1: 'Failed to vote', text2: error.message });
+    }
+  };
+
+  const handlePostDiscussionPoll = async () => {
+    const trimmedQuestion = pollQuestion.trim();
+    const validOptions = pollOptions.map(o => o.trim()).filter(Boolean);
+    if (!trimmedQuestion) {
+      Toast.show({ type: 'error', text1: 'Please enter a question' });
+      return;
+    }
+    if (validOptions.length < 2) {
+      Toast.show({ type: 'error', text1: 'Please add at least 2 options' });
+      return;
+    }
+    if (!user?.id) return;
+    try {
+      setIsCreatingPoll(true);
+      const payload: DiscussionPollPayload = {
+        question: trimmedQuestion,
+        options: validOptions,
+        createdBy: user.id,
+        createdAt: new Date().toISOString(),
+      };
+      await postReply(topicId, user.id, `${DISCUSSION_POLL_PREFIX}${JSON.stringify(payload)}`);
+      setPollQuestion('');
+      setPollOptions(['', '']);
+      setShowCreatePoll(false);
+      await loadTopic();
+      Toast.show({ type: 'success', text1: 'Poll posted!' });
+    } catch (error: any) {
+      Toast.show({ type: 'error', text1: 'Failed to create poll', text2: error.message });
+    } finally {
+      setIsCreatingPoll(false);
+    }
+  };
+
+  const openPollVotesSheet = (pollReply: DiscussionReply, payload: DiscussionPollPayload) => {
+    const pollVotes = voteReplies.filter(r => parseVoteReply(r.content)?.pollReplyId === pollReply.id);
+    const counts = payload.options.map((_, i) =>
+      pollVotes.filter(r => parseVoteReply(r.content)?.optionIndex === i).length
+    );
+    const totalVotes = counts.reduce((s, c) => s + c, 0);
+    const votersByOption = payload.options.map((_, i) =>
+      pollVotes
+        .filter(r => parseVoteReply(r.content)?.optionIndex === i)
+        .map(r => ({ id: r.user_id, name: r.user?.full_name || 'User' }))
+    );
+    setPollVotesSheet({ pollReplyId: pollReply.id, question: payload.question, options: payload.options, counts, totalVotes, votersByOption });
+  };
+
   if (isLoading) {
     return (
       <SafeAreaView style={styles.container}>
@@ -374,11 +493,11 @@ export default function DiscussionTopicScreen() {
             <View style={styles.repliesSectionHeader}>
               <MaterialIcons name="forum" size={20} color={Colors.primary} />
               <Text style={styles.repliesHeader}>
-                {replies.length} {replies.length === 1 ? 'Reply' : 'Replies'}
+                {normalReplies.length} {normalReplies.length === 1 ? 'Reply' : 'Replies'}
               </Text>
             </View>
 
-            {replies.map((reply) => {
+            {normalReplies.map((reply) => {
               const canDelete = reply.user_id === user?.id || isFacultyOrAdmin || isTopicCreator;
               const canMarkSolution = !reply.is_solution && (isFacultyOrAdmin || isTopicCreator);
               
@@ -460,7 +579,74 @@ export default function DiscussionTopicScreen() {
                   </View>
                 </View>
 
-                <Text style={styles.replyContent}>{reply.content}</Text>
+                {(() => {
+                  const poll = parsePollReply(reply.content);
+                  if (!poll) return <Text style={styles.replyContent}>{reply.content}</Text>;
+                  const pollVotes = voteReplies.filter(r => parseVoteReply(r.content)?.pollReplyId === reply.id);
+                  const voteCounts = poll.options.map((_, i) =>
+                    pollVotes.filter(r => parseVoteReply(r.content)?.optionIndex === i).length
+                  );
+                  const totalVotes = voteCounts.reduce((s, c) => s + c, 0);
+                  const myVoteIndices = pollVotes
+                    .filter(r => r.user_id === user?.id)
+                    .map(r => parseVoteReply(r.content)?.optionIndex)
+                    .filter((i): i is number => i !== undefined);
+                  return (
+                    <View style={styles.pollCard}>
+                      <Text style={styles.pollQuestion}>{poll.question}</Text>
+                      <View style={styles.pollPromptRow}>
+                        <MaterialIcons name="check-circle-outline" size={14} color={Colors.primary} />
+                        <Text style={styles.pollPrompt}>
+                          Select one option · {totalVotes} vote{totalVotes !== 1 ? 's' : ''}
+                        </Text>
+                      </View>
+                      {poll.options.map((option, idx) => {
+                        const count = voteCounts[idx];
+                        const pct = totalVotes > 0 ? count / totalVotes : 0;
+                        const isSelected = myVoteIndices.includes(idx);
+                        const optionVoters = pollVotes
+                          .filter(r => parseVoteReply(r.content)?.optionIndex === idx)
+                          .map(r => ({ id: r.user_id, name: r.user?.full_name || 'User' }));
+                        return (
+                          <TouchableOpacity
+                            key={idx}
+                            style={styles.pollOptionRow}
+                            onPress={() => handleDiscussionPollVote(reply.id, idx)}
+                            activeOpacity={0.7}
+                          >
+                            <View style={styles.pollOptionTrackWrap}>
+                              <View style={[styles.pollOptionProgressTrack, { width: `${Math.round(pct * 100)}%` as any }]} />
+                              <View style={styles.pollOptionInner}>
+                                <View style={[styles.pollOptionIndicator, isSelected && styles.pollOptionIndicatorActive]}>
+                                  {isSelected && <MaterialIcons name="check" size={12} color="#fff" />}
+                                </View>
+                                <Text style={styles.pollOptionLabel} numberOfLines={2}>{option}</Text>
+                                <Text style={styles.pollOptionCount}>{count}</Text>
+                              </View>
+                            </View>
+                            {optionVoters.length > 0 && (
+                              <View style={styles.pollVoterAvatarRow}>
+                                {optionVoters.slice(0, 4).map((voter, vi) => (
+                                  <View key={vi} style={[styles.pollVoterAvatarWrap, { marginLeft: vi > 0 ? -6 : 0, zIndex: 4 - vi }]}>
+                                    <View style={styles.pollVoterAvatarCircle}>
+                                      <Text style={styles.pollVoterAvatarInitial}>{voter.name.charAt(0).toUpperCase()}</Text>
+                                    </View>
+                                  </View>
+                                ))}
+                                {optionVoters.length > 4 && (
+                                  <Text style={styles.pollVoterMore}>+{optionVoters.length - 4}</Text>
+                                )}
+                              </View>
+                            )}
+                          </TouchableOpacity>
+                        );
+                      })}
+                      <TouchableOpacity style={styles.pollViewVotesBtn} onPress={() => openPollVotesSheet(reply, poll)}>
+                        <Text style={styles.pollViewVotesText}>View votes · {totalVotes}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })()}
               </View>
             );
             })}
@@ -471,6 +657,9 @@ export default function DiscussionTopicScreen() {
         {!topic.is_locked ? (
           isEventTimingOpen ? (
             <View style={styles.replyInputContainer}>
+              <TouchableOpacity style={styles.pollIconBtn} onPress={() => setShowCreatePoll(true)}>
+                <MaterialIcons name="poll" size={24} color={Colors.primary} />
+              </TouchableOpacity>
               <TextInput
                 style={styles.replyInput}
                 placeholder="Write a reply..."
@@ -508,6 +697,124 @@ export default function DiscussionTopicScreen() {
         onCancel={() => setConfirmDialog({ ...confirmDialog, visible: false })}
         type="danger"
       />
+
+      {/* Create Poll Modal */}
+      <Modal
+        visible={showCreatePoll}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowCreatePoll(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.createPollModal}>
+            <View style={styles.createPollHeader}>
+              <Text style={styles.createPollTitle}>Create Poll</Text>
+              <TouchableOpacity onPress={() => setShowCreatePoll(false)}>
+                <MaterialIcons name="close" size={24} color={Colors.text} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={styles.createPollLabel}>Question</Text>
+              <TextInput
+                style={styles.createPollInput}
+                placeholder="Ask a question..."
+                placeholderTextColor={Colors.textSecondary}
+                value={pollQuestion}
+                onChangeText={setPollQuestion}
+                multiline
+                maxLength={200}
+              />
+              <Text style={styles.createPollLabel}>Options</Text>
+              {pollOptions.map((opt, idx) => (
+                <View key={idx} style={styles.createPollOptionRow}>
+                  <TextInput
+                    style={[styles.createPollInput, { flex: 1, marginBottom: 0 }]}
+                    placeholder={`Option ${idx + 1}`}
+                    placeholderTextColor={Colors.textSecondary}
+                    value={opt}
+                    onChangeText={text => {
+                      const updated = [...pollOptions];
+                      updated[idx] = text;
+                      setPollOptions(updated);
+                    }}
+                    maxLength={100}
+                  />
+                  {pollOptions.length > 2 && (
+                    <TouchableOpacity
+                      style={styles.removeOptionBtn}
+                      onPress={() => setPollOptions(pollOptions.filter((_, i) => i !== idx))}
+                    >
+                      <MaterialIcons name="remove-circle-outline" size={22} color="#ef4444" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              ))}
+              {pollOptions.length < 6 && (
+                <TouchableOpacity
+                  style={styles.addOptionBtn}
+                  onPress={() => setPollOptions([...pollOptions, ''])}
+                >
+                  <MaterialIcons name="add-circle-outline" size={20} color={Colors.primary} />
+                  <Text style={styles.addOptionText}>Add option</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                style={[styles.postPollBtn, isCreatingPoll && { opacity: 0.6 }]}
+                onPress={handlePostDiscussionPoll}
+                disabled={isCreatingPoll}
+              >
+                {isCreatingPoll ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.postPollBtnText}>Post Poll</Text>
+                )}
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Poll Votes Sheet */}
+      <Modal
+        visible={!!pollVotesSheet}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setPollVotesSheet(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.pollVotesModal}>
+            <View style={styles.pollVotesModalHeader}>
+              <Text style={styles.pollVotesModalTitle} numberOfLines={2}>{pollVotesSheet?.question}</Text>
+              <TouchableOpacity onPress={() => setPollVotesSheet(null)}>
+                <MaterialIcons name="close" size={24} color={Colors.text} />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.pollVotesMeta}>{pollVotesSheet?.totalVotes} vote{pollVotesSheet?.totalVotes !== 1 ? 's' : ''} total</Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {pollVotesSheet?.options.map((option, idx) => (
+                <View key={idx} style={styles.pollVotesOptionCard}>
+                  <View style={styles.pollVotesOptionHeader}>
+                    <Text style={styles.pollVotesOptionTitle}>{option}</Text>
+                    <Text style={styles.pollVotesOptionCount}>{pollVotesSheet.counts[idx]}</Text>
+                  </View>
+                  {pollVotesSheet.votersByOption[idx].length === 0 ? (
+                    <Text style={styles.pollVotesNoVotes}>No votes yet</Text>
+                  ) : (
+                    pollVotesSheet.votersByOption[idx].map((voter, vi) => (
+                      <View key={vi} style={styles.pollVoterRow}>
+                        <View style={styles.pollVoterAvatarCircle}>
+                          <Text style={styles.pollVoterAvatarInitial}>{voter.name.charAt(0).toUpperCase()}</Text>
+                        </View>
+                        <Text style={styles.pollVoterRowName}>{voter.name}</Text>
+                      </View>
+                    ))
+                  )}
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -833,5 +1140,272 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     errorText: {
       fontSize: FontSizes.md,
       color: Colors.textSecondary,
+    },
+    // Poll styles
+    pollIconBtn: {
+      width: 40,
+      height: 40,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    pollCard: {
+      marginTop: Spacing.sm,
+      borderRadius: BorderRadius.md,
+      overflow: 'hidden',
+      borderWidth: 1,
+      borderColor: Colors.border,
+    },
+    pollQuestion: {
+      fontSize: FontSizes.md,
+      fontWeight: FontWeights.bold,
+      color: Colors.text,
+      paddingHorizontal: Spacing.md,
+      paddingTop: Spacing.md,
+      paddingBottom: Spacing.xs,
+    },
+    pollPromptRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingHorizontal: Spacing.md,
+      paddingBottom: Spacing.sm,
+    },
+    pollPrompt: {
+      fontSize: FontSizes.xs,
+      color: Colors.textSecondary,
+    },
+    pollOptionRow: {
+      paddingHorizontal: Spacing.md,
+      paddingVertical: Spacing.sm,
+      borderTopWidth: 1,
+      borderTopColor: Colors.border,
+    },
+    pollOptionTrackWrap: {
+      position: 'relative',
+      borderRadius: BorderRadius.sm,
+      overflow: 'hidden',
+      backgroundColor: Colors.card,
+      minHeight: 36,
+    },
+    pollOptionProgressTrack: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      bottom: 0,
+      backgroundColor: Colors.primary + '22',
+      borderRadius: BorderRadius.sm,
+    },
+    pollOptionInner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: Spacing.sm,
+      paddingVertical: Spacing.xs,
+      gap: Spacing.sm,
+    },
+    pollOptionIndicator: {
+      width: 20,
+      height: 20,
+      borderRadius: 10,
+      borderWidth: 2,
+      borderColor: Colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    pollOptionIndicatorActive: {
+      borderColor: Colors.primary,
+      backgroundColor: Colors.primary,
+    },
+    pollOptionLabel: {
+      flex: 1,
+      fontSize: FontSizes.sm,
+      color: Colors.text,
+    },
+    pollOptionCount: {
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.semibold,
+      color: Colors.textSecondary,
+      minWidth: 20,
+      textAlign: 'right',
+    },
+    pollVoterAvatarRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingTop: 4,
+      paddingLeft: Spacing.sm,
+    },
+    pollVoterAvatarWrap: {
+      borderRadius: 10,
+      borderWidth: 1.5,
+      borderColor: Colors.surface,
+      overflow: 'hidden',
+    },
+    pollVoterAvatarCircle: {
+      width: 20,
+      height: 20,
+      borderRadius: 10,
+      backgroundColor: Colors.primary + '40',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    pollVoterAvatarInitial: {
+      fontSize: 9,
+      fontWeight: FontWeights.bold,
+      color: Colors.primary,
+    },
+    pollVoterMore: {
+      fontSize: FontSizes.xs,
+      color: Colors.textSecondary,
+      marginLeft: 4,
+    },
+    pollViewVotesBtn: {
+      borderTopWidth: 1,
+      borderTopColor: Colors.border,
+      paddingVertical: Spacing.sm,
+      paddingHorizontal: Spacing.md,
+      alignItems: 'center',
+    },
+    pollViewVotesText: {
+      fontSize: FontSizes.sm,
+      color: Colors.primary,
+      fontWeight: FontWeights.semibold,
+    },
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+      justifyContent: 'flex-end',
+    },
+    createPollModal: {
+      backgroundColor: Colors.surface,
+      borderTopLeftRadius: BorderRadius.xl,
+      borderTopRightRadius: BorderRadius.xl,
+      padding: Spacing.lg,
+      maxHeight: '85%' as any,
+    },
+    createPollHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: Spacing.md,
+    },
+    createPollTitle: {
+      fontSize: FontSizes.lg,
+      fontWeight: FontWeights.bold,
+      color: Colors.text,
+    },
+    createPollLabel: {
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.semibold,
+      color: Colors.textSecondary,
+      marginBottom: Spacing.xs,
+      marginTop: Spacing.sm,
+    },
+    createPollInput: {
+      backgroundColor: Colors.card,
+      borderRadius: BorderRadius.md,
+      paddingHorizontal: Spacing.md,
+      paddingVertical: Spacing.sm,
+      fontSize: FontSizes.md,
+      color: Colors.text,
+      borderWidth: 1,
+      borderColor: Colors.border,
+      marginBottom: Spacing.sm,
+    },
+    createPollOptionRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.sm,
+      marginBottom: Spacing.sm,
+    },
+    removeOptionBtn: {
+      padding: 4,
+    },
+    addOptionBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingVertical: Spacing.sm,
+    },
+    addOptionText: {
+      fontSize: FontSizes.sm,
+      color: Colors.primary,
+      fontWeight: FontWeights.semibold,
+    },
+    postPollBtn: {
+      backgroundColor: Colors.primary,
+      borderRadius: BorderRadius.md,
+      paddingVertical: 14,
+      alignItems: 'center',
+      marginTop: Spacing.md,
+      marginBottom: Spacing.lg,
+    },
+    postPollBtnText: {
+      color: '#fff',
+      fontSize: FontSizes.md,
+      fontWeight: FontWeights.bold,
+    },
+    pollVotesModal: {
+      backgroundColor: Colors.surface,
+      borderTopLeftRadius: BorderRadius.xl,
+      borderTopRightRadius: BorderRadius.xl,
+      padding: Spacing.lg,
+      maxHeight: '85%' as any,
+    },
+    pollVotesModalHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-start',
+      marginBottom: Spacing.xs,
+    },
+    pollVotesModalTitle: {
+      flex: 1,
+      fontSize: FontSizes.md,
+      fontWeight: FontWeights.bold,
+      color: Colors.text,
+      marginRight: Spacing.sm,
+    },
+    pollVotesMeta: {
+      fontSize: FontSizes.xs,
+      color: Colors.textSecondary,
+      marginBottom: Spacing.md,
+    },
+    pollVotesOptionCard: {
+      borderRadius: BorderRadius.md,
+      borderWidth: 1,
+      borderColor: Colors.border,
+      padding: Spacing.md,
+      marginBottom: Spacing.sm,
+      backgroundColor: Colors.card,
+    },
+    pollVotesOptionHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: Spacing.xs,
+    },
+    pollVotesOptionTitle: {
+      flex: 1,
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.semibold,
+      color: Colors.text,
+    },
+    pollVotesOptionCount: {
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.bold,
+      color: Colors.primary,
+    },
+    pollVotesNoVotes: {
+      fontSize: FontSizes.xs,
+      color: Colors.textSecondary,
+      fontStyle: 'italic',
+    },
+    pollVoterRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.sm,
+      paddingVertical: 4,
+    },
+    pollVoterRowName: {
+      fontSize: FontSizes.sm,
+      color: Colors.text,
     },
   });
