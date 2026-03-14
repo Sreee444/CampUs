@@ -307,6 +307,70 @@ export default function ChatConversationScreen() {
   const lastTypingSignalAtRef = useRef(0);
   const reactionChoices = ['👍', '❤️', '😂', '😮', '😢', '👏'];
 
+  // ── Chat poll ──────────────────────────────────────────────────────────
+  const CHAT_POLL_PREFIX = '__chat_poll__:';
+  const CHAT_VOTE_PREFIX = '__chat_vote__:';
+
+  type ChatPollPayload = { question: string; options: string[]; createdBy?: string };
+  type ChatVotePayload = { pollMessageId: string; optionIndex: number };
+
+  const parseChatPoll = (content?: string | null): ChatPollPayload | null => {
+    if (!content?.startsWith(CHAT_POLL_PREFIX)) return null;
+    try { return JSON.parse(content.slice(CHAT_POLL_PREFIX.length)); } catch { return null; }
+  };
+  const parseChatVote = (content?: string | null): ChatVotePayload | null => {
+    if (!content?.startsWith(CHAT_VOTE_PREFIX)) return null;
+    try { return JSON.parse(content.slice(CHAT_VOTE_PREFIX.length)); } catch { return null; }
+  };
+
+  const [showPollModal, setShowPollModal] = useState(false);
+  const [pollQuestion, setPollQuestion] = useState('');
+  const [pollOptions, setPollOptions] = useState<string[]>(['', '']);
+  const [isCreatingPoll, setIsCreatingPoll] = useState(false);
+
+  const handleSendPoll = async () => {
+    if (!conversationId || !user?.id) return;
+    const trimmedQ = pollQuestion.trim();
+    const validOpts = pollOptions.map(o => o.trim()).filter(Boolean);
+    if (!trimmedQ) { Toast.show({ type: 'error', text1: 'Please enter a question' }); return; }
+    if (validOpts.length < 2) { Toast.show({ type: 'error', text1: 'Add at least 2 options' }); return; }
+    try {
+      setIsCreatingPoll(true);
+      const payload: ChatPollPayload = { question: trimmedQ, options: validOpts, createdBy: user.id };
+      await sendMessage(conversationId, user.id, `${CHAT_POLL_PREFIX}${JSON.stringify(payload)}`, 'text');
+      setPollQuestion('');
+      setPollOptions(['', '']);
+      setShowPollModal(false);
+    } catch (err: any) {
+      Toast.show({ type: 'error', text1: 'Failed to create poll', text2: err?.message });
+    } finally {
+      setIsCreatingPoll(false);
+    }
+  };
+
+  const handleChatPollVote = async (pollMessageId: string, optionIndex: number) => {
+    if (!conversationId || !user?.id) return;
+    const existingVote = messages.find(m => {
+      const v = parseChatVote(m.content);
+      return v?.pollMessageId === pollMessageId && m.sender_id === user.id;
+    });
+    try {
+      if (existingVote) {
+        const prev = parseChatVote(existingVote.content);
+        if (prev?.optionIndex === optionIndex) {
+          await sendMessage(conversationId, user.id, `${CHAT_VOTE_PREFIX}${JSON.stringify({ pollMessageId, optionIndex: -1 })}`, 'text');
+        } else {
+          await sendMessage(conversationId, user.id, `${CHAT_VOTE_PREFIX}${JSON.stringify({ pollMessageId, optionIndex })}`, 'text');
+        }
+      } else {
+        await sendMessage(conversationId, user.id, `${CHAT_VOTE_PREFIX}${JSON.stringify({ pollMessageId, optionIndex })}`, 'text');
+      }
+    } catch (err: any) {
+      Toast.show({ type: 'error', text1: 'Vote failed', text2: err?.message });
+    }
+  };
+  // ────────────────────────────────────────────────────────────────────────
+
   const TYPING_IDLE_MS = 2200;
   const TYPING_HEARTBEAT_MS = 1400;
 
@@ -1496,16 +1560,71 @@ export default function ChatConversationScreen() {
                 </Text>
               )}
               <View style={styles.messageContentWrap}>
-                <Text
-                  style={[
-                    styles.messageText,
-                    isMyMessage
-                      ? [styles.myMessageText, { color: chatTheme.textColor }]
-                      : [styles.otherMessageText, { color: chatTheme.incomingTextColor }],
-                  ]}
-                >
-                  {message.content}
-                </Text>
+                {(() => {
+                  const poll = parseChatPoll(message.content);
+                  const voteData = parseChatVote(message.content);
+                  if (voteData) return null;
+                  if (!poll) return (
+                    <Text
+                      style={[
+                        styles.messageText,
+                        isMyMessage
+                          ? [styles.myMessageText, { color: chatTheme.textColor }]
+                          : [styles.otherMessageText, { color: chatTheme.incomingTextColor }],
+                      ]}
+                    >
+                      {message.content}
+                    </Text>
+                  );
+                  const allVotes = messages.filter(m => {
+                    const v = parseChatVote(m.content);
+                    return v?.pollMessageId === message.id && v.optionIndex >= 0;
+                  });
+                  const latestVotePerUser = new Map<string, { optionIndex: number }>();
+                  for (const vm of allVotes) {
+                    const v = parseChatVote(vm.content);
+                    if (v) latestVotePerUser.set(vm.sender_id, v);
+                  }
+                  const voteCounts = poll.options.map((_, i) =>
+                    Array.from(latestVotePerUser.values()).filter(v => v.optionIndex === i).length
+                  );
+                  const totalVotes = voteCounts.reduce((s, c) => s + c, 0);
+                  const myVote = latestVotePerUser.get(user?.id || '');
+                  return (
+                    <View style={styles.pollCard}>
+                      <View style={styles.pollCardHeader}>
+                        <MaterialIcons name="poll" size={15} color={Colors.primary} />
+                        <Text style={styles.pollCardLabel}>Poll</Text>
+                      </View>
+                      <Text style={styles.pollCardQuestion}>{poll.question}</Text>
+                      <Text style={styles.pollCardMeta}>{totalVotes} vote{totalVotes !== 1 ? 's' : ''}</Text>
+                      {poll.options.map((option, idx) => {
+                        const count = voteCounts[idx];
+                        const pct = totalVotes > 0 ? count / totalVotes : 0;
+                        const isSelected = myVote?.optionIndex === idx;
+                        return (
+                          <TouchableOpacity
+                            key={idx}
+                            style={styles.pollOptionRow}
+                            onPress={() => handleChatPollVote(message.id, idx)}
+                            activeOpacity={0.7}
+                          >
+                            <View style={styles.pollOptionTrack}>
+                              <View style={[styles.pollOptionFill, { width: `${Math.round(pct * 100)}%` as any }]} />
+                              <View style={styles.pollOptionInner}>
+                                <View style={[styles.pollOptionDot, isSelected && styles.pollOptionDotActive]}>
+                                  {isSelected && <MaterialIcons name="check" size={10} color="#fff" />}
+                                </View>
+                                <Text style={styles.pollOptionText} numberOfLines={2}>{option}</Text>
+                                <Text style={styles.pollOptionCount}>{count}</Text>
+                              </View>
+                            </View>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  );
+                })()}
               </View>
               <View style={[styles.messageFooter, isMyMessage ? styles.myMessageFooter : styles.otherMessageFooter]}>
                 <Text
@@ -1885,15 +2004,12 @@ export default function ChatConversationScreen() {
 
                 <TouchableOpacity
                   style={styles.attachButton}
-                  onPress={() =>
-                    Toast.show({
-                      type: 'info',
-                      text1: 'Attachments',
-                      text2: 'Attachment picker will be added next.',
-                    })
+                  onPress={() => isGroup
+                    ? setShowPollModal(true)
+                    : Toast.show({ type: 'info', text1: 'Attachments', text2: 'Attachment picker will be added next.' })
                   }
                 >
-                  <MaterialIcons name="attach-file" size={24} color={Colors.textSecondary} />
+                  <MaterialIcons name={isGroup ? 'poll' : 'attach-file'} size={24} color={isGroup ? Colors.primary : Colors.textSecondary} />
                 </TouchableOpacity>
               </View>
 
@@ -1922,6 +2038,81 @@ export default function ChatConversationScreen() {
         onClose={() => setIsEmojiPickerOpen(false)}
         onEmojiSelected={handleEmojiSelected}
       />
+
+      {/* Poll creation modal */}
+      <Modal
+        visible={showPollModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowPollModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.createPollModal}>
+            <View style={styles.createPollHeader}>
+              <Text style={styles.createPollTitle}>Create Poll</Text>
+              <TouchableOpacity onPress={() => setShowPollModal(false)}>
+                <MaterialIcons name="close" size={24} color={Colors.text} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={styles.createPollFieldLabel}>Question</Text>
+              <TextInput
+                style={styles.createPollInput}
+                placeholder="Ask a question..."
+                placeholderTextColor={Colors.textSecondary}
+                value={pollQuestion}
+                onChangeText={setPollQuestion}
+                multiline
+                maxLength={200}
+              />
+              <Text style={styles.createPollFieldLabel}>Options</Text>
+              {pollOptions.map((opt, idx) => (
+                <View key={idx} style={styles.createPollOptionRow}>
+                  <TextInput
+                    style={[styles.createPollInput, { flex: 1, marginBottom: 0 }]}
+                    placeholder={`Option ${idx + 1}`}
+                    placeholderTextColor={Colors.textSecondary}
+                    value={opt}
+                    onChangeText={text => {
+                      const updated = [...pollOptions];
+                      updated[idx] = text;
+                      setPollOptions(updated);
+                    }}
+                    maxLength={100}
+                  />
+                  {pollOptions.length > 2 && (
+                    <TouchableOpacity
+                      style={styles.removeOptionBtn}
+                      onPress={() => setPollOptions(pollOptions.filter((_, i) => i !== idx))}
+                    >
+                      <MaterialIcons name="remove-circle-outline" size={22} color="#ef4444" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              ))}
+              {pollOptions.length < 6 && (
+                <TouchableOpacity
+                  style={styles.addPollOptionBtn}
+                  onPress={() => setPollOptions([...pollOptions, ''])}
+                >
+                  <MaterialIcons name="add-circle-outline" size={20} color={Colors.primary} />
+                  <Text style={styles.addPollOptionText}>Add option</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                style={[styles.postPollBtn, isCreatingPoll && { opacity: 0.6 }]}
+                onPress={handleSendPoll}
+                disabled={isCreatingPoll}
+              >
+                {isCreatingPoll
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Text style={styles.postPollBtnText}>Send Poll</Text>
+                }
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         visible={showChatOptions}
@@ -3394,6 +3585,164 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       padding: 8,
       marginBottom: 1,
     },
+    // ── Poll styles ──────────────────────────────────────────────────────
+    pollCard: {
+      backgroundColor: Colors.surface,
+      borderRadius: 14,
+      padding: 12,
+      minWidth: 220,
+      borderWidth: 1,
+      borderColor: Colors.border,
+    },
+    pollCardHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      marginBottom: 6,
+    },
+    pollCardLabel: {
+      fontSize: 11,
+      fontWeight: '700' as const,
+      color: Colors.primary,
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+    },
+    pollCardQuestion: {
+      fontSize: FontSizes.md,
+      fontWeight: FontWeights.semibold,
+      color: Colors.text,
+      marginBottom: 4,
+    },
+    pollCardMeta: {
+      fontSize: FontSizes.xs,
+      color: Colors.textSecondary,
+      marginBottom: 10,
+    },
+    pollOptionRow: {
+      marginBottom: 8,
+    },
+    pollOptionTrack: {
+      borderRadius: 8,
+      overflow: 'hidden',
+      backgroundColor: Colors.card,
+      borderWidth: 1,
+      borderColor: Colors.border,
+      position: 'relative',
+    },
+    pollOptionFill: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      bottom: 0,
+      backgroundColor: Colors.primarySoft,
+      borderRadius: 8,
+    },
+    pollOptionInner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 10,
+      paddingVertical: 8,
+      gap: 8,
+    },
+    pollOptionDot: {
+      width: 18,
+      height: 18,
+      borderRadius: 9,
+      borderWidth: 2,
+      borderColor: Colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: Colors.surface,
+    },
+    pollOptionDotActive: {
+      borderColor: Colors.primary,
+      backgroundColor: Colors.primary,
+    },
+    pollOptionText: {
+      flex: 1,
+      fontSize: FontSizes.sm,
+      color: Colors.text,
+    },
+    pollOptionCount: {
+      fontSize: FontSizes.xs,
+      fontWeight: FontWeights.semibold,
+      color: Colors.textSecondary,
+      minWidth: 16,
+      textAlign: 'right',
+    },
+    // Poll creation modal
+    createPollModal: {
+      backgroundColor: Colors.surface,
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      padding: Spacing.lg,
+      maxHeight: '85%',
+    },
+    createPollHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: Spacing.md,
+    },
+    createPollTitle: {
+      fontSize: FontSizes.lg,
+      fontWeight: FontWeights.bold,
+      color: Colors.text,
+    },
+    createPollFieldLabel: {
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.semibold,
+      color: Colors.text,
+      marginBottom: 6,
+      marginTop: 4,
+    },
+    createPollInput: {
+      borderWidth: 1,
+      borderColor: Colors.border,
+      borderRadius: BorderRadius.md,
+      paddingHorizontal: Spacing.md,
+      paddingVertical: Spacing.sm,
+      fontSize: FontSizes.md,
+      color: Colors.text,
+      backgroundColor: Colors.card,
+      marginBottom: Spacing.sm,
+    },
+    createPollOptionRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.sm,
+      marginBottom: Spacing.sm,
+    },
+    removeOptionBtn: {
+      padding: 4,
+    },
+    addPollOptionBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingVertical: 8,
+      marginBottom: Spacing.sm,
+    },
+    addPollOptionText: {
+      fontSize: FontSizes.sm,
+      color: Colors.primary,
+      fontWeight: FontWeights.medium,
+    },
+    postPollBtn: {
+      borderRadius: BorderRadius.md,
+      backgroundColor: Colors.primary,
+      paddingVertical: Spacing.md,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: Spacing.sm,
+      marginBottom: Spacing.xl,
+    },
+    postPollBtnText: {
+      fontSize: FontSizes.md,
+      fontWeight: FontWeights.semibold,
+      color: '#ffffff',
+    },
+    // ────────────────────────────────────────────────────────────────────
     input: {
       flex: 1,
       backgroundColor: 'transparent',

@@ -16,6 +16,7 @@ import {
   Alert,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { CompositeNavigationProp } from '@react-navigation/native';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
@@ -545,7 +546,14 @@ export default function ChatScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
+      <LinearGradient
+        colors={['#F5E6D8', '#EDEBFF', '#DFF3EE']}
+        style={StyleSheet.absoluteFillObject}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 1 }}
+      />
+
+      {/* Floating Header */}
       <View style={styles.header}>
         <View>
           <Text style={styles.headerTitle}>Messages</Text>
@@ -555,17 +563,17 @@ export default function ChatScreen() {
           style={styles.composeButton}
           onPress={() => setShowComposeMenu(true)}
         >
-          <MaterialIcons name="person-add-alt-1" size={20} color={Colors.primary} />
+          <MaterialIcons name="person-add-alt-1" size={20} color="#6366F1" />
         </TouchableOpacity>
       </View>
 
       <View style={styles.searchSection}>
         <View style={styles.searchBar}>
-          <MaterialIcons name="search" size={20} color={Colors.textSecondary} />
+          <MaterialIcons name="search" size={20} color="#9CA3AF" />
           <TextInput
             style={styles.searchInput}
             placeholder="Type chat name or message"
-            placeholderTextColor={Colors.textSecondary}
+            placeholderTextColor="#9CA3AF"
             value={searchInput}
             onChangeText={setSearchInput}
             returnKeyType="search"
@@ -573,7 +581,7 @@ export default function ChatScreen() {
           />
           {!!searchInput && (
             <TouchableOpacity onPress={clearSearch}>
-              <MaterialIcons name="close" size={18} color={Colors.textSecondary} />
+              <MaterialIcons name="close" size={18} color="#9CA3AF" />
             </TouchableOpacity>
           )}
         </View>
@@ -594,11 +602,13 @@ export default function ChatScreen() {
                 <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>
                   {item.label}
                 </Text>
-                <View style={[styles.filterCountBadge, isActive && styles.filterCountBadgeActive]}>
-                  <Text style={[styles.filterCountText, isActive && styles.filterCountTextActive]}>
-                    {item.count}
-                  </Text>
-                </View>
+                {item.count > 0 && (
+                  <View style={[styles.filterCountBadge, isActive && styles.filterCountBadgeActive]}>
+                    <Text style={[styles.filterCountText, isActive && styles.filterCountTextActive]}>
+                      {item.count}
+                    </Text>
+                  </View>
+                )}
               </TouchableOpacity>
             );
           }}
@@ -616,10 +626,10 @@ export default function ChatScreen() {
         contentContainerStyle={styles.conversationsListContent}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6366F1" />}
         ListEmptyComponent={
           <View style={styles.emptyStateContainer}>
-            <MaterialIcons name="chat-bubble-outline" size={44} color={Colors.textSecondary} />
+            <MaterialIcons name="chat-bubble-outline" size={44} color="#9CA3AF" />
             <Text style={styles.emptyStateTitle}>No chats found</Text>
             <Text style={styles.emptyStateSubtext}>Start a new conversation from the compose button.</Text>
           </View>
@@ -634,8 +644,16 @@ export default function ChatScreen() {
           name: 'AI Assistant',
           isGroup: false
         })}
+        activeOpacity={0.85}
       >
-        <MaterialIcons name="auto-awesome" size={24} color="#fff" />
+        <LinearGradient
+          colors={['#8B5CF6', '#6366F1']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.aiChatFabGradient}
+        >
+          <MaterialIcons name="auto-awesome" size={24} color="#fff" />
+        </LinearGradient>
       </TouchableOpacity>
 
       <Modal
@@ -1057,68 +1075,65 @@ export default function ChatScreen() {
 const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: 'transparent',
     ...(Platform.OS === 'web' && ({ height: '100vh', width: '100vw' } as any)),
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: Spacing.md,
-    paddingTop: 14,
-    paddingBottom: 12,
-    backgroundColor: Colors.background,
+    marginHorizontal: Spacing.md,
+    marginTop: 8,
+    marginBottom: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
   },
   headerTitle: {
     fontSize: FontSizes.xxl,
     fontWeight: FontWeights.bold,
-    color: Colors.text,
+    color: '#111827',
   },
   headerSubtitle: {
     marginTop: 2,
     fontSize: FontSizes.sm,
-    color: Colors.textSecondary,
+    color: '#6B7280',
     fontWeight: FontWeights.medium,
   },
   composeButton: {
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: Colors.surface,
+    backgroundColor: '#EDEBFF',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: Colors.primary,
-    ...Shadows.sm,
+    shadowColor: '#6366F1',
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
   },
   searchSection: {
     marginHorizontal: Spacing.md,
-    marginTop: 4,
-    marginBottom: 8,
-    borderRadius: BorderRadius.xl,
+    marginBottom: 10,
     paddingHorizontal: Spacing.md,
-    paddingVertical: 12,
-    backgroundColor: Colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    paddingVertical: 4,
     gap: Spacing.sm,
-    ...Shadows.sm,
   },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.card,
-    borderRadius: BorderRadius.lg,
+    backgroundColor: 'rgba(255,255,255,0.6)',
+    borderRadius: 14,
     paddingHorizontal: 12,
-    paddingVertical: 11,
+    paddingVertical: 12,
     gap: 8,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: '#E5E7EB',
   },
   searchInput: {
     flex: 1,
     fontSize: FontSizes.md,
-    color: Colors.text,
+    color: '#111827',
   },
   filterRow: {
     gap: Spacing.sm,
@@ -1127,31 +1142,32 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   resultsCount: {
     fontSize: FontSizes.sm,
-    color: Colors.textSecondary,
+    color: '#6B7280',
     fontWeight: FontWeights.medium,
   },
   filterChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.xs,
-    paddingHorizontal: Spacing.md + 2,
-    paddingVertical: Spacing.xs + 4,
-    borderRadius: BorderRadius.full,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
     borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: Colors.card,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
   },
   filterChipActive: {
-    borderColor: Colors.primary,
-    backgroundColor: Colors.primarySoft,
+    borderColor: '#6366F1',
+    backgroundColor: '#EDEBFF',
   },
   filterChipText: {
     fontSize: FontSizes.sm,
-    color: Colors.textSecondary,
+    color: '#6B7280',
     fontWeight: FontWeights.medium,
   },
   filterChipTextActive: {
-    color: Colors.primaryContent,
+    color: '#6366F1',
+    fontWeight: FontWeights.semibold,
   },
   filterCountBadge: {
     minWidth: 18,
@@ -1160,18 +1176,18 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     paddingHorizontal: 4,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.card,
+    backgroundColor: '#F3F4F6',
   },
   filterCountBadgeActive: {
-    backgroundColor: Colors.surface,
+    backgroundColor: '#6366F1',
   },
   filterCountText: {
     fontSize: FontSizes.xs,
-    color: Colors.textSecondary,
+    color: '#6B7280',
     fontWeight: FontWeights.semibold,
   },
   filterCountTextActive: {
-    color: Colors.primaryContent,
+    color: '#FFFFFF',
   },
   conversationsListContent: {
     paddingHorizontal: Spacing.md,
@@ -1183,12 +1199,14 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     paddingHorizontal: Spacing.md,
     paddingVertical: 14,
     marginBottom: 10,
-    borderRadius: BorderRadius.lg,
+    borderRadius: 18,
     gap: 12,
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    ...Shadows.sm,
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 30,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 5,
   },
   avatarWrapper: {
     position: 'relative',
@@ -1276,11 +1294,11 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   conversationName: {
     fontSize: FontSizes.md,
     fontWeight: FontWeights.semibold,
-    color: Colors.text,
+    color: '#111827',
   },
   conversationTime: {
     fontSize: 12,
-    color: Colors.textSecondary,
+    color: '#9CA3AF',
   },
   metaRow: {
     marginBottom: 6,
@@ -1310,11 +1328,11 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   lastMessage: {
     flex: 1,
     fontSize: FontSizes.sm,
-    color: Colors.textSecondary,
+    color: '#6B7280',
   },
   lastMessageUnread: {
-    fontWeight: FontWeights.medium,
-    color: Colors.text,
+    fontWeight: '600',
+    color: '#111827',
   },
   seenIcon: {
     marginRight: 6,
@@ -1341,13 +1359,19 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: '#7c3aed',
+    zIndex: 20,
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowRadius: 30,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 10,
+  },
+  aiChatFabGradient: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#ffffff',
-    zIndex: 20,
-    ...Shadows.lg,
   },
   modalOverlayCenter: {
     flex: 1,

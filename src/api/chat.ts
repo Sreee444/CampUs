@@ -2083,25 +2083,51 @@ export const chatWithAI = async (_userId: string, prompt: string) => {
       projects = projectsResult.data || [];
       feedPosts = postsResult.data || [];
     } else {
+      // Detect if this is a generic "list all" query (no specific entity name).
+      // Generic indicator words left after entityHint stripping don't represent a real name.
+      const genericWords = new Set([
+        'all','show','list','get','find','see','are','is','happening','there','any','me','my',
+        'latest','recent','upcoming','current','new','scheduled','available','active','today',
+        'tomorrow','now','what','which','how','many','give','tell','some','few','next','last',
+        'have','has','been','going','on','up'
+      ]);
+      const isGenericListing = searchTerm.length < 3 ||
+        searchTerm.split(' ').every(w => w.length <= 2 || genericWords.has(w.toLowerCase()));
+
       const likeToken = `%${searchTerm}%`;
+      const now = new Date().toISOString();
+
       const [eventsResult, projectsResult, postsResult] = await Promise.all([
-        supabase
-          .from('events')
-          .select('id,title,description,start_date,end_date,venue,is_online,meeting_link')
-          .or(`title.ilike.${likeToken},description.ilike.${likeToken},venue.ilike.${likeToken}`)
-          .order('start_date', { ascending: true })
-          .limit(8),
-        supabase
-          .from('project_teams')
-          .select('id,name,description,status,category,is_recruiting,created_at,updated_at')
-          .or(`name.ilike.${likeToken},description.ilike.${likeToken},category.ilike.${likeToken}`)
-          .order('updated_at', { ascending: false })
-          .limit(8),
+        isGenericListing
+          ? supabase
+              .from('events')
+              .select('id,title,description,start_date,end_date,venue,is_online,meeting_link')
+              .gte('end_date', now)
+              .order('start_date', { ascending: true })
+              .limit(8)
+          : supabase
+              .from('events')
+              .select('id,title,description,start_date,end_date,venue,is_online,meeting_link')
+              .or(`title.ilike.${likeToken},description.ilike.${likeToken},venue.ilike.${likeToken}`)
+              .order('start_date', { ascending: true })
+              .limit(8),
+        isGenericListing
+          ? supabase
+              .from('project_teams')
+              .select('id,name,description,status,category,is_recruiting,created_at,updated_at')
+              .order('updated_at', { ascending: false })
+              .limit(8)
+          : supabase
+              .from('project_teams')
+              .select('id,name,description,status,category,is_recruiting,created_at,updated_at')
+              .or(`name.ilike.${likeToken},description.ilike.${likeToken},category.ilike.${likeToken}`)
+              .order('updated_at', { ascending: false })
+              .limit(8),
         supabase
           .from('feed_posts')
           .select('id,content,type,created_at')
           .eq('is_approved', true)
-          .ilike('content', likeToken)
+          .ilike('content', isGenericListing ? '%%' : likeToken)
           .order('created_at', { ascending: false })
           .limit(6),
       ]);
