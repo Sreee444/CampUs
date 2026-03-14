@@ -89,52 +89,6 @@ async function getGroqCompletion(userPrompt) {
   throw new Error(formatGroqError(lastError));
 }
 
-async function getChatCompletion(userMessage, systemPrompt) {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) {
-    throw new Error('GROQ_API_KEY is missing');
-  }
-
-  const models = buildModelList();
-  let lastError = null;
-
-  for (let index = 0; index < models.length; index += 1) {
-    const model = models[index];
-    try {
-      const response = await axios.post(
-        GROQ_URL,
-        {
-          model,
-          temperature: 0.7,
-          max_tokens: 512,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userMessage },
-          ],
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-          },
-          timeout: 30000,
-        }
-      );
-
-      return response?.data?.choices?.[0]?.message?.content || '';
-    } catch (error) {
-      lastError = error;
-      if (!isRetriableModelError(error) || index === models.length - 1) {
-        break;
-      }
-      console.warn(`[groqService] chat model failed: ${model}. Trying next...`);
-    }
-  }
-
-  throw new Error(formatGroqError(lastError));
-}
-
 module.exports = {
   getGroqCompletion,
-  getChatCompletion,
 };

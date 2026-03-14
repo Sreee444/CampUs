@@ -11,12 +11,8 @@
 
 import CryptoJS from "crypto-js";
 
-const DEV_FALLBACK_CHAT_SECRET = "campus-dev-chat-secret-change-me";
-
 const getChatSecret = () =>
-  process.env.NEXT_PUBLIC_CHAT_SECRET ||
-  process.env.EXPO_PUBLIC_CHAT_SECRET ||
-  (typeof __DEV__ !== "undefined" && __DEV__ ? DEV_FALLBACK_CHAT_SECRET : undefined);
+  process.env.NEXT_PUBLIC_CHAT_SECRET || process.env.EXPO_PUBLIC_CHAT_SECRET;
 
 let ivCounter = 0;
 
@@ -37,9 +33,7 @@ export const encryptMessage = (message) => {
   const secret = getChatSecret();
   if (!secret) {
     // Do NOT fallback to storing plaintext if the key is missing.
-    throw new Error(
-      "Missing chat encryption secret (EXPO_PUBLIC_CHAT_SECRET or NEXT_PUBLIC_CHAT_SECRET)"
-    );
+    throw new Error("Missing chat encryption secret (NEXT_PUBLIC_CHAT_SECRET)");
   }
 
   const plainText = typeof message === "string" ? message : String(message ?? "");

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -19,7 +19,6 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import { useAnimatedStyle, useSharedValue, withRepeat, withTiming, Easing } from 'react-native-reanimated';
 import { MaterialIcons } from '@expo/vector-icons';
-import EmojiPicker, { type EmojiType } from 'rn-emoji-keyboard';
 import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../../navigation/types';
@@ -63,8 +62,12 @@ import {
   setChatBackgroundImage,
   removeChatBackgroundImage,
   uploadChatBackgroundToStorage,
+  getPendingGroupJoinRequests,
+  reviewGroupJoinRequest,
 } from '../../api/chat';
 import { ConnectionWithProfile, getMyConnections } from '../../api/connections';
+import { getEvents } from '../../api/events';
+import { getProjectTeams } from '../../api/projects';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
 import ConfirmDialog from '../../components/ConfirmDialog';
@@ -209,6 +212,17 @@ type ChatMessage = {
   content?: string;
   created_at: string;
   seen_by_others?: boolean;
+  aiOptions?: Array<{
+    id: string;
+    label: string;
+    action: string;
+    itemType?: 'event' | 'project';
+    itemTitle?: string;
+  }>;
+  aiContext?: {
+    itemType?: 'event' | 'project';
+    itemTitle?: string;
+  };
   sender?: {
     id?: string;
     full_name?: string;
@@ -221,6 +235,17 @@ type GroupedReaction = {
   count: number;
   hasCurrentUser: boolean;
 };
+
+type ChatPollPayload = {
+  question: string;
+  options: string[];
+  allowsMultiple?: boolean;
+  createdBy?: string;
+  createdAt?: string;
+};
+
+const POLL_MESSAGE_PREFIX = '__poll__:';
+const POLL_REACTION_PREFIX = 'poll:';
 
 type GroupParticipant = {
   id: string;
@@ -236,6 +261,30 @@ type GroupParticipant = {
     bio?: string;
   };
 };
+
+const createAiMessage = (
+  content: string,
+  options?: ChatMessage['aiOptions'],
+  aiContext?: ChatMessage['aiContext']
+): ChatMessage => ({
+  id: `${Date.now()}-ai-${Math.random().toString(36).slice(2, 8)}`,
+  content,
+  sender_id: 'ai',
+  created_at: new Date().toISOString(),
+  aiOptions: options,
+  aiContext,
+  sender: {
+    id: 'ai',
+    full_name: 'Campus AI',
+  },
+});
+
+const createUserDraftMessage = (content: string, senderId: string): ChatMessage => ({
+  id: `${Date.now()}-self-${Math.random().toString(36).slice(2, 8)}`,
+  content,
+  sender_id: senderId,
+  created_at: new Date().toISOString(),
+});
 
 export default function ChatConversationScreen() {
   const navigation = useNavigation<ChatConversationScreenNavigationProp>();
@@ -265,6 +314,7 @@ export default function ChatConversationScreen() {
   const [groupNameDraft, setGroupNameDraft] = useState('');
   const [groupAvatarDraft, setGroupAvatarDraft] = useState('');
   const [groupBioDraft, setGroupBioDraft] = useState('');
+  const [groupVisibilityDraft, setGroupVisibilityDraft] = useState<'private' | 'public'>('private');
   const [isUploadingGroupAvatar, setIsUploadingGroupAvatar] = useState(false);
   const [groupDetails, setGroupDetails] = useState<any>(null);
   const [groupMembers, setGroupMembers] = useState<GroupParticipant[]>([]);
@@ -274,6 +324,9 @@ export default function ChatConversationScreen() {
   const [loadingConnections, setLoadingConnections] = useState(false);
   const [isAddingMembers, setIsAddingMembers] = useState(false);
   const [isSavingGroup, setIsSavingGroup] = useState(false);
+  const [pendingGroupJoinRequests, setPendingGroupJoinRequests] = useState<any[]>([]);
+  const [isLoadingGroupJoinRequests, setIsLoadingGroupJoinRequests] = useState(false);
+  const [activeJoinReviewId, setActiveJoinReviewId] = useState<string | null>(null);
   const [showPinnedMessages, setShowPinnedMessages] = useState(false);
   const [pinnedMessageCount, setPinnedMessageCount] = useState(0);
   const [latestPinnedMessage, setLatestPinnedMessage] = useState<any>(null);
@@ -288,6 +341,10 @@ export default function ChatConversationScreen() {
   const [isCreatingAnnouncement, setIsCreatingAnnouncement] = useState(false);
   const [chatTheme, setChatTheme] = useState<ChatTheme>(CHAT_THEMES[0]);
   const [showThemePicker, setShowThemePicker] = useState(false);
+  const [showCreatePoll, setShowCreatePoll] = useState(false);
+  const [pollQuestion, setPollQuestion] = useState('');
+  const [pollOptions, setPollOptions] = useState<string[]>(['', '']);
+  const [isCreatingPoll, setIsCreatingPoll] = useState(false);
   const [messageReactions, setMessageReactions] = useState<Map<string, ChatMessageReaction[]>>(new Map());
   const [reactionPickerVisible, setReactionPickerVisible] = useState(false);
   const [reactionTargetMessageId, setReactionTargetMessageId] = useState<string | null>(null);
@@ -296,7 +353,6 @@ export default function ChatConversationScreen() {
   const [backgroundImageUrl, setBackgroundImageUrl] = useState<string | null>(null);
   const [showBackgroundPicker, setShowBackgroundPicker] = useState(false);
   const [isLoadingBackground, setIsLoadingBackground] = useState(false);
-  const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
   const announcementPulse = useSharedValue(1);
   const announcementSlide = useSharedValue(-100);
   const announcementScale = useSharedValue(0.95);
@@ -306,67 +362,6 @@ export default function ChatConversationScreen() {
   const typingStopTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingSignalAtRef = useRef(0);
   const reactionChoices = ['👍', '❤️', '😂', '😮', '😢', '👏'];
-
-  // ── Chat poll ──────────────────────────────────────────────────────────
-  const CHAT_POLL_PREFIX = '__chat_poll__:';
-  const CHAT_VOTE_PREFIX = '__chat_vote__:';
-
-  type ChatPollPayload = { question: string; options: string[]; createdBy?: string };
-  type ChatVotePayload = { pollMessageId: string; optionIndex: number };
-
-  const parseChatPoll = (content?: string | null): ChatPollPayload | null => {
-    if (!content?.startsWith(CHAT_POLL_PREFIX)) return null;
-    try { return JSON.parse(content.slice(CHAT_POLL_PREFIX.length)); } catch { return null; }
-  };
-  const parseChatVote = (content?: string | null): ChatVotePayload | null => {
-    if (!content?.startsWith(CHAT_VOTE_PREFIX)) return null;
-    try { return JSON.parse(content.slice(CHAT_VOTE_PREFIX.length)); } catch { return null; }
-  };
-
-  const [showPollModal, setShowPollModal] = useState(false);
-  const [pollQuestion, setPollQuestion] = useState('');
-  const [pollOptions, setPollOptions] = useState<string[]>(['', '']);
-  const [isCreatingPoll, setIsCreatingPoll] = useState(false);
-
-  const handleSendPoll = async () => {
-    if (!conversationId || !user?.id) return;
-    const trimmedQ = pollQuestion.trim();
-    const validOpts = pollOptions.map(o => o.trim()).filter(Boolean);
-    if (!trimmedQ) { Toast.show({ type: 'error', text1: 'Please enter a question' }); return; }
-    if (validOpts.length < 2) { Toast.show({ type: 'error', text1: 'Add at least 2 options' }); return; }
-    try {
-      setIsCreatingPoll(true);
-      const payload: ChatPollPayload = { question: trimmedQ, options: validOpts, createdBy: user.id };
-      await sendMessage(conversationId, user.id, `${CHAT_POLL_PREFIX}${JSON.stringify(payload)}`, 'text');
-      setPollQuestion('');
-      setPollOptions(['', '']);
-      setShowPollModal(false);
-    } catch (err: any) {
-      Toast.show({ type: 'error', text1: 'Failed to create poll', text2: err?.message });
-    } finally {
-      setIsCreatingPoll(false);
-    }
-  };
-
-  const handleChatPollVote = async (pollMessageId: string, optionIndex: number) => {
-    if (!conversationId || !user?.id) return;
-    const latestMyVoteMessage = [...messages].reverse().find(m => {
-      const v = parseChatVote(m.content);
-      return v?.pollMessageId === pollMessageId && m.sender_id === user.id;
-    });
-    const previousVote = latestMyVoteMessage ? parseChatVote(latestMyVoteMessage.content) : null;
-    try {
-      if (previousVote?.optionIndex === optionIndex) {
-        // Send -1 to represent vote removal.
-        await sendMessage(conversationId, user.id, `${CHAT_VOTE_PREFIX}${JSON.stringify({ pollMessageId, optionIndex: -1 })}`, 'text');
-      } else {
-        await sendMessage(conversationId, user.id, `${CHAT_VOTE_PREFIX}${JSON.stringify({ pollMessageId, optionIndex })}`, 'text');
-      }
-    } catch (err: any) {
-      Toast.show({ type: 'error', text1: 'Vote failed', text2: err?.message });
-    }
-  };
-  // ────────────────────────────────────────────────────────────────────────
 
   const TYPING_IDLE_MS = 2200;
   const TYPING_HEARTBEAT_MS = 1400;
@@ -411,7 +406,9 @@ export default function ChatConversationScreen() {
 
     const loadBackground = async () => {
       try {
-        const preference = await getChatPreference(user.id, conversationId);
+        const preference = (await getChatPreference(user.id, conversationId)) as
+          | { background_image_url?: string | null }
+          | null;
         if (preference?.background_image_url) {
           setBackgroundImageUrl(preference.background_image_url);
         }
@@ -430,14 +427,42 @@ export default function ChatConversationScreen() {
     Toast.show({ type: 'success', text1: `${theme.label} theme applied` });
   };
 
-  const handleEmojiSelected = React.useCallback((selection: EmojiType) => {
-    setMessageText((prev) => `${prev}${selection.emoji}`);
-    setIsEmojiPickerOpen(false);
-    sendTypingSignal();
-    requestAnimationFrame(() => {
-      messageInputRef.current?.focus();
+  const parsePollPayload = useCallback((content?: string): ChatPollPayload | null => {
+    if (!content || !content.startsWith(POLL_MESSAGE_PREFIX)) return null;
+    try {
+      const raw = content.slice(POLL_MESSAGE_PREFIX.length);
+      const parsed = JSON.parse(raw) as ChatPollPayload;
+      const validOptions = Array.isArray(parsed.options)
+        ? parsed.options.map((item) => `${item || ''}`.trim()).filter(Boolean)
+        : [];
+      if (!parsed.question?.trim() || validOptions.length < 2) return null;
+      return {
+        ...parsed,
+        question: parsed.question.trim(),
+        options: validOptions,
+      };
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const getPollReactionKey = (optionIndex: number) => `${POLL_REACTION_PREFIX}${optionIndex}`;
+
+  const resetPollDraft = () => {
+    setPollQuestion('');
+    setPollOptions(['', '']);
+  };
+
+  const updatePollOption = (index: number, value: string) => {
+    setPollOptions((prev) => prev.map((item, idx) => (idx === index ? value : item)));
+  };
+
+  const addPollOptionField = () => {
+    setPollOptions((prev) => {
+      if (prev.length >= 6) return prev;
+      return [...prev, ''];
     });
-  }, [sendTypingSignal]);
+  };
 
   const headerChromeColor = useMemo(
     () => withHexAlpha(chatTheme.bubbleColor, backgroundImageUrl ? 0.28 : 0.16),
@@ -464,6 +489,153 @@ export default function ChatConversationScreen() {
       );
     });
   };
+
+  const appendAiSequence = React.useCallback((nextEntries: ChatMessage[]) => {
+    setMessages((prev) => [...prev, ...nextEntries]);
+  }, []);
+
+  const buildAiItemQuestion = React.useCallback((itemType: 'event' | 'project', itemTitle: string) => {
+    if (itemType === 'event') {
+      return createAiMessage(
+        `What should I tell you about ${itemTitle}?`,
+        [
+          { id: `${itemTitle}-details`, label: 'Details', action: 'event-details', itemType, itemTitle },
+          { id: `${itemTitle}-venue`, label: 'Venue', action: 'event-venue', itemType, itemTitle },
+          { id: `${itemTitle}-date`, label: 'Date & time', action: 'event-date', itemType, itemTitle },
+          { id: `${itemTitle}-status`, label: 'Status', action: 'event-status', itemType, itemTitle },
+        ],
+        { itemType, itemTitle }
+      );
+    }
+
+    return createAiMessage(
+      `What should I tell you about ${itemTitle}?`,
+      [
+        { id: `${itemTitle}-details`, label: 'Details', action: 'project-details', itemType, itemTitle },
+        { id: `${itemTitle}-status`, label: 'Status', action: 'project-status', itemType, itemTitle },
+        { id: `${itemTitle}-recruiting`, label: 'Recruiting', action: 'project-recruiting', itemType, itemTitle },
+      ],
+      { itemType, itemTitle }
+    );
+  }, []);
+
+  const seedAiChat = React.useCallback(async () => {
+    if (!user?.id) {
+      setMessages([
+        createAiMessage('Ask me about events, projects, dates, venues, or titles to get live campus details.'),
+      ]);
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      const [upcomingEvents, recruitingProjects] = await Promise.all([
+        getEvents(user.id, undefined, 'upcoming'),
+        getProjectTeams(user.id, true),
+      ]);
+
+      const upcomingEventOptions = (upcomingEvents || []).slice(0, 4).map((event: any) => ({
+        id: `event-${event.id}`,
+        label: event.title,
+        action: 'select-event',
+        itemType: 'event' as const,
+        itemTitle: event.title,
+      }));
+
+      const projectOptions = (recruitingProjects || []).slice(0, 4).map((project: any) => ({
+        id: `project-${project.id}`,
+        label: project.name,
+        action: 'select-project',
+        itemType: 'project' as const,
+        itemTitle: project.name,
+      }));
+
+      const seededMessages: ChatMessage[] = [
+        createAiMessage(
+          'Here are some upcoming events. Pick one and I will guide you with venue, details, date, or status.',
+          upcomingEventOptions.length ? upcomingEventOptions : undefined
+        ),
+        createAiMessage(
+          'Here are some active projects. Pick one and I will help with details, status, or recruiting info.',
+          projectOptions.length ? projectOptions : undefined
+        ),
+        createAiMessage('You can also type an event or project title directly and I will show its details.'),
+      ];
+
+      setMessages(seededMessages);
+    } catch (error) {
+      console.error('Failed to seed AI chat:', error);
+      setMessages([
+        createAiMessage('Ask me about events, projects, dates, venues, or titles to get live campus details.'),
+      ]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user?.id]);
+
+  const handleAiOptionPress = React.useCallback(async (option: NonNullable<ChatMessage['aiOptions']>[number]) => {
+    if (!user?.id || isSending) return;
+
+    const title = option.itemTitle || option.label;
+    const userMessage = createUserDraftMessage(option.label, user.id);
+    appendAiSequence([userMessage]);
+
+    if (option.action === 'select-event' && title) {
+      appendAiSequence([buildAiItemQuestion('event', title)]);
+      return;
+    }
+
+    if (option.action === 'select-project' && title) {
+      appendAiSequence([buildAiItemQuestion('project', title)]);
+      return;
+    }
+
+    setIsSending(true);
+    try {
+      let prompt = title;
+
+      if (option.action === 'event-details') prompt = `Give event details for ${title}`;
+      if (option.action === 'event-venue') prompt = `What is the venue of event ${title}`;
+      if (option.action === 'event-date') prompt = `What is the date and time of event ${title}`;
+      if (option.action === 'event-status') prompt = `What is the status of event ${title}`;
+      if (option.action === 'project-details') prompt = `Give project details for ${title}`;
+      if (option.action === 'project-status') prompt = `What is the status of project ${title}`;
+      if (option.action === 'project-recruiting') prompt = `Is project ${title} recruiting`;
+
+      const aiResponse = await chatWithAI(user.id, prompt);
+      appendAiSequence([
+        createAiMessage(aiResponse, title && option.itemType ? [
+          {
+            id: `${title}-again-1`,
+            label: option.itemType === 'event' ? 'More details' : 'Details',
+            action: option.itemType === 'event' ? 'event-details' : 'project-details',
+            itemType: option.itemType,
+            itemTitle: title,
+          },
+          {
+            id: `${title}-again-2`,
+            label: 'Status',
+            action: option.itemType === 'event' ? 'event-status' : 'project-status',
+            itemType: option.itemType,
+            itemTitle: title,
+          },
+          ...(option.itemType === 'event'
+            ? [{ id: `${title}-again-3`, label: 'Venue', action: 'event-venue', itemType: 'event' as const, itemTitle: title }]
+            : [{ id: `${title}-again-3`, label: 'Recruiting', action: 'project-recruiting', itemType: 'project' as const, itemTitle: title }]),
+        ] : undefined, { itemType: option.itemType, itemTitle: title })
+      ]);
+    } catch (error) {
+      console.error('Failed AI option request:', error);
+      Toast.show({
+        type: 'error',
+        text1: 'AI request failed',
+        text2: error instanceof Error ? error.message : 'Unknown error',
+      });
+    } finally {
+      setIsSending(false);
+    }
+  }, [appendAiSequence, buildAiItemQuestion, isSending, user?.id]);
 
   const clearTypingStopTimeout = () => {
     if (typingStopTimeoutRef.current) {
@@ -504,8 +676,28 @@ export default function ChatConversationScreen() {
       setGroupNameDraft(details?.group_name || '');
       setGroupAvatarDraft(details?.group_avatar || '');
       setGroupBioDraft(details?.group_bio || '');
+      setGroupVisibilityDraft(details?.group_visibility === 'public' ? 'public' : 'private');
     } catch (error) {
       console.error('Failed to load group details:', error);
+    }
+  };
+
+  const loadPendingJoinRequests = async () => {
+    if (!conversationId || !isGroup || !user?.id || !canManageGroup) return;
+
+    try {
+      setIsLoadingGroupJoinRequests(true);
+      const data = await getPendingGroupJoinRequests(conversationId, user.id);
+      setPendingGroupJoinRequests(data || []);
+    } catch (error: any) {
+      const message = `${error?.message || ''}`.toLowerCase();
+      if (message.includes('not enabled') || message.includes('group_join_requests')) {
+        setPendingGroupJoinRequests([]);
+        return;
+      }
+      console.error('Failed to load group join requests:', error);
+    } finally {
+      setIsLoadingGroupJoinRequests(false);
     }
   };
 
@@ -631,9 +823,10 @@ export default function ChatConversationScreen() {
 
           const newMessage = {
             ...payload.new,
-            content: typeof payload.new.content === 'string' && payload.new.content
-              ? decryptMessage(payload.new.content)
-              : payload.new.content,
+            content:
+              typeof payload.new?.content === 'string' && payload.new.content
+                ? decryptMessage(payload.new.content)
+                : payload.new?.content,
             sender: senderData || undefined,
           } as ChatMessage;
 
@@ -685,16 +878,35 @@ export default function ChatConversationScreen() {
     };
   }, [conversationId, user?.id, isAIChat, isGroup]);
 
-  const visibleMessages = useMemo(
-    () => messages.filter((message) => !parseChatVote(message.content)),
-    [messages]
-  );
+  useEffect(() => {
+    if (!isAIChat) return;
+    seedAiChat();
+  }, [isAIChat, seedAiChat]);
 
   useEffect(() => {
-    if (!visibleMessages.length || showMessageSearch) return;
+    const canManageCurrentGroup =
+      !!user?.id &&
+      isGroup &&
+      (groupDetails?.created_by === user.id ||
+        groupMembers.some((participant) => participant.user_id === user.id && participant.is_admin));
+
+    if (showGroupMembers && canManageCurrentGroup) {
+      loadPendingJoinRequests();
+    }
+  }, [
+    showGroupMembers,
+    isGroup,
+    groupDetails?.created_by,
+    groupMembers,
+    user?.id,
+    loadPendingJoinRequests,
+  ]);
+
+  useEffect(() => {
+    if (!messages.length || showMessageSearch) return;
     const timeout = setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
     return () => clearTimeout(timeout);
-  }, [visibleMessages.length, showMessageSearch]);
+  }, [messages.length, showMessageSearch]);
 
   useEffect(() => {
     if (!conversationId || isAIChat || !user?.id) {
@@ -790,21 +1002,9 @@ export default function ChatConversationScreen() {
     try {
       if (isAIChat) {
         const aiResponse = await chatWithAI(user?.id || '', content);
-        const now = new Date().toISOString();
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `${Date.now()}-self`,
-            content,
-            sender_id: user?.id || 'self',
-            created_at: now,
-          },
-          {
-            id: `${Date.now()}-ai`,
-            content: aiResponse,
-            sender_id: 'ai',
-            created_at: now,
-          },
+        appendAiSequence([
+          createUserDraftMessage(content, user?.id || 'self'),
+          createAiMessage(aiResponse),
         ]);
       } else if (conversationId && user?.id) {
         await sendMessage(conversationId, user.id, content, 'text');
@@ -820,6 +1020,69 @@ export default function ChatConversationScreen() {
       setReplyingTo(originalReply);
     } finally {
       setIsSending(false);
+    }
+  };
+
+  const handleCreatePoll = async () => {
+    if (!isGroup || !conversationId || !user?.id) return;
+
+    const question = pollQuestion.trim();
+    const options = pollOptions.map((item) => item.trim()).filter(Boolean);
+    if (!question || options.length < 2) {
+      Toast.show({ type: 'error', text1: 'Add a question and at least 2 options' });
+      return;
+    }
+
+    try {
+      setIsCreatingPoll(true);
+      const payload: ChatPollPayload = {
+        question,
+        options,
+        allowsMultiple: false,
+        createdBy: user.id,
+        createdAt: new Date().toISOString(),
+      };
+      await sendMessage(conversationId, user.id, `${POLL_MESSAGE_PREFIX}${JSON.stringify(payload)}`, 'text');
+      resetPollDraft();
+      setShowCreatePoll(false);
+      Toast.show({ type: 'success', text1: 'Poll created' });
+    } catch (error: any) {
+      Toast.show({ type: 'error', text1: 'Failed to create poll', text2: error?.message || 'Try again' });
+    } finally {
+      setIsCreatingPoll(false);
+    }
+  };
+
+  const handlePollVote = async (messageId: string, payload: ChatPollPayload, optionIndex: number) => {
+    if (!user?.id || isAIChat) return;
+    if (!payload.options?.[optionIndex]) return;
+
+    const allReactions = messageReactions.get(messageId) || [];
+    const myPollVotes = allReactions.filter(
+      (reaction) =>
+        reaction.user_id === user.id &&
+        typeof reaction.emoji === 'string' &&
+        reaction.emoji.startsWith(POLL_REACTION_PREFIX)
+    );
+    const nextReactionKey = getPollReactionKey(optionIndex);
+    const hasCurrentVote = myPollVotes.some((reaction) => reaction.emoji === nextReactionKey);
+
+    try {
+      if (hasCurrentVote) {
+        await removeMessageReaction(messageId, nextReactionKey);
+        removeLocalReaction(messageId, nextReactionKey);
+        return;
+      }
+
+      for (const vote of myPollVotes) {
+        await removeMessageReaction(messageId, vote.emoji);
+        removeLocalReaction(messageId, vote.emoji);
+      }
+
+      await addMessageReaction(messageId, nextReactionKey);
+      upsertLocalReaction(messageId, nextReactionKey);
+    } catch (error: any) {
+      Toast.show({ type: 'error', text1: 'Failed to submit vote', text2: error?.message || 'Try again' });
     }
   };
 
@@ -869,6 +1132,7 @@ export default function ChatConversationScreen() {
         group_name: groupNameDraft,
         group_avatar: groupAvatarDraft || null,
         group_bio: groupBioDraft,
+        ...(isMainAdmin ? { group_visibility: groupVisibilityDraft } : {}),
       });
       await loadGroupDetails();
       setShowGroupEdit(false);
@@ -877,6 +1141,12 @@ export default function ChatConversationScreen() {
           type: 'info',
           text1: 'Group updated (partial)',
           text2: 'Name/image saved. Run DB migration to enable group bio.',
+        });
+      } else if (updatedConversation?.__groupVisibilityUnsupported) {
+        Toast.show({
+          type: 'info',
+          text1: 'Group updated (partial)',
+          text2: 'Run DB migration to enable public/private visibility.',
         });
       } else {
         Toast.show({ type: 'success', text1: 'Group updated' });
@@ -1172,12 +1442,12 @@ export default function ChatConversationScreen() {
 
   const filteredMessages = useMemo(() => {
     if (!showMessageSearch || !messageSearchQuery.trim()) {
-      return visibleMessages;
+      return messages;
     }
 
     const query = messageSearchQuery.trim().toLowerCase();
-    return visibleMessages.filter((message) => (message.content || '').toLowerCase().includes(query));
-  }, [visibleMessages, messageSearchQuery, showMessageSearch]);
+    return messages.filter((message) => (message.content || '').toLowerCase().includes(query));
+  }, [messages, messageSearchQuery, showMessageSearch]);
 
   const directPartnerId = useMemo(() => {
     if (isGroup || isAIChat || !user?.id) return null;
@@ -1360,8 +1630,36 @@ export default function ChatConversationScreen() {
     return groupDetails?.created_by === user.id || !!currentUserParticipant?.is_admin;
   }, [groupDetails?.created_by, currentUserParticipant?.is_admin, isGroup, user?.id]);
 
+  const isMainAdmin = useMemo(() => {
+    if (!isGroup || !user?.id) return false;
+    return groupDetails?.created_by === user.id;
+  }, [groupDetails?.created_by, isGroup, user?.id]);
+
+  const handleReviewJoinRequest = async (requestId: string, action: 'accept' | 'reject') => {
+    if (!conversationId || !user?.id) return;
+
+    try {
+      setActiveJoinReviewId(requestId);
+      await reviewGroupJoinRequest(conversationId, requestId, user.id, action);
+      await Promise.all([loadGroupDetails(), loadPendingJoinRequests()]);
+      Toast.show({
+        type: 'success',
+        text1: action === 'accept' ? 'Request accepted' : 'Request rejected',
+      });
+    } catch (error: any) {
+      Toast.show({
+        type: 'error',
+        text1: 'Action failed',
+        text2: error?.message || 'Please try again',
+      });
+    } finally {
+      setActiveJoinReviewId(null);
+    }
+  };
+
   const initials = getInitials(groupDetails?.group_name || name);
   const color = isAIChat ? Colors.primary : getAvatarColor(groupDetails?.group_name || name);
+  const groupVisibilityRingColor = groupDetails?.group_visibility === 'public' ? '#FF0000' : '#00FF00';
 
   const getDateLabel = (isoDate: string) => {
     const date = new Date(isoDate);
@@ -1493,6 +1791,23 @@ export default function ChatConversationScreen() {
     });
     const groupedReactions = getGroupedReactions(message.id);
     const groupedReactionEntries = Object.entries(groupedReactions);
+    const pollPayload = parsePollPayload(message.content);
+    const pollReactions = (messageReactions.get(message.id) || []).filter(
+      (reaction) => typeof reaction.emoji === 'string' && reaction.emoji.startsWith(POLL_REACTION_PREFIX)
+    );
+    const pollVoteCounts = pollPayload
+      ? pollPayload.options.map((_, optionIndex) => {
+          const key = getPollReactionKey(optionIndex);
+          return pollReactions.filter((reaction) => reaction.emoji === key).length;
+        })
+      : [];
+    const totalPollVotes = pollVoteCounts.reduce((sum, count) => sum + count, 0);
+    const myPollVoteIndex = pollPayload
+      ? pollPayload.options.findIndex((_, optionIndex) => {
+          const key = getPollReactionKey(optionIndex);
+          return pollReactions.some((reaction) => reaction.user_id === user?.id && reaction.emoji === key);
+        })
+      : -1;
     const messageLength = (message.content || '').trim().length;
     const bubbleWidthStyle =
       messageLength <= 12
@@ -1562,72 +1877,123 @@ export default function ChatConversationScreen() {
                 </Text>
               )}
               <View style={styles.messageContentWrap}>
-                {(() => {
-                  const poll = parseChatPoll(message.content);
-                  const voteData = parseChatVote(message.content);
-                  if (voteData) return null;
-                  if (!poll) return (
+                {pollPayload ? (
+                  <View style={[styles.pollCard, isMyMessage ? styles.myPollCard : styles.otherPollCard]}>
+                    <View style={styles.pollHeaderRow}>
+                      <MaterialIcons
+                        name="poll"
+                        size={16}
+                        color={isMyMessage ? chatTheme.textColor : chatTheme.incomingTextColor}
+                      />
+                      <Text
+                        style={[
+                          styles.pollHeaderLabel,
+                          { color: isMyMessage ? chatTheme.textColor : chatTheme.incomingTextColor },
+                        ]}
+                      >
+                        Poll
+                      </Text>
+                    </View>
                     <Text
                       style={[
-                        styles.messageText,
-                        isMyMessage
-                          ? [styles.myMessageText, { color: chatTheme.textColor }]
-                          : [styles.otherMessageText, { color: chatTheme.incomingTextColor }],
+                        styles.pollQuestion,
+                        { color: isMyMessage ? chatTheme.textColor : chatTheme.incomingTextColor },
                       ]}
                     >
-                      {message.content}
+                      {pollPayload.question}
                     </Text>
-                  );
-                  const allVotes = messages.filter(m => {
-                    const v = parseChatVote(m.content);
-                    return v?.pollMessageId === message.id;
-                  });
-                  const latestVotePerUser = new Map<string, { optionIndex: number }>();
-                  for (const vm of allVotes) {
-                    const v = parseChatVote(vm.content);
-                    if (v) latestVotePerUser.set(vm.sender_id, v);
-                  }
-                  const voteCounts = poll.options.map((_, i) =>
-                    Array.from(latestVotePerUser.values()).filter(v => v.optionIndex === i).length
-                  );
-                  const totalVotes = voteCounts.reduce((s, c) => s + c, 0);
-                  const myVote = latestVotePerUser.get(user?.id || '');
-                  return (
-                    <View style={styles.pollCard}>
-                      <View style={styles.pollCardHeader}>
-                        <MaterialIcons name="poll" size={15} color={Colors.primary} />
-                        <Text style={styles.pollCardLabel}>Poll</Text>
-                      </View>
-                      <Text style={styles.pollCardQuestion}>{poll.question}</Text>
-                      <Text style={styles.pollCardMeta}>{totalVotes} vote{totalVotes !== 1 ? 's' : ''}</Text>
-                      {poll.options.map((option, idx) => {
-                        const count = voteCounts[idx];
-                        const pct = totalVotes > 0 ? count / totalVotes : 0;
-                        const isSelected = myVote?.optionIndex === idx;
+                    <View style={styles.pollOptionsWrap}>
+                      {pollPayload.options.map((option, optionIndex) => {
+                        const votes = pollVoteCounts[optionIndex] || 0;
+                        const votePercent = totalPollVotes > 0 ? Math.round((votes / totalPollVotes) * 100) : 0;
+                        const isMyVote = myPollVoteIndex === optionIndex;
+
                         return (
                           <TouchableOpacity
-                            key={idx}
-                            style={styles.pollOptionRow}
-                            onPress={() => handleChatPollVote(message.id, idx)}
-                            activeOpacity={0.7}
+                            key={`${message.id}-poll-option-${optionIndex}`}
+                            style={[
+                              styles.pollOption,
+                              isMyVote && styles.pollOptionActive,
+                              isMyMessage && styles.pollOptionMine,
+                            ]}
+                            onPress={() => handlePollVote(message.id, pollPayload, optionIndex)}
+                            activeOpacity={0.8}
                           >
-                            <View style={styles.pollOptionTrack}>
-                              <View style={[styles.pollOptionFill, { width: `${Math.round(pct * 100)}%` as any }]} />
-                              <View style={styles.pollOptionInner}>
-                                <View style={[styles.pollOptionDot, isSelected && styles.pollOptionDotActive]}>
-                                  {isSelected && <MaterialIcons name="check" size={10} color="#fff" />}
-                                </View>
-                                <Text style={styles.pollOptionText} numberOfLines={2}>{option}</Text>
-                                <Text style={styles.pollOptionCount}>{count}</Text>
-                              </View>
+                            <View
+                              style={[
+                                styles.pollOptionProgress,
+                                {
+                                  width: `${votePercent}%`,
+                                  backgroundColor: isMyVote
+                                    ? 'rgba(34, 197, 94, 0.40)'
+                                    : 'rgba(34, 197, 94, 0.22)',
+                                },
+                              ]}
+                            />
+                            <View style={styles.pollOptionContent}>
+                              <Text
+                                style={[
+                                  styles.pollOptionText,
+                                  {
+                                    color: isMyMessage ? chatTheme.textColor : chatTheme.incomingTextColor,
+                                  },
+                                ]}
+                              >
+                                {option}
+                              </Text>
+                              <Text
+                                style={[
+                                  styles.pollVoteText,
+                                  {
+                                    color: isMyMessage ? chatTheme.timeColor : chatTheme.incomingTimeColor,
+                                  },
+                                ]}
+                              >
+                                {votes} • {votePercent}%
+                              </Text>
                             </View>
                           </TouchableOpacity>
                         );
                       })}
                     </View>
-                  );
-                })()}
+                    <Text
+                      style={[
+                        styles.pollFooter,
+                        {
+                          color: isMyMessage ? chatTheme.timeColor : chatTheme.incomingTimeColor,
+                        },
+                      ]}
+                    >
+                      {totalPollVotes} vote{totalPollVotes === 1 ? '' : 's'}
+                    </Text>
+                  </View>
+                ) : (
+                  <Text
+                    style={[
+                      styles.messageText,
+                      isMyMessage
+                        ? [styles.myMessageText, { color: chatTheme.textColor }]
+                        : [styles.otherMessageText, { color: chatTheme.incomingTextColor }],
+                    ]}
+                  >
+                    {message.content}
+                  </Text>
+                )}
               </View>
+              {!!message.aiOptions?.length && !isMyMessage && !pollPayload && (
+                <View style={styles.aiOptionsWrap}>
+                  {message.aiOptions.map((option) => (
+                    <TouchableOpacity
+                      key={option.id}
+                      style={styles.aiOptionChip}
+                      onPress={() => handleAiOptionPress(option)}
+                      disabled={isSending}
+                    >
+                      <Text style={styles.aiOptionChipText}>{option.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
               <View style={[styles.messageFooter, isMyMessage ? styles.myMessageFooter : styles.otherMessageFooter]}>
                 <Text
                   style={[
@@ -1650,7 +2016,7 @@ export default function ChatConversationScreen() {
               </View>
             </TouchableOpacity>
 
-            {groupedReactionEntries.length > 0 && (
+            {!pollPayload && groupedReactionEntries.length > 0 && (
               <View style={[styles.reactionRow, isMyMessage ? styles.myReactionRow : styles.otherReactionRow]}>
                 {groupedReactionEntries.map(([emoji, info]) => (
                   <TouchableOpacity
@@ -1701,7 +2067,9 @@ export default function ChatConversationScreen() {
           activeOpacity={0.8}
         >
           {isGroup && groupDetails?.group_avatar ? (
-            <Image source={{ uri: groupDetails.group_avatar }} style={styles.headerAvatarImage} />
+            <View style={[styles.groupVisibilityRingHeader, { borderColor: groupVisibilityRingColor }]}>
+              <Image source={{ uri: groupDetails.group_avatar }} style={styles.headerAvatarImage} />
+            </View>
           ) : !isGroup && directPartnerProfile ? (
             <UserAvatar
               uri={directPartnerProfile.avatar_url}
@@ -1711,8 +2079,16 @@ export default function ChatConversationScreen() {
               showRing={false}
             />
           ) : (
-            <View style={[styles.headerAvatar, { backgroundColor: color }]}>
-              <Text style={styles.headerAvatarText}>{initials}</Text>
+            <View
+              style={[
+                isGroup
+                  ? [styles.groupVisibilityRingHeader, { borderColor: groupVisibilityRingColor }]
+                  : undefined,
+              ]}
+            >
+              <View style={[styles.headerAvatar, { backgroundColor: color }]}>
+                <Text style={styles.headerAvatarText}>{initials}</Text>
+              </View>
             </View>
           )}
 
@@ -1978,13 +2354,6 @@ export default function ChatConversationScreen() {
                   { backgroundColor: Colors.surface, borderColor: composerBorderColor },
                 ]}
               >
-                <TouchableOpacity
-                  style={styles.emojiButton}
-                  onPress={() => setIsEmojiPickerOpen(true)}
-                >
-                  <MaterialIcons name="emoji-emotions" size={22} color={Colors.textSecondary} />
-                </TouchableOpacity>
-
                 <TextInput
                   ref={messageInputRef}
                   style={styles.input}
@@ -1997,22 +2366,36 @@ export default function ChatConversationScreen() {
                     }
                     sendTypingSignal();
                   }}
-                  placeholder="Type a message"
+                  placeholder={isAIChat ? 'Ask about an event, project, date, or pick an option above' : 'Type a message'}
                   placeholderTextColor={Colors.textSecondary}
                   multiline
                   maxLength={500}
                   editable={!isSending}
                 />
 
-                <TouchableOpacity
-                  style={styles.attachButton}
-                  onPress={() => isGroup
-                    ? setShowPollModal(true)
-                    : Toast.show({ type: 'info', text1: 'Attachments', text2: 'Attachment picker will be added next.' })
-                  }
-                >
-                  <MaterialIcons name={isGroup ? 'poll' : 'attach-file'} size={24} color={isGroup ? Colors.primary : Colors.textSecondary} />
-                </TouchableOpacity>
+                {isGroup && !isAIChat && (
+                  <TouchableOpacity
+                    style={styles.pollComposerButton}
+                    onPress={() => setShowCreatePoll(true)}
+                  >
+                    <MaterialIcons name="poll" size={22} color={Colors.primary} />
+                  </TouchableOpacity>
+                )}
+
+                {!isAIChat && (
+                  <TouchableOpacity
+                    style={styles.attachButton}
+                    onPress={() =>
+                      Toast.show({
+                        type: 'info',
+                        text1: 'Attachments',
+                        text2: 'Attachment picker will be added next.',
+                      })
+                    }
+                  >
+                    <MaterialIcons name="attach-file" size={24} color={Colors.textSecondary} />
+                  </TouchableOpacity>
+                )}
               </View>
 
               <TouchableOpacity
@@ -2034,88 +2417,6 @@ export default function ChatConversationScreen() {
           </KeyboardAvoidingView>
         </ImageBackground>
       )}
-
-      <EmojiPicker
-        open={isEmojiPickerOpen}
-        onClose={() => setIsEmojiPickerOpen(false)}
-        onEmojiSelected={handleEmojiSelected}
-      />
-
-      {/* Poll creation modal */}
-      <Modal
-        visible={showPollModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowPollModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.createPollModal}>
-            <View style={styles.createPollHeader}>
-              <Text style={styles.createPollTitle}>Create Poll</Text>
-              <TouchableOpacity onPress={() => setShowPollModal(false)}>
-                <MaterialIcons name="close" size={24} color={Colors.text} />
-              </TouchableOpacity>
-            </View>
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <Text style={styles.createPollFieldLabel}>Question</Text>
-              <TextInput
-                style={styles.createPollInput}
-                placeholder="Ask a question..."
-                placeholderTextColor={Colors.textSecondary}
-                value={pollQuestion}
-                onChangeText={setPollQuestion}
-                multiline
-                maxLength={200}
-              />
-              <Text style={styles.createPollFieldLabel}>Options</Text>
-              {pollOptions.map((opt, idx) => (
-                <View key={idx} style={styles.createPollOptionRow}>
-                  <TextInput
-                    style={[styles.createPollInput, { flex: 1, marginBottom: 0 }]}
-                    placeholder={`Option ${idx + 1}`}
-                    placeholderTextColor={Colors.textSecondary}
-                    value={opt}
-                    onChangeText={text => {
-                      const updated = [...pollOptions];
-                      updated[idx] = text;
-                      setPollOptions(updated);
-                    }}
-                    maxLength={100}
-                  />
-                  {pollOptions.length > 2 && (
-                    <TouchableOpacity
-                      style={styles.removeOptionBtn}
-                      onPress={() => setPollOptions(pollOptions.filter((_, i) => i !== idx))}
-                    >
-                      <MaterialIcons name="remove-circle-outline" size={22} color="#ef4444" />
-                    </TouchableOpacity>
-                  )}
-                </View>
-              ))}
-              {pollOptions.length < 6 && (
-                <TouchableOpacity
-                  style={styles.addPollOptionBtn}
-                  onPress={() => setPollOptions([...pollOptions, ''])}
-                >
-                  <MaterialIcons name="add-circle-outline" size={20} color={Colors.primary} />
-                  <Text style={styles.addPollOptionText}>Add option</Text>
-                </TouchableOpacity>
-              )}
-              <TouchableOpacity
-                style={[styles.postPollBtn, isCreatingPoll && { opacity: 0.6 }]}
-                onPress={handleSendPoll}
-                disabled={isCreatingPoll}
-              >
-                {isCreatingPoll
-                  ? <ActivityIndicator size="small" color="#fff" />
-                  : <Text style={styles.postPollBtnText}>Send Poll</Text>
-                }
-              </TouchableOpacity>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
       <Modal
         visible={showChatOptions}
         animationType="slide"
@@ -2259,12 +2560,96 @@ export default function ChatConversationScreen() {
               </TouchableOpacity>
             )}
 
+            {isGroup && !isAIChat && (
+              <TouchableOpacity
+                style={styles.optionRow}
+                onPress={() => {
+                  setShowChatOptions(false);
+                  setShowCreatePoll(true);
+                }}
+              >
+                <MaterialIcons name="poll" size={20} color={Colors.primary} />
+                <Text style={styles.optionText}>Create Poll</Text>
+              </TouchableOpacity>
+            )}
+
             <TouchableOpacity
               style={[styles.optionRow, styles.optionCancel]}
               onPress={() => setShowChatOptions(false)}
             >
               <MaterialIcons name="close" size={20} color={Colors.textSecondary} />
               <Text style={[styles.optionText, { color: Colors.textSecondary }]}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showCreatePoll}
+        animationType="slide"
+        transparent
+        onRequestClose={() => {
+          setShowCreatePoll(false);
+          resetPollDraft();
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.optionsSheet}>
+            <Text style={styles.optionsTitle}>Create Poll</Text>
+            <Text style={styles.themeSubtitle}>Ask a question and let members vote.</Text>
+
+            <TextInput
+              value={pollQuestion}
+              onChangeText={setPollQuestion}
+              placeholder="Poll question"
+              placeholderTextColor={Colors.textSecondary}
+              style={styles.pollInput}
+              maxLength={180}
+            />
+
+            <View style={styles.pollInputGroup}>
+              {pollOptions.map((option, optionIndex) => (
+                <TextInput
+                  key={`poll-option-${optionIndex}`}
+                  value={option}
+                  onChangeText={(value) => updatePollOption(optionIndex, value)}
+                  placeholder={`Option ${optionIndex + 1}`}
+                  placeholderTextColor={Colors.textSecondary}
+                  style={styles.pollInput}
+                  maxLength={80}
+                />
+              ))}
+            </View>
+
+            {pollOptions.length < 6 && (
+              <TouchableOpacity style={styles.optionRow} onPress={addPollOptionField}>
+                <MaterialIcons name="add-circle-outline" size={20} color={Colors.text} />
+                <Text style={styles.optionText}>Add Option</Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity
+              style={[styles.optionRow, styles.createPollButton, isCreatingPoll && { opacity: 0.7 }]}
+              onPress={handleCreatePoll}
+              disabled={isCreatingPoll}
+            >
+              {isCreatingPoll ? (
+                <ActivityIndicator size="small" color="#ffffff" />
+              ) : (
+                <MaterialIcons name="send" size={20} color="#ffffff" />
+              )}
+              <Text style={styles.createPollButtonText}>Post Poll</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.optionRow, styles.optionCancel]}
+              onPress={() => {
+                setShowCreatePoll(false);
+                resetPollDraft();
+              }}
+            >
+              <MaterialIcons name="close" size={20} color={Colors.textSecondary} />
+              <Text style={[styles.optionText, { color: Colors.textSecondary }]}>Cancel</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -2386,10 +2771,14 @@ export default function ChatConversationScreen() {
 
               <View style={styles.groupProfileMainRow}>
                 {groupDetails?.group_avatar ? (
-                  <Image source={{ uri: groupDetails.group_avatar }} style={styles.groupProfileAvatar} />
+                  <View style={[styles.groupVisibilityRingProfile, { borderColor: groupVisibilityRingColor }]}>
+                    <Image source={{ uri: groupDetails.group_avatar }} style={styles.groupProfileAvatar} />
+                  </View>
                 ) : (
-                  <View style={styles.groupProfileAvatarFallback}>
-                    <Text style={styles.groupProfileAvatarText}>{initials}</Text>
+                  <View style={[styles.groupVisibilityRingProfile, { borderColor: groupVisibilityRingColor }]}>
+                    <View style={styles.groupProfileAvatarFallback}>
+                      <Text style={styles.groupProfileAvatarText}>{initials}</Text>
+                    </View>
                   </View>
                 )}
                 <View style={styles.groupProfileInfo}>
@@ -2397,6 +2786,9 @@ export default function ChatConversationScreen() {
                     {groupDetails?.group_name || name}
                   </Text>
                   <Text style={styles.groupProfileMeta}>{groupMembers.length} members</Text>
+                  <Text style={styles.groupProfileVisibility}>
+                    {groupDetails?.group_visibility === 'public' ? 'Public group' : 'Private group'}
+                  </Text>
                   <Text
                     style={[
                       styles.groupProfileBio,
@@ -2411,6 +2803,69 @@ export default function ChatConversationScreen() {
             </View>
 
             <Text style={styles.membersSectionLabel}>Members</Text>
+
+            {canManageGroup && (
+              <View style={styles.joinRequestsSection}>
+                <View style={styles.joinRequestsHeader}>
+                  <Text style={styles.membersSectionLabel}>Pending Join Requests</Text>
+                  <TouchableOpacity onPress={loadPendingJoinRequests}>
+                    <MaterialIcons name="refresh" size={18} color={Colors.textSecondary} />
+                  </TouchableOpacity>
+                </View>
+
+                {isLoadingGroupJoinRequests ? (
+                  <View style={styles.membersLoadingWrap}>
+                    <ActivityIndicator size="small" color={Colors.primary} />
+                  </View>
+                ) : pendingGroupJoinRequests.length === 0 ? (
+                  <View style={styles.emptyMembersHint}>
+                    <Text style={styles.emptyMembersHintText}>No pending requests.</Text>
+                  </View>
+                ) : (
+                  pendingGroupJoinRequests.map((request) => (
+                    <View key={request.id} style={styles.joinRequestCard}>
+                      <View style={styles.memberMainInfo}>
+                        <UserAvatar
+                          uri={request.requester?.avatar_url}
+                          name={request.requester?.full_name || 'User'}
+                          size={38}
+                          showRing={false}
+                          role={request.requester?.role}
+                        />
+                        <View style={styles.memberTextWrap}>
+                          <Text style={styles.memberName}>{request.requester?.full_name || 'User'}</Text>
+                          <Text style={styles.memberMeta}>
+                            {request.requester?.department || request.requester?.role || 'Requested to join'}
+                          </Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.joinRequestActions}>
+                        <TouchableOpacity
+                          style={[styles.joinRequestButton, styles.joinRequestAccept]}
+                          onPress={() => handleReviewJoinRequest(request.id, 'accept')}
+                          disabled={activeJoinReviewId === request.id}
+                        >
+                          {activeJoinReviewId === request.id ? (
+                            <ActivityIndicator size="small" color="#ffffff" />
+                          ) : (
+                            <Text style={styles.joinRequestButtonText}>Accept</Text>
+                          )}
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={[styles.joinRequestButton, styles.joinRequestReject]}
+                          onPress={() => handleReviewJoinRequest(request.id, 'reject')}
+                          disabled={activeJoinReviewId === request.id}
+                        >
+                          <Text style={styles.joinRequestButtonText}>Reject</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ))
+                )}
+              </View>
+            )}
 
             <ScrollView showsVerticalScrollIndicator={false}>
               {groupMembers.map((member) => {
@@ -2638,6 +3093,60 @@ export default function ChatConversationScreen() {
               multiline
               maxLength={180}
             />
+
+            <Text style={styles.inputLabel}>Group visibility</Text>
+            <View style={styles.visibilityToggleRow}>
+              <TouchableOpacity
+                style={[
+                  styles.visibilityOption,
+                  groupVisibilityDraft === 'private' && styles.visibilityOptionActive,
+                ]}
+                onPress={() => isMainAdmin && setGroupVisibilityDraft('private')}
+                disabled={!isMainAdmin}
+              >
+                <MaterialIcons
+                  name="lock"
+                  size={16}
+                  color={groupVisibilityDraft === 'private' ? Colors.primaryContent : Colors.textSecondary}
+                />
+                <Text
+                  style={[
+                    styles.visibilityOptionText,
+                    groupVisibilityDraft === 'private' && styles.visibilityOptionTextActive,
+                  ]}
+                >
+                  Private
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.visibilityOption,
+                  groupVisibilityDraft === 'public' && styles.visibilityOptionActive,
+                ]}
+                onPress={() => isMainAdmin && setGroupVisibilityDraft('public')}
+                disabled={!isMainAdmin}
+              >
+                <MaterialIcons
+                  name="public"
+                  size={16}
+                  color={groupVisibilityDraft === 'public' ? Colors.primaryContent : Colors.textSecondary}
+                />
+                <Text
+                  style={[
+                    styles.visibilityOptionText,
+                    groupVisibilityDraft === 'public' && styles.visibilityOptionTextActive,
+                  ]}
+                >
+                  Public
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.visibilityHelpText}>
+              {isMainAdmin
+                ? 'Public groups are searchable and users can request to join. Private groups stay invite-only.'
+                : 'Only the main admin can change visibility.'}
+            </Text>
 
             <TouchableOpacity
               style={[styles.optionRow, styles.primaryOption]}
@@ -3093,6 +3602,11 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       borderRadius: 20,
       backgroundColor: Colors.card,
     },
+    groupVisibilityRingHeader: {
+      borderWidth: 2,
+      borderRadius: 22,
+      padding: 1,
+    },
     headerAvatarText: {
       fontSize: 16,
       fontWeight: FontWeights.bold,
@@ -3411,6 +3925,25 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     messageContentWrap: {
       paddingRight: 2,
     },
+    aiOptionsWrap: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+      marginTop: 10,
+    },
+    aiOptionChip: {
+      borderRadius: BorderRadius.full,
+      borderWidth: 1,
+      borderColor: Colors.primary,
+      backgroundColor: `${Colors.primary}15`,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+    },
+    aiOptionChipText: {
+      fontSize: FontSizes.sm,
+      color: Colors.primary,
+      fontWeight: FontWeights.semibold,
+    },
     messageText: {
       fontSize: FontSizes.md,
       lineHeight: 21,
@@ -3508,6 +4041,82 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     reactionPillCountActive: {
       color: Colors.primary,
     },
+    pollCard: {
+      borderRadius: BorderRadius.md,
+      borderWidth: 1,
+      padding: Spacing.sm,
+      gap: 8,
+    },
+    myPollCard: {
+      borderColor: 'rgba(255,255,255,0.28)',
+      backgroundColor: 'rgba(255,255,255,0.08)',
+    },
+    otherPollCard: {
+      borderColor: Colors.border,
+      backgroundColor: Colors.surface,
+    },
+    pollHeaderRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    pollHeaderLabel: {
+      fontSize: FontSizes.xs,
+      fontWeight: FontWeights.semibold,
+      textTransform: 'uppercase',
+      letterSpacing: 0.4,
+    },
+    pollQuestion: {
+      fontSize: FontSizes.md,
+      fontWeight: FontWeights.semibold,
+      lineHeight: 20,
+    },
+    pollOptionsWrap: {
+      gap: 6,
+    },
+    pollOption: {
+      borderRadius: BorderRadius.md,
+      borderWidth: 1,
+      borderColor: Colors.border,
+      overflow: 'hidden',
+      position: 'relative',
+      backgroundColor: Colors.card,
+    },
+    pollOptionMine: {
+      borderColor: 'rgba(255,255,255,0.24)',
+      backgroundColor: 'rgba(255,255,255,0.06)',
+    },
+    pollOptionActive: {
+      borderColor: Colors.primary,
+    },
+    pollOptionProgress: {
+      position: 'absolute',
+      left: 0,
+      top: 0,
+      bottom: 0,
+      minWidth: 2,
+    },
+    pollOptionContent: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: Spacing.sm,
+      paddingVertical: 8,
+      gap: 8,
+    },
+    pollOptionText: {
+      flex: 1,
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.medium,
+    },
+    pollVoteText: {
+      fontSize: FontSizes.xs,
+      fontWeight: FontWeights.semibold,
+    },
+    pollFooter: {
+      fontSize: FontSizes.xs,
+      fontWeight: FontWeights.medium,
+    },
     reactionPickerSheet: {
       width: '88%',
       maxWidth: 340,
@@ -3574,177 +4183,19 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       alignItems: 'center',
       borderWidth: 1,
       borderRadius: 24,
-      paddingLeft: 4,
+      paddingLeft: 10,
       paddingRight: 4,
       paddingVertical: 3,
       ...Shadows.sm,
-    },
-    emojiButton: {
-      padding: 8,
-      marginBottom: 1,
     },
     attachButton: {
       padding: 8,
       marginBottom: 1,
     },
-    // ── Poll styles ──────────────────────────────────────────────────────
-    pollCard: {
-      backgroundColor: Colors.surface,
-      borderRadius: 14,
-      padding: 12,
-      minWidth: 220,
-      borderWidth: 1,
-      borderColor: Colors.border,
+    pollComposerButton: {
+      padding: 8,
+      marginBottom: 1,
     },
-    pollCardHeader: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 5,
-      marginBottom: 6,
-    },
-    pollCardLabel: {
-      fontSize: 11,
-      fontWeight: '700' as const,
-      color: Colors.primary,
-      textTransform: 'uppercase',
-      letterSpacing: 0.5,
-    },
-    pollCardQuestion: {
-      fontSize: FontSizes.md,
-      fontWeight: FontWeights.semibold,
-      color: Colors.text,
-      marginBottom: 4,
-    },
-    pollCardMeta: {
-      fontSize: FontSizes.xs,
-      color: Colors.textSecondary,
-      marginBottom: 10,
-    },
-    pollOptionRow: {
-      marginBottom: 8,
-    },
-    pollOptionTrack: {
-      borderRadius: 8,
-      overflow: 'hidden',
-      backgroundColor: Colors.card,
-      borderWidth: 1,
-      borderColor: Colors.border,
-      position: 'relative',
-    },
-    pollOptionFill: {
-      position: 'absolute',
-      top: 0,
-      left: 0,
-      bottom: 0,
-      backgroundColor: Colors.primarySoft,
-      borderRadius: 8,
-    },
-    pollOptionInner: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      paddingHorizontal: 10,
-      paddingVertical: 8,
-      gap: 8,
-    },
-    pollOptionDot: {
-      width: 18,
-      height: 18,
-      borderRadius: 9,
-      borderWidth: 2,
-      borderColor: Colors.border,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: Colors.surface,
-    },
-    pollOptionDotActive: {
-      borderColor: Colors.primary,
-      backgroundColor: Colors.primary,
-    },
-    pollOptionText: {
-      flex: 1,
-      fontSize: FontSizes.sm,
-      color: Colors.text,
-    },
-    pollOptionCount: {
-      fontSize: FontSizes.xs,
-      fontWeight: FontWeights.semibold,
-      color: Colors.textSecondary,
-      minWidth: 16,
-      textAlign: 'right',
-    },
-    // Poll creation modal
-    createPollModal: {
-      backgroundColor: Colors.surface,
-      borderTopLeftRadius: 24,
-      borderTopRightRadius: 24,
-      padding: Spacing.lg,
-      maxHeight: '85%',
-    },
-    createPollHeader: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      marginBottom: Spacing.md,
-    },
-    createPollTitle: {
-      fontSize: FontSizes.lg,
-      fontWeight: FontWeights.bold,
-      color: Colors.text,
-    },
-    createPollFieldLabel: {
-      fontSize: FontSizes.sm,
-      fontWeight: FontWeights.semibold,
-      color: Colors.text,
-      marginBottom: 6,
-      marginTop: 4,
-    },
-    createPollInput: {
-      borderWidth: 1,
-      borderColor: Colors.border,
-      borderRadius: BorderRadius.md,
-      paddingHorizontal: Spacing.md,
-      paddingVertical: Spacing.sm,
-      fontSize: FontSizes.md,
-      color: Colors.text,
-      backgroundColor: Colors.card,
-      marginBottom: Spacing.sm,
-    },
-    createPollOptionRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: Spacing.sm,
-      marginBottom: Spacing.sm,
-    },
-    removeOptionBtn: {
-      padding: 4,
-    },
-    addPollOptionBtn: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-      paddingVertical: 8,
-      marginBottom: Spacing.sm,
-    },
-    addPollOptionText: {
-      fontSize: FontSizes.sm,
-      color: Colors.primary,
-      fontWeight: FontWeights.medium,
-    },
-    postPollBtn: {
-      borderRadius: BorderRadius.md,
-      backgroundColor: Colors.primary,
-      paddingVertical: Spacing.md,
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginTop: Spacing.sm,
-      marginBottom: Spacing.xl,
-    },
-    postPollBtnText: {
-      fontSize: FontSizes.md,
-      fontWeight: FontWeights.semibold,
-      color: '#ffffff',
-    },
-    // ────────────────────────────────────────────────────────────────────
     input: {
       flex: 1,
       backgroundColor: 'transparent',
@@ -3905,6 +4356,11 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       borderRadius: 25,
       backgroundColor: Colors.surface,
     },
+    groupVisibilityRingProfile: {
+      borderWidth: 2,
+      borderRadius: 27,
+      padding: 1,
+    },
     groupProfileAvatarFallback: {
       width: 50,
       height: 50,
@@ -3932,6 +4388,12 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       color: Colors.textSecondary,
       marginTop: 1,
     },
+    groupProfileVisibility: {
+      fontSize: FontSizes.xs,
+      color: Colors.primary,
+      marginTop: 2,
+      fontWeight: FontWeights.semibold,
+    },
     groupProfileBio: {
       fontSize: FontSizes.sm,
       color: Colors.textSecondary,
@@ -3940,6 +4402,48 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     groupProfileBioEmpty: {
       fontStyle: 'italic',
       opacity: 0.85,
+    },
+    joinRequestsSection: {
+      marginBottom: Spacing.md,
+      gap: Spacing.xs,
+    },
+    joinRequestsHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    joinRequestCard: {
+      borderWidth: 1,
+      borderColor: Colors.border,
+      borderRadius: BorderRadius.md,
+      backgroundColor: Colors.card,
+      padding: Spacing.sm,
+      marginBottom: Spacing.sm,
+      gap: Spacing.sm,
+    },
+    joinRequestActions: {
+      flexDirection: 'row',
+      gap: Spacing.sm,
+      justifyContent: 'flex-end',
+    },
+    joinRequestButton: {
+      borderRadius: BorderRadius.md,
+      paddingHorizontal: Spacing.md,
+      paddingVertical: 7,
+      minWidth: 78,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    joinRequestAccept: {
+      backgroundColor: Colors.success,
+    },
+    joinRequestReject: {
+      backgroundColor: Colors.error,
+    },
+    joinRequestButtonText: {
+      fontSize: FontSizes.sm,
+      color: '#ffffff',
+      fontWeight: FontWeights.semibold,
     },
     memberItem: {
       flexDirection: 'row',
@@ -4012,6 +4516,30 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     },
     optionCancel: {
       marginTop: Spacing.xs,
+    },
+    pollInputGroup: {
+      gap: 8,
+      marginBottom: Spacing.sm,
+    },
+    pollInput: {
+      borderWidth: 1,
+      borderColor: Colors.border,
+      borderRadius: BorderRadius.md,
+      backgroundColor: Colors.card,
+      color: Colors.text,
+      fontSize: FontSizes.md,
+      paddingHorizontal: Spacing.md,
+      paddingVertical: 10,
+    },
+    createPollButton: {
+      backgroundColor: Colors.primary,
+      borderColor: Colors.primary,
+      justifyContent: 'center',
+    },
+    createPollButtonText: {
+      fontSize: FontSizes.md,
+      color: '#ffffff',
+      fontWeight: FontWeights.semibold,
     },
     themeSubtitle: {
       fontSize: FontSizes.sm,
@@ -4098,6 +4626,41 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     groupBioInput: {
       minHeight: 90,
       textAlignVertical: 'top',
+    },
+    visibilityToggleRow: {
+      flexDirection: 'row',
+      gap: Spacing.sm,
+      marginBottom: Spacing.xs,
+    },
+    visibilityOption: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      borderWidth: 1,
+      borderColor: Colors.border,
+      borderRadius: BorderRadius.md,
+      backgroundColor: Colors.card,
+      paddingVertical: Spacing.sm,
+    },
+    visibilityOptionActive: {
+      borderColor: Colors.primary,
+      backgroundColor: Colors.primary,
+    },
+    visibilityOptionText: {
+      fontSize: FontSizes.sm,
+      color: Colors.textSecondary,
+      fontWeight: FontWeights.medium,
+    },
+    visibilityOptionTextActive: {
+      color: Colors.primaryContent,
+      fontWeight: FontWeights.semibold,
+    },
+    visibilityHelpText: {
+      fontSize: FontSizes.xs,
+      color: Colors.textSecondary,
+      marginBottom: Spacing.sm,
     },
     groupAvatarEditorRow: {
       flexDirection: 'row',

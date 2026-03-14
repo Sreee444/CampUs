@@ -25,7 +25,6 @@ import {
 import { moderateText } from "./ai";
 import { isAdminRole } from '../utils/roles';
 import { encryptMessage, decryptMessage } from "../../utils/encryption";
-import { ENV } from '../config/env';
 
 const decryptContentField = (value: any) => {
   if (value == null) return value;
@@ -208,33 +207,19 @@ export const getConversations = async (userId: string) => {
     .filter((c: any) => c.last_message && c.last_message.sender_id === userId)
     .map((c: any) => c.last_message.id);
 
-  const seenReadersByMessage = new Map<string, Set<string>>();
+  const seenSet = new Set<string>();
   if (sentLastMessageIds.length > 0) {
     const { data: seenData } = await supabase
       .from("message_reads")
-      .select("message_id, user_id")
+      .select("message_id")
       .neq("user_id", userId)
       .in("message_id", sentLastMessageIds);
-
-    (seenData || []).forEach((r: any) => {
-      if (!r?.message_id || !r?.user_id) return;
-      const existing = seenReadersByMessage.get(r.message_id) || new Set<string>();
-      existing.add(r.user_id);
-      seenReadersByMessage.set(r.message_id, existing);
-    });
+    (seenData || []).forEach((r: any) => seenSet.add(r.message_id));
   }
 
   for (const conv of conversationsWithData) {
     if ((conv as any).last_message && (conv as any).last_message.sender_id === userId) {
-      const lastMessageId = (conv as any).last_message.id;
-      const readerCount = (seenReadersByMessage.get(lastMessageId) || new Set<string>()).size;
-      const participantCount = Array.isArray((conv as any).participants)
-        ? (conv as any).participants.length
-        : 0;
-      const requiredReaders = Math.max(participantCount - 1, 0);
-
-      (conv as any).last_message.seen_by_others =
-        requiredReaders > 0 && readerCount >= requiredReaders;
+      (conv as any).last_message.seen_by_others = seenSet.has((conv as any).last_message.id);
     }
   }
 
@@ -1043,15 +1028,6 @@ export const getMessages = async (
   limit = 50,
   offset = 0
 ) => {
-  const { data: participantsData } = await supabase
-    .from("conversation_participants")
-    .select("user_id")
-    .eq("conversation_id", conversationId)
-    .is("left_at", null);
-
-  const uniqueParticipantIds = new Set((participantsData || []).map((p: any) => p.user_id).filter(Boolean));
-  const otherParticipantCount = Array.from(uniqueParticipantIds).filter((id) => id !== userId).length;
-
   const { data, error } = await supabase
     .from("messages")
     .select(`*, sender: profiles!messages_sender_id_fkey(*)`)
@@ -1076,36 +1052,22 @@ export const getMessages = async (
     (readData || []).forEach((r: any) => readSet.add(r.message_id));
   }
 
-  // Check which of the current user's sent messages have been seen by others.
-  // Keep unique reader IDs per message so group UI can show "all seen" accurately.
+  // Check which of the current user's sent messages have been seen by others
   const sentMessageIds = msgs.filter((m: any) => m.sender_id === userId).map((m: any) => m.id);
-  const seenReadersByMessage = new Map<string, Set<string>>();
+  const seenByOthersSet = new Set<string>();
   if (sentMessageIds.length > 0) {
     const { data: seenData } = await supabase
       .from("message_reads")
-      .select("message_id, user_id")
+      .select("message_id")
       .neq("user_id", userId)
       .in("message_id", sentMessageIds);
-
-    (seenData || []).forEach((r: any) => {
-      if (!r?.message_id || !r?.user_id) return;
-      const existing = seenReadersByMessage.get(r.message_id) || new Set<string>();
-      existing.add(r.user_id);
-      seenReadersByMessage.set(r.message_id, existing);
-    });
+    (seenData || []).forEach((r: any) => seenByOthersSet.add(r.message_id));
   }
 
   return msgs.reverse().map((message: any) => ({
     ...decryptMessageObject(message),
     is_read: readSet.has(message.id),
-    seen_by_others:
-      message.sender_id === userId
-        ? otherParticipantCount > 0 && (seenReadersByMessage.get(message.id)?.size || 0) >= otherParticipantCount
-        : undefined,
-    seen_by_user_ids:
-      message.sender_id === userId
-        ? Array.from(seenReadersByMessage.get(message.id) || [])
-        : undefined,
+    seen_by_others: message.sender_id === userId ? seenByOthersSet.has(message.id) : undefined,
   })) as Message[];
 };
 
@@ -1644,7 +1606,7 @@ const isDetailIntent = (prompt: string) => {
 const extractEntityHint = (prompt: string) => {
   return prompt
     .toLowerCase()
-    .replace(/\b(give|show|tell|me|about|details|detail|info|information|project|projects|event|events|of|the|a|an|for|what|is|venue|location|where|date|time|status|and|how|can|should|do|i|prepare|preparation|ready|readiness|tips|tip|to)\b/g, ' ')
+    .replace(/\b(give|show|tell|me|about|details|detail|info|information|project|projects|event|events|of|the|a|an|for|what|is|venue|location|where|date|time|status|and)\b/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 };
@@ -1737,274 +1699,10 @@ const shouldAutoShowDetails = (
   return eventStrongMatch || projectStrongMatch;
 };
 
-// Try the Groq server first if configured, else use local smart AI
-const askGroqFallback = async (userMessage: string, venueHint?: string): Promise<string> => {
-  const baseUrl = (ENV.aiApiBaseUrl || '').trim().replace(/\/+$/, '');
-  if (baseUrl) {
-    try {
-      const response = await fetch(`${baseUrl}/ai/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userMessage }),
-      });
-      if (response.ok) {
-        const data = await response.json();
-        if (data?.reply) return data.reply;
-      }
-    } catch (_err) {
-      // server not reachable — fall through to local AI
-    }
-  }
-  return venueHint || smartLocalAI(userMessage);
-};
-
-const stripMarkdownCodeFence = (text: string) => {
-  const trimmed = text.trim();
-  if (!trimmed.startsWith('```')) return trimmed;
-  return trimmed
-    .replace(/^```[a-zA-Z0-9_-]*\s*/i, '')
-    .replace(/\s*```$/, '')
-    .trim();
-};
-
-const looksLikeCodeSnippet = (text: string) => {
-  const cleaned = stripMarkdownCodeFence(text);
-  const lines = cleaned.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  if (!lines.length) return false;
-
-  const codeSignalRegex = /(;|\{|\}|=>|\bfunction\b|\bclass\b|\breturn\b|\bif\b|\bfor\b|\bwhile\b|\bconst\b|\blet\b|\bvar\b|\bimport\b|\bfrom\b|\bdef\b|\bprint\(|\bconsole\.log\(|#include\s*<|public\s+static\s+void\s+main)/i;
-  const signalCount = lines.reduce((count, line) => count + (codeSignalRegex.test(line) ? 1 : 0), 0);
-  const indentationCount = lines.reduce((count, line) => count + (/^(\s{2,}|\t)/.test(line) ? 1 : 0), 0);
-
-  return signalCount >= 2 || (signalCount >= 1 && (lines.length >= 3 || indentationCount >= 1));
-};
-
-const detectCodeLanguage = (code: string) => {
-  const text = code.toLowerCase();
-  if (/\bimport\s+react\b|\bjsx\b|\btsx\b/.test(text)) return 'React/TypeScript';
-  if (/\binterface\b|:\s*(string|number|boolean|any)\b|\btype\b/.test(text)) return 'TypeScript';
-  if (/\bconst\b|\blet\b|=>|console\.log\(/.test(text)) return 'JavaScript';
-  if (/\bdef\b|\bprint\(|\bimport\s+[a-z_]+/.test(text)) return 'Python';
-  if (/\bpublic\s+class\b|system\.out\.println\(/.test(text)) return 'Java';
-  if (/#include\s*<|\bstd::|\bint\s+main\s*\(/.test(text)) return 'C/C++';
-  if (/\bselect\b.+\bfrom\b|\bwhere\b|\bjoin\b/.test(text)) return 'SQL';
-  return 'programming code';
-};
-
-const explainPastedCode = (input: string) => {
-  const code = stripMarkdownCodeFence(input);
-  const lines = code.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  const sample = lines.slice(0, 40);
-  const joined = sample.join(' ').toLowerCase();
-  const language = detectCodeLanguage(code);
-
-  const findings: string[] = [];
-  if (/\bfunction\b|=>|\bdef\b/.test(joined)) findings.push('Defines one or more functions/methods to organize logic.');
-  if (/\bif\b|\belse\b|\bswitch\b/.test(joined)) findings.push('Uses conditional branching to handle different cases.');
-  if (/\bfor\b|\bwhile\b|\.map\(|\.filter\(|\.reduce\(/.test(joined)) findings.push('Iterates over data to transform or process values.');
-  if (/\basync\b|\bawait\b|\.then\(|fetch\(|axios\./.test(joined)) findings.push('Performs asynchronous operations (likely API/network or async I/O).');
-  if (/try\s*\{|catch\s*\(/.test(joined)) findings.push('Includes error handling using try/catch patterns.');
-  if (/\bclass\b|constructor\s*\(/.test(joined)) findings.push('Uses class-based structure (object-oriented style).');
-  if (/console\.log\(|print\(/.test(joined)) findings.push('Prints/debugs output for visibility during execution.');
-  if (/\breturn\b/.test(joined)) findings.push('Returns values to the caller as function output.');
-
-  const firstInterestingLine = sample.find((line) => /function|def |class |=>|for |while |if |return |fetch\(|axios\.|select |insert |update /i.test(line));
-  const response: string[] = [];
-  response.push(`I can explain this ${language} snippet.`);
-  response.push('');
-  response.push('What it is doing:');
-  if (findings.length) {
-    for (const finding of findings.slice(0, 6)) {
-      response.push(`- ${finding}`);
-    }
-  } else {
-    response.push('- The snippet defines basic logic flow and executes statements in sequence.');
-  }
-
-  if (firstInterestingLine) {
-    response.push('');
-    response.push('Key line:');
-    response.push(`- ${firstInterestingLine}`);
-  }
-
-  response.push('');
-  response.push('If you want, I can also break it down line-by-line.');
-  response.push('Reply with: "Explain line by line" or "Find bugs in this code".');
-  return response.join('\n');
-};
-
-// ── Smart local AI ────────────────────────────────────────────────────────────
-// Handles all question types without requiring any external server.
-// Campus-specific queries are already handled by Supabase lookups above;
-// this covers everything else a student might ask.
-// ─────────────────────────────────────────────────────────────────────────────
-const smartLocalAI = (message: string): string => {
-  const raw = message.trim();
-  const m = raw.toLowerCase();
-
-  const asksCodeExplanation = /\b(explain(\s+this)?\s+code|explain\s+the\s+code|what\s+does\s+this\s+code\s+do|how\s+does\s+this\s+code\s+work|code\s+explain|understand\s+this\s+code|explain\s+this|can\s+you\s+explain)\b/.test(m);
-  if (looksLikeCodeSnippet(raw) && asksCodeExplanation) {
-    return explainPastedCode(raw);
-  }
-
-  if (looksLikeCodeSnippet(raw) && /```/.test(raw)) {
-    return explainPastedCode(raw);
-  }
-
-  // ── Greetings ──
-  if (/^(hi|hello|hey|hii+|helo+|yo|howdy|sup|what'?s up|good\s*(morning|afternoon|evening|night))[!?.]*$/.test(m)) {
-    return "Hi there! 👋 I'm CampUs AI, your campus assistant.\n\nI can help you with:\n- Upcoming events and schedules\n- Active and recruiting projects\n- Study tips, career advice, and coding help\n- General questions\n\nWhat would you like to know?";
-  }
-
-  // ── Identity ──
-  if (/\b(who are you|what are you|your name|introduce yourself|about you)\b/.test(m)) {
-    return "I'm CampUs AI — your smart campus assistant! 🎓\n\nI can answer questions about:\n• Campus events (dates, venues, status)\n• Projects and teams (recruiting, details)\n• Study strategies and productivity\n• Career and resume advice\n• Coding and tech questions\n• General knowledge\n\nJust ask me anything!";
-  }
-
-  if (/\b(what can you do|help me|how (do|can) (i|you)|your (features?|capabilities|skills))\b/.test(m)) {
-    return "Here's what I can help with:\n\n📅 Campus Events — ask about upcoming events, dates, venues, or event status.\n\n🚀 Projects & Teams — find recruiting projects, check status, or get team details.\n\n📚 Academics — study tips, exam strategies, time management, note-taking.\n\n💼 Career Help — resume tips, interview prep, LinkedIn profile, internships.\n\n💻 Coding & Tech — explain concepts, debug logic, suggest resources.\n\n🌐 General Q&A — ask me anything you're curious about!\n\nTry typing an event name, a date like 'today' or 'tomorrow', or any question.";
-  }
-
-  // ── How are you ──
-  if (/\b(how are you|how r u|how do you do|you okay|u ok)\b/.test(m)) {
-    return "I'm doing great, thanks for asking! 😊 Ready to help you with campus events, projects, or any questions you have. What's on your mind?";
-  }
-
-  // ── Thank you ──
-  if (/^(thank you|thanks|thank u|ty|thx|cheers|nice|great|awesome|perfect|cool)[!.]*$/.test(m) || /\b(thank you|thanks a lot|many thanks)\b/.test(m)) {
-    return "You're welcome! 😊 Feel free to ask anything else — I'm always here to help.";
-  }
-
-  // ── Goodbye ──
-  if (/^(bye|goodbye|see you|see ya|later|take care|cya)[!.]*$/.test(m)) {
-    return "Goodbye! 👋 Come back anytime you have questions. Good luck with your studies!";
-  }
-
-  // ── Study tips ──
-  if (/\b(study|studying|revision|revise|memorize|learn|learning|remember|retention|focus|concentration|distraction)\b/.test(m)) {
-    return "Here are proven study strategies that actually work:\n\n📖 Spaced Repetition — review material at increasing intervals (1 day, 3 days, 1 week, 2 weeks) instead of cramming.\n\n🍅 Pomodoro Technique — study 25 minutes, break 5 minutes, repeat. After 4 rounds, take a 20-min break.\n\n✍️ Active Recall — test yourself instead of re-reading. Use flashcards (try Anki), past papers, or teach the topic to someone.\n\n🧠 Feynman Technique — explain concepts in simple words as if teaching a 12-year-old. Gaps reveal what you don't understand.\n\n🎯 One Topic at a Time — context-switching kills productivity. Block 2-3 hours per subject.\n\n😴 Sleep — memory consolidation happens during sleep. Don't sacrifice it for late-night cramming.";
-  }
-
-  // ── Exam tips ──
-  if (/\b(exam|exams|test|quiz|finals?|midterm|preparation|prep|paper|marks?|grade|cgpa|gpa)\b/.test(m)) {
-    return "Exam preparation tips:\n\n📋 Before the exam:\n• Start revising at least 1–2 weeks early\n• Solve past papers under timed conditions\n• Focus on high-weight topics first\n• Make concise notes or mind maps\n\n⏳ During the exam:\n• Read all questions before starting\n• Tackle easy questions first for confidence\n• Allocate time per section before you begin\n• Leave time to review your answers\n\n🧘 Manage exam anxiety:\n• Deep breathing before entering the hall\n• Focus on what you know, not what you don't\n• Adequate sleep the night before beats last-minute cramming every time\n\nYou've got this! 💪";
-  }
-
-  // ── Time management / productivity ──
-  if (/\b(time management|productivity|procrastinat|schedule|planner|organiz|priorit|deadline|busy|overwhelm|stress)\b/.test(m)) {
-    return "Time management strategies for students:\n\n📅 Weekly Plan — every Sunday, map out your week. Assign specific subjects to specific time slots.\n\n✅ To-do Lists — write down 3 most important tasks (MITs) each morning. Do them first.\n\n🚫 Kill Distractions — use app blockers (Forest, Cold Turkey) during study hours. Phone face-down, notifications off.\n\n⚡ Eat the Frog — tackle the hardest or most dreaded task first thing in the morning.\n\n📊 Eisenhower Matrix — categorize tasks into: (1) Urgent + Important, (2) Important but not Urgent, (3) Urgent but not Important, (4) Neither. Focus on category 2 to prevent fires.\n\n💤 Guard your sleep — 7–8 hours is a productivity multiplier, not a luxury.";
-  }
-
-  // ── Career advice ──
-  if (/\b(career|job|internship|placement|interview|hire|hiring|resume|cv|linkedin|portfolio|salary|offer|company|recruiter)\b/.test(m)) {
-    return "Career advice for students:\n\n📝 Resume Tips:\n• Keep it to 1 page if you have < 3 years experience\n• Lead with measurable achievements (e.g., 'Reduced load time by 40%')\n• Tailor it to each job\n• Use strong action verbs: built, led, designed, optimized\n\n💼 Interview Prep:\n• Research the company — know their product, mission, recent news\n• Practice STAR format answers (Situation, Task, Action, Result)\n• Prepare 3–5 smart questions to ask the interviewer\n• Mock interview with a friend or record yourself\n\n🔗 LinkedIn:\n• Add a professional photo and custom headline\n• Write a summary that tells your story\n• Connect with professors, seniors, and recruiters\n\n🏆 Stand out:\n• Build projects and put them on GitHub\n• Contribute to open source\n• Get one solid internship early\n\nCheck the Projects section in CampUs for recruiting teams you can join!";
-  }
-
-  // ── Coding / programming ──
-  if (/\b(code|coding|programming|algorithm|data structure|bug|debug|function|class|object|variable|loop|array|string|python|javascript|java|c\+\+|react|node|sql|database|api|web|app|software)\b/.test(m)) {
-    return "I'm happy to help with coding! 💻 Here are some tips depending on what you need:\n\n🐛 Debugging:\n• Read the error message carefully — it usually tells you exactly what's wrong\n• Add console.log / print statements to trace variable values\n• Rubber duck debugging — explain your code out loud, line by line\n• Check Stack Overflow or MDN Docs for errors\n\n📚 Learning to code:\n• Practice over theory — build something real as you learn\n• FreeCodeCamp, The Odin Project, and CS50 are excellent free resources\n• Solve problems on LeetCode or HackerRank daily (start easy)\n\n🏗️ Project ideas for beginners:\n• Todo app, calculator, weather app, quiz game, chat app\n\nFor a specific question (like 'how does async/await work?'), just ask and I'll explain it clearly!";
-  }
-
-  // ── Mental health / wellbeing ──
-  if (/\b(stress|anxiety|depress|lonely|overwhelm|burnout|mental health|feeling (bad|sad|low|down|tired)|not okay|help me|struggling)\b/.test(m)) {
-    return "I hear you, and it's okay to feel overwhelmed sometimes. Here are some things that can genuinely help:\n\n🧘 Immediate relief:\n• Take 5 slow deep breaths (4 counts in, hold 4, out 6)\n• Step away from your screen for 10 minutes\n• Go for a short walk — even 15 minutes shifts your mood\n\n📣 Talk to someone:\n• A friend, family member, or mentor\n• Your college counselor or student support services\n\n⚡ Daily habits that protect mental health:\n• Consistent sleep schedule\n• Regular exercise (even 20 min/day)\n• Limit social media scroll time\n• Connect with people in person\n\nYou're not alone in this. Taking one small step at a time is enough. 💙";
-  }
-
-  // ── Mathematics ──
-  if (/\b(math|maths|mathematics|calculus|algebra|geometry|statistics|probability|derivative|integral|matrix|vector|equation|formula|theorem)\b/.test(m)) {
-    return "For math topics, here are some great resources:\n\n📘 Khan Academy (khanacademy.org) — free, excellent for all levels from basics to calculus\n📐 Wolfram Alpha (wolframalpha.com) — solves equations and shows step-by-step working\n📺 3Blue1Brown on YouTube — beautiful visual explanations of calculus, linear algebra\n📚 Paul's Online Math Notes — extremely clear notes for calculus and algebra\n\n✏️ For solving problems:\n• Always write out what you know and what you need to find\n• Draw a diagram when possible\n• Work backwards from the answer on practice problems\n• Check your answer by plugging it back into the original equation\n\nWant me to explain a specific concept? Just ask in plain words!";
-  }
-
-  // ── Networking / connections ──
-  if (/\b(network|networking|connect|connect with|friend|meet people|socialize|club|society|community)\b/.test(m)) {
-    return "Networking as a student:\n\n🤝 On campus:\n• Join clubs and student societies related to your interests\n• Attend workshops, hackathons, and seminars — the CampUs Events section has listings!\n• Introduce yourself to classmates in subjects you find interesting\n\n💻 Online:\n• LinkedIn — connect with professors, alumni, seniors\n• GitHub — contribute to projects, follow developers\n• Twitter/X — follow thought leaders in your field\n\n💡 Tips:\n• Lead with genuine interest, not \"let me ask for a favour\"\n• Follow up after meeting someone within 24–48 hours\n• Share value — interesting articles, resources, opportunities\n\nAlso check the Projects section to join teams and work alongside talented peers!";
-  }
-
-  // ── Hackathons / competitions ──
-  if (/\b(hackathon|competition|contest|challenge|participate|team up|build)\b/.test(m)) {
-    return "Hackathon tips to help you win (or learn a ton):\n\n🧠 Before:\n• Form a balanced team: developer(s), designer, presenter\n• Choose an idea you can demo in the time limit\n• Prepare your dev environment ahead of time\n\n⚡ During:\n• Spend the first hour on planning and wireframing\n• Build a working MVP first, polish later\n• Prioritize the demo flow, not feature completeness\n• Communicate clearly with your team\n\n🎤 Presentation:\n• Clearly state the problem you're solving\n• Show a live demo (judges love this)\n• Explain impact: who benefits and by how much?\n• Practice your pitch to fit the time limit\n\nCheck the Campus Events section for upcoming hackathons. Good luck! 🚀";
-  }
-
-  // ── General knowledge / misc factual ──
-  if (/\b(what is|what are|explain|how does|how do|define|meaning of|tell me about|describe)\b/.test(m)) {
-    const topic = m.replace(/^(what is|what are|explain|how does|how do|define|meaning of|tell me about|describe)\s+/i, '').replace(/[?!.]+$/, '').trim();
-    const topicDisplay = topic.length > 0 ? `"${topic.charAt(0).toUpperCase() + topic.slice(1)}"` : 'that topic';
-    return `Great question about ${topicDisplay}! 🤔\n\nFor a detailed and accurate explanation, I'd recommend:\n\n🔍 Google Search — for quick answers and Wikipedia overviews\n📖 Wikipedia — for in-depth background\n🎥 YouTube — for visual explanations (search "${topic} explained")\n📚 Khan Academy — if it's an academic topic\n\nIf this is related to campus events, projects, or schedules, I can answer directly from live campus data — just include keywords like the event/project name, a date, or a specific campus question.`;
-  }
-
-  // ── Jokes ──
-  if (/\b(joke|funny|humor|laugh|meme|pun)\b/.test(m)) {
-    const jokes = [
-      "Why do programmers prefer dark mode?\n\nBecause light attracts bugs! 🐛😄",
-      "A SQL query walks into a bar, walks up to two tables and asks...\n\"Can I join you?\" 😂",
-      "Why did the student eat his homework?\n\nBecause the teacher told him it was a piece of cake! 🍰😄",
-      "What's a computer's favourite snack?\n\nMicrochips! 💻🍟",
-      "I told my computer I needed a break. Now it won't stop sending me vacation ads. 🏖️😅",
-    ];
-    return jokes[Math.floor(Math.random() * jokes.length)];
-  }
-
-  // ── Motivation ──
-  if (/\b(motivat|inspire|quote|demotivat|give up|can't do|difficult|hard|impossible|struggle)\b/.test(m)) {
-    const quotes = [
-      '"The secret of getting ahead is getting started." — Mark Twain',
-      '"Don\'t watch the clock; do what it does. Keep going." — Sam Levenson',
-      '"Success is the sum of small efforts, repeated day in and day out." — R. Collier',
-      '"The expert in anything was once a beginner." — Helen Hayes',
-      '"You don\'t have to be great to start, but you have to start to be great." — Zig Ziglar',
-    ];
-    const quote = quotes[Math.floor(Math.random() * quotes.length)];
-    return `Here's a thought for you 💪:\n\n${quote}\n\nYou've got this! Every step, no matter how small, moves you forward. What are you working on?`;
-  }
-
-  // ── Default fallback — still helpful ──
-  return `I got your message! Here's how I can best help:\n\n📅 For campus events — ask "what events are today?" or "show events this week"\n🚀 For projects — ask "show recruiting projects" or a project name\n📚 For study/career/coding advice — ask anything like "study tips" or "resume help"\n💬 For general questions — try rephrasing or add more detail\n\nWhat would you like to know? 😊`;
-};
-
-const buildEventPreparationPlan = (event: any): string => {
-  const title = event?.title || 'this event';
-  const description = (event?.description || '').toLowerCase();
-  const titleLower = String(title).toLowerCase();
-  const text = `${titleLower} ${description}`;
-  const isHackathon = /hackathon|code|coding|build/.test(text);
-  const isWorkshop = /workshop|bootcamp|masterclass|training/.test(text);
-  const isTalkOrSeminar = /seminar|talk|webinar|lecture|conference|summit/.test(text);
-
-  const lines: string[] = [];
-  lines.push(`Preparation plan for ${title}:`);
-  lines.push(`- Read the event details and agenda carefully.`);
-  lines.push(`- Confirm date/time: ${formatDateTime(event?.start_date)}.`);
-  lines.push(`- Save venue/location: ${event?.venue || (event?.is_online ? 'Online' : 'Venue TBA')}.`);
-  if (event?.meeting_link) {
-    lines.push(`- Keep meeting link ready: ${event.meeting_link}`);
-  }
-  lines.push(`- Carry essentials: ID card, charged phone, notebook, and water.`);
-
-  if (isHackathon) {
-    lines.push('Hackathon-specific:');
-    lines.push('- Prepare your team roles (builder, designer, presenter).');
-    lines.push('- Set up your dev environment and test tools before the event.');
-    lines.push('- Keep a simple MVP idea and demo script ready.');
-  } else if (isWorkshop) {
-    lines.push('Workshop-specific:');
-    lines.push('- Revise basic concepts so you can follow hands-on parts quickly.');
-    lines.push('- Install required software in advance.');
-    lines.push('- Write 3 questions you want to ask the instructor.');
-  } else if (isTalkOrSeminar) {
-    lines.push('Seminar/Talk-specific:');
-    lines.push('- Read about the topic/speaker beforehand.');
-    lines.push('- Note key points and actionable takeaways during the session.');
-    lines.push('- Prepare one thoughtful networking question.');
-  }
-
-  lines.push('- Arrive 10–15 minutes early to avoid last-minute stress.');
-  lines.push('- After the event, capture learnings and next steps while fresh.');
-  return lines.join('\n');
-};
 export const chatWithAI = async (_userId: string, prompt: string) => {
   const trimmed = prompt.trim();
   if (!trimmed) {
-    return 'Ask me about campus events, projects, venues, or any question — I am here to help!';
+    return 'Ask me about campus events, projects, venues, or a date (for example: today or 2026-03-11).';
   }
 
   const isAllowed = await moderateText(trimmed);
@@ -2012,23 +1710,7 @@ export const chatWithAI = async (_userId: string, prompt: string) => {
     throw new Error('Your message was flagged for review. Try rephrasing without sensitive terms.');
   }
 
-  // Prioritize pasted-code explanation before campus keyword routing.
-  // Code often contains words like "event" or "date" which can accidentally
-  // trigger campus lookup and hide the code explanation behavior.
-  const lowerPrompt = trimmed.toLowerCase();
-  const asksCodeExplanationEarly = /\b(explain(\s+this)?\s+code|explain\s+the\s+code|what\s+does\s+this\s+code\s+do|how\s+does\s+this\s+code\s+work|code\s+explain|understand\s+this\s+code|explain\s+this|can\s+you\s+explain)\b/.test(lowerPrompt);
-  if ((looksLikeCodeSnippet(trimmed) && asksCodeExplanationEarly) || (looksLikeCodeSnippet(trimmed) && /```/.test(trimmed))) {
-    return explainPastedCode(trimmed);
-  }
-
   const lower = trimmed.toLowerCase();
-
-  // If the query has no campus-related keywords at all, skip DB lookup and go straight to Groq
-  const hasCampusKeyword = /\b(event|events|workshop|hackathon|seminar|competition|fest|project|projects|team|teams|campus|venue|location|where|date|today|tomorrow|yesterday|announcement|notice|feed|update|updates|news|recruiting|schedule|when|status|prepare|preparation)\b/.test(lower);
-  if (!hasCampusKeyword) {
-    return askGroqFallback(trimmed);
-  }
-
   const genericCampusLookup = !/\b(announcement|notice|feed|update|updates|news|venue|location|where|date|today|tomorrow|yesterday)\b/.test(lower);
   const requestedDate = parseRequestedDate(trimmed);
   const wantsEvents = /\b(event|events|workshop|hackathon|seminar|competition|fest)\b/.test(lower) || !!requestedDate || genericCampusLookup;
@@ -2037,7 +1719,6 @@ export const chatWithAI = async (_userId: string, prompt: string) => {
   const wantsVenue = /\b(venue|location|where)\b/.test(lower);
   const wantsStatus = /\bstatus\b/.test(lower);
   const wantsDateTime = /\b(date|time|when)\b/.test(lower);
-  const wantsPreparation = /\b(prepare|preparation|ready|readiness|practice|how\s+do\s+i\s+prepare|how\s+can\s+i\s+prepare|what\s+should\s+i\s+prepare)\b/.test(lower);
   const wantsDetails = isDetailIntent(lower) || /\b(tell me about|what is|more about)\b/.test(lower);
   const entityHint = extractEntityHint(lower);
   const searchTerm = getPrimaryLookupTerm(trimmed, entityHint);
@@ -2083,51 +1764,25 @@ export const chatWithAI = async (_userId: string, prompt: string) => {
       projects = projectsResult.data || [];
       feedPosts = postsResult.data || [];
     } else {
-      // Detect if this is a generic "list all" query (no specific entity name).
-      // Generic indicator words left after entityHint stripping don't represent a real name.
-      const genericWords = new Set([
-        'all','show','list','get','find','see','are','is','happening','there','any','me','my',
-        'latest','recent','upcoming','current','new','scheduled','available','active','today',
-        'tomorrow','now','what','which','how','many','give','tell','some','few','next','last',
-        'have','has','been','going','on','up'
-      ]);
-      const isGenericListing = searchTerm.length < 3 ||
-        searchTerm.split(' ').every(w => w.length <= 2 || genericWords.has(w.toLowerCase()));
-
       const likeToken = `%${searchTerm}%`;
-      const now = new Date().toISOString();
-
       const [eventsResult, projectsResult, postsResult] = await Promise.all([
-        isGenericListing
-          ? supabase
-              .from('events')
-              .select('id,title,description,start_date,end_date,venue,is_online,meeting_link')
-              .gte('end_date', now)
-              .order('start_date', { ascending: true })
-              .limit(8)
-          : supabase
-              .from('events')
-              .select('id,title,description,start_date,end_date,venue,is_online,meeting_link')
-              .or(`title.ilike.${likeToken},description.ilike.${likeToken},venue.ilike.${likeToken}`)
-              .order('start_date', { ascending: true })
-              .limit(8),
-        isGenericListing
-          ? supabase
-              .from('project_teams')
-              .select('id,name,description,status,category,is_recruiting,created_at,updated_at')
-              .order('updated_at', { ascending: false })
-              .limit(8)
-          : supabase
-              .from('project_teams')
-              .select('id,name,description,status,category,is_recruiting,created_at,updated_at')
-              .or(`name.ilike.${likeToken},description.ilike.${likeToken},category.ilike.${likeToken}`)
-              .order('updated_at', { ascending: false })
-              .limit(8),
+        supabase
+          .from('events')
+          .select('id,title,description,start_date,end_date,venue,is_online,meeting_link')
+          .or(`title.ilike.${likeToken},description.ilike.${likeToken},venue.ilike.${likeToken}`)
+          .order('start_date', { ascending: true })
+          .limit(8),
+        supabase
+          .from('project_teams')
+          .select('id,name,description,status,category,is_recruiting,created_at,updated_at')
+          .or(`name.ilike.${likeToken},description.ilike.${likeToken},category.ilike.${likeToken}`)
+          .order('updated_at', { ascending: false })
+          .limit(8),
         supabase
           .from('feed_posts')
           .select('id,content,type,created_at')
           .eq('is_approved', true)
-          .ilike('content', isGenericListing ? '%%' : likeToken)
+          .ilike('content', likeToken)
           .order('created_at', { ascending: false })
           .limit(6),
       ]);
@@ -2182,10 +1837,6 @@ export const chatWithAI = async (_userId: string, prompt: string) => {
   if (wantsStatus && matchedProject) {
     const status = matchedProject.status || (matchedProject.is_recruiting ? 'recruiting' : 'active');
     return `${matchedProject.name} status: ${status} (${getProjectLifecycleStatus(status)})`;
-  }
-
-  if (wantsPreparation && matchedEvent) {
-    return buildEventPreparationPlan(matchedEvent);
   }
 
   if (/\brecruiting\b/.test(lower) && matchedProject) {
@@ -2261,11 +1912,11 @@ export const chatWithAI = async (_userId: string, prompt: string) => {
   }
 
   if (!output.length && wantsVenue) {
-    return askGroqFallback(trimmed, 'I could not find matching venues in campus data right now.');
+    return 'I could not find matching venues right now. Try an event name or a date like 2026-03-11.';
   }
 
   if (!output.length) {
-    return askGroqFallback(trimmed);
+    return 'I could not find matching events, projects, or updates. Try asking with a date (today, tomorrow, or YYYY-MM-DD) or include a specific keyword.';
   }
 
   output.push('I answer from live campus data, so responses update as events and projects change.');
