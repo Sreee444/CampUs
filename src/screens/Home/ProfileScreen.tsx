@@ -78,6 +78,7 @@ export default function ProfileScreen() {
   };
 
   const interests = Array.isArray(profile?.interests) ? profile.interests : [];
+  const skills = Array.isArray(profile?.skills) ? profile.skills : [];
 
   const shareProfile = async () => {
     try {
@@ -107,194 +108,224 @@ export default function ProfileScreen() {
     setShowLogoutConfirm(false);
   };
 
-  return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Profile</Text>
-        <TouchableOpacity onPress={() => navigation.navigate('Settings')}>
-          <MaterialIcons name="settings" size={24} color={Colors.text} />
-        </TouchableOpacity>
+  const renderActionRow = (
+    icon: keyof typeof MaterialIcons.glyphMap,
+    iconColor: string,
+    iconBg: string,
+    title: string,
+    subtitle: string,
+    onPress: () => void,
+    isLast = false,
+    titleColor?: string,
+  ) => (
+    <TouchableOpacity
+      style={[styles.actionRow, !isLast && styles.actionRowBorder]}
+      onPress={onPress}
+      activeOpacity={0.6}
+    >
+      <View style={[styles.actionIconCircle, { backgroundColor: iconBg }]}>  
+        <MaterialIcons name={icon} size={20} color={iconColor} />
       </View>
+      <View style={styles.actionInfo}>
+        <Text style={[styles.actionTitle, titleColor ? { color: titleColor } : null]}>{title}</Text>
+        <Text style={styles.actionSubtitle}>{subtitle}</Text>
+      </View>
+      <MaterialIcons name="chevron-right" size={20} color="#C4C9D4" />
+    </TouchableOpacity>
+  );
 
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={{ paddingBottom: 110 }}
-        showsVerticalScrollIndicator={false}
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <LinearGradient
+        colors={['#F5E6D8', '#EDEBFF', '#DFF3EE']}
+        locations={[0, 0.5, 1]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 1 }}
+        style={styles.gradientBackground}
       >
-        <LinearGradient
-          colors={['#e0f7fa', '#fdfbf7', '#f3e5f5']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.profileHeader}
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={{ paddingBottom: 110 }}
+          showsVerticalScrollIndicator={false}
         >
-          {/* Avatar with role ring */}
-          <View style={styles.avatarContainer}>
-            <UserAvatar
-              uri={profile?.avatar_url}
-              name={profile?.full_name}
-              role={profile?.role}
-              size={96}
-              showRing={true}
-            />
+          {/* Top Header Bar (scrolls with content) */}
+          <View style={styles.topBar}>
+            <Text style={styles.topBarTitle}>Profile</Text>
             <TouchableOpacity
-              style={styles.editAvatarButton}
-              onPress={() => navigation.navigate('EditProfile')}
+              style={styles.settingsButton}
+              onPress={() => navigation.navigate('Settings')}
+              activeOpacity={0.7}
             >
-              <MaterialIcons name="camera-alt" size={16} color="#fff" />
+              <MaterialIcons name="settings" size={22} color="#475569" />
             </TouchableOpacity>
           </View>
 
-          <Text style={styles.profileName}>{profile?.full_name || 'User'}</Text>
-          <Text style={styles.profileRole}>{profile?.role ? profile.role.charAt(0).toUpperCase() + profile.role.slice(1) : 'User'}</Text>
-          <Text style={styles.profileDepartment}>{profile?.department || 'No department set'}</Text>
-        </LinearGradient>
-
-        {isLoading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={Colors.primary} />
-          </View>
-        ) : stats ? (
-          <View style={styles.statsContainer}>
-            <LinearGradient colors={['#e0f7fa', '#ccfbfb']} style={styles.statItem}>
-              <MaterialIcons name="group" size={22} color="#0d9488" />
-              <Text style={styles.statValue}>{stats.total_connections || 0}</Text>
-              <Text style={styles.statLabel}>Connections</Text>
-            </LinearGradient>
-            <LinearGradient colors={['#f3e5f5', '#ecdcf7']} style={styles.statItem}>
-              <MaterialIcons name="folder" size={22} color="#9333ea" />
-              <Text style={styles.statValue}>{stats.total_projects || 0}</Text>
-              <Text style={styles.statLabel}>Projects</Text>
-            </LinearGradient>
-            <LinearGradient colors={['#fff5e6', '#ffe0cc']} style={styles.statItem}>
-              <MaterialIcons name="event" size={22} color="#ea580c" />
-              <Text style={styles.statValue}>{stats.total_events || 0}</Text>
-              <Text style={styles.statLabel}>Events</Text>
-            </LinearGradient>
-          </View>
-        ) : null}
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>About Me</Text>
-          <Text style={styles.aboutText}>
-            {profile?.bio || 'No bio added yet. Go to Edit Profile to add one!'}
-          </Text>
-        </View>
-
-        {interests.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Interests</Text>
-            <View style={styles.interestsContainer}>
-              {interests.map((interest, index) => (
-                <View key={index} style={styles.interestChip}>
-                  <Text style={styles.interestText}>{interest}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        )}
-
-        {isFacultyOrAdminRole(profile?.role) && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>InterCampus Tools</Text>
-
-            <TouchableOpacity style={styles.actionItem} onPress={() => navigation.navigate('FacultyInterCampusDashboard')}>
-              <View style={[styles.actionIcon, { backgroundColor: '#dcfce7' }]}>
-                <MaterialIcons name="fact-check" size={20} color="#047857" />
+          {/* ─── Hero Profile Card ─── */}
+          <View style={styles.heroCard}>
+            {/* Avatar */}
+            <View style={styles.avatarContainer}>
+              <View style={styles.avatarWrapper}>
+                <UserAvatar
+                  uri={profile?.avatar_url}
+                  name={profile?.full_name}
+                  role={profile?.role}
+                  size={96}
+                  showRing={true}
+                />
               </View>
-              <View style={styles.actionInfo}>
-                <Text style={styles.actionTitle}>InterCampus Dashboard</Text>
-                <Text style={styles.actionSubtitle}>Verify or reject external submissions</Text>
-              </View>
-              <MaterialIcons name="arrow-forward-ios" size={16} color="#94a3b8" />
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.editAvatarButton}
+                onPress={() => navigation.navigate('EditProfile')}
+                activeOpacity={0.8}
+              >
+                <MaterialIcons name="camera-alt" size={14} color="#fff" />
+              </TouchableOpacity>
+            </View>
+
+            {/* User Info */}
+            <Text style={styles.profileName}>{profile?.full_name || 'User'}</Text>
+            <View style={styles.roleBadge}>
+              <Text style={styles.roleBadgeText}>
+                {profile?.role ? profile.role.charAt(0).toUpperCase() + profile.role.slice(1) : 'User'}
+              </Text>
+            </View>
+            <Text style={styles.profileDepartment}>
+              {profile?.department || 'No department set'}
+            </Text>
           </View>
-        )}
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Quick Actions</Text>
-
-          <TouchableOpacity style={styles.actionItem} onPress={() => navigation.navigate('EditProfile')}>
-            <View style={styles.actionIcon}>
-              <MaterialIcons name="edit" size={20} color={Colors.primary} />
+          {/* ─── Stats Row ─── */}
+          {isLoading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#6366f1" />
             </View>
-            <View style={styles.actionInfo}>
-              <Text style={styles.actionTitle}>Edit Profile</Text>
-              <Text style={styles.actionSubtitle}>Update your information</Text>
-            </View>
-            <MaterialIcons name="arrow-forward-ios" size={16} color="#94a3b8" />
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.actionItem} onPress={() => navigation.navigate('AcademicDetails')}>
-            <View style={styles.actionIcon}>
-              <MaterialIcons name="school" size={20} color="#10b981" />
-            </View>
-            <View style={styles.actionInfo}>
-              <Text style={styles.actionTitle}>Academic Records</Text>
-              <Text style={styles.actionSubtitle}>View your achievements</Text>
-            </View>
-            <MaterialIcons name="arrow-forward-ios" size={16} color="#94a3b8" />
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.actionItem} onPress={() => navigation.navigate('SkillsInterests')}>
-            <View style={styles.actionIcon}>
-              <MaterialIcons name="workspace-premium" size={20} color="#f59e0b" />
-            </View>
-            <View style={styles.actionInfo}>
-              <Text style={styles.actionTitle}>Certifications</Text>
-              <Text style={styles.actionSubtitle}>Manage your certificates</Text>
-            </View>
-            <MaterialIcons name="arrow-forward-ios" size={16} color="#94a3b8" />
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.actionItem} onPress={shareProfile}>
-            <View style={styles.actionIcon}>
-              <MaterialIcons name="share" size={20} color="#6366f1" />
-            </View>
-            <View style={styles.actionInfo}>
-              <Text style={styles.actionTitle}>Share Profile</Text>
-              <Text style={styles.actionSubtitle}>Share with connections</Text>
-            </View>
-            <MaterialIcons name="arrow-forward-ios" size={16} color="#94a3b8" />
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.actionItem} onPress={handleLogout}>
-            <View style={[styles.actionIcon, { backgroundColor: '#fee2e2' }]}>
-              <MaterialIcons name="logout" size={20} color="#ef4444" />
-            </View>
-            <View style={styles.actionInfo}>
-              <Text style={[styles.actionTitle, { color: '#ef4444' }]}>Log Out</Text>
-              <Text style={styles.actionSubtitle}>Sign out of your account</Text>
-            </View>
-            <MaterialIcons name="arrow-forward-ios" size={16} color="#94a3b8" />
-          </TouchableOpacity>
-        </View>
-
-        {isAdminRole(profile?.role) && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Admin Tools</Text>
-
-            <TouchableOpacity style={styles.actionItem} onPress={() => navigation.navigate('AdminDashboard')}>
-              <View style={[styles.actionIcon, { backgroundColor: '#dbeafe' }]}>
-                <MaterialIcons name="admin-panel-settings" size={20} color="#1e40af" />
+          ) : stats ? (
+            <View style={styles.statsRow}>
+              <View style={[styles.statCard, { backgroundColor: '#E0F7FA' }]}>  
+                <MaterialIcons name="group" size={22} color="#0d9488" />
+                <Text style={styles.statValue}>{stats.total_connections || 0}</Text>
+                <Text style={styles.statLabel}>Connections</Text>
               </View>
-              <View style={styles.actionInfo}>
-                <Text style={styles.actionTitle}>Admin Dashboard</Text>
-                <Text style={styles.actionSubtitle}>Access admin panel</Text>
+              <View style={[styles.statCard, { backgroundColor: '#F3E5F5' }]}>  
+                <MaterialIcons name="folder" size={22} color="#9333ea" />
+                <Text style={styles.statValue}>{stats.total_projects || 0}</Text>
+                <Text style={styles.statLabel}>Projects</Text>
               </View>
-              <MaterialIcons name="arrow-forward-ios" size={16} color="#94a3b8" />
-            </TouchableOpacity>
+              <View style={[styles.statCard, { backgroundColor: '#FFF5E6' }]}>  
+                <MaterialIcons name="event" size={22} color="#ea580c" />
+                <Text style={styles.statValue}>{stats.total_events || 0}</Text>
+                <Text style={styles.statLabel}>Events</Text>
+              </View>
+            </View>
+          ) : null}
+
+          {/* ─── About Me Card ─── */}
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>About Me</Text>
+            <Text style={styles.aboutText}>
+              {profile?.bio || 'No bio added yet. Go to Edit Profile to add one!'}
+            </Text>
           </View>
-        )}
 
-        <View style={{ height: 32 }} />
-      </ScrollView>
+          {/* ─── Skills Card ─── */}
+          {skills.length > 0 && (
+            <View style={styles.sectionCard}>
+              <Text style={styles.sectionTitle}>Skills</Text>
+              <View style={styles.interestsContainer}>
+                {skills.map((skill: string, index: number) => (
+                  <View key={index} style={styles.skillPill}>
+                    <Text style={styles.skillPillText}>{skill}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
+
+          {/* ─── Interests Card ─── */}
+          {interests.length > 0 && (
+            <View style={styles.sectionCard}>
+              <Text style={styles.sectionTitle}>Interests</Text>
+              <View style={styles.interestsContainer}>
+                {interests.map((interest: string, index: number) => (
+                  <View key={index} style={styles.interestPill}>
+                    <Text style={styles.interestPillText}>{interest}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
+
+          {/* ─── InterCampus Tools Card ─── */}
+          {isFacultyOrAdminRole(profile?.role) && (
+            <View style={styles.sectionCard}>
+              <Text style={styles.sectionTitle}>InterCampus Tools</Text>
+              {renderActionRow(
+                'fact-check', '#047857', '#dcfce7',
+                'InterCampus Dashboard',
+                'Verify or reject external submissions',
+                () => navigation.navigate('FacultyInterCampusDashboard'),
+                true,
+              )}
+            </View>
+          )}
+
+          {/* ─── Quick Actions Card ─── */}
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>Quick Actions</Text>
+            {renderActionRow(
+              'edit', '#6366f1', '#EEF2FF',
+              'Edit Profile', 'Update your information',
+              () => navigation.navigate('EditProfile'),
+            )}
+            {renderActionRow(
+              'school', '#10b981', '#D1FAE5',
+              'Academic Records', 'View your achievements',
+              () => navigation.navigate('AcademicDetails'),
+            )}
+            {renderActionRow(
+              'workspace-premium', '#f59e0b', '#FEF3C7',
+              'Certifications', 'Manage your certificates',
+              () => navigation.navigate('SkillsInterests'),
+            )}
+            {renderActionRow(
+              'share', '#6366f1', '#EEF2FF',
+              'Share Profile', 'Share with connections',
+              shareProfile,
+            )}
+            {renderActionRow(
+              'logout', '#ef4444', '#FEE2E2',
+              'Log Out', 'Sign out of your account',
+              handleLogout,
+              true,
+              '#ef4444',
+            )}
+          </View>
+
+          {/* ─── Admin Tools Card ─── */}
+          {isAdminRole(profile?.role) && (
+            <View style={styles.sectionCard}>
+              <Text style={styles.sectionTitle}>Admin Tools</Text>
+              {renderActionRow(
+                'admin-panel-settings', '#1e40af', '#DBEAFE',
+                'Admin Dashboard', 'Access admin panel',
+                () => navigation.navigate('AdminDashboard'),
+                true,
+              )}
+            </View>
+          )}
+
+          <View style={{ height: 32 }} />
+        </ScrollView>
+      </LinearGradient>
 
       {/* Logout Confirmation Dialog */}
       {showLogoutConfirm && (
         <View style={styles.modalOverlay}>
           <View style={styles.confirmDialog}>
             <View style={styles.confirmHeader}>
-              <MaterialIcons name="logout" size={48} color="#ef4444" />
+              <View style={styles.confirmIconWrap}>
+                <MaterialIcons name="logout" size={32} color="#ef4444" />
+              </View>
               <Text style={styles.confirmTitle}>Log Out</Text>
               <Text style={styles.confirmMessage}>Are you sure you want to log out?</Text>
             </View>
@@ -322,168 +353,228 @@ export default function ProfileScreen() {
 }
 
 const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create({
-  container: {
+  /* ─── Layout ─── */
+  safeArea: {
     flex: 1,
-    backgroundColor: '#fdfbf7',
+    backgroundColor: '#F5E6D8',
     ...(Platform.OS === 'web' && ({ height: '100vh', width: '100vw' } as any)),
   },
-  header: {
+  gradientBackground: {
+    flex: 1,
+  },
+  topBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 12,
-    backgroundColor: '#ffffff',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.06)',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
   },
-  headerTitle: {
-    fontSize: FontSizes.xl,
-    fontWeight: FontWeights.bold,
-    color: Colors.text,
+  topBarTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#1E293B',
+    letterSpacing: -0.3,
+  },
+  settingsButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   scrollView: {
     flex: 1,
   },
-  profileHeader: {
+
+  /* ─── Hero Profile Card ─── */
+  heroCard: {
+    marginHorizontal: 16,
+    marginTop: 4,
+    marginBottom: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 24,
     alignItems: 'center',
-    paddingVertical: 32,
-    paddingHorizontal: Spacing.md,
+    borderWidth: 0,
+    ...(Platform.OS === 'web'
+      ? { backdropFilter: 'blur(10px)' } as any
+      : {}),
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.08,
+    shadowRadius: 30,
+    elevation: 6,
   },
+
+  /* ─── Avatar ─── */
   avatarContainer: {
     position: 'relative',
     marginBottom: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: Colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: Colors.card,
-    ...Shadows.md,
-  },
-  avatarText: {
-    fontSize: 36,
-    fontWeight: FontWeights.bold,
-    color: '#ffffff',
+  avatarWrapper: {
+    borderRadius: 56,
+    borderWidth: 0,
+    borderColor: 'transparent',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.1,
+    shadowRadius: 14,
+    elevation: 4,
+    overflow: 'visible',
   },
   editAvatarButton: {
     position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: Colors.primary,
+    bottom: 2,
+    right: -4,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#6366f1',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: Colors.card,
+    borderWidth: 2.5,
+    borderColor: '#FFFFFF',
+    shadowColor: '#6366f1',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
   },
+
+  /* ─── User Info ─── */
   profileName: {
-    fontSize: 24,
-    fontWeight: FontWeights.bold,
-    color: Colors.text,
-    marginBottom: 4,
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#1E293B',
+    marginBottom: 6,
+    letterSpacing: -0.3,
   },
-  profileRole: {
-    fontSize: FontSizes.md,
-    color: Colors.textSecondary,
-    marginBottom: 2,
+  roleBadge: {
+    backgroundColor: '#EEF2FF',
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 4,
+    marginBottom: 6,
+  },
+  roleBadgeText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#6366f1',
   },
   profileDepartment: {
-    fontSize: FontSizes.sm,
-    color: Colors.textSecondary,
+    fontSize: 13,
+    color: '#64748B',
+    textAlign: 'center',
   },
-  statsContainer: {
+
+  /* ─── Stats Row ─── */
+  statsRow: {
     flexDirection: 'row',
     paddingHorizontal: 16,
-    paddingVertical: 16,
+    marginBottom: 16,
     gap: 10,
   },
-  loadingContainer: {
-    paddingVertical: Spacing.md,
-    alignItems: 'center',
-  },
-  statItem: {
+  statCard: {
     flex: 1,
-    borderRadius: 16,
+    borderRadius: 20,
     padding: 14,
     alignItems: 'center',
     gap: 4,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.06,
-    shadowRadius: 4,
+    shadowRadius: 10,
     elevation: 2,
   },
   statValue: {
-    fontSize: 24,
-    fontWeight: FontWeights.bold,
-    color: Colors.text,
-    marginTop: 8,
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#1E293B',
+    marginTop: 6,
   },
   statLabel: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-    marginTop: 4,
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#64748B',
+    marginTop: 2,
   },
-  section: {
-    paddingHorizontal: 16,
-    marginBottom: 20,
+  loadingContainer: {
+    paddingVertical: 24,
+    alignItems: 'center',
+  },
+
+  /* ─── Section Card ─── */
+  sectionCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 16,
+    marginHorizontal: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.08,
+    shadowRadius: 30,
+    elevation: 3,
   },
   sectionTitle: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '700',
-    color: '#111818',
-    marginBottom: 10,
+    color: '#1E293B',
+    marginBottom: 12,
+    letterSpacing: -0.2,
   },
   aboutText: {
-    fontSize: FontSizes.md,
-    color: Colors.textSecondary,
+    fontSize: 14,
+    color: '#64748B',
     lineHeight: 22,
   },
+
+  /* ─── Interests ─── */
   interestsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
   },
-  interestChip: {
-    backgroundColor: 'rgba(19,236,236,0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(19,236,236,0.2)',
-    borderRadius: BorderRadius.full,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+  interestPill: {
+    backgroundColor: '#E6F7F1',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
   },
-  interestText: {
-    fontSize: FontSizes.sm,
-    fontWeight: FontWeights.medium,
-    color: '#0d9488',
+  interestPillText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#059669',
   },
-  actionItem: {
+  skillPill: {
+    backgroundColor: '#EEF2FF',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  skillPillText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#6366F1',
+  },
+
+  /* ─── Action Rows ─── */
+  actionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#ffffff',
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 3,
-    elevation: 1,
+    paddingVertical: 12,
   },
-  actionIcon: {
+  actionRowBorder: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#F1F5F9',
+  },
+  actionIconCircle: {
     width: 40,
     height: 40,
-    borderRadius: 20,
-    backgroundColor: Colors.background,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
@@ -492,74 +583,88 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     flex: 1,
   },
   actionTitle: {
-    fontSize: FontSizes.md,
-    fontWeight: FontWeights.semibold,
-    color: Colors.text,
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1E293B',
     marginBottom: 2,
   },
   actionSubtitle: {
-    fontSize: FontSizes.sm,
-    color: Colors.textSecondary,
+    fontSize: 12,
+    color: '#94A3B8',
   },
+
+  /* ─── Logout Confirm Dialog ─── */
   modalOverlay: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 1000,
   },
   confirmDialog: {
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.xl,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
     width: '85%',
     maxWidth: 400,
-    padding: Spacing.xl,
-    ...Shadows.lg,
+    padding: 28,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.12,
+    shadowRadius: 32,
+    elevation: 8,
   },
   confirmHeader: {
     alignItems: 'center',
-    marginBottom: Spacing.lg,
+    marginBottom: 24,
+  },
+  confirmIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#FEE2E2',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
   },
   confirmTitle: {
-    fontSize: FontSizes.xl,
-    fontWeight: FontWeights.bold,
-    color: Colors.text,
-    marginTop: Spacing.md,
-    marginBottom: Spacing.xs,
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1E293B',
+    marginBottom: 6,
   },
   confirmMessage: {
-    fontSize: FontSizes.md,
-    color: Colors.textSecondary,
+    fontSize: 14,
+    color: '#64748B',
     textAlign: 'center',
   },
   confirmButtons: {
     flexDirection: 'row',
-    gap: Spacing.md,
+    gap: 12,
   },
   confirmButton: {
     flex: 1,
-    paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.lg,
+    paddingVertical: 14,
+    borderRadius: 14,
     alignItems: 'center',
   },
   cancelButton: {
-    backgroundColor: Colors.border,
+    backgroundColor: '#F1F5F9',
   },
   cancelButtonText: {
-    fontSize: FontSizes.md,
-    fontWeight: FontWeights.semibold,
-    color: Colors.text,
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#475569',
   },
   logoutConfirmButton: {
     backgroundColor: '#ef4444',
   },
   logoutConfirmButtonText: {
-    fontSize: FontSizes.md,
-    fontWeight: FontWeights.semibold,
+    fontSize: 15,
+    fontWeight: '600',
     color: '#ffffff',
   },
 });
