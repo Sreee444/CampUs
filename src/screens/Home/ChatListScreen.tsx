@@ -36,6 +36,7 @@ import { supabase } from '../../api/supabase';
 import { getMyConnections, ConnectionWithProfile } from '../../api/connections';
 import { UserAvatar } from '../../components/UserAvatar';
 import Toast from 'react-native-toast-message';
+import { LinearGradient } from 'expo-linear-gradient';
 
 type ChatScreenNavigationProp = CompositeNavigationProp<
   BottomTabNavigationProp<MainTabParamList, 'Chat'>,
@@ -441,6 +442,8 @@ export default function ChatScreen() {
 
   const renderConversationItem = ({ item: conversation }: { item: any }) => {
     const name = getConversationName(conversation, currentUserId);
+    const unreadCount = conversation.unread_count || 0;
+    const unreadLabel = unreadCount > 99 ? '99+' : `${unreadCount}`;
     const otherUser = !conversation.is_group
       ? conversation.participants?.find((p: any) => p.id !== currentUserId)
       : null;
@@ -457,7 +460,7 @@ export default function ChatScreen() {
 
     return (
       <TouchableOpacity
-        style={styles.conversationItem}
+        style={[styles.conversationItem, unreadCount > 0 && styles.conversationItemUnread]}
         onPress={() => navigation.navigate('ChatConversation', {
           conversationId: conversation.id,
           name,
@@ -465,6 +468,7 @@ export default function ChatScreen() {
           partnerUserId: conversation.is_group ? undefined : otherUser?.id,
         })}
       >
+        {unreadCount > 0 && <View style={styles.unreadAccentBar} />}
         <View style={styles.avatarWrapper}>
           <View
             style={[
@@ -488,20 +492,25 @@ export default function ChatScreen() {
 
         <View style={styles.conversationInfo}>
           <View style={styles.conversationHeader}>
-            <Text style={styles.conversationName}>{name}</Text>
+            <View style={styles.conversationNameRow}>
+              <Text style={styles.conversationName} numberOfLines={1}>{name}</Text>
+              {unreadCount > 0 && (
+                <View style={styles.unreadBadge}>
+                  <Text style={styles.unreadText}>{unreadLabel}</Text>
+                </View>
+              )}
+            </View>
             <Text style={styles.conversationTime}>{lastMessageTime}</Text>
           </View>
 
           <View style={styles.metaRow}>
             {conversation.is_group ? (
-              <View style={styles.typeChip}>
-                <MaterialIcons name="groups" size={12} color={Colors.textSecondary} />
-                <Text style={styles.typeChipText}>Group</Text>
+              <View style={[styles.typeChip, styles.typeChipGroup]}>
+                <Text style={[styles.typeChipText, styles.typeChipTextGroup]}>Group</Text>
               </View>
             ) : (
-              <View style={styles.typeChip}>
-                <MaterialIcons name="person" size={12} color={Colors.textSecondary} />
-                <Text style={styles.typeChipText}>Direct</Text>
+              <View style={[styles.typeChip, styles.typeChipDirect]}>
+                <Text style={[styles.typeChipText, styles.typeChipTextDirect]}>Direct</Text>
               </View>
             )}
           </View>
@@ -518,17 +527,12 @@ export default function ChatScreen() {
             <Text
               style={[
                 styles.lastMessage,
-                (conversation.unread_count || 0) > 0 && styles.lastMessageUnread,
+                unreadCount > 0 && styles.lastMessageUnread,
               ]}
               numberOfLines={1}
             >
               {conversation.last_message?.content || 'No messages yet'}
             </Text>
-            {(conversation.unread_count || 0) > 0 && (
-              <View style={styles.unreadBadge}>
-                <Text style={styles.unreadText}>{conversation.unread_count}</Text>
-              </View>
-            )}
           </View>
         </View>
 
@@ -537,7 +541,7 @@ export default function ChatScreen() {
           onPress={() => handleDeleteConversation(conversation)}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <MaterialIcons name="more-vert" size={20} color={Colors.textSecondary} />
+          <MaterialIcons name="more-vert" size={20} color="#6B7280" />
         </TouchableOpacity>
       </TouchableOpacity>
     );
@@ -545,97 +549,111 @@ export default function ChatScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.headerTitle}>Messages</Text>
-          <Text style={styles.headerSubtitle}>{`${unreadTotal} unread · ${directCount} direct chats`}</Text>
-        </View>
-        <TouchableOpacity
-          style={styles.composeButton}
-          onPress={() => setShowComposeMenu(true)}
-        >
-          <MaterialIcons name="person-add-alt-1" size={20} color={Colors.primary} />
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.searchSection}>
-        <View style={styles.searchBar}>
-          <MaterialIcons name="search" size={20} color={Colors.textSecondary} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Type chat name or message"
-            placeholderTextColor={Colors.textSecondary}
-            value={searchInput}
-            onChangeText={setSearchInput}
-            returnKeyType="search"
-            onSubmitEditing={submitSearch}
-          />
-          {!!searchInput && (
-            <TouchableOpacity onPress={clearSearch}>
-              <MaterialIcons name="close" size={18} color={Colors.textSecondary} />
-            </TouchableOpacity>
-          )}
-        </View>
-
+      <LinearGradient
+        colors={['#F5E6D8', '#EDEBFF', '#DFF3EE']}
+        locations={[0, 0.5, 1]}
+        style={styles.gradientBg}
+      >
         <FlatList
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          data={filterOptions}
-          keyExtractor={(item) => item.key}
-          contentContainerStyle={styles.filterRow}
-          renderItem={({ item }) => {
-            const isActive = activeFilter === item.key;
-            return (
-              <TouchableOpacity
-                style={[styles.filterChip, isActive && styles.filterChipActive]}
-                onPress={() => setActiveFilter(item.key)}
-              >
-                <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>
-                  {item.label}
-                </Text>
-                <View style={[styles.filterCountBadge, isActive && styles.filterCountBadgeActive]}>
-                  <Text style={[styles.filterCountText, isActive && styles.filterCountTextActive]}>
-                    {item.count}
-                  </Text>
+          data={filteredConversations}
+          keyExtractor={(item) => item.id}
+          renderItem={renderConversationItem}
+          ListHeaderComponent={(
+            <>
+              {/* Header */}
+              <View style={styles.header}>
+                <View>
+                  <Text style={styles.headerTitle}>Messages</Text>
+                  <Text style={styles.headerSubtitle}>{`${unreadTotal} unread • ${directCount} direct chats`}</Text>
                 </View>
-              </TouchableOpacity>
-            );
-          }}
+                <TouchableOpacity
+                  style={styles.composeButton}
+                  onPress={() => setShowComposeMenu(true)}
+                >
+                  <MaterialIcons name="person-add-alt-1" size={20} color="#ffffff" />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.searchSection}>
+                <View style={styles.searchBar}>
+                  <MaterialIcons name="search" size={20} color="#9CA3AF" />
+                  <TextInput
+                    style={styles.searchInput}
+                    placeholder="Type chat name or message"
+                    placeholderTextColor="#9CA3AF"
+                    value={searchInput}
+                    onChangeText={setSearchInput}
+                    returnKeyType="search"
+                    onSubmitEditing={submitSearch}
+                  />
+                  {!!searchInput && (
+                    <TouchableOpacity onPress={clearSearch}>
+                      <MaterialIcons name="close" size={18} color="#9CA3AF" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                <View style={styles.filterRow}>
+                  {filterOptions.map((item) => {
+                    const isActive = activeFilter === item.key;
+                    return (
+                      <TouchableOpacity
+                        key={item.key}
+                        style={[styles.filterChip, isActive && styles.filterChipActive]}
+                        onPress={() => setActiveFilter(item.key)}
+                      >
+                        <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>
+                          {item.label}
+                        </Text>
+                        <View style={[styles.filterCountBadge, isActive && styles.filterCountBadgeActive]}>
+                          <Text style={[styles.filterCountText, isActive && styles.filterCountTextActive]}>
+                            {item.count}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                <Text style={styles.resultsCount}>
+                  {activeSearch ? `${filteredConversations.length} results for "${activeSearch}"` : `${filteredConversations.length} chats`}
+                </Text>
+              </View>
+            </>
+          )}
+          contentContainerStyle={styles.conversationsListContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6366F1" />}
+          ListEmptyComponent={
+            <View style={styles.emptyStateContainer}>
+              <MaterialIcons name="chat-bubble-outline" size={44} color={Colors.textSecondary} />
+              <Text style={styles.emptyStateTitle}>No chats found</Text>
+              <Text style={styles.emptyStateSubtext}>Start a new conversation from the compose button.</Text>
+            </View>
+          }
         />
 
-        <Text style={styles.resultsCount}>
-          {activeSearch ? `${filteredConversations.length} results for "${activeSearch}"` : `${filteredConversations.length} chats`}
-        </Text>
-      </View>
-
-      <FlatList
-        data={filteredConversations}
-        keyExtractor={(item) => item.id}
-        renderItem={renderConversationItem}
-        contentContainerStyle={styles.conversationsListContent}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
-        ListEmptyComponent={
-          <View style={styles.emptyStateContainer}>
-            <MaterialIcons name="chat-bubble-outline" size={44} color={Colors.textSecondary} />
-            <Text style={styles.emptyStateTitle}>No chats found</Text>
-            <Text style={styles.emptyStateSubtext}>Start a new conversation from the compose button.</Text>
-          </View>
-        }
-      />
+      </LinearGradient>
 
       {/* AI Chat Assistant FAB */}
       <TouchableOpacity
-        style={styles.aiChatFab}
+        style={styles.aiChatFabTouch}
+        activeOpacity={0.9}
         onPress={() => navigation.navigate('ChatConversation', {
           conversationId: 'ai-assistant',
           name: 'AI Assistant',
           isGroup: false
         })}
       >
-        <MaterialIcons name="auto-awesome" size={24} color="#fff" />
+        <LinearGradient
+          colors={['#8B5CF6', '#6366F1']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.aiChatFab}
+        >
+          <MaterialIcons name="auto-awesome" size={26} color="#fff" />
+        </LinearGradient>
       </TouchableOpacity>
 
       <Modal
@@ -1057,138 +1075,155 @@ export default function ChatScreen() {
 const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: '#F5E6D8',
     ...(Platform.OS === 'web' && ({ height: '100vh', width: '100vw' } as any)),
+  },
+  gradientBg: {
+    flex: 1,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: Spacing.md,
+    paddingHorizontal: 18,
     paddingTop: 14,
-    paddingBottom: 12,
-    backgroundColor: Colors.background,
+    paddingBottom: 10,
   },
   headerTitle: {
-    fontSize: FontSizes.xxl,
-    fontWeight: FontWeights.bold,
-    color: Colors.text,
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#111827',
   },
   headerSubtitle: {
-    marginTop: 2,
-    fontSize: FontSizes.sm,
-    color: Colors.textSecondary,
-    fontWeight: FontWeights.medium,
+    marginTop: 4,
+    fontSize: 13,
+    color: '#6B7280',
+    fontWeight: '500',
   },
   composeButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: Colors.surface,
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#6366F1',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: Colors.primary,
-    ...Shadows.sm,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
+    shadowRadius: 20,
+    elevation: 8,
   },
   searchSection: {
-    marginHorizontal: Spacing.md,
+    marginHorizontal: 18,
     marginTop: 4,
     marginBottom: 8,
-    borderRadius: BorderRadius.xl,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 12,
-    backgroundColor: Colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-    gap: Spacing.sm,
-    ...Shadows.sm,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    gap: 10,
   },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.card,
-    borderRadius: BorderRadius.lg,
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    borderRadius: 14,
     paddingHorizontal: 12,
-    paddingVertical: 11,
+    paddingVertical: 12,
     gap: 8,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: '#E5E7EB',
   },
   searchInput: {
     flex: 1,
-    fontSize: FontSizes.md,
-    color: Colors.text,
+    fontSize: 15,
+    color: '#111827',
   },
   filterRow: {
-    gap: Spacing.sm,
-    paddingTop: Spacing.xs,
+    flexDirection: 'row',
+    gap: 8,
+    paddingTop: 4,
     paddingBottom: 2,
   },
   resultsCount: {
-    fontSize: FontSizes.sm,
-    color: Colors.textSecondary,
-    fontWeight: FontWeights.medium,
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '500',
   },
   filterChip: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.xs,
-    paddingHorizontal: Spacing.md + 2,
-    paddingVertical: Spacing.xs + 4,
-    borderRadius: BorderRadius.full,
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.7)',
     borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: Colors.card,
+    borderColor: 'rgba(229,231,235,0.85)',
   },
   filterChipActive: {
-    borderColor: Colors.primary,
-    backgroundColor: Colors.primarySoft,
+    backgroundColor: '#EDEBFF',
+    borderColor: '#C7D2FE',
   },
   filterChipText: {
-    fontSize: FontSizes.sm,
-    color: Colors.textSecondary,
-    fontWeight: FontWeights.medium,
+    fontSize: 13,
+    color: '#6B7280',
+    fontWeight: '500',
   },
   filterChipTextActive: {
-    color: Colors.primaryContent,
+    color: '#6366F1',
+    fontWeight: '700',
   },
   filterCountBadge: {
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
-    paddingHorizontal: 4,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 999,
+    paddingHorizontal: 6,
+    backgroundColor: 'rgba(255,255,255,0.92)',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.card,
   },
   filterCountBadgeActive: {
-    backgroundColor: Colors.surface,
+    backgroundColor: '#FFFFFF',
   },
   filterCountText: {
-    fontSize: FontSizes.xs,
-    color: Colors.textSecondary,
-    fontWeight: FontWeights.semibold,
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#6B7280',
   },
   filterCountTextActive: {
-    color: Colors.primaryContent,
+    color: '#6366F1',
   },
   conversationsListContent: {
-    paddingHorizontal: Spacing.md,
+    paddingHorizontal: 18,
     paddingTop: 4,
-    paddingBottom: 110,
+    paddingBottom: 90,
   },
   conversationItem: {
     flexDirection: 'row',
-    paddingHorizontal: Spacing.md,
+    position: 'relative',
+    paddingHorizontal: 14,
     paddingVertical: 14,
     marginBottom: 10,
-    borderRadius: BorderRadius.lg,
+    borderRadius: 20,
     gap: 12,
-    backgroundColor: Colors.surface,
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: Colors.border,
-    ...Shadows.sm,
+    borderColor: 'rgba(255,255,255,0.8)',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  conversationItemUnread: {
+    paddingLeft: 18,
+  },
+  unreadAccentBar: {
+    position: 'absolute',
+    left: 0,
+    top: 10,
+    bottom: 10,
+    width: 4,
+    backgroundColor: '#6366F1',
+    borderRadius: 4,
   },
   avatarWrapper: {
     position: 'relative',
@@ -1273,34 +1308,46 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     justifyContent: 'space-between',
     marginBottom: 6,
   },
+  conversationNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 8,
+  },
   conversationName: {
-    fontSize: FontSizes.md,
-    fontWeight: FontWeights.semibold,
-    color: Colors.text,
+    flexShrink: 1,
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#111827',
   },
   conversationTime: {
     fontSize: 12,
-    color: Colors.textSecondary,
+    color: '#6B7280',
   },
   metaRow: {
     marginBottom: 6,
   },
   typeChip: {
     alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    borderRadius: BorderRadius.full,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 2,
-    backgroundColor: Colors.card,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  typeChipDirect: {
+    backgroundColor: '#EEF2FF',
+  },
+  typeChipGroup: {
+    backgroundColor: '#ECFDF5',
   },
   typeChipText: {
-    fontSize: FontSizes.xs,
-    color: Colors.textSecondary,
-    fontWeight: FontWeights.medium,
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  typeChipTextDirect: {
+    color: '#6366F1',
+  },
+  typeChipTextGroup: {
+    color: '#059669',
   },
   messageRow: {
     flexDirection: 'row',
@@ -1309,45 +1356,54 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   lastMessage: {
     flex: 1,
-    fontSize: FontSizes.sm,
-    color: Colors.textSecondary,
+    fontSize: 13,
+    color: '#6B7280',
   },
   lastMessageUnread: {
-    fontWeight: FontWeights.medium,
-    color: Colors.text,
+    fontWeight: '600',
+    color: '#111827',
   },
   seenIcon: {
     marginRight: 6,
   },
   unreadBadge: {
-    minWidth: 20,
+    minWidth: 24,
     height: 20,
-    borderRadius: 10,
-    backgroundColor: Colors.primary,
+    borderRadius: 999,
+    backgroundColor: '#6366F1',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 6,
-    marginLeft: 8,
+    paddingHorizontal: 7,
+    marginLeft: 6,
   },
   unreadText: {
     fontSize: 11,
-    fontWeight: FontWeights.bold,
+    fontWeight: '600',
     color: '#ffffff',
   },
-  aiChatFab: {
+  aiChatFabTouch: {
     position: 'absolute',
-    bottom: 92,
-    right: 24,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#7c3aed',
+    bottom: 96,
+    right: 18,
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.28,
+    shadowRadius: 24,
+    elevation: 16,
+    zIndex: 999,
+  },
+  aiChatFab: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 31,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#ffffff',
-    zIndex: 20,
-    ...Shadows.lg,
+    backgroundColor: '#6366F1',
+    elevation: 0,
   },
   modalOverlayCenter: {
     flex: 1,

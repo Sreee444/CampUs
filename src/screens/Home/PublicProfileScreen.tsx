@@ -2,7 +2,7 @@
 // PUBLIC PROFILE SCREEN - REDESIGNED
 // ================================================
 // View other users' profiles with connection management
-// Features: Hero card, stat row, skills chips, project cards, connection actions
+// Gradient background, lightweight sections, message button
 // ================================================
 
 import React, { useState, useEffect } from 'react';
@@ -15,7 +15,6 @@ import {
   ScrollView,
   ActivityIndicator,
   Image,
-  Dimensions,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -41,13 +40,10 @@ import {
   getConnectionStatus,
   ConnectionStatusResult,
 } from '../../api/connections';
-import { getUserVerifications, getMutualConnections } from '../../api/chat';
-import UserProfileCard from '../../components/UserProfileCard';
+import { getUserVerifications, getMutualConnections, createDirectConversation } from '../../api/chat';
 
 type PublicProfileScreenNavigationProp = StackNavigationProp<RootStackParamList, 'PublicProfile'>;
 type PublicProfileScreenRouteProp = RouteProp<RootStackParamList, 'PublicProfile'>;
-
-const { width } = Dimensions.get('window');
 
 const ROLE_CONFIG: Record<string, { color: string; icon: string; label: string; gradient: [string, string] }> = {
   student:  { color: '#3b82f6', icon: 'school',        label: 'Student', gradient: ['#3b82f6', '#6366f1'] },
@@ -70,6 +66,7 @@ export default function PublicProfileScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatusResult>({ status: 'none' });
   const [actionLoading, setActionLoading] = useState(false);
+  const [messageLoading, setMessageLoading] = useState(false);
   const [userProjects, setUserProjects] = useState<any[]>([]);
   const [connectionsCount, setConnectionsCount] = useState(0);
   const [verificationBadges, setVerificationBadges] = useState<any[]>([]);
@@ -169,8 +166,18 @@ export default function PublicProfileScreen() {
   const loadMutualConnections = async () => {
     try {
       if (!user?.id) return;
-      const mutualConnections = await getMutualConnections(userId, user.id);
-      setMutualConnectionsCount(mutualConnections?.mutual_count || 0);
+      const mutualConnections = await getMutualConnections(user.id, userId);
+      const mutualUsers = Array.isArray(mutualConnections?.mutual_users)
+        ? mutualConnections.mutual_users.filter(
+            (mutualUser: any) => mutualUser?.id && mutualUser.id !== user.id && mutualUser.id !== userId
+          )
+        : [];
+
+      const safeCount = mutualUsers.length > 0
+        ? mutualUsers.length
+        : Math.max(0, Number(mutualConnections?.mutual_count || 0));
+
+      setMutualConnectionsCount(safeCount);
     } catch (error) {
       console.error('Error loading mutual connections:', error);
     }
@@ -254,8 +261,29 @@ export default function PublicProfileScreen() {
     }
   };
 
-  const handleMessage = () => {
-    Toast.show({ type: 'info', text1: 'Coming Soon', text2: 'Direct messaging will be available soon' });
+  // =====================================
+  // MESSAGE BUTTON LOGIC
+  // =====================================
+
+  const handleMessage = async () => {
+    if (!user?.id) return;
+    try {
+      setMessageLoading(true);
+      const conversation = await createDirectConversation(user.id, userId);
+      navigation.navigate('ChatConversation', {
+        conversationId: conversation.id,
+        name: profile?.full_name || 'User',
+        isGroup: false,
+      });
+    } catch (error: any) {
+      Toast.show({
+        type: 'error',
+        text1: 'Unable to start chat',
+        text2: error?.message || 'Please try again',
+      });
+    } finally {
+      setMessageLoading(false);
+    }
   };
 
   // =====================================
@@ -289,13 +317,22 @@ export default function PublicProfileScreen() {
     };
   };
 
-  const getProjectStatusColor = (status: string) => {
-    switch (status) {
-      case 'active': return '#10b981';
-      case 'completed': return '#3b82f6';
-      case 'on_hold': return '#f59e0b';
-      default: return '#6b7280';
+  const formatYearValue = (value: string | number | undefined) => {
+    if (value === undefined || value === null) return '-';
+    const raw = String(value).trim();
+    if (!raw) return '-';
+
+    // Row label already says "Year", so return only the value part.
+    if (/^year\s*/i.test(raw)) {
+      const withoutPrefix = raw.replace(/^year\s*/i, '').trim();
+      return withoutPrefix || '-';
     }
+
+    if (/^\d+$/.test(raw)) {
+      return raw;
+    }
+
+    return raw;
   };
 
   // =====================================
@@ -366,10 +403,6 @@ export default function PublicProfileScreen() {
             <MaterialIcons name="check-circle" size={18} color="#10b981" />
             <Text style={[styles.connectBtnText, { color: '#10b981' }]}>Connected</Text>
           </View>
-          <TouchableOpacity style={[styles.connectBtn, styles.messageBtnFill]} onPress={handleMessage} activeOpacity={0.85}>
-            <MaterialIcons name="chat-bubble-outline" size={18} color="#fff" />
-            <Text style={styles.connectBtnText}>Message</Text>
-          </TouchableOpacity>
         </View>
       );
     }
@@ -383,166 +416,164 @@ export default function PublicProfileScreen() {
 
   if (isLoading) {
     return (
-      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+      <LinearGradient colors={['#F5E6D8', '#EDEBFF', '#DFF3EE']} locations={[0, 0.5, 1]} style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
         <ActivityIndicator size="large" color={Colors.primary} />
-      </View>
+      </LinearGradient>
     );
   }
 
   if (!profile) {
     return (
-      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+      <LinearGradient colors={['#F5E6D8', '#EDEBFF', '#DFF3EE']} locations={[0, 0.5, 1]} style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
         <MaterialIcons name="person-off" size={64} color={Colors.textSecondary} />
         <Text style={{ fontSize: FontSizes.lg, color: Colors.textSecondary, marginTop: Spacing.md }}>
           User not found
         </Text>
-      </View>
+      </LinearGradient>
     );
   }
 
   const roleConfig = getRoleConfig();
+  const skills = Array.isArray(profile.skills) ? profile.skills : [];
+  const interests = Array.isArray(profile.interests) ? profile.interests : [];
 
   // =====================================
   // RENDER
   // =====================================
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color={Colors.text} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Profile</Text>
-        <View style={{ width: 40 }} />
-      </View>
-
-      <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
-
-        {/* ── HERO CARD ── */}
-        <View style={styles.heroCard}>
-          {/* Gradient banner */}
-          <LinearGradient
-            colors={roleConfig.gradient as any}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.heroBanner}
-          >
-            <View style={styles.decCircle1} />
-            <View style={styles.decCircle2} />
-          </LinearGradient>
-
-          {/* Avatar ring */}
-          <View style={styles.avatarRingOuter}>
-            <LinearGradient colors={roleConfig.gradient as any} style={styles.avatarRing}>
-              <View style={styles.avatarInner}>
-                {profile.avatar_url ? (
-                  <Image source={{ uri: profile.avatar_url }} style={styles.avatarImage} />
-                ) : (
-                  <LinearGradient colors={roleConfig.gradient as any} style={styles.avatarFallback}>
-                    <Text style={styles.avatarInitials}>{getInitials()}</Text>
-                  </LinearGradient>
-                )}
-              </View>
-            </LinearGradient>
-            {connectionStatus.status === 'accepted' && (
-              <View style={styles.connectedDot}>
-                <MaterialIcons name="check" size={10} color="#fff" />
-              </View>
-            )}
-          </View>
-
-          {/* Name */}
-          <Text style={styles.heroName}>{profile.full_name || 'Unknown User'}</Text>
-
-          {/* Role pill */}
-          <View style={[styles.rolePill, { backgroundColor: roleConfig.color + '22', borderColor: roleConfig.color + '44' }]}>
-            <MaterialIcons name={roleConfig.icon as any} size={12} color={roleConfig.color} />
-            <Text style={[styles.rolePillText, { color: roleConfig.color }]}>{roleConfig.label.toUpperCase()}</Text>
-          </View>
-
-          {/* Special badges & Verification badges */}
-          {(profile.is_club_coordinator || profile.is_volunteer || profile.is_verified || verificationBadges.length > 0) && (
-            <View style={styles.badgeRow}>
-              {profile.is_club_coordinator && (
-                <View style={[styles.specialBadge, { backgroundColor: '#7c3aed22', borderColor: '#7c3aed44' }]}>
-                  <MaterialIcons name="groups" size={12} color="#7c3aed" />
-                  <Text style={[styles.specialBadgeText, { color: '#7c3aed' }]}>Club Coordinator</Text>
-                </View>
-              )}
-              {profile.is_volunteer && (
-                <View style={[styles.specialBadge, { backgroundColor: '#0891b222', borderColor: '#0891b244' }]}>
-                  <MaterialIcons name="volunteer-activism" size={12} color="#0891b2" />
-                  <Text style={[styles.specialBadgeText, { color: '#0891b2' }]}>Volunteer</Text>
-                </View>
-              )}
-              {profile.is_verified && (
-                <View style={[styles.specialBadge, { backgroundColor: '#06b6d422', borderColor: '#06b6d444' }]}>
-                  <MaterialIcons name="verified" size={12} color="#06b6d4" />
-                  <Text style={[styles.specialBadgeText, { color: '#06b6d4' }]}>Verified</Text>
-                </View>
-              )}
-              {verificationBadges.map((badge, idx) => (
-                <View key={idx} style={[styles.specialBadge, { backgroundColor: '#8b5cf615', borderColor: '#8b5cf644' }]}>
-                  <MaterialIcons name={badge.type === 'mentor' ? 'school' : 'admin-panel-settings'} size={12} color="#8b5cf6" />
-                  <Text style={[styles.specialBadgeText, { color: '#8b5cf6' }]}>{badge.type.toUpperCase()}</Text>
-                </View>
-              ))}
-            </View>
-          )}
-
-          {/* Bio */}
-          {profile.bio ? (
-            <Text style={styles.heroBio} numberOfLines={3}>{profile.bio}</Text>
-          ) : null}
-
-          {/* Stats row */}
-          <View style={styles.statsRow}>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{connectionsCount}</Text>
-              <Text style={styles.statLabel}>Connections</Text>
-            </View>
-            <View style={styles.statDivider} />
-            {mutualConnectionsCount > 0 && (
-              <>
-                <View style={styles.statItem}>
-                  <Text style={styles.statValue}>{mutualConnectionsCount}</Text>
-                  <Text style={styles.statLabel}>Mutual</Text>
-                </View>
-                <View style={styles.statDivider} />
-              </>
-            )}
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{userProjects.length}</Text>
-              <Text style={styles.statLabel}>Projects</Text>
-            </View>
-            {profile.year ? (
-              <>
-                <View style={styles.statDivider} />
-                <View style={styles.statItem}>
-                  <Text style={styles.statValue}>Y{profile.year}</Text>
-                  <Text style={styles.statLabel}>Year</Text>
-                </View>
-              </>
-            ) : null}
-          </View>
-
-          {/* Connection actions */}
-          <View style={styles.actionArea}>
-            {renderConnectionButton()}
-          </View>
+    <SafeAreaView style={{ flex: 1 }}>
+      <LinearGradient
+        colors={['#F5E6D8', '#EDEBFF', '#DFF3EE']}
+        locations={[0, 0.5, 1]}
+        style={styles.gradientBg}
+      >
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+            <MaterialIcons name="arrow-back" size={22} color={Colors.text} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Profile</Text>
+          <View style={{ width: 40 }} />
         </View>
 
-        {/* ── ACADEMIC INFO CARD ── */}
-        {(profile.department || profile.enrollment_number || profile.year) && (
-          <View style={styles.infoCard}>
-            <View style={styles.cardHeader}>
-              <View style={[styles.cardIconWrap, { backgroundColor: '#3b82f615' }]}>
-                <MaterialIcons name="school" size={18} color="#3b82f6" />
-              </View>
-              <Text style={styles.cardTitle}>Academic Info</Text>
+        <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 90 }}>
+
+          {/* ── HERO SECTION ── */}
+          <View style={styles.heroSection}>
+            {/* Avatar */}
+            <View style={styles.avatarContainer}>
+              {profile.avatar_url ? (
+                <Image source={{ uri: profile.avatar_url }} style={styles.avatarImage} />
+              ) : (
+                <LinearGradient colors={roleConfig.gradient as any} style={styles.avatarFallback}>
+                  <Text style={styles.avatarInitials}>{getInitials()}</Text>
+                </LinearGradient>
+              )}
+              {connectionStatus.status === 'accepted' && (
+                <View style={styles.connectedDot}>
+                  <MaterialIcons name="check" size={10} color="#fff" />
+                </View>
+              )}
             </View>
-            <View style={styles.infoGrid}>
+
+            {/* Name */}
+            <Text style={styles.heroName}>{profile.full_name || 'Unknown User'}</Text>
+
+            {/* Role pill */}
+            <View style={[styles.rolePill, { backgroundColor: roleConfig.color + '22', borderColor: roleConfig.color + '44' }]}>
+              <MaterialIcons name={roleConfig.icon as any} size={12} color={roleConfig.color} />
+              <Text style={[styles.rolePillText, { color: roleConfig.color }]}>{roleConfig.label.toUpperCase()}</Text>
+            </View>
+
+            {/* Department */}
+            {profile.department ? (
+              <Text style={styles.heroDepartment}>{profile.department}</Text>
+            ) : null}
+
+            {/* Special badges & Verification badges */}
+            {(profile.is_club_coordinator || profile.is_volunteer || profile.is_verified || verificationBadges.length > 0) && (
+              <View style={styles.badgeRow}>
+                {profile.is_club_coordinator && (
+                  <View style={[styles.specialBadge, { backgroundColor: '#7c3aed22', borderColor: '#7c3aed44' }]}>
+                    <MaterialIcons name="groups" size={12} color="#7c3aed" />
+                    <Text style={[styles.specialBadgeText, { color: '#7c3aed' }]}>Club Coordinator</Text>
+                  </View>
+                )}
+                {profile.is_volunteer && (
+                  <View style={[styles.specialBadge, { backgroundColor: '#0891b222', borderColor: '#0891b244' }]}>
+                    <MaterialIcons name="volunteer-activism" size={12} color="#0891b2" />
+                    <Text style={[styles.specialBadgeText, { color: '#0891b2' }]}>Volunteer</Text>
+                  </View>
+                )}
+                {profile.is_verified && (
+                  <View style={[styles.specialBadge, { backgroundColor: '#06b6d422', borderColor: '#06b6d444' }]}>
+                    <MaterialIcons name="verified" size={12} color="#06b6d4" />
+                    <Text style={[styles.specialBadgeText, { color: '#06b6d4' }]}>Verified</Text>
+                  </View>
+                )}
+                {verificationBadges.map((badge, idx) => (
+                  <View key={idx} style={[styles.specialBadge, { backgroundColor: '#8b5cf615', borderColor: '#8b5cf644' }]}>
+                    <MaterialIcons name={badge.type === 'mentor' ? 'school' : 'admin-panel-settings'} size={12} color="#8b5cf6" />
+                    <Text style={[styles.specialBadgeText, { color: '#8b5cf6' }]}>{badge.type.toUpperCase()}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {/* Bio */}
+            {profile.bio ? (
+              <Text style={styles.heroBio} numberOfLines={3}>{profile.bio}</Text>
+            ) : null}
+
+            {/* Stats row - colored blocks */}
+            <View style={styles.statsRow}>
+              <View style={[styles.statBlock, { backgroundColor: '#DBEAFE' }]}>
+                <Text style={styles.statBlockValue}>{connectionsCount}</Text>
+                <Text style={styles.statBlockLabel}>Connections</Text>
+              </View>
+              <View style={[styles.statBlock, { backgroundColor: '#EDE9FE' }]}>
+                <Text style={styles.statBlockValue}>{userProjects.length}</Text>
+                <Text style={styles.statBlockLabel}>Projects</Text>
+              </View>
+              <View style={[styles.statBlock, { backgroundColor: '#FEF3C7' }]}>
+                <Text style={styles.statBlockValue}>{mutualConnectionsCount}</Text>
+                <Text style={styles.statBlockLabel}>Mutual</Text>
+              </View>
+            </View>
+
+            {/* Connection actions */}
+            <View style={styles.actionArea}>
+              {renderConnectionButton()}
+            </View>
+
+            {/* Message button */}
+            {user?.id !== userId && (
+              <TouchableOpacity
+                style={styles.messageBtn}
+                onPress={handleMessage}
+                disabled={messageLoading}
+                activeOpacity={0.85}
+              >
+                {messageLoading ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <>
+                    <MaterialIcons name="chat-bubble-outline" size={18} color="#fff" />
+                    <Text style={styles.messageBtnText}>Message</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* ── ACADEMIC INFO SECTION ── */}
+          {(profile.department || profile.enrollment_number || profile.year) && (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <MaterialIcons name="school" size={18} color="#3b82f6" />
+                <Text style={styles.sectionTitle}>Academic Info</Text>
+              </View>
               {profile.department ? (
                 <View style={styles.infoRow}>
                   <Text style={styles.infoKey}>Department</Text>
@@ -552,7 +583,7 @@ export default function PublicProfileScreen() {
               {profile.year ? (
                 <View style={styles.infoRow}>
                   <Text style={styles.infoKey}>Year</Text>
-                  <Text style={styles.infoVal}>Year {profile.year}</Text>
+                  <Text style={styles.infoVal}>{formatYearValue(profile.year)}</Text>
                 </View>
               ) : null}
               {profile.enrollment_number ? (
@@ -562,79 +593,65 @@ export default function PublicProfileScreen() {
                 </View>
               ) : null}
             </View>
-          </View>
-        )}
+          )}
 
-        {/* ── SKILLS CARD ── */}
-        {profile.skills && profile.skills.length > 0 && (
-          <View style={styles.infoCard}>
-            <View style={styles.cardHeader}>
-              <View style={[styles.cardIconWrap, { backgroundColor: '#fb718515' }]}>
+          {/* ── SKILLS SECTION ── */}
+          {skills.length > 0 && (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
                 <MaterialIcons name="code" size={18} color="#fb7185" />
+                <Text style={styles.sectionTitle}>Skills</Text>
               </View>
-              <Text style={styles.cardTitle}>Skills</Text>
+              <View style={styles.chipWrap}>
+                {skills.map((skill, i) => (
+                  <View key={i} style={styles.chip}>
+                    <Text style={styles.chipText}>{skill}</Text>
+                  </View>
+                ))}
+              </View>
             </View>
-            <View style={styles.chipWrap}>
-              {profile.skills.map((skill, i) => (
-                <View key={i} style={[styles.chip, styles.skillChip]}>
-                  <Text style={[styles.chipText, { color: '#fb7185' }]}>{skill}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        )}
+          )}
 
-        {/* ── INTERESTS CARD ── */}
-        {profile.interests && profile.interests.length > 0 && (
-          <View style={styles.infoCard}>
-            <View style={styles.cardHeader}>
-              <View style={[styles.cardIconWrap, { backgroundColor: '#10b98115' }]}>
+          {/* ── INTERESTS SECTION ── */}
+          {interests.length > 0 && (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
                 <MaterialIcons name="favorite" size={18} color="#10b981" />
+                <Text style={styles.sectionTitle}>Interests</Text>
               </View>
-              <Text style={styles.cardTitle}>Interests</Text>
+              <View style={styles.chipWrap}>
+                {interests.map((interest, i) => (
+                  <View key={i} style={styles.chip}>
+                    <Text style={styles.chipText}>{interest}</Text>
+                  </View>
+                ))}
+              </View>
             </View>
-            <View style={styles.chipWrap}>
-              {profile.interests.map((interest, i) => (
-                <View key={i} style={[styles.chip, styles.interestChip]}>
-                  <Text style={[styles.chipText, { color: '#10b981' }]}>{interest}</Text>
+          )}
+
+          {/* ── PROJECTS SECTION ── */}
+          {userProjects.length > 0 && (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <MaterialIcons name="work" size={18} color="#6366f1" />
+                <Text style={styles.sectionTitle}>Projects</Text>
+                <View style={styles.projectCount}>
+                  <Text style={styles.projectCountText}>{userProjects.length}</Text>
+                </View>
+              </View>
+              {userProjects.map((p: any, i) => (
+                <View key={i} style={[styles.projectRow, i === userProjects.length - 1 && { borderBottomWidth: 0 }]}>
+                  <Text style={styles.projectName} numberOfLines={1}>{p.team?.name || 'Unnamed Project'}</Text>
+                  <View style={styles.projectRolePill}>
+                    <Text style={styles.projectRoleText}>{p.role || 'Member'}</Text>
+                  </View>
                 </View>
               ))}
             </View>
-          </View>
-        )}
+          )}
 
-        {/* ── PROJECTS CARD ── */}
-        {userProjects.length > 0 && (
-          <View style={styles.infoCard}>
-            <View style={styles.cardHeader}>
-              <View style={[styles.cardIconWrap, { backgroundColor: '#6366f115' }]}>
-                <MaterialIcons name="work" size={18} color="#6366f1" />
-              </View>
-              <Text style={styles.cardTitle}>Projects</Text>
-              <Text style={styles.cardCount}>{userProjects.length}</Text>
-            </View>
-            {userProjects.map((p: any, i) => {
-              const st = p.team?.status || 'active';
-              const stColor = getProjectStatusColor(st);
-              return (
-                <View key={i} style={[styles.projectRow, i === userProjects.length - 1 && { borderBottomWidth: 0 }]}>
-                  <View style={[styles.projectDot, { backgroundColor: stColor }]} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.projectName} numberOfLines={1}>{p.team?.name || 'Unnamed Project'}</Text>
-                    {p.team?.description ? (
-                      <Text style={styles.projectDesc} numberOfLines={1}>{p.team.description}</Text>
-                    ) : null}
-                  </View>
-                  <View style={[styles.projectRolePill, { backgroundColor: stColor + '20', borderColor: stColor + '40' }]}>
-                    <Text style={[styles.projectRoleText, { color: stColor }]}>{p.role || 'Member'}</Text>
-                  </View>
-                </View>
-              );
-            })}
-          </View>
-        )}
-
-      </ScrollView>
+        </ScrollView>
+      </LinearGradient>
     </SafeAreaView>
   );
 }
@@ -645,9 +662,8 @@ export default function PublicProfileScreen() {
 
 const createStyles = (Colors: any, isDark: boolean) =>
   StyleSheet.create({
-    container: {
+    gradientBg: {
       flex: 1,
-      backgroundColor: isDark ? '#0f0f13' : '#f3f4f6',
     },
 
     // Header
@@ -657,15 +673,12 @@ const createStyles = (Colors: any, isDark: boolean) =>
       justifyContent: 'space-between',
       paddingHorizontal: Spacing.md,
       paddingVertical: 12,
-      backgroundColor: Colors.surface,
-      borderBottomWidth: 1,
-      borderBottomColor: Colors.border,
     },
     backBtn: {
       width: 40,
       height: 40,
-      borderRadius: BorderRadius.md,
-      backgroundColor: Colors.backgroundAlt,
+      borderRadius: 20,
+      backgroundColor: 'rgba(255,255,255,0.7)',
       justifyContent: 'center',
       alignItems: 'center',
     },
@@ -675,71 +688,43 @@ const createStyles = (Colors: any, isDark: boolean) =>
       color: Colors.text,
     },
 
-    // Hero card
-    heroCard: {
-      margin: 16,
-      backgroundColor: Colors.surface,
-      borderRadius: 24,
-      overflow: 'hidden',
+    // Hero section
+    heroSection: {
       alignItems: 'center',
-      paddingBottom: 24,
-      ...Shadows.md,
-    },
-    heroBanner: {
-      width: '100%',
-      height: 110,
-    },
-    decCircle1: {
-      position: 'absolute',
-      width: 140,
-      height: 140,
-      borderRadius: 70,
-      backgroundColor: 'rgba(255,255,255,0.12)',
-      top: -40,
-      right: -20,
-    },
-    decCircle2: {
-      position: 'absolute',
-      width: 80,
-      height: 80,
-      borderRadius: 40,
-      backgroundColor: 'rgba(255,255,255,0.10)',
-      bottom: -20,
-      left: 30,
+      paddingVertical: 28,
+      paddingHorizontal: 20,
     },
 
     // Avatar
-    avatarRingOuter: {
-      marginTop: -52,
-      marginBottom: 14,
+    avatarContainer: {
       position: 'relative',
-    },
-    avatarRing: {
-      width: 104,
-      height: 104,
-      borderRadius: 52,
-      padding: 3,
-      justifyContent: 'center',
-      alignItems: 'center',
-    },
-    avatarInner: {
-      width: 98,
-      height: 98,
-      borderRadius: 49,
-      overflow: 'hidden',
-      backgroundColor: Colors.surface,
-      borderWidth: 2,
-      borderColor: Colors.surface,
+      marginBottom: 16,
     },
     avatarImage: {
-      width: '100%',
-      height: '100%',
+      width: 96,
+      height: 96,
+      borderRadius: 48,
+      borderWidth: 3,
+      borderColor: '#ffffff',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.15,
+      shadowRadius: 20,
+      elevation: 8,
     },
     avatarFallback: {
-      width: '100%',
-      height: '100%',
+      width: 96,
+      height: 96,
+      borderRadius: 48,
       justifyContent: 'center',
       alignItems: 'center',
+      borderWidth: 3,
+      borderColor: '#ffffff',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.15,
+      shadowRadius: 20,
+      elevation: 8,
     },
     avatarInitials: {
       fontSize: 36,
@@ -748,8 +733,8 @@ const createStyles = (Colors: any, isDark: boolean) =>
     },
     connectedDot: {
       position: 'absolute',
-      bottom: 4,
-      right: 4,
+      bottom: 2,
+      right: 2,
       width: 22,
       height: 22,
       borderRadius: 11,
@@ -757,7 +742,7 @@ const createStyles = (Colors: any, isDark: boolean) =>
       justifyContent: 'center',
       alignItems: 'center',
       borderWidth: 2,
-      borderColor: Colors.surface,
+      borderColor: '#ffffff',
     },
 
     // Hero text
@@ -767,7 +752,6 @@ const createStyles = (Colors: any, isDark: boolean) =>
       color: Colors.text,
       marginBottom: 8,
       textAlign: 'center',
-      paddingHorizontal: 16,
     },
     rolePill: {
       flexDirection: 'row',
@@ -777,12 +761,17 @@ const createStyles = (Colors: any, isDark: boolean) =>
       paddingVertical: 5,
       borderRadius: 20,
       borderWidth: 1,
-      marginBottom: 10,
+      marginBottom: 6,
     },
     rolePillText: {
       fontSize: 10,
       fontWeight: FontWeights.bold,
       letterSpacing: 1,
+    },
+    heroDepartment: {
+      fontSize: FontSizes.sm,
+      color: Colors.textSecondary,
+      marginBottom: 10,
     },
     badgeRow: {
       flexDirection: 'row',
@@ -814,42 +803,35 @@ const createStyles = (Colors: any, isDark: boolean) =>
       marginBottom: 16,
     },
 
-    // Stats
+    // Stats row – colored blocks
     statsRow: {
       flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: isDark ? Colors.backgroundAlt : '#f9fafb',
-      borderRadius: 16,
-      marginHorizontal: 20,
-      paddingVertical: 14,
-      paddingHorizontal: 8,
+      gap: 10,
       marginBottom: 20,
-      width: width - 32 - 40,
+      paddingHorizontal: 4,
     },
-    statItem: {
+    statBlock: {
       flex: 1,
+      borderRadius: 16,
+      paddingVertical: 12,
+      paddingHorizontal: 16,
       alignItems: 'center',
     },
-    statValue: {
+    statBlockValue: {
       fontSize: 20,
       fontWeight: FontWeights.bold,
-      color: Colors.text,
+      color: '#1e293b',
     },
-    statLabel: {
+    statBlockLabel: {
       fontSize: 11,
-      color: Colors.textSecondary,
+      color: '#64748b',
       marginTop: 2,
-    },
-    statDivider: {
-      width: 1,
-      height: 32,
-      backgroundColor: Colors.border,
     },
 
     // Action buttons
     actionArea: {
       width: '100%',
-      paddingHorizontal: 20,
+      marginBottom: 10,
     },
     connectBtnWrap: {
       width: '100%',
@@ -878,9 +860,9 @@ const createStyles = (Colors: any, isDark: boolean) =>
       color: '#fff',
     },
     connectBtnOutline: {
-      backgroundColor: 'transparent',
+      backgroundColor: 'rgba(255,255,255,0.7)',
       borderWidth: 1.5,
-      borderColor: Colors.border,
+      borderColor: 'rgba(0,0,0,0.1)',
     },
     dualBtnRow: {
       flexDirection: 'row',
@@ -901,9 +883,9 @@ const createStyles = (Colors: any, isDark: boolean) =>
       flex: 1,
       height: 48,
       borderRadius: 14,
-      backgroundColor: '#ef444415',
+      backgroundColor: 'rgba(239,68,68,0.08)',
       borderWidth: 1.5,
-      borderColor: '#ef444440',
+      borderColor: 'rgba(239,68,68,0.25)',
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
@@ -911,64 +893,57 @@ const createStyles = (Colors: any, isDark: boolean) =>
     },
     connectedBtn: {
       flex: 1,
-      backgroundColor: '#10b98115',
+      backgroundColor: 'rgba(16,185,129,0.08)',
       borderWidth: 1.5,
-      borderColor: '#10b98140',
-    },
-    messageBtnFill: {
-      flex: 1,
-      backgroundColor: '#fb7185',
+      borderColor: 'rgba(16,185,129,0.25)',
     },
 
-    // Info cards
-    infoCard: {
-      marginHorizontal: 16,
-      marginBottom: 12,
-      backgroundColor: Colors.surface,
-      borderRadius: 20,
-      padding: 18,
-      ...Shadows.sm,
-    },
-    cardHeader: {
+    // Message button
+    messageBtn: {
       flexDirection: 'row',
       alignItems: 'center',
-      marginBottom: 14,
-      gap: 10,
-    },
-    cardIconWrap: {
-      width: 34,
-      height: 34,
-      borderRadius: 10,
       justifyContent: 'center',
-      alignItems: 'center',
+      gap: 8,
+      backgroundColor: '#6366F1',
+      borderRadius: 12,
+      paddingVertical: 10,
+      paddingHorizontal: 18,
+      width: '100%',
     },
-    cardTitle: {
+    messageBtnText: {
+      fontSize: FontSizes.md,
+      fontWeight: '500' as any,
+      color: '#ffffff',
+    },
+
+    // Sections
+    section: {
+      paddingHorizontal: 20,
+      paddingVertical: 16,
+      borderBottomWidth: 1,
+      borderBottomColor: 'rgba(0,0,0,0.05)',
+    },
+    sectionHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      marginBottom: 14,
+    },
+    sectionTitle: {
       flex: 1,
       fontSize: FontSizes.md,
       fontWeight: FontWeights.semibold,
       color: Colors.text,
     },
-    cardCount: {
-      fontSize: FontSizes.sm,
-      fontWeight: FontWeights.bold,
-      color: Colors.textSecondary,
-      backgroundColor: Colors.backgroundAlt,
-      paddingHorizontal: 10,
-      paddingVertical: 3,
-      borderRadius: 12,
-    },
 
-    // Academic info grid
-    infoGrid: {
-      gap: 0,
-    },
+    // Academic info rows
     infoRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
       paddingVertical: 10,
       borderBottomWidth: 1,
-      borderBottomColor: Colors.border + '60',
+      borderBottomColor: 'rgba(0,0,0,0.05)',
     },
     infoKey: {
       fontSize: FontSizes.sm,
@@ -983,64 +958,60 @@ const createStyles = (Colors: any, isDark: boolean) =>
       textAlign: 'right',
     },
 
-    // Chips
+    // Chips (glassmorphic pills)
     chipWrap: {
       flexDirection: 'row',
       flexWrap: 'wrap',
       gap: 8,
     },
     chip: {
+      backgroundColor: 'rgba(255,255,255,0.7)',
+      borderRadius: 999,
       paddingHorizontal: 12,
       paddingVertical: 6,
-      borderRadius: 20,
-      borderWidth: 1,
-    },
-    skillChip: {
-      backgroundColor: '#fb718510',
-      borderColor: '#fb718530',
-    },
-    interestChip: {
-      backgroundColor: '#10b98110',
-      borderColor: '#10b98130',
     },
     chipText: {
-      fontSize: 13,
+      fontSize: 12,
       fontWeight: FontWeights.medium,
+      color: '#374151',
     },
 
     // Projects
     projectRow: {
       flexDirection: 'row',
+      justifyContent: 'space-between',
       alignItems: 'center',
-      paddingVertical: 10,
-      gap: 12,
+      paddingVertical: 12,
       borderBottomWidth: 1,
-      borderBottomColor: Colors.border + '60',
-    },
-    projectDot: {
-      width: 10,
-      height: 10,
-      borderRadius: 5,
-      flexShrink: 0,
+      borderBottomColor: 'rgba(0,0,0,0.05)',
     },
     projectName: {
       fontSize: FontSizes.sm,
       fontWeight: FontWeights.semibold,
       color: Colors.text,
-    },
-    projectDesc: {
-      fontSize: 12,
-      color: Colors.textSecondary,
-      marginTop: 2,
+      flex: 1,
+      marginRight: 12,
     },
     projectRolePill: {
+      backgroundColor: 'rgba(99,102,241,0.1)',
+      borderRadius: 10,
       paddingHorizontal: 10,
       paddingVertical: 4,
-      borderRadius: 10,
-      borderWidth: 1,
     },
     projectRoleText: {
       fontSize: 11,
       fontWeight: FontWeights.semibold,
+      color: '#6366f1',
+    },
+    projectCount: {
+      backgroundColor: 'rgba(0,0,0,0.05)',
+      paddingHorizontal: 10,
+      paddingVertical: 3,
+      borderRadius: 12,
+    },
+    projectCountText: {
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.bold,
+      color: Colors.textSecondary,
     },
   });

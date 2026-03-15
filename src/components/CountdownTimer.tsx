@@ -79,14 +79,23 @@ export function CountdownTimer({
   }
 
   if (compact) {
+    const hasDays = showDays && timeLeft.days > 0;
     return (
       <View style={styles.containerCompact}>
+        {/* Time display row */}
         <Text style={styles.compactTimer}>
-          {showDays && timeLeft.days > 0 ? `${timeLeft.days}d ` : ''}
+          {hasDays ? `${timeLeft.days}d ` : ''}
           {timeLeft.hours.toString().padStart(2, '0')}:
           {timeLeft.minutes.toString().padStart(2, '0')}:
           {timeLeft.seconds.toString().padStart(2, '0')}
         </Text>
+        {/* Labels row aligned under the time segments */}
+        <View style={styles.compactLabelsRow}>
+          {hasDays && <Text style={styles.compactLabel}>DAY</Text>}
+          <Text style={styles.compactLabel}>HRS</Text>
+          <Text style={styles.compactLabel}>MIN</Text>
+          <Text style={styles.compactLabel}>SEC</Text>
+        </View>
       </View>
     );
   }
@@ -155,12 +164,30 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   containerCompact: {
-    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 4,
+    justifyContent: 'center',
+    paddingVertical: 6,
     paddingHorizontal: 8,
-    backgroundColor: '#d1fae5',
-    borderRadius: 6,
+    width: '100%',
+  },
+  compactTimer: {
+    fontSize: 26,
+    fontWeight: '700',
+    color: '#C47A2B',
+    letterSpacing: 1.5,
+    textAlign: 'center',
+  },
+  compactLabelsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 18,
+    marginTop: 4,
+  },
+  compactLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#9CA3AF',
+    letterSpacing: 1,
   },
   timeUnit: {
     alignItems: 'center',
@@ -176,11 +203,6 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: '#6b7280',
     marginTop: 2,
-  },
-  compactTimer: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: '#10b981',
   },
   expiredText: {
     fontSize: 16,

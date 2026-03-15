@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+﻿import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,8 +9,9 @@ import {
   TextInput,
   ActivityIndicator,
   Platform,
+  RefreshControl,
 } from 'react-native';
-import { RefreshControl } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { CompositeNavigationProp } from '@react-navigation/native';
@@ -154,574 +155,485 @@ export default function ProjectsScreen() {
   }, [projectTeams, searchQuery, selectedCategory]);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Projects</Text>
-        {canCreateProject && (
-          <TouchableOpacity
-            style={styles.addButton}
-            onPress={handleCreateProject}
-            activeOpacity={0.7}
-          >
-            <MaterialIcons name="add" size={24} color="#fff" />
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {/* Tab Selection */}
-      <View style={styles.tabsContainer}>
-        <TouchableOpacity
-          style={[styles.tab, selectedTab === 'all' && styles.tabActive]}
-          onPress={() => setSelectedTab('all')}
-        >
-          <Text style={[styles.tabText, selectedTab === 'all' && styles.tabTextActive]}>
-            All Projects
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.tab, selectedTab === 'my' && styles.tabActive]}
-          onPress={() => setSelectedTab('my')}
-        >
-          <Text style={[styles.tabText, selectedTab === 'my' && styles.tabTextActive]}>
-            My Projects
-          </Text>
-        </TouchableOpacity>
-
-        {isFacultyOrAlumni && (
-          <TouchableOpacity
-            style={[styles.tab, selectedTab === 'mentoring' && styles.tabActive]}
-            onPress={() => setSelectedTab('mentoring')}
-          >
-            <Text style={[styles.tabText, selectedTab === 'mentoring' && styles.tabTextActive]}>
-              Mentoring
-            </Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
-      <View style={styles.searchSection}>
-        <View style={styles.searchBar}>
-          <MaterialIcons name="search" size={20} color="#94a3b8" />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search projects..."
-            placeholderTextColor="#94a3b8"
-            value={searchInput}
-            onChangeText={setSearchInput}
-            onSubmitEditing={applySearch}
-            returnKeyType="search"
-          />
-          {!!searchInput && (
+    <SafeAreaView style={styles.safeArea}>
+      <LinearGradient
+        colors={['#F5E6D8', '#EDEBFF', '#DFF3EE']}
+        locations={[0, 0.5, 1]}
+        style={styles.container}
+      >
+        {/* Header */}
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Projects</Text>
+          {canCreateProject && (
             <TouchableOpacity
-              onPress={() => {
-                setSearchInput('');
-                setSearchQuery('');
-              }}
+              style={styles.addButton}
+              onPress={handleCreateProject}
+              activeOpacity={0.8}
             >
-              <MaterialIcons name="close" size={18} color="#94a3b8" />
+              <MaterialIcons name="add" size={22} color="#fff" />
             </TouchableOpacity>
           )}
         </View>
-      </View>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.categoriesContainer}
-        contentContainerStyle={styles.categoriesContent}
-      >
-        {categories.map((category) => (
+        {/* Pill Segmented Tabs */}
+        <View style={styles.segmentedRow}>
           <TouchableOpacity
-            key={category}
-            style={[
-              styles.categoryChip,
-              selectedCategory === category && styles.categoryChipActive,
-            ]}
-            onPress={() => setSelectedCategory(category)}
+            style={[styles.segmentPill, selectedTab === 'all' && styles.segmentPillActive]}
+            onPress={() => setSelectedTab('all')}
           >
-            <Text
-              style={[
-                styles.categoryText,
-                selectedCategory === category && styles.categoryTextActive,
-              ]}
-            >
-              {category}
+            <Text style={[styles.segmentPillText, selectedTab === 'all' && styles.segmentPillTextActive]}>
+              All Projects
             </Text>
           </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      {isLoading ? (
-        <View style={styles.loadingWrapper}>
-          <ActivityIndicator size="large" color={Colors.primary} />
+          <TouchableOpacity
+            style={[styles.segmentPill, selectedTab === 'my' && styles.segmentPillActive]}
+            onPress={() => setSelectedTab('my')}
+          >
+            <Text style={[styles.segmentPillText, selectedTab === 'my' && styles.segmentPillTextActive]}>
+              My Projects
+            </Text>
+          </TouchableOpacity>
+          {isFacultyOrAlumni && (
+            <TouchableOpacity
+              style={[styles.segmentPill, selectedTab === 'mentoring' && styles.segmentPillActive]}
+              onPress={() => setSelectedTab('mentoring')}
+            >
+              <Text style={[styles.segmentPillText, selectedTab === 'mentoring' && styles.segmentPillTextActive]}>
+                Mentoring
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
-      ) : (
+
+        {/* Search Bar */}
+        <View style={styles.searchSection}>
+          <View style={styles.searchBar}>
+            <MaterialIcons name="search" size={20} color="#9CA3AF" />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search projects..."
+              placeholderTextColor="#9CA3AF"
+              value={searchInput}
+              onChangeText={setSearchInput}
+              onSubmitEditing={applySearch}
+              returnKeyType="search"
+            />
+            {!!searchInput && (
+              <TouchableOpacity onPress={() => { setSearchInput(''); setSearchQuery(''); }}>
+                <MaterialIcons name="close" size={18} color="#9CA3AF" />
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+
+        {/* Category Filter Chips */}
         <ScrollView
-          style={styles.scrollView}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }
-          contentContainerStyle={styles.scrollContent}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.categoriesContainer}
+          contentContainerStyle={styles.categoriesContent}
         >
-          <Text style={styles.resultsText}>
-            {filteredProjects.length} {filteredProjects.length === 1 ? 'Project' : 'Projects'}
-          </Text>
+          {categories.map((category) => (
+            <TouchableOpacity
+              key={category}
+              style={[styles.categoryChip, selectedCategory === category && styles.categoryChipActive]}
+              onPress={() => setSelectedCategory(category)}
+            >
+              <Text style={[styles.categoryText, selectedCategory === category && styles.categoryTextActive]}>
+                {category}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
 
-          {fetchError ? (
-            <View style={styles.emptyContainer}>
-              <MaterialIcons name="cloud-off" size={48} color={Colors.textSecondary} />
-              <Text style={styles.errorText}>{fetchError}</Text>
-            </View>
-          ) : filteredProjects.length === 0 ? (
-            <View style={styles.emptyContainer}>
-              <MaterialIcons name="search-off" size={48} color={Colors.textSecondary} />
-              <Text style={styles.emptyText}>No projects found for that filter.</Text>
-              <Text style={styles.emptySubtext}>Try a different keyword or category.</Text>
-            </View>
-          ) : (
-            filteredProjects.map((project) => {
-              const hasMembersData = Array.isArray(project.members);
-              const members: any[] = Array.isArray(project.members) ? project.members : [];
-              // Filter out advisors from member count (they're shown in Project Mentor section)
-              const nonAdvisorMembers = members.filter((m: any) => m.member_role !== 'advisor');
-              const creatorId = project.creator?.id || project.created_by;
-              const hasCreatorInMembers = !!creatorId && nonAdvisorMembers.some((member) => member.id === creatorId);
-              const effectiveMembersCount = nonAdvisorMembers.length + (hasMembersData && creatorId && !hasCreatorInMembers ? 1 : 0);
-              const displayMembers = (hasMembersData && (hasCreatorInMembers || !project.creator)
-                ? nonAdvisorMembers
-                : (hasMembersData ? [project.creator, ...nonAdvisorMembers] : [])
-              ).filter((member): member is NonNullable<typeof member> => !!member);
-              const progressPercent = project.max_members
-                ? Math.min(100, Math.round((effectiveMembersCount / project.max_members) * 100))
-                : 0;
-              const teamFillColor = getTeamFillColor(progressPercent);
-              const projectStatus = getProjectStatusColor(project.status || 'planning');
+        {isLoading ? (
+          <View style={styles.loadingWrapper}>
+            <ActivityIndicator size="large" color="#6366F1" />
+          </View>
+        ) : (
+          <ScrollView
+            style={styles.scrollView}
+            showsVerticalScrollIndicator={false}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6366F1" />}
+            contentContainerStyle={styles.scrollContent}
+          >
+            <Text style={styles.resultsText}>
+              {filteredProjects.length} {filteredProjects.length === 1 ? 'Project' : 'Projects'}
+            </Text>
 
-              return (
-                <TouchableOpacity
-                  key={project.id}
-                  style={[
-                    styles.projectCard,
-                    { borderLeftColor: projectStatus.color }
-                  ]}
-                  onPress={() => navigation.navigate('ProjectDetails', { teamId: project.id })}
-                >
-                  {/* Featured Badge */}
-                  {project.is_featured && (
-                    <View style={styles.featuredBadge}>
-                      <MaterialIcons name="star" size={14} color="#fbbf24" />
-                      <Text style={styles.featuredText}>Featured</Text>
+            {fetchError ? (
+              <View style={styles.emptyContainer}>
+                <MaterialIcons name="cloud-off" size={48} color="#9CA3AF" />
+                <Text style={styles.errorText}>{fetchError}</Text>
+              </View>
+            ) : filteredProjects.length === 0 ? (
+              <View style={styles.emptyContainer}>
+                <MaterialIcons name="search-off" size={48} color="#9CA3AF" />
+                <Text style={styles.emptyText}>No projects found for that filter.</Text>
+                <Text style={styles.emptySubtext}>Try a different keyword or category.</Text>
+              </View>
+            ) : (
+              filteredProjects.map((project) => {
+                const hasMembersData = Array.isArray(project.members);
+                const members: any[] = Array.isArray(project.members) ? project.members : [];
+                const nonAdvisorMembers = members.filter((m: any) => m.member_role !== 'advisor');
+                const creatorId = project.creator?.id || project.created_by;
+                const hasCreatorInMembers = !!creatorId && nonAdvisorMembers.some((member) => member.id === creatorId);
+                const effectiveMembersCount = nonAdvisorMembers.length + (hasMembersData && creatorId && !hasCreatorInMembers ? 1 : 0);
+                const displayMembers = (hasMembersData && (hasCreatorInMembers || !project.creator)
+                  ? nonAdvisorMembers
+                  : (hasMembersData ? [project.creator, ...nonAdvisorMembers] : [])
+                ).filter((member): member is NonNullable<typeof member> => !!member);
+                const progressPercent = project.max_members
+                  ? Math.min(100, Math.round((effectiveMembersCount / project.max_members) * 100))
+                  : 0;
+                const projectStatus = getProjectStatusColor(project.status || 'planning');
+
+                // Status badge colours per reference design
+                const statusLabel = project.status
+                  ? project.status.charAt(0).toUpperCase() + project.status.slice(1).replace(/-/g, ' ')
+                  : 'Planning';
+                const statusIsRecruiting = (project.status || '').toLowerCase().includes('recruit') || (project.status || '').toLowerCase() === 'open';
+                const statusIsInProgress = (project.status || '').toLowerCase().includes('progress') || (project.status || '').toLowerCase() === 'active';
+                const badgeBg = statusIsRecruiting ? '#DBEAFE' : statusIsInProgress ? '#FEF3C7' : projectStatus.bg;
+                const badgeColor = statusIsRecruiting ? '#2563EB' : statusIsInProgress ? '#D97706' : projectStatus.color;
+
+                return (
+                  <TouchableOpacity
+                    key={project.id}
+                    style={styles.projectCard}
+                    onPress={() => navigation.navigate('ProjectDetails', { teamId: project.id })}
+                    activeOpacity={0.85}
+                  >
+                    {/* Header row */}
+                    <View style={styles.projectHeader}>
+                      <View style={styles.projectInfo}>
+                        <Text style={styles.projectTitle}>{project.name}</Text>
+                        <Text style={styles.projectCategory}>{project.category || 'General'}</Text>
+                      </View>
+                      <View style={[styles.statusBadge, { backgroundColor: badgeBg }]}>
+                        <View style={[styles.statusDot, { backgroundColor: badgeColor }]} />
+                        <Text style={[styles.statusText, { color: badgeColor }]}>
+                          {statusLabel}
+                          {project.completion_percentage !== undefined && project.completion_percentage > 0
+                            ? ` Â· ${project.completion_percentage}%` : ''}
+                        </Text>
+                      </View>
                     </View>
-                  )}
 
-                  <View style={styles.projectHeader}>
-                    <View style={styles.projectInfo}>
-                      <Text style={styles.projectTitle}>{project.name}</Text>
-                      <Text style={styles.projectCategory}>{project.category || 'General'}</Text>
-                    </View>
-                    <View
-                      style={[
-                        styles.statusBadge,
-                        { backgroundColor: projectStatus.bg }
-                      ]}
-                    >
-                      <View
-                        style={[
-                          styles.statusDot,
-                          { backgroundColor: projectStatus.color }
-                        ]}
-                      />
-                      <Text
-                        style={[
-                          styles.statusText,
-                          { color: projectStatus.color }
-                        ]}
-                      >
-                        {project.status ? project.status.charAt(0).toUpperCase() + project.status.slice(1).replace(/-/g, ' ') : 'Planning'}
-                        {project.completion_percentage !== undefined && project.completion_percentage > 0
-                          ? ` · ${project.completion_percentage}%`
-                          : ''}
-                      </Text>
-                    </View>
-                  </View>
-
-                  <Text style={styles.projectDescription}>
-                    {project.description || 'Team description is coming soon.'}
-                  </Text>
-
-                  <View style={styles.creatorRow}>
-                    <UserAvatar
-                      uri={project.creator?.avatar_url}
-                      name={project.creator?.full_name}
-                      size={20}
-                      showRing={false}
-                    />
-                    <Text style={styles.creatorText}>
-                      Created by {project.creator?.full_name || 'Campus Member'}
+                    {/* Stage / description */}
+                    <Text style={styles.projectDescription} numberOfLines={2}>
+                      {project.description || 'Team description is coming soon.'}
                     </Text>
-                  </View>
 
-                  {/* Mentor Information */}
-                  {project.mentor && (
-                    <View style={[styles.creatorRow, { marginTop: 4 }]}>
-                      <UserAvatar
-                        uri={project.mentor.avatar_url}
-                        name={project.mentor.full_name}
-                        role="faculty"
-                        size={20}
-                        showRing={false}
-                      />
-                      <Text style={[styles.creatorText, { color: '#0369a1' }]}>
-                        Mentor: {project.mentor.full_name}
+                    {/* Creator */}
+                    <View style={styles.creatorRow}>
+                      <UserAvatar uri={project.creator?.avatar_url} name={project.creator?.full_name} size={20} showRing={false} />
+                      <Text style={styles.creatorText}>
+                        Created by {project.creator?.full_name || 'Campus Member'}
                       </Text>
                     </View>
-                  )}
 
-                  <View style={styles.progressSection}>
-                    <View style={styles.progressHeader}>
-                      <Text style={styles.progressLabel}>Team fill</Text>
-                      <Text style={[styles.progressPercent, { color: teamFillColor }]}>
-                        {progressPercent}%
-                      </Text>
-                    </View>
-                    <View style={styles.progressBar}>
-                      <View
-                        style={[
-                          styles.progressFill,
-                          {
-                            width: `${progressPercent}%`,
-                            backgroundColor: teamFillColor
-                          }
-                        ]}
-                      />
-                    </View>
-                  </View>
+                    {/* Mentor */}
+                    {project.mentor && (
+                      <View style={[styles.creatorRow, { marginTop: 4 }]}>
+                        <UserAvatar uri={project.mentor.avatar_url} name={project.mentor.full_name} role="faculty" size={20} showRing={false} />
+                        <Text style={[styles.creatorText, { color: '#0369a1' }]}>
+                          Mentor: {project.mentor.full_name}
+                        </Text>
+                      </View>
+                    )}
 
-                  {Array.isArray(project.required_skills) && project.required_skills.length > 0 && (
-                    <View style={styles.skillList}>
-                      {project.required_skills.slice(0, 4).map((skill) => (
-                        <View key={skill} style={styles.skillChip}>
-                          <Text style={styles.skillChipText}>{skill}</Text>
-                        </View>
-                      ))}
+                    {/* Progress bar */}
+                    <View style={styles.progressSection}>
+                      <View style={styles.progressHeader}>
+                        <Text style={styles.progressLabel}>Team fill</Text>
+                        <Text style={[styles.progressPercent, { color: '#3B82F6' }]}>{progressPercent}%</Text>
+                      </View>
+                      <View style={styles.progressBar}>
+                        <View style={[styles.progressFill, { width: `${progressPercent}%` as any }]} />
+                      </View>
                     </View>
-                  )}
 
-                  <View style={styles.projectFooter}>
-                    <View style={styles.teamInfo}>
-                      <View style={styles.avatarStack}>
-                        {displayMembers.slice(0, 3).map((member, index) => (
-                          <View key={member.id || index} style={[styles.stackedAvatar, { marginLeft: index > 0 ? -12 : 0, zIndex: 3 - index }]}>
-                            <UserAvatar
-                              uri={member.avatar_url}
-                              name={member.full_name}
-                              size={24}
-                              showRing={true}
-                              role={member.role}
-                            />
+                    {/* Tech tags */}
+                    {Array.isArray(project.required_skills) && project.required_skills.length > 0 && (
+                      <View style={styles.skillList}>
+                        {project.required_skills.slice(0, 5).map((skill) => (
+                          <View key={skill} style={styles.skillChip}>
+                            <Text style={styles.skillChipText}>{skill}</Text>
                           </View>
                         ))}
-                        {effectiveMembersCount > 3 && (
-                          <View style={[styles.moreMembersBadge, { marginLeft: -12, zIndex: 0 }]}>
-                            <Text style={styles.moreMembersText}>+{effectiveMembersCount - 3}</Text>
-                          </View>
-                        )}
                       </View>
-                      <Text style={styles.teamText}>
-                        {effectiveMembersCount}/{project.max_members || 0} members
-                      </Text>
+                    )}
+
+                    {/* Footer: members + view details */}
+                    <View style={styles.projectFooter}>
+                      <View style={styles.teamInfo}>
+                        <View style={styles.avatarStack}>
+                          {displayMembers.slice(0, 3).map((member, index) => (
+                            <View key={member.id || index} style={[styles.stackedAvatar, { marginLeft: index > 0 ? -10 : 0, zIndex: 3 - index }]}>
+                              <UserAvatar uri={member.avatar_url} name={member.full_name} size={26} showRing={true} role={member.role} />
+                            </View>
+                          ))}
+                          {effectiveMembersCount > 3 && (
+                            <View style={[styles.moreMembersBadge, { marginLeft: -10, zIndex: 0 }]}>
+                              <Text style={styles.moreMembersText}>+{effectiveMembersCount - 3}</Text>
+                            </View>
+                          )}
+                        </View>
+                        <Text style={styles.teamText}>{effectiveMembersCount}/{project.max_members || 0} members</Text>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.viewButton}
+                        onPress={() => navigation.navigate('ProjectDetails', { teamId: project.id })}
+                      >
+                        <Text style={styles.viewButtonText}>View Details</Text>
+                        <MaterialIcons name="arrow-forward-ios" size={12} color="#6366F1" />
+                      </TouchableOpacity>
                     </View>
-                    <TouchableOpacity
-                      style={styles.viewButton}
-                      onPress={() => navigation.navigate('ProjectDetails', { teamId: project.id })}
-                    >
-                      <Text style={styles.viewButtonText}>View Details</Text>
-                      <MaterialIcons name="arrow-forward-ios" size={12} color="#a855f7" />
-                    </TouchableOpacity>
-                  </View>
-                </TouchableOpacity>
-              );
-            })
-          )}
-
-          <View style={{ height: 32 }} />
-        </ScrollView>
-      )}
-
+                  </TouchableOpacity>
+                );
+              })
+            )}
+          </ScrollView>
+        )}
+      </LinearGradient>
     </SafeAreaView>
   );
 }
 
 const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#F5E6D8',
+  },
   container: {
     flex: 1,
-    backgroundColor: '#fdfbf7',
     ...(Platform.OS === 'web' && ({ height: '100vh', width: '100vw' } as any)),
   },
+
+  // â”€â”€ Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 12,
-    backgroundColor: 'rgba(255,255,255,0.8)',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.5)',
+    paddingHorizontal: 18,
+    paddingTop: 14,
+    paddingBottom: 10,
   },
   headerTitle: {
-    fontSize: FontSizes.xl,
-    fontWeight: FontWeights.bold,
-    color: Colors.text,
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#111827',
   },
   addButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#4f46e5',
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: '#6366F1',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#4f46e5',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
+    shadowRadius: 20,
+    elevation: 6,
   },
-  tabsContainer: {
+
+  // â”€â”€ Segmented pills â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  segmentedRow: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(255,255,255,0.8)',
-    paddingHorizontal: Spacing.md,
-    gap: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.5)',
+    marginHorizontal: 18,
+    marginBottom: 10,
+    backgroundColor: 'rgba(255,255,255,0.45)',
+    borderRadius: 999,
+    padding: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.7)',
+    gap: 4,
   },
-  tab: {
-    paddingVertical: 12,
+  segmentPill: {
+    flex: 1,
+    paddingVertical: 8,
     paddingHorizontal: 4,
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
+    borderRadius: 999,
+    backgroundColor: 'transparent',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  tabActive: {
-    borderBottomColor: '#4f46e5',
+  segmentPillActive: {
+    backgroundColor: '#EDEBFF',
   },
-  tabText: {
-    fontSize: FontSizes.sm,
-    fontWeight: FontWeights.medium,
-    color: Colors.textSecondary,
+  segmentPillText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#6B7280',
   },
-  tabTextActive: {
-    color: '#4f46e5',
-    fontWeight: FontWeights.semibold,
+  segmentPillTextActive: {
+    color: '#6366F1',
+    fontWeight: '700',
   },
+
+  // â”€â”€ Search bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   searchSection: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 12,
-    backgroundColor: 'rgba(255,255,255,0.7)',
+    paddingHorizontal: 18,
+    paddingBottom: 10,
   },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.6)',
-    borderRadius: BorderRadius.lg,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     gap: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.8)',
+    borderColor: '#E5E7EB',
   },
   searchInput: {
     flex: 1,
-    fontSize: FontSizes.md,
-    color: Colors.text,
+    fontSize: 14,
+    color: '#111827',
   },
+
+  // â”€â”€ Category chips â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   categoriesContainer: {
-    maxHeight: 50,
-    backgroundColor: 'rgba(255,255,255,0.7)',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.5)',
+    maxHeight: 48,
   },
   categoriesContent: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 6,
     gap: 8,
   },
   categoryChip: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: BorderRadius.full,
-    backgroundColor: 'rgba(255,255,255,0.6)',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.7)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.8)',
+    borderColor: '#E5E7EB',
   },
   categoryChipActive: {
-    backgroundColor: '#4f46e5',
-    borderColor: '#4f46e5',
+    backgroundColor: '#6366F1',
+    borderColor: '#6366F1',
   },
   categoryText: {
-    fontSize: FontSizes.sm,
-    fontWeight: FontWeights.medium,
-    color: SEMANTIC_COLORS.textSecondary,
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#6B7280',
   },
   categoryTextActive: {
     color: '#ffffff',
     fontWeight: '700',
   },
+
+  // â”€â”€ Scroll / list â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  loadingWrapper: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
-    padding: Spacing.md,
-    paddingBottom: 110,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 90,
   },
   resultsText: {
-    fontSize: FontSizes.sm,
-    color: Colors.textSecondary,
+    fontSize: 13,
+    color: '#6B7280',
     marginBottom: 12,
   },
-  projectCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 2,
-    position: 'relative',
-    borderLeftWidth: 4,
-    borderLeftColor: '#fda4af',
-    overflow: 'hidden',
-  },
-  featuredBadge: {
-    position: 'absolute',
-    top: 12,
-    right: 12,
-    flexDirection: 'row',
+  emptyContainer: {
     alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    backgroundColor: '#fef3c7',
-    borderRadius: BorderRadius.full,
-    ...Shadows.sm,
+    justifyContent: 'center',
+    paddingVertical: 48,
+    gap: 8,
   },
-  featuredText: {
-    fontSize: 11,
-    fontWeight: FontWeights.semibold,
-    color: '#d97706',
+  emptyText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  emptySubtext: {
+    fontSize: 13,
+    color: '#9CA3AF',
+  },
+  errorText: {
+    fontSize: 13,
+    color: '#DC2626',
+    textAlign: 'center',
+  },
+
+  // â”€â”€ Project Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  projectCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 22,
+    padding: 16,
+    marginBottom: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.08,
+    shadowRadius: 35,
+    elevation: 6,
   },
   projectHeader: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: 6,
   },
   projectInfo: {
     flex: 1,
+    paddingRight: 8,
   },
   projectTitle: {
-    fontSize: FontSizes.md,
-    fontWeight: FontWeights.semibold,
-    color: Colors.text,
-    marginBottom: 4,
-    overflow: 'hidden',
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 2,
   },
   projectCategory: {
-    fontSize: FontSizes.sm,
-    color: Colors.textSecondary,
+    fontSize: 13,
+    color: '#6B7280',
   },
   statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: BorderRadius.full,
-    gap: 6,
-  },
-  statusRecruiting: {
-    backgroundColor: '#d1fae5',
-  },
-  statusClosed: {
-    backgroundColor: '#fee2e2',
-  },
-  statusFull: {
-    backgroundColor: '#fde2e4',
+    paddingVertical: 5,
+    borderRadius: 999,
+    gap: 5,
   },
   statusDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
   },
-  statusDotActive: {
-    backgroundColor: '#10b981',
-  },
-  statusDotClosed: {
-    backgroundColor: '#dc2626',
-  },
-  statusDotFull: {
-    backgroundColor: '#f43f5e',
-  },
   statusText: {
-    fontSize: 11,
-    fontWeight: FontWeights.medium,
-    textTransform: 'capitalize',
-  },
-  statusTextActive: {
-    color: '#047857',
-  },
-  statusTextClosed: {
-    color: '#991b1b',
-  },
-  statusTextFull: {
-    color: '#be123c',
-  },
-  projectStatusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: BorderRadius.md,
-    marginBottom: 12,
-    gap: 6,
-  },
-  projectStatusText: {
     fontSize: 12,
-    fontWeight: FontWeights.medium,
-  },
-  changeStatusButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: '#ffe4e6',
-    borderRadius: BorderRadius.md,
-    marginBottom: 12,
-    alignSelf: 'flex-start',
-  },
-  changeStatusText: {
-    fontSize: FontSizes.sm,
-    fontWeight: FontWeights.semibold,
-    color: '#4f46e5',
+    fontWeight: '600',
   },
   projectDescription: {
-    fontSize: FontSizes.sm,
-    color: Colors.textSecondary,
-    lineHeight: 20,
-    marginBottom: Spacing.sm,
+    fontSize: 13,
+    color: '#6B7280',
+    lineHeight: 19,
+    marginBottom: 10,
   },
   creatorRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginBottom: Spacing.sm,
+    marginBottom: 10,
   },
   creatorText: {
-    fontSize: FontSizes.sm,
-    color: Colors.textSecondary,
+    fontSize: 13,
+    color: '#6B7280',
   },
+
+  // â”€â”€ Progress bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   progressSection: {
     marginBottom: 12,
   },
@@ -733,38 +645,44 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   progressLabel: {
     fontSize: 12,
-    color: Colors.textSecondary,
+    color: '#6B7280',
   },
   progressPercent: {
     fontSize: 12,
-    fontWeight: FontWeights.semibold,
+    fontWeight: '600',
+    color: '#3B82F6',
   },
   progressBar: {
     height: 6,
-    backgroundColor: SEMANTIC_COLORS.neutralLight,
-    borderRadius: 3,
+    backgroundColor: '#E5E7EB',
+    borderRadius: 6,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    borderRadius: 3,
+    borderRadius: 6,
+    backgroundColor: '#3B82F6',
   },
+
+  // â”€â”€ Tech tags â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   skillList: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: Spacing.sm,
+    gap: 6,
+    marginBottom: 12,
   },
   skillChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: BorderRadius.full,
-    backgroundColor: '#f1f5f9',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: '#F3F4F6',
   },
   skillChipText: {
-    fontSize: FontSizes.xs,
-    color: '#64748b',
+    fontSize: 12,
+    color: '#374151',
   },
+
+  // â”€â”€ Footer: members + view details â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   projectFooter: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -775,14 +693,9 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     alignItems: 'center',
     gap: 6,
   },
-  teamText: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-  },
   avatarStack: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginRight: 8,
   },
   stackedAvatar: {
     borderWidth: 2,
@@ -790,10 +703,10 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     borderRadius: 999,
   },
   moreMembersBadge: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#f1f5f9',
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
@@ -802,7 +715,11 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   moreMembersText: {
     fontSize: 10,
     fontWeight: '600',
-    color: '#64748b',
+    color: '#6B7280',
+  },
+  teamText: {
+    fontSize: 13,
+    color: '#6B7280',
   },
   viewButton: {
     flexDirection: 'row',
@@ -810,34 +727,12 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     gap: 4,
   },
   viewButtonText: {
-    fontSize: FontSizes.sm,
-    fontWeight: FontWeights.medium,
-    color: '#4f46e5',
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#6366F1',
   },
-  loadingWrapper: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: Spacing.xl,
-  },
-  emptyContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: Spacing.xl,
-    gap: 8,
-  },
-  emptyText: {
-    fontSize: FontSizes.md,
-    fontWeight: FontWeights.semibold,
-    color: Colors.text,
-  },
-  emptySubtext: {
-    fontSize: FontSizes.sm,
-    color: Colors.textSecondary,
-  },
-  errorText: {
-    fontSize: FontSizes.sm,
-    color: Colors.error,
-    textAlign: 'center',
-  },
+
+  // â”€â”€ Legacy/unused stubs kept to avoid import errors â”€â”€
+  featuredBadge: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  featuredText: { fontSize: 11, color: '#d97706' },
 });

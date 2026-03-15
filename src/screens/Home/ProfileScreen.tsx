@@ -78,6 +78,7 @@ export default function ProfileScreen() {
   };
 
   const interests = Array.isArray(profile?.interests) ? profile.interests : [];
+  const skills = Array.isArray(profile?.skills) ? profile.skills : [];
 
   const shareProfile = async () => {
     try {
@@ -109,45 +110,44 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Profile</Text>
-        <TouchableOpacity onPress={() => navigation.navigate('Settings')}>
-          <MaterialIcons name="settings" size={24} color={Colors.text} />
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={{ paddingBottom: 110 }}
-        showsVerticalScrollIndicator={false}
+      <LinearGradient
+        colors={['#F5E6D8', '#EDEBFF', '#DFF3EE']}
+        locations={[0, 0.5, 1]}
+        style={styles.gradientBg}
       >
-        <LinearGradient
-          colors={['#e0f7fa', '#fdfbf7', '#f3e5f5']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.profileHeader}
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={{ paddingBottom: 90 }}
+          showsVerticalScrollIndicator={false}
         >
-          {/* Avatar with role ring */}
-          <View style={styles.avatarContainer}>
-            <UserAvatar
-              uri={profile?.avatar_url}
-              name={profile?.full_name}
-              role={profile?.role}
-              size={96}
-              showRing={true}
-            />
-            <TouchableOpacity
-              style={styles.editAvatarButton}
-              onPress={() => navigation.navigate('EditProfile')}
-            >
-              <MaterialIcons name="camera-alt" size={16} color="#fff" />
+          <View style={styles.header}>
+            <Text style={styles.headerTitle}>Profile</Text>
+            <TouchableOpacity onPress={() => navigation.navigate('Settings')}>
+              <MaterialIcons name="settings" size={24} color="#374151" />
             </TouchableOpacity>
           </View>
 
-          <Text style={styles.profileName}>{profile?.full_name || 'User'}</Text>
-          <Text style={styles.profileRole}>{profile?.role ? profile.role.charAt(0).toUpperCase() + profile.role.slice(1) : 'User'}</Text>
-          <Text style={styles.profileDepartment}>{profile?.department || 'No department set'}</Text>
-        </LinearGradient>
+          <View style={styles.profileHeader}>
+            <View style={styles.avatarContainer}>
+              <UserAvatar
+                uri={profile?.avatar_url}
+                name={profile?.full_name}
+                role={profile?.role}
+                size={96}
+                showRing={true}
+              />
+              <TouchableOpacity
+                style={styles.editAvatarButton}
+                onPress={() => navigation.navigate('EditProfile')}
+              >
+                <MaterialIcons name="camera-alt" size={16} color="#fff" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.profileName}>{profile?.full_name || 'User'}</Text>
+            <Text style={styles.profileRole}>{profile?.role ? profile.role.charAt(0).toUpperCase() + profile.role.slice(1) : 'User'}</Text>
+            <Text style={styles.profileDepartment}>{profile?.department || 'No department set'}</Text>
+          </View>
 
         {isLoading ? (
           <View style={styles.loadingContainer}>
@@ -180,18 +180,35 @@ export default function ProfileScreen() {
           </Text>
         </View>
 
-        {interests.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Skills</Text>
+            <View style={styles.interestsContainer}>
+              {skills.length > 0 ? (
+                skills.map((skill, index) => (
+                  <View key={`skill_${index}`} style={styles.interestChip}>
+                    <Text style={styles.interestText}>{skill}</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.aboutText}>No skills added yet.</Text>
+              )}
+            </View>
+          </View>
+
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Interests</Text>
             <View style={styles.interestsContainer}>
-              {interests.map((interest, index) => (
-                <View key={index} style={styles.interestChip}>
-                  <Text style={styles.interestText}>{interest}</Text>
-                </View>
-              ))}
+              {interests.length > 0 ? (
+                interests.map((interest, index) => (
+                  <View key={`interest_${index}`} style={styles.interestChip}>
+                    <Text style={styles.interestText}>{interest}</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.aboutText}>No interests added yet.</Text>
+              )}
             </View>
           </View>
-        )}
 
         {isFacultyOrAdminRole(profile?.role) && (
           <View style={styles.section}>
@@ -286,8 +303,8 @@ export default function ProfileScreen() {
           </View>
         )}
 
-        <View style={{ height: 32 }} />
-      </ScrollView>
+        </ScrollView>
+      </LinearGradient>
 
       {/* Logout Confirmation Dialog */}
       {showLogoutConfirm && (
@@ -324,31 +341,35 @@ export default function ProfileScreen() {
 const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fdfbf7',
+    backgroundColor: '#F5E6D8',
     ...(Platform.OS === 'web' && ({ height: '100vh', width: '100vw' } as any)),
+  },
+  gradientBg: {
+    flex: 1,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: Spacing.md,
+    paddingHorizontal: 18,
     paddingVertical: 12,
-    backgroundColor: '#ffffff',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.06)',
   },
   headerTitle: {
-    fontSize: FontSizes.xl,
-    fontWeight: FontWeights.bold,
-    color: Colors.text,
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#1F2937',
   },
   scrollView: {
     flex: 1,
   },
   profileHeader: {
     alignItems: 'center',
-    paddingVertical: 32,
-    paddingHorizontal: Spacing.md,
+    marginHorizontal: 16,
+    marginTop: 6,
+    marginBottom: 10,
+    padding: 20,
+    backgroundColor: 'rgba(255,255,255,0.55)',
+    borderRadius: 24,
   },
   avatarContainer: {
     position: 'relative',
@@ -379,7 +400,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: Colors.primary,
+    backgroundColor: '#6366F1',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
@@ -387,23 +408,24 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   profileName: {
     fontSize: 24,
-    fontWeight: FontWeights.bold,
-    color: Colors.text,
+    fontWeight: '700',
+    color: '#111827',
     marginBottom: 4,
   },
   profileRole: {
-    fontSize: FontSizes.md,
-    color: Colors.textSecondary,
+    fontSize: 14,
+    color: '#6366F1',
+    fontWeight: '600',
     marginBottom: 2,
   },
   profileDepartment: {
-    fontSize: FontSizes.sm,
-    color: Colors.textSecondary,
+    fontSize: 13,
+    color: '#6B7280',
   },
   statsContainer: {
     flexDirection: 'row',
     paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingVertical: 10,
     gap: 10,
   },
   loadingContainer: {
@@ -413,14 +435,9 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   statItem: {
     flex: 1,
     borderRadius: 16,
-    padding: 14,
+    padding: 16,
     alignItems: 'center',
     gap: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    elevation: 2,
   },
   statValue: {
     fontSize: 24,
@@ -435,7 +452,9 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   section: {
     paddingHorizontal: 16,
-    marginBottom: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.05)',
   },
   sectionTitle: {
     fontSize: 17,
@@ -444,8 +463,8 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     marginBottom: 10,
   },
   aboutText: {
-    fontSize: FontSizes.md,
-    color: Colors.textSecondary,
+    fontSize: 14,
+    color: '#6B7280',
     lineHeight: 22,
   },
   interestsContainer: {
@@ -454,30 +473,22 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     gap: 8,
   },
   interestChip: {
-    backgroundColor: 'rgba(19,236,236,0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(19,236,236,0.2)',
-    borderRadius: BorderRadius.full,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
   },
   interestText: {
-    fontSize: FontSizes.sm,
-    fontWeight: FontWeights.medium,
-    color: '#0d9488',
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#374151',
   },
   actionItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#ffffff',
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 3,
-    elevation: 1,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.06)',
   },
   actionIcon: {
     width: 40,
@@ -492,14 +503,14 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     flex: 1,
   },
   actionTitle: {
-    fontSize: FontSizes.md,
-    fontWeight: FontWeights.semibold,
-    color: Colors.text,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#111827',
     marginBottom: 2,
   },
   actionSubtitle: {
-    fontSize: FontSizes.sm,
-    color: Colors.textSecondary,
+    fontSize: 12,
+    color: '#9CA3AF',
   },
   modalOverlay: {
     position: 'absolute',
