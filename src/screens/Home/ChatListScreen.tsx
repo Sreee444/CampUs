@@ -442,7 +442,13 @@ export default function ChatScreen() {
 
   const renderConversationItem = ({ item: conversation }: { item: any }) => {
     const name = getConversationName(conversation, currentUserId);
-    const unreadCount = conversation.unread_count || 0;
+    const latestIncomingUnread =
+      conversation.last_message &&
+      conversation.last_message.sender_id !== currentUserId &&
+      !conversation.last_message.is_read_by_me
+        ? 1
+        : 0;
+    const unreadCount = Math.max(conversation.unread_count || 0, latestIncomingUnread);
     const unreadLabel = unreadCount > 99 ? '99+' : `${unreadCount}`;
     const otherUser = !conversation.is_group
       ? conversation.participants?.find((p: any) => p.id !== currentUserId)
@@ -457,6 +463,12 @@ export default function ChatScreen() {
     const isPublicGroup = conversation.group_visibility === 'public';
     const groupRingColor = isPublicGroup ? '#FF0000' : '#00FF00';
     const groupBadgeColor = isPublicGroup ? '#FF0000' : '#00FF00';
+    const activeGroupSize = conversation.participants?.length || 0;
+    const requiredSeenByOthers = conversation.is_group ? Math.max(1, activeGroupSize - 1) : 1;
+    const seenByOthersCount = conversation.last_message?.seen_by_count ?? (conversation.last_message?.seen_by_others ? 1 : 0);
+    const showDoubleTick = conversation.is_group
+      ? activeGroupSize > 0 && seenByOthersCount >= requiredSeenByOthers
+      : !!conversation.last_message?.seen_by_others || seenByOthersCount >= 1;
 
     return (
       <TouchableOpacity
@@ -483,24 +495,22 @@ export default function ChatScreen() {
               showRing={false}
             />
           </View>
-          {conversation.is_group && (
-            <View style={[styles.groupBadge, { backgroundColor: groupBadgeColor }]}>
-              <MaterialIcons name="people" size={12} color={Colors.surface} />
-            </View>
-          )}
         </View>
 
         <View style={styles.conversationInfo}>
           <View style={styles.conversationHeader}>
             <View style={styles.conversationNameRow}>
               <Text style={styles.conversationName} numberOfLines={1}>{name}</Text>
+            </View>
+            <View style={styles.conversationMetaRight}>
+              <Text style={[styles.conversationTime, unreadCount > 0 && styles.conversationTimeUnread]}>{lastMessageTime}</Text>
               {unreadCount > 0 && (
                 <View style={styles.unreadBadge}>
+                  <MaterialIcons name="chat-bubble" size={10} color="#ffffff" style={styles.unreadBadgeIcon} />
                   <Text style={styles.unreadText}>{unreadLabel}</Text>
                 </View>
               )}
             </View>
-            <Text style={styles.conversationTime}>{lastMessageTime}</Text>
           </View>
 
           <View style={styles.metaRow}>
@@ -518,9 +528,9 @@ export default function ChatScreen() {
           <View style={styles.messageRow}>
             {conversation.last_message?.sender_id === currentUserId && (
               <MaterialIcons
-                name={conversation.last_message?.seen_by_others ? 'done-all' : 'done'}
+                name={showDoubleTick ? 'done-all' : 'done'}
                 size={14}
-                color={conversation.last_message?.seen_by_others ? '#2196F3' : Colors.textSecondary}
+                color={showDoubleTick ? '#2196F3' : Colors.textSecondary}
                 style={styles.seenIcon}
               />
             )}
@@ -1277,17 +1287,6 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     fontWeight: '600',
     color: '#64748b',
   },
-  groupBadge: {
-    position: 'absolute',
-    top: -2,
-    right: -2,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: Colors.textSecondary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   avatarText: {
     fontSize: FontSizes.sm,
     fontWeight: FontWeights.bold,
@@ -1304,7 +1303,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   conversationHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
     marginBottom: 6,
   },
@@ -1320,9 +1319,18 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     fontWeight: '600',
     color: '#111827',
   },
+  conversationMetaRight: {
+    alignItems: 'flex-end',
+    minWidth: 52,
+    marginLeft: 8,
+  },
   conversationTime: {
     fontSize: 12,
     color: '#6B7280',
+  },
+  conversationTimeUnread: {
+    color: '#16A34A',
+    fontWeight: '600',
   },
   metaRow: {
     marginBottom: 6,
@@ -1368,13 +1376,18 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   unreadBadge: {
     minWidth: 24,
-    height: 20,
+    height: 22,
     borderRadius: 999,
-    backgroundColor: '#6366F1',
+    backgroundColor: '#25D366',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 7,
-    marginLeft: 6,
+    paddingHorizontal: 6,
+    marginTop: 4,
+    flexDirection: 'row',
+    gap: 3,
+  },
+  unreadBadgeIcon: {
+    marginTop: 0.5,
   },
   unreadText: {
     fontSize: 11,
