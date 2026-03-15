@@ -2,6 +2,25 @@
 import { supabase } from './supabase';
 import { DiscussionTopic, DiscussionReply, DiscussionCategory } from '../types/database';
 
+export type DiscussionReplyReaction = {
+  id: string;
+  reply_id: string;
+  user_id: string;
+  emoji: string;
+  created_at: string;
+  user?: {
+    id: string;
+    full_name?: string;
+    avatar_url?: string;
+  } | null;
+};
+
+const isMissingDiscussionReactionTableError = (error: any) => {
+  const code = String(error?.code || '');
+  const message = String(error?.message || '').toLowerCase();
+  return code === 'PGRST205' || message.includes('discussion_reply_reactions') || message.includes('schema cache');
+};
+
 type DiscussionScope = 'general' | 'event' | 'all';
 type EventPhase = 'pre' | 'post' | 'all';
 
@@ -320,4 +339,76 @@ export const deleteReply = async (replyId: string) => {
     .eq('id', replyId);
 
   if (error) throw error;
+};
+
+export const getDiscussionReplyReactions = async (
+  replyIds: string[]
+): Promise<Map<string, DiscussionReplyReaction[]>> => {
+  if (!replyIds.length) return new Map();
+
+  const { data, error } = await supabase
+    .from('discussion_reply_reactions')
+    .select(`
+      *,
+      user:profiles!discussion_reply_reactions_user_id_fkey(id, full_name, avatar_url)
+    `)
+    .in('reply_id', replyIds);
+
+  if (error) {
+    if (isMissingDiscussionReactionTableError(error)) return new Map();
+    throw error;
+  }
+
+  const map = new Map<string, DiscussionReplyReaction[]>();
+  for (const reaction of data || []) {
+    const replyId = (reaction as any).reply_id;
+    if (!map.has(replyId)) map.set(replyId, []);
+    map.get(replyId)?.push(reaction as DiscussionReplyReaction);
+  }
+  return map;
+};
+
+export const addDiscussionReplyReaction = async (replyId: string, emoji: string): Promise<void> => {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError) throw userError;
+  if (!user?.id) throw new Error('User must be authenticated to react');
+
+  const { error } = await supabase
+    .from('discussion_reply_reactions')
+    .insert({
+      reply_id: replyId,
+      user_id: user.id,
+      emoji,
+    } as any);
+
+  if (error && error.code !== '23505') {
+    if (isMissingDiscussionReactionTableError(error)) return;
+    throw error;
+  }
+};
+
+export const removeDiscussionReplyReaction = async (replyId: string, emoji: string): Promise<void> => {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError) throw userError;
+  if (!user?.id) throw new Error('User must be authenticated to remove reaction');
+
+  const { error } = await supabase
+    .from('discussion_reply_reactions')
+    .delete()
+    .eq('reply_id', replyId)
+    .eq('user_id', user.id)
+    .eq('emoji', emoji);
+
+  if (error) {
+    if (isMissingDiscussionReactionTableError(error)) return;
+    throw error;
+  }
 };

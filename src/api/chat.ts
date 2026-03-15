@@ -202,24 +202,84 @@ export const getConversations = async (userId: string) => {
     })
   );
 
+  // Recompute unread_count with a robust batch strategy so badges reflect exact counts.
+  // This avoids edge cases where SQL subquery counting returns stale/incorrect values.
+  const unreadCountByConversation = new Map<string, number>();
+  const { data: incomingMessages } = await supabase
+    .from("messages")
+    .select("id,conversation_id")
+    .in("conversation_id", conversationIds)
+    .eq("is_deleted", false)
+    .neq("sender_id", userId);
+
+  const incomingRows = incomingMessages || [];
+  if (incomingRows.length > 0) {
+    const incomingMessageIds = incomingRows.map((m: any) => m.id);
+    const { data: readRows } = await supabase
+      .from("message_reads")
+      .select("message_id")
+      .eq("user_id", userId)
+      .in("message_id", incomingMessageIds);
+
+    const readSet = new Set((readRows || []).map((r: any) => r.message_id));
+    for (const msg of incomingRows) {
+      if (readSet.has(msg.id)) continue;
+      unreadCountByConversation.set(
+        msg.conversation_id,
+        (unreadCountByConversation.get(msg.conversation_id) || 0) + 1
+      );
+    }
+  }
+
+  for (const conv of conversationsWithData) {
+    (conv as any).unread_count = unreadCountByConversation.get((conv as any).id) || 0;
+  }
+
   // Enrich last_message with seen_by_others for messages sent by the current user
   const sentLastMessageIds = conversationsWithData
     .filter((c: any) => c.last_message && c.last_message.sender_id === userId)
     .map((c: any) => c.last_message.id);
 
-  const seenSet = new Set<string>();
+  const seenByOthersCountMap = new Map<string, number>();
   if (sentLastMessageIds.length > 0) {
     const { data: seenData } = await supabase
       .from("message_reads")
-      .select("message_id")
+      .select("message_id,user_id")
       .neq("user_id", userId)
       .in("message_id", sentLastMessageIds);
-    (seenData || []).forEach((r: any) => seenSet.add(r.message_id));
+    (seenData || []).forEach((r: any) => {
+      const currentCount = seenByOthersCountMap.get(r.message_id) || 0;
+      seenByOthersCountMap.set(r.message_id, currentCount + 1);
+    });
   }
 
   for (const conv of conversationsWithData) {
     if ((conv as any).last_message && (conv as any).last_message.sender_id === userId) {
-      (conv as any).last_message.seen_by_others = seenSet.has((conv as any).last_message.id);
+      const seenByCount = seenByOthersCountMap.get((conv as any).last_message.id) || 0;
+      (conv as any).last_message.seen_by_count = seenByCount;
+      (conv as any).last_message.seen_by_others = seenByCount > 0;
+    }
+  }
+
+  // Enrich last_message with is_read_by_me for messages from others.
+  const incomingLastMessageIds = conversationsWithData
+    .filter((c: any) => c.last_message && c.last_message.sender_id !== userId)
+    .map((c: any) => c.last_message.id);
+
+  const readLastMessageSet = new Set<string>();
+  if (incomingLastMessageIds.length > 0) {
+    const { data: readLastMessageData } = await supabase
+      .from("message_reads")
+      .select("message_id")
+      .eq("user_id", userId)
+      .in("message_id", incomingLastMessageIds);
+
+    (readLastMessageData || []).forEach((r: any) => readLastMessageSet.add(r.message_id));
+  }
+
+  for (const conv of conversationsWithData) {
+    if ((conv as any).last_message && (conv as any).last_message.sender_id !== userId) {
+      (conv as any).last_message.is_read_by_me = readLastMessageSet.has((conv as any).last_message.id);
     }
   }
 
@@ -1054,20 +1114,25 @@ export const getMessages = async (
 
   // Check which of the current user's sent messages have been seen by others
   const sentMessageIds = msgs.filter((m: any) => m.sender_id === userId).map((m: any) => m.id);
-  const seenByOthersSet = new Set<string>();
+  const seenByOthersCountMap = new Map<string, number>();
   if (sentMessageIds.length > 0) {
     const { data: seenData } = await supabase
       .from("message_reads")
-      .select("message_id")
+      .select("message_id,user_id")
       .neq("user_id", userId)
       .in("message_id", sentMessageIds);
-    (seenData || []).forEach((r: any) => seenByOthersSet.add(r.message_id));
+    (seenData || []).forEach((r: any) => {
+      const currentCount = seenByOthersCountMap.get(r.message_id) || 0;
+      seenByOthersCountMap.set(r.message_id, currentCount + 1);
+    });
   }
 
   return msgs.reverse().map((message: any) => ({
     ...decryptMessageObject(message),
     is_read: readSet.has(message.id),
-    seen_by_others: message.sender_id === userId ? seenByOthersSet.has(message.id) : undefined,
+    seen_by_others:
+      message.sender_id === userId ? (seenByOthersCountMap.get(message.id) || 0) > 0 : undefined,
+    seen_by_count: message.sender_id === userId ? seenByOthersCountMap.get(message.id) || 0 : undefined,
   })) as Message[];
 };
 
