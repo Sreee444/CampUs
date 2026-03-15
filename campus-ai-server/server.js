@@ -3,6 +3,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 
+const chatRoute = require('./routes/chat');
 const extractEventRoute = require('./routes/extractEvent');
 const extractPosterRoute = require('./routes/extractPoster');
 
@@ -23,6 +24,7 @@ app.use((req, res, next) => {
 
 app.use('/ai/extract-event', extractEventRoute);
 app.use('/ai/extract-poster', extractPosterRoute);
+app.use('/ai/chat', chatRoute);
 
 app.get('/health', (_req, res) => {
   res.json({ ok: true });

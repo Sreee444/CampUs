@@ -25,6 +25,7 @@ import {
 import { moderateText } from "./ai";
 import { isAdminRole } from '../utils/roles';
 import { encryptMessage, decryptMessage } from "../../utils/encryption";
+import { ENV } from '../config/env';
 
 const decryptContentField = (value: any) => {
   if (value == null) return value;
@@ -1764,10 +1765,83 @@ const shouldAutoShowDetails = (
   return eventStrongMatch || projectStrongMatch;
 };
 
+const isCampusIntent = (lowerPrompt: string, requestedDate: Date | null) => {
+  if (requestedDate) return true;
+  return /\b(event|events|workshop|hackathon|seminar|competition|fest|project|projects|team|teams|announcement|notice|feed|update|updates|news|venue|location|where|date|time|when|status|campus|college|university)\b/.test(lowerPrompt);
+};
+
+const looksLikeCodeSnippet = (text: string) => {
+  return /```|\b(function|class|const|let|var|import|export|return|if\s*\(|for\s*\(|while\s*\(|def\s+|public\s+class|#include)\b|[{};]{2,}/i.test(text);
+};
+
+const buildLocalGeneralFallback = (prompt: string) => {
+  const lower = prompt.toLowerCase();
+
+  if (looksLikeCodeSnippet(prompt) || /\b(explain|debug|fix|error|bug|code|program|algorithm)\b/.test(lower)) {
+    return [
+      'I can help with code questions.',
+      'Share the language, expected behavior, and any error output, and I will explain the code step-by-step or help fix the issue.',
+      'If you want, paste the code snippet and I will break it down clearly.',
+    ].join('\n');
+  }
+
+  if (/\b(prepare|preparation|study plan|revise|revision|exam|interview)\b/.test(lower)) {
+    return [
+      'Good question. Here is a quick preparation framework:',
+      '1. Define scope: topics, format, and time available.',
+      '2. Prioritize: high-weight topics first, weak areas second.',
+      '3. Practice: timed questions + active recall + short review loops.',
+      '4. Final pass: one-page summary, sleep, and a calm pre-checklist.',
+      'Tell me the exact event/interview/exam and timeline, and I will create a tailored plan.',
+    ].join('\n');
+  }
+
+  if (/\b(hi|hello|hey)\b/.test(lower)) {
+    return 'Hi! Ask me anything, and I will help with a clear answer. I can handle academics, coding, career prep, and campus guidance.';
+  }
+
+  return [
+    'I am ready to help with any question.',
+    'Share a bit more context (goal, constraints, or what you already tried), and I will give a precise answer.',
+  ].join('\n');
+};
+
+const fetchGeneralAiReply = async (prompt: string) => {
+  const baseUrl = (ENV.aiApiBaseUrl || '').trim().replace(/\/+$/, '');
+  if (!baseUrl) return null;
+
+  try {
+    const response = await fetch(`${baseUrl}/ai/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ message: prompt }),
+    });
+
+    if (!response.ok) return null;
+
+    const payload = await response.json();
+    if (typeof payload?.reply === 'string' && payload.reply.trim()) {
+      return payload.reply.trim();
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+};
+
+const getGeneralAiResponse = async (prompt: string) => {
+  const serverReply = await fetchGeneralAiReply(prompt);
+  if (serverReply) return serverReply;
+  return buildLocalGeneralFallback(prompt);
+};
+
 export const chatWithAI = async (_userId: string, prompt: string) => {
   const trimmed = prompt.trim();
   if (!trimmed) {
-    return 'Ask me about campus events, projects, venues, or a date (for example: today or 2026-03-11).';
+    return 'Ask me anything. I can help with general questions, coding, study prep, and campus events/projects.';
   }
 
   const isAllowed = await moderateText(trimmed);
@@ -1776,15 +1850,18 @@ export const chatWithAI = async (_userId: string, prompt: string) => {
   }
 
   const lower = trimmed.toLowerCase();
-  const genericCampusLookup = !/\b(announcement|notice|feed|update|updates|news|venue|location|where|date|today|tomorrow|yesterday)\b/.test(lower);
   const requestedDate = parseRequestedDate(trimmed);
-  const wantsEvents = /\b(event|events|workshop|hackathon|seminar|competition|fest)\b/.test(lower) || !!requestedDate || genericCampusLookup;
-  const wantsProjects = /\b(project|projects|team|teams)\b/.test(lower) || !!requestedDate || genericCampusLookup;
+  const wantsEvents = /\b(event|events|workshop|hackathon|seminar|competition|fest)\b/.test(lower) || !!requestedDate;
+  const wantsProjects = /\b(project|projects|team|teams)\b/.test(lower) || !!requestedDate;
   const wantsOther = /\b(other|announcement|notice|feed|update|updates|news)\b/.test(lower) || !!requestedDate;
   const wantsVenue = /\b(venue|location|where)\b/.test(lower);
   const wantsStatus = /\bstatus\b/.test(lower);
   const wantsDateTime = /\b(date|time|when)\b/.test(lower);
   const wantsDetails = isDetailIntent(lower) || /\b(tell me about|what is|more about)\b/.test(lower);
+  if (!isCampusIntent(lower, requestedDate)) {
+    return getGeneralAiResponse(trimmed);
+  }
+
   const entityHint = extractEntityHint(lower);
   const searchTerm = getPrimaryLookupTerm(trimmed, entityHint);
 
@@ -1946,11 +2023,16 @@ export const chatWithAI = async (_userId: string, prompt: string) => {
     }
   }
 
+  const askedForEvents = /\b(event|events|workshop|hackathon|seminar|competition|fest)\b/.test(lower);
+  const askedForProjects = /\b(project|projects|team|teams)\b/.test(lower);
+  let dataLines = 0;
+
   if (requestedDate) {
     output.push(`Here is what is scheduled for ${formatDateOnly(requestedDate)}:`);
   }
 
   if (events.length) {
+    dataLines++;
     output.push(`Events (${events.length}):`);
     for (const event of events.slice(0, 5)) {
       const venueLabel = event.venue || (event.is_online ? 'Online' : 'Venue not specified');
@@ -1960,6 +2042,7 @@ export const chatWithAI = async (_userId: string, prompt: string) => {
   }
 
   if (projects.length) {
+    dataLines++;
     output.push(`Projects (${projects.length}):`);
     for (const project of projects.slice(0, 5)) {
       const status = project.status || (project.is_recruiting ? 'recruiting' : 'active');
@@ -1969,6 +2052,7 @@ export const chatWithAI = async (_userId: string, prompt: string) => {
   }
 
   if (feedPosts.length) {
+    dataLines++;
     output.push(`Other updates (${feedPosts.length}):`);
     for (const post of feedPosts.slice(0, 4)) {
       const preview = (post.content || '').replace(/\s+/g, ' ').trim().slice(0, 90);
@@ -1976,12 +2060,25 @@ export const chatWithAI = async (_userId: string, prompt: string) => {
     }
   }
 
-  if (!output.length && wantsVenue) {
+  if (dataLines === 0 && wantsVenue) {
     return 'I could not find matching venues right now. Try an event name or a date like 2026-03-11.';
   }
 
-  if (!output.length) {
-    return 'I could not find matching events, projects, or updates. Try asking with a date (today, tomorrow, or YYYY-MM-DD) or include a specific keyword.';
+  if (dataLines === 0) {
+    if (requestedDate) {
+      const dateLabel = formatDateOnly(requestedDate);
+      if (askedForEvents && !askedForProjects) {
+        return `There are no events scheduled for ${dateLabel}.`;
+      }
+      if (askedForProjects && !askedForEvents) {
+        return `There are no projects scheduled for ${dateLabel}.`;
+      }
+      return `There are no events or projects scheduled for ${dateLabel}.`;
+    }
+    if (askedForEvents && !askedForProjects) return 'No events found matching your query.';
+    if (askedForProjects && !askedForEvents) return 'No projects found matching your query.';
+    if (askedForEvents || askedForProjects) return 'No events or projects found matching your query.';
+    return getGeneralAiResponse(trimmed);
   }
 
   output.push('I answer from live campus data, so responses update as events and projects change.');
