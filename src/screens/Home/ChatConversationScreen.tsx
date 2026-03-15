@@ -508,8 +508,7 @@ export default function ChatConversationScreen() {
         [
           { id: `${itemTitle}-details`, label: 'Details', action: 'event-details', itemType, itemTitle },
           { id: `${itemTitle}-venue`, label: 'Venue', action: 'event-venue', itemType, itemTitle },
-          { id: `${itemTitle}-date`, label: 'Date & time', action: 'event-date', itemType, itemTitle },
-          { id: `${itemTitle}-status`, label: 'Status', action: 'event-status', itemType, itemTitle },
+          { id: `${itemTitle}-time`, label: 'Time', action: 'event-date', itemType, itemTitle },
         ],
         { itemType, itemTitle }
       );
@@ -529,7 +528,13 @@ export default function ChatConversationScreen() {
   const seedAiChat = React.useCallback(async () => {
     if (!user?.id) {
       setMessages([
-        createAiMessage('Ask me about events, projects, dates, venues, or titles to get live campus details.'),
+        createAiMessage(
+          'What do you want to know about?',
+          [
+            { id: 'ai-browse-events', label: 'Events', action: 'browse-events' },
+            { id: 'ai-browse-projects', label: 'Projects', action: 'browse-projects' },
+          ]
+        ),
       ]);
       setIsLoading(false);
       return;
@@ -537,44 +542,27 @@ export default function ChatConversationScreen() {
 
     try {
       setIsLoading(true);
-      const [upcomingEvents, recruitingProjects] = await Promise.all([
-        getEvents(user.id, undefined, 'upcoming'),
-        getProjectTeams(user.id, true),
-      ]);
-
-      const upcomingEventOptions = (upcomingEvents || []).slice(0, 4).map((event: any) => ({
-        id: `event-${event.id}`,
-        label: event.title,
-        action: 'select-event',
-        itemType: 'event' as const,
-        itemTitle: event.title,
-      }));
-
-      const projectOptions = (recruitingProjects || []).slice(0, 4).map((project: any) => ({
-        id: `project-${project.id}`,
-        label: project.name,
-        action: 'select-project',
-        itemType: 'project' as const,
-        itemTitle: project.name,
-      }));
-
       const seededMessages: ChatMessage[] = [
         createAiMessage(
-          'Here are some upcoming events. Pick one and I will guide you with venue, details, date, or status.',
-          upcomingEventOptions.length ? upcomingEventOptions : undefined
+          'What do you want to know about?',
+          [
+            { id: 'ai-browse-events', label: 'Events', action: 'browse-events' },
+            { id: 'ai-browse-projects', label: 'Projects', action: 'browse-projects' },
+          ]
         ),
-        createAiMessage(
-          'Here are some active projects. Pick one and I will help with details, status, or recruiting info.',
-          projectOptions.length ? projectOptions : undefined
-        ),
-        createAiMessage('You can also type an event or project title directly and I will show its details.'),
       ];
 
       setMessages(seededMessages);
     } catch (error) {
       console.error('Failed to seed AI chat:', error);
       setMessages([
-        createAiMessage('Ask me about events, projects, dates, venues, or titles to get live campus details.'),
+        createAiMessage(
+          'What do you want to know about?',
+          [
+            { id: 'ai-browse-events', label: 'Events', action: 'browse-events' },
+            { id: 'ai-browse-projects', label: 'Projects', action: 'browse-projects' },
+          ]
+        ),
       ]);
     } finally {
       setIsLoading(false);
@@ -598,13 +586,71 @@ export default function ChatConversationScreen() {
       return;
     }
 
+    if (option.action === 'browse-events') {
+      setIsSending(true);
+      try {
+        const upcomingEvents = await getEvents(user.id, undefined, 'upcoming');
+        const upcomingEventOptions = (upcomingEvents || []).slice(0, 8).map((event: any) => ({
+          id: `event-${event.id}`,
+          label: event.title,
+          action: 'select-event',
+          itemType: 'event' as const,
+          itemTitle: event.title,
+        }));
+
+        appendAiSequence([
+          createAiMessage(
+            upcomingEventOptions.length
+              ? 'Here are upcoming events. Select one event.'
+              : 'No upcoming events found right now.',
+            upcomingEventOptions.length ? upcomingEventOptions : undefined
+          ),
+        ]);
+      } catch (error) {
+        console.error('Failed to load events for AI:', error);
+        appendAiSequence([createAiMessage('I could not load events right now. Please try again.')]);
+      } finally {
+        setIsSending(false);
+      }
+      return;
+    }
+
+    if (option.action === 'browse-projects') {
+      setIsSending(true);
+      try {
+        const recruitingProjects = await getProjectTeams(user.id, true);
+        const projectOptions = (recruitingProjects || []).slice(0, 8).map((project: any) => ({
+          id: `project-${project.id}`,
+          label: project.name,
+          action: 'select-project',
+          itemType: 'project' as const,
+          itemTitle: project.name,
+        }));
+
+        appendAiSequence([
+          createAiMessage(
+            projectOptions.length
+              ? 'Here are active projects. Select one project.'
+              : 'No active projects found right now.',
+            projectOptions.length ? projectOptions : undefined
+          ),
+        ]);
+      } catch (error) {
+        console.error('Failed to load projects for AI:', error);
+        appendAiSequence([createAiMessage('I could not load projects right now. Please try again.')]);
+      } finally {
+        setIsSending(false);
+      }
+      return;
+    }
+
     setIsSending(true);
     try {
       let prompt = title;
 
       if (option.action === 'event-details') prompt = `Give event details for ${title}`;
       if (option.action === 'event-venue') prompt = `What is the venue of event ${title}`;
-      if (option.action === 'event-date') prompt = `What is the date and time of event ${title}`;
+      if (option.action === 'event-date') prompt = `What is the time of event ${title}`;
       if (option.action === 'event-status') prompt = `What is the status of event ${title}`;
       if (option.action === 'project-details') prompt = `Give project details for ${title}`;
       if (option.action === 'project-status') prompt = `What is the status of project ${title}`;
@@ -615,21 +661,20 @@ export default function ChatConversationScreen() {
         createAiMessage(aiResponse, title && option.itemType ? [
           {
             id: `${title}-again-1`,
-            label: option.itemType === 'event' ? 'More details' : 'Details',
+            label: 'Details',
             action: option.itemType === 'event' ? 'event-details' : 'project-details',
             itemType: option.itemType,
             itemTitle: title,
           },
-          {
-            id: `${title}-again-2`,
-            label: 'Status',
-            action: option.itemType === 'event' ? 'event-status' : 'project-status',
-            itemType: option.itemType,
-            itemTitle: title,
-          },
           ...(option.itemType === 'event'
-            ? [{ id: `${title}-again-3`, label: 'Venue', action: 'event-venue', itemType: 'event' as const, itemTitle: title }]
-            : [{ id: `${title}-again-3`, label: 'Recruiting', action: 'project-recruiting', itemType: 'project' as const, itemTitle: title }]),
+            ? [
+                { id: `${title}-again-2`, label: 'Venue', action: 'event-venue', itemType: 'event' as const, itemTitle: title },
+                { id: `${title}-again-3`, label: 'Time', action: 'event-date', itemType: 'event' as const, itemTitle: title },
+              ]
+            : [
+                { id: `${title}-again-2`, label: 'Status', action: 'project-status', itemType: 'project' as const, itemTitle: title },
+                { id: `${title}-again-3`, label: 'Recruiting', action: 'project-recruiting', itemType: 'project' as const, itemTitle: title },
+              ]),
         ] : undefined, { itemType: option.itemType, itemTitle: title })
       ]);
     } catch (error) {
