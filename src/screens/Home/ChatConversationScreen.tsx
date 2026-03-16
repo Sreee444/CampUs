@@ -717,6 +717,16 @@ export default function ChatConversationScreen() {
     }, TYPING_IDLE_MS);
   }, [conversationId, user?.id, isAIChat, stopTypingSignal]);
 
+  const currentUserParticipant = useMemo(
+    () => groupMembers.find((participant) => participant.user_id === user?.id),
+    [groupMembers, user?.id]
+  );
+
+  const canManageGroup = useMemo(() => {
+    if (!isGroup || !user?.id) return false;
+    return groupDetails?.created_by === user.id || !!currentUserParticipant?.is_admin;
+  }, [groupDetails?.created_by, currentUserParticipant?.is_admin, isGroup, user?.id]);
+
   const loadGroupDetails = async () => {
     if (!conversationId || !isGroup || !user?.id) return;
 
@@ -734,7 +744,7 @@ export default function ChatConversationScreen() {
     }
   };
 
-  const loadPendingJoinRequests = async () => {
+  const loadPendingJoinRequests = React.useCallback(async () => {
     if (!conversationId || !isGroup || !user?.id || !canManageGroup) return;
 
     try {
@@ -751,7 +761,7 @@ export default function ChatConversationScreen() {
     } finally {
       setIsLoadingGroupJoinRequests(false);
     }
-  };
+  }, [conversationId, isGroup, user?.id, canManageGroup]);
 
   const loadDirectChatDetails = async () => {
     if (!conversationId || isGroup || isAIChat || !user?.id) return;
@@ -940,23 +950,10 @@ export default function ChatConversationScreen() {
   }, [isAIChat, seedAiChat]);
 
   useEffect(() => {
-    const canManageCurrentGroup =
-      !!user?.id &&
-      isGroup &&
-      (groupDetails?.created_by === user.id ||
-        groupMembers.some((participant) => participant.user_id === user.id && participant.is_admin));
-
-    if (showGroupMembers && canManageCurrentGroup) {
+    if (showGroupMembers && canManageGroup) {
       loadPendingJoinRequests();
     }
-  }, [
-    showGroupMembers,
-    isGroup,
-    groupDetails?.created_by,
-    groupMembers,
-    user?.id,
-    loadPendingJoinRequests,
-  ]);
+  }, [showGroupMembers, canManageGroup, loadPendingJoinRequests]);
 
   useEffect(() => {
     if (!messages.length || showMessageSearch) return;
@@ -1676,16 +1673,6 @@ export default function ChatConversationScreen() {
     };
   }, [directPartnerId, isGroup, isAIChat]);
 
-  const currentUserParticipant = useMemo(
-    () => groupMembers.find((participant) => participant.user_id === user?.id),
-    [groupMembers, user?.id]
-  );
-
-  const canManageGroup = useMemo(() => {
-    if (!isGroup || !user?.id) return false;
-    return groupDetails?.created_by === user.id || !!currentUserParticipant?.is_admin;
-  }, [groupDetails?.created_by, currentUserParticipant?.is_admin, isGroup, user?.id]);
-
   const isMainAdmin = useMemo(() => {
     if (!isGroup || !user?.id) return false;
     return groupDetails?.created_by === user.id;
@@ -2259,6 +2246,9 @@ export default function ChatConversationScreen() {
           {isGroup && groupDetails?.group_avatar ? (
             <View style={[styles.groupVisibilityRingHeader, { borderColor: groupVisibilityRingColor }]}>
               <Image source={{ uri: groupDetails.group_avatar }} style={styles.headerAvatarImage} />
+              <View style={[styles.groupVisibilityIconBadgeHeader, { backgroundColor: groupVisibilityRingColor }]}>
+                <MaterialIcons name="groups" size={10} color="#ffffff" />
+              </View>
             </View>
           ) : !isGroup && directPartnerProfile ? (
             <UserAvatar
@@ -2279,6 +2269,11 @@ export default function ChatConversationScreen() {
               <View style={[styles.headerAvatar, { backgroundColor: color }]}>
                 <Text style={styles.headerAvatarText}>{initials}</Text>
               </View>
+              {isGroup && (
+                <View style={[styles.groupVisibilityIconBadgeHeader, { backgroundColor: groupVisibilityRingColor }]}>
+                  <MaterialIcons name="groups" size={10} color="#ffffff" />
+                </View>
+              )}
             </View>
           )}
 
@@ -3009,11 +3004,17 @@ export default function ChatConversationScreen() {
                 {groupDetails?.group_avatar ? (
                   <View style={[styles.groupVisibilityRingProfile, { borderColor: groupVisibilityRingColor }]}>
                     <Image source={{ uri: groupDetails.group_avatar }} style={styles.groupProfileAvatar} />
+                    <View style={[styles.groupVisibilityIconBadgeProfile, { backgroundColor: groupVisibilityRingColor }]}>
+                      <MaterialIcons name="groups" size={11} color="#ffffff" />
+                    </View>
                   </View>
                 ) : (
                   <View style={[styles.groupVisibilityRingProfile, { borderColor: groupVisibilityRingColor }]}>
                     <View style={styles.groupProfileAvatarFallback}>
                       <Text style={styles.groupProfileAvatarText}>{initials}</Text>
+                    </View>
+                    <View style={[styles.groupVisibilityIconBadgeProfile, { backgroundColor: groupVisibilityRingColor }]}>
+                      <MaterialIcons name="groups" size={11} color="#ffffff" />
                     </View>
                   </View>
                 )}
@@ -3848,6 +3849,20 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       borderWidth: 2,
       borderRadius: 22,
       padding: 1,
+      position: 'relative',
+    },
+    groupVisibilityIconBadgeHeader: {
+      position: 'absolute',
+      right: -3,
+      bottom: -3,
+      width: 16,
+      height: 16,
+      borderRadius: 8,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: '#ffffff',
+      zIndex: 3,
     },
     headerAvatarText: {
       fontSize: 16,
@@ -4835,6 +4850,20 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       borderWidth: 2,
       borderRadius: 27,
       padding: 1,
+      position: 'relative',
+    },
+    groupVisibilityIconBadgeProfile: {
+      position: 'absolute',
+      right: -3,
+      bottom: -3,
+      width: 18,
+      height: 18,
+      borderRadius: 9,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: '#ffffff',
+      zIndex: 3,
     },
     groupProfileAvatarFallback: {
       width: 50,

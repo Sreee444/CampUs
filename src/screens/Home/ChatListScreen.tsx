@@ -433,11 +433,11 @@ export default function ChatScreen() {
   const directCount = conversations.filter((conversation) => !conversation.is_group).length;
 
   const mentorshipCount = conversations.filter((c) => c.conv_type === 'mentorship').length;
-  const filterOptions: Array<{ key: 'all' | 'unread' | 'groups' | 'direct' | 'mentorship'; label: string; count: number }> = [
-    { key: 'all', label: 'All', count: conversations.length },
-    { key: 'unread', label: 'Unread', count: unreadTotal },
-    { key: 'groups', label: 'Groups', count: groupCount },
-    { key: 'direct', label: 'Direct', count: directCount },
+  const filterOptions: Array<{ key: 'all' | 'unread' | 'groups' | 'direct' | 'mentorship'; label: string; count: number; icon: string }> = [
+    { key: 'all', label: 'All', count: conversations.length, icon: 'forum' },
+    { key: 'unread', label: 'Unread', count: unreadTotal, icon: 'notifications-none' },
+    { key: 'groups', label: 'Groups', count: groupCount, icon: 'group' },
+    { key: 'direct', label: 'Direct', count: directCount, icon: 'person' },
   ];
 
   const renderConversationItem = ({ item: conversation }: { item: any }) => {
@@ -469,6 +469,18 @@ export default function ChatScreen() {
     const showDoubleTick = conversation.is_group
       ? activeGroupSize > 0 && seenByOthersCount >= requiredSeenByOthers
       : !!conversation.last_message?.seen_by_others || seenByOthersCount >= 1;
+    const lastMessageContent = conversation.last_message?.content || 'No messages yet';
+    const groupSenderName = conversation.last_message
+      ? (conversation.last_message.sender_id === currentUserId
+        ? 'You'
+        : (conversation.last_message?.sender?.full_name
+          || conversation.participants?.find((p: any) => p.id === conversation.last_message?.sender_id)?.full_name
+          || conversation.participants?.find((p: any) => p.id === conversation.last_message?.sender_id)?.email
+          || 'Someone'))
+      : '';
+    const lastMessagePreview = conversation.is_group && conversation.last_message
+      ? `${groupSenderName}: ${lastMessageContent}`
+      : lastMessageContent;
 
     return (
       <TouchableOpacity
@@ -541,7 +553,7 @@ export default function ChatScreen() {
               ]}
               numberOfLines={1}
             >
-              {conversation.last_message?.content || 'No messages yet'}
+              {lastMessagePreview}
             </Text>
           </View>
         </View>
@@ -586,24 +598,34 @@ export default function ChatScreen() {
 
               <View style={styles.searchSection}>
                 <View style={styles.searchBar}>
-                  <MaterialIcons name="search" size={20} color="#9CA3AF" />
+                  <View style={styles.searchIconWrap}>
+                    <MaterialIcons name="search" size={20} color="#6366F1" />
+                  </View>
                   <TextInput
                     style={styles.searchInput}
-                    placeholder="Type chat name or message"
-                    placeholderTextColor="#9CA3AF"
+                    placeholder="Search conversations…"
+                    placeholderTextColor="#B0B7C3"
                     value={searchInput}
                     onChangeText={setSearchInput}
                     returnKeyType="search"
                     onSubmitEditing={submitSearch}
                   />
-                  {!!searchInput && (
-                    <TouchableOpacity onPress={clearSearch}>
-                      <MaterialIcons name="close" size={18} color="#9CA3AF" />
+                  {!!searchInput ? (
+                    <TouchableOpacity style={styles.searchClearBtn} onPress={clearSearch}>
+                      <MaterialIcons name="close" size={16} color="#6B7280" />
                     </TouchableOpacity>
+                  ) : (
+                    <MaterialIcons name="tune" size={18} color="#9CA3AF" />
                   )}
                 </View>
 
-                <View style={styles.filterRow}>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.filterRowScroll}
+                  contentContainerStyle={styles.filterRowContent}
+                  keyboardShouldPersistTaps="handled"
+                >
                   {filterOptions.map((item) => {
                     const isActive = activeFilter === item.key;
                     return (
@@ -611,23 +633,32 @@ export default function ChatScreen() {
                         key={item.key}
                         style={[styles.filterChip, isActive && styles.filterChipActive]}
                         onPress={() => setActiveFilter(item.key)}
+                          activeOpacity={0.75}
                       >
-                        <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>
-                          {item.label}
-                        </Text>
-                        <View style={[styles.filterCountBadge, isActive && styles.filterCountBadgeActive]}>
-                          <Text style={[styles.filterCountText, isActive && styles.filterCountTextActive]}>
+                          <MaterialIcons
+                            name={item.icon as any}
+                            size={12}
+                            color={isActive ? '#FFFFFF' : '#9CA3AF'}
+                          />
+                          <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>
+                            {item.label}
+                          </Text>
+                          <Text style={[styles.filterChipCount, isActive && styles.filterChipCountActive]}>
                             {item.count}
                           </Text>
-                        </View>
                       </TouchableOpacity>
                     );
                   })}
-                </View>
+                </ScrollView>
 
-                <Text style={styles.resultsCount}>
-                  {activeSearch ? `${filteredConversations.length} results for "${activeSearch}"` : `${filteredConversations.length} chats`}
-                </Text>
+                  <View style={styles.resultsRow}>
+                    <View style={styles.resultsDot} />
+                    <Text style={styles.resultsCount}>
+                      {activeSearch
+                        ? `${filteredConversations.length} results for "${activeSearch}"`
+                        : `${filteredConversations.length} conversation${filteredConversations.length !== 1 ? 's' : ''}`}
+                    </Text>
+                  </View>
               </View>
             </>
           )}
@@ -1124,34 +1155,68 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     elevation: 8,
   },
   searchSection: {
-    marginHorizontal: 18,
-    marginTop: 4,
-    marginBottom: 8,
-    paddingHorizontal: 0,
-    paddingVertical: 0,
-    gap: 10,
+    marginHorizontal: 4,
+    marginTop: 6,
+    marginBottom: 10,
+    gap: 12,
   },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.7)',
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    gap: 8,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    gap: 10,
+    shadowColor: '#6366F1',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.09,
+    shadowRadius: 14,
+    elevation: 4,
+    borderWidth: 1.5,
+    borderColor: 'rgba(99,102,241,0.12)',
+  },
+  searchIconWrap: {
+    width: 26,
+    height: 26,
+    borderRadius: 9,
+    backgroundColor: '#EDEBFF',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   searchInput: {
     flex: 1,
     fontSize: 15,
     color: '#111827',
+    fontWeight: '500',
   },
-  filterRow: {
+  searchClearBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterRowScroll: {
+    width: '100%',
+  },
+  filterRowContent: {
     flexDirection: 'row',
-    gap: 8,
-    paddingTop: 4,
-    paddingBottom: 2,
+    gap: 6,
+    alignItems: 'center',
+  },
+  resultsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  resultsDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: '#6366F1',
+    opacity: 0.6,
   },
   resultsCount: {
     fontSize: 12,
@@ -1159,50 +1224,45 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     fontWeight: '500',
   },
   filterChip: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    gap: 4,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
     borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.7)',
-    borderWidth: 1,
-    borderColor: 'rgba(229,231,235,0.85)',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: 'rgba(209,213,219,0.8)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
   },
   filterChipActive: {
-    backgroundColor: '#EDEBFF',
-    borderColor: '#C7D2FE',
+    backgroundColor: '#6366F1',
+    borderColor: '#6366F1',
+    shadowColor: '#6366F1',
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
   filterChipText: {
-    fontSize: 13,
-    color: '#6B7280',
-    fontWeight: '500',
+    fontSize: 12,
+    color: '#4B5563',
+    fontWeight: '600',
   },
   filterChipTextActive: {
-    color: '#6366F1',
+    color: '#FFFFFF',
     fontWeight: '700',
   },
-  filterCountBadge: {
-    minWidth: 20,
-    height: 20,
-    borderRadius: 999,
-    paddingHorizontal: 6,
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  filterCountBadgeActive: {
-    backgroundColor: '#FFFFFF',
-  },
-  filterCountText: {
+  filterChipCount: {
     fontSize: 11,
-    fontWeight: '600',
-    color: '#6B7280',
+    color: '#9CA3AF',
+    fontWeight: '500',
   },
-  filterCountTextActive: {
-    color: '#6366F1',
+  filterChipCountActive: {
+    color: 'rgba(255,255,255,0.75)',
   },
   conversationsListContent: {
     paddingHorizontal: 18,
