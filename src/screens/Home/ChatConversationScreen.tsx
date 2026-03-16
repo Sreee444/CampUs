@@ -717,6 +717,16 @@ export default function ChatConversationScreen() {
     }, TYPING_IDLE_MS);
   }, [conversationId, user?.id, isAIChat, stopTypingSignal]);
 
+  const currentUserParticipant = useMemo(
+    () => groupMembers.find((participant) => participant.user_id === user?.id),
+    [groupMembers, user?.id]
+  );
+
+  const canManageGroup = useMemo(() => {
+    if (!isGroup || !user?.id) return false;
+    return groupDetails?.created_by === user.id || !!currentUserParticipant?.is_admin;
+  }, [groupDetails?.created_by, currentUserParticipant?.is_admin, isGroup, user?.id]);
+
   const loadGroupDetails = async () => {
     if (!conversationId || !isGroup || !user?.id) return;
 
@@ -1662,16 +1672,6 @@ export default function ChatConversationScreen() {
       supabase.removeChannel(statusChannel);
     };
   }, [directPartnerId, isGroup, isAIChat]);
-
-  const currentUserParticipant = useMemo(
-    () => groupMembers.find((participant) => participant.user_id === user?.id),
-    [groupMembers, user?.id]
-  );
-
-  const canManageGroup = useMemo(() => {
-    if (!isGroup || !user?.id) return false;
-    return groupDetails?.created_by === user.id || !!currentUserParticipant?.is_admin;
-  }, [groupDetails?.created_by, currentUserParticipant?.is_admin, isGroup, user?.id]);
 
   const isMainAdmin = useMemo(() => {
     if (!isGroup || !user?.id) return false;
