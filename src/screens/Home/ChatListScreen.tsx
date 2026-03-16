@@ -603,7 +603,13 @@ export default function ChatScreen() {
                   )}
                 </View>
 
-                <View style={styles.filterRow}>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.filterRow}
+                  contentContainerStyle={styles.filterRowContent}
+                  keyboardShouldPersistTaps="handled"
+                >
                   {filterOptions.map((item) => {
                     const isActive = activeFilter === item.key;
                     return (
@@ -623,7 +629,7 @@ export default function ChatScreen() {
                       </TouchableOpacity>
                     );
                   })}
-                </View>
+                </ScrollView>
 
                 <Text style={styles.resultsCount}>
                   {activeSearch ? `${filteredConversations.length} results for "${activeSearch}"` : `${filteredConversations.length} chats`}
@@ -1148,10 +1154,13 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     color: '#111827',
   },
   filterRow: {
-    flexDirection: 'row',
-    gap: 8,
     paddingTop: 4,
     paddingBottom: 2,
+  },
+  filterRowContent: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
   },
   resultsCount: {
     fontSize: 12,
@@ -1159,7 +1168,6 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     fontWeight: '500',
   },
   filterChip: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
