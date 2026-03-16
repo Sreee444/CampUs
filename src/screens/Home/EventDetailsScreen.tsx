@@ -49,6 +49,7 @@ interface EventDetails {
   max_participants: number;
   banner_image?: string;
   created_by: string;
+  organizers?: string[];
   is_registered?: boolean;
   registrations_count: number;
   organizer_profile?: { full_name: string };
@@ -90,7 +91,7 @@ export default function EventDetailsScreen() {
       setIsLoading(true);
       const { data: ev, error } = await supabase
         .from('events')
-        .select('*, organizer_profile:profiles!events_created_by_fkey(full_name)')
+        .select('*, organizer_profile:profiles!events_created_by_fkey(full_name), organizers')
         .eq('id', eventId)
         .single();
       if (error) throw error;
@@ -372,6 +373,8 @@ export default function EventDetailsScreen() {
   const canRegister = regOpen && eligibility.isEligible && !isEnded &&
     (!event.max_participants || event.registrations_count < event.max_participants);
   const isCreator = user?.id === event.created_by;
+  const isEventLead = !!user?.id && Array.isArray(event.organizers) && event.organizers.includes(user.id);
+  const canViewRegistrations = isCreator || isEventLead || isAdminRole((profile as any)?.role);
   const canManage = isCreator || isAdminRole((profile as any)?.role);
   const eligType = (event as any)?.eligibility_type || 'college';
   const eligDepts = ((event as any)?.eligible_departments || []) as string[];
@@ -503,7 +506,7 @@ export default function EventDetailsScreen() {
             )}
           </InfoRow>
           <InfoRow icon="people" label="Participants" value={event.registrations_count + ' / ' + (event.max_participants || '∞')} iconColor="#3b82f6" iconBg="#dbeafe">
-            {canManage && event.registrations_count > 0 && (
+            {canViewRegistrations && event.registrations_count > 0 && (
               <TouchableOpacity
                 style={s.chipBtn}
                 onPress={() => navigation.navigate('EventRegisteredUsers', { eventId, eventTitle: event.title })}
