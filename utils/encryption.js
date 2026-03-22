@@ -60,6 +60,7 @@ export const decryptMessage = (encryptedMessage) => {
 
     const key = deriveAesKey(secret);
     let plainText = "";
+    let didDecrypt = false;
 
     // New format: <ivHex>:<cipherText>
     if (encryptedMessage.includes(":")) {
@@ -73,16 +74,18 @@ export const decryptMessage = (encryptedMessage) => {
           padding: CryptoJS.pad.Pkcs7,
         });
         plainText = bytes.toString(CryptoJS.enc.Utf8);
+        didDecrypt = true;
       }
     }
 
     // Backward compatibility for previously stored passphrase-mode values.
-    if (!plainText) {
+    if (!didDecrypt) {
       const legacyBytes = CryptoJS.AES.decrypt(encryptedMessage, secret);
       plainText = legacyBytes.toString(CryptoJS.enc.Utf8);
+      didDecrypt = true;
     }
 
-    return plainText || "Unable to decrypt message";
+    return didDecrypt ? plainText : "Unable to decrypt message";
   } catch {
     return "Unable to decrypt message";
   }

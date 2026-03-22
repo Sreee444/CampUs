@@ -62,6 +62,7 @@ import {
   setChatBackgroundImage,
   removeChatBackgroundImage,
   uploadChatBackgroundToStorage,
+  uploadChatAttachment,
   getPendingGroupJoinRequests,
   reviewGroupJoinRequest,
 } from '../../api/chat';
@@ -210,6 +211,8 @@ type ChatMessage = {
   id: string;
   sender_id: string;
   content?: string;
+  message_type?: 'text' | 'image' | 'file' | 'system';
+  attachment_url?: string;
   created_at: string;
   seen_by_others?: boolean;
   seen_by_count?: number;
@@ -325,6 +328,8 @@ export default function ChatConversationScreen() {
   const [loadingConnections, setLoadingConnections] = useState(false);
   const [isAddingMembers, setIsAddingMembers] = useState(false);
   const [isSavingGroup, setIsSavingGroup] = useState(false);
+  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
+  const [selectedAttachments, setSelectedAttachments] = useState<Array<{ id: string; uri: string }>>([]);
   const [pendingGroupJoinRequests, setPendingGroupJoinRequests] = useState<any[]>([]);
   const [isLoadingGroupJoinRequests, setIsLoadingGroupJoinRequests] = useState(false);
   const [activeJoinReviewId, setActiveJoinReviewId] = useState<string | null>(null);
@@ -360,6 +365,7 @@ export default function ChatConversationScreen() {
   const [backgroundImageUrl, setBackgroundImageUrl] = useState<string | null>(null);
   const [showBackgroundPicker, setShowBackgroundPicker] = useState(false);
   const [isLoadingBackground, setIsLoadingBackground] = useState(false);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const announcementPulse = useSharedValue(1);
   const announcementSlide = useSharedValue(-100);
   const announcementScale = useSharedValue(0.95);
@@ -1042,11 +1048,15 @@ export default function ChatConversationScreen() {
   };
 
   const handleSend = async () => {
-    if (!messageText.trim() || isSending) return;
+    const hasText = !!messageText.trim();
+    const hasAttachments = selectedAttachments.length > 0;
+    if ((!hasText && !hasAttachments) || isSending || isUploadingAttachment) return;
 
     const content = messageText.trim();
     const originalReply = replyingTo;
+    const originalAttachments = selectedAttachments;
     setMessageText('');
+    setSelectedAttachments([]);
     setIsSending(true);
     setReplyingTo(null);
     clearTypingStopTimeout();
@@ -1060,7 +1070,17 @@ export default function ChatConversationScreen() {
           createAiMessage(aiResponse),
         ]);
       } else if (conversationId && user?.id) {
-        await sendMessage(conversationId, user.id, content, 'text');
+        if (originalAttachments.length > 0) {
+          setIsUploadingAttachment(true);
+          for (let index = 0; index < originalAttachments.length; index += 1) {
+            const asset = originalAttachments[index];
+            const uploadedUrl = await uploadChatAttachment(user.id, asset.uri);
+            const caption = index === 0 ? content : '';
+            await sendMessage(conversationId, user.id, caption, 'image', uploadedUrl);
+          }
+        } else {
+          await sendMessage(conversationId, user.id, content, 'text');
+        }
       }
     } catch (error) {
       console.error('Failed to send message:', error);
@@ -1070,8 +1090,10 @@ export default function ChatConversationScreen() {
         text2: error instanceof Error ? error.message : 'Unknown error',
       });
       setMessageText(content);
+      setSelectedAttachments(originalAttachments);
       setReplyingTo(originalReply);
     } finally {
+      setIsUploadingAttachment(false);
       setIsSending(false);
     }
   };
@@ -1337,6 +1359,53 @@ export default function ChatConversationScreen() {
     } finally {
       setIsCreatingAnnouncement(false);
     }
+  };
+
+  const handlePickAttachment = async () => {
+    if (!conversationId || !user?.id || isAIChat || isSending || isUploadingAttachment) return;
+
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (permission.status !== 'granted') {
+        Toast.show({
+          type: 'info',
+          text1: 'Permission required',
+          text2: 'Allow photo access to send images.',
+        });
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: false,
+        allowsMultipleSelection: true,
+        selectionLimit: 10,
+        quality: 0.8,
+      });
+
+      if (result.canceled || !result.assets?.length) return;
+
+      setSelectedAttachments((prev) => {
+        const existing = new Set(prev.map((item) => item.uri));
+        const additions = result.assets
+          .filter((asset) => !!asset?.uri && !existing.has(asset.uri))
+          .map((asset) => ({
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            uri: asset.uri,
+          }));
+        return [...prev, ...additions].slice(0, 10);
+      });
+    } catch (error: any) {
+      Toast.show({
+        type: 'error',
+        text1: 'Image selection failed',
+        text2: error?.message || 'Could not select images',
+      });
+    }
+  };
+
+  const removeSelectedAttachment = (id: string) => {
+    setSelectedAttachments((prev) => prev.filter((item) => item.id !== id));
   };
 
   const loadEligibleConnections = async () => {
@@ -1853,6 +1922,9 @@ export default function ChatConversationScreen() {
       : !!message.seen_by_others || seenByOthersCount >= 1;
     const groupedReactions = getGroupedReactions(message.id);
     const groupedReactionEntries = Object.entries(groupedReactions);
+    const isImageMessage = message.message_type === 'image' && !!message.attachment_url;
+    const imageCaptionRaw = (message.content || '').trim();
+    const imageCaption = imageCaptionRaw === 'Unable to decrypt message' ? '' : imageCaptionRaw;
     const pollPayload = parsePollPayload(message.content);
     const pollReactions = (messageReactions.get(message.id) || []).filter(
       (reaction) => typeof reaction.emoji === 'string' && reaction.emoji.startsWith(POLL_REACTION_PREFIX)
@@ -1872,7 +1944,9 @@ export default function ChatConversationScreen() {
       : -1;
     const messageLength = (message.content || '').trim().length;
     const bubbleWidthStyle =
-      messageLength <= 12
+      isImageMessage
+        ? styles.bubbleImage
+        : messageLength <= 12
         ? styles.bubbleShort
         : messageLength <= 40
           ? styles.bubbleMedium
@@ -2145,16 +2219,43 @@ export default function ChatConversationScreen() {
                     </TouchableOpacity>
                   </View>
                 ) : (
-                  <Text
-                    style={[
-                      styles.messageText,
-                      isMyMessage
-                        ? [styles.myMessageText, { color: chatTheme.textColor }]
-                        : [styles.otherMessageText, { color: chatTheme.incomingTextColor }],
-                    ]}
-                  >
-                    {message.content}
-                  </Text>
+                  isImageMessage ? (
+                    <View style={styles.imageMessageWrap}>
+                      <TouchableOpacity
+                        activeOpacity={0.9}
+                        onPress={() => setImagePreviewUrl(message.attachment_url || null)}
+                      >
+                        <Image
+                          source={{ uri: message.attachment_url as string }}
+                          style={styles.imageMessage}
+                          resizeMode="cover"
+                        />
+                      </TouchableOpacity>
+                      {!!imageCaption && (
+                        <Text
+                          style={[
+                            styles.messageText,
+                            isMyMessage
+                              ? [styles.myMessageText, { color: chatTheme.textColor }]
+                              : [styles.otherMessageText, { color: chatTheme.incomingTextColor }],
+                          ]}
+                        >
+                          {imageCaption}
+                        </Text>
+                      )}
+                    </View>
+                  ) : (
+                    <Text
+                      style={[
+                        styles.messageText,
+                        isMyMessage
+                          ? [styles.myMessageText, { color: chatTheme.textColor }]
+                          : [styles.otherMessageText, { color: chatTheme.incomingTextColor }],
+                      ]}
+                    >
+                      {message.content}
+                    </Text>
+                  )
                 )}
               </View>
               {!!message.aiOptions?.length && !isMyMessage && !pollPayload && (
@@ -2532,6 +2633,34 @@ export default function ChatConversationScreen() {
               </View>
             )}
 
+            {!isAIChat && selectedAttachments.length > 0 && (
+              <View style={styles.attachmentTray}>
+                <View style={styles.attachmentTrayHeader}>
+                  <Text style={styles.attachmentTrayTitle}>{selectedAttachments.length} selected</Text>
+                  <TouchableOpacity onPress={() => setSelectedAttachments([])}>
+                    <Text style={styles.attachmentClearText}>Clear all</Text>
+                  </TouchableOpacity>
+                </View>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.attachmentTrayScrollContent}
+                >
+                  {selectedAttachments.map((asset) => (
+                    <View key={asset.id} style={styles.attachmentThumbWrap}>
+                      <Image source={{ uri: asset.uri }} style={styles.attachmentThumb} />
+                      <TouchableOpacity
+                        style={styles.attachmentRemoveBtn}
+                        onPress={() => removeSelectedAttachment(asset.id)}
+                      >
+                        <MaterialIcons name="close" size={14} color="#fff" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+
             <View style={styles.inputContainer}>
               <View
                 style={[
@@ -2569,16 +2698,15 @@ export default function ChatConversationScreen() {
 
                 {!isAIChat && (
                   <TouchableOpacity
-                    style={styles.attachButton}
-                    onPress={() =>
-                      Toast.show({
-                        type: 'info',
-                        text1: 'Attachments',
-                        text2: 'Attachment picker will be added next.',
-                      })
-                    }
+                    style={[styles.attachButton, isUploadingAttachment && styles.attachButtonDisabled]}
+                    onPress={handlePickAttachment}
+                    disabled={isUploadingAttachment || isSending}
                   >
-                    <MaterialIcons name="attach-file" size={24} color={Colors.textSecondary} />
+                    {isUploadingAttachment ? (
+                      <ActivityIndicator size="small" color={Colors.primary} />
+                    ) : (
+                      <MaterialIcons name="attach-file" size={24} color={Colors.textSecondary} />
+                    )}
                   </TouchableOpacity>
                 )}
               </View>
@@ -2587,10 +2715,10 @@ export default function ChatConversationScreen() {
                 style={[
                   styles.sendButton,
                   { backgroundColor: chatTheme.bubbleColor },
-                  (isSending || !messageText.trim()) && styles.sendButtonDisabled,
+                  (isSending || isUploadingAttachment || (!messageText.trim() && !selectedAttachments.length)) && styles.sendButtonDisabled,
                 ]}
                 onPress={handleSend}
-                disabled={isSending || !messageText.trim()}
+                disabled={isSending || isUploadingAttachment || (!messageText.trim() && !selectedAttachments.length)}
               >
                 {isSending ? (
                   <ActivityIndicator size="small" color={chatTheme.textColor} />
@@ -2602,6 +2730,25 @@ export default function ChatConversationScreen() {
           </KeyboardAvoidingView>
         </ImageBackground>
       )}
+
+      <Modal
+        visible={!!imagePreviewUrl}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setImagePreviewUrl(null)}
+      >
+        <View style={styles.imagePreviewBackdrop}>
+          <TouchableOpacity style={styles.imagePreviewClose} onPress={() => setImagePreviewUrl(null)}>
+            <MaterialIcons name="close" size={26} color="#ffffff" />
+          </TouchableOpacity>
+          <View style={styles.imagePreviewContainer}>
+            {imagePreviewUrl ? (
+              <Image source={{ uri: imagePreviewUrl }} style={styles.imagePreviewImage} resizeMode="contain" />
+            ) : null}
+          </View>
+        </View>
+      </Modal>
+
       <Modal
         visible={showChatOptions}
         animationType="slide"
@@ -4226,6 +4373,10 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     bubbleLong: {
       maxWidth: '82%',
     },
+    bubbleImage: {
+      maxWidth: '72%',
+      minWidth: 180,
+    },
     messageFooter: {
       flexDirection: 'row',
       marginTop: 6,
@@ -4233,6 +4384,16 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       gap: 6,
       minHeight: 20,
       width: '100%',
+    },
+    imageMessageWrap: {
+      gap: 8,
+    },
+    imageMessage: {
+      width: '100%',
+      aspectRatio: 3 / 4,
+      maxHeight: 320,
+      borderRadius: 12,
+      backgroundColor: Colors.border,
     },
     myMessageFooter: {
       justifyContent: 'flex-end',
@@ -4659,6 +4820,59 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       fontSize: FontSizes.sm,
       color: Colors.text,
     },
+    attachmentTray: {
+      marginHorizontal: Spacing.md,
+      marginBottom: Spacing.xs,
+      borderWidth: 1,
+      borderColor: Colors.border,
+      borderRadius: BorderRadius.md,
+      backgroundColor: Colors.surface,
+      paddingHorizontal: Spacing.sm,
+      paddingVertical: Spacing.xs,
+      gap: 8,
+    },
+    attachmentTrayHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    attachmentTrayTitle: {
+      fontSize: FontSizes.xs,
+      color: Colors.textSecondary,
+      fontWeight: FontWeights.semibold,
+    },
+    attachmentClearText: {
+      fontSize: FontSizes.xs,
+      color: Colors.primary,
+      fontWeight: FontWeights.semibold,
+    },
+    attachmentTrayScrollContent: {
+      gap: 8,
+      paddingRight: 4,
+    },
+    attachmentThumbWrap: {
+      width: 58,
+      height: 58,
+      borderRadius: 10,
+      overflow: 'hidden',
+      position: 'relative',
+      backgroundColor: Colors.border,
+    },
+    attachmentThumb: {
+      width: '100%',
+      height: '100%',
+    },
+    attachmentRemoveBtn: {
+      position: 'absolute',
+      top: 3,
+      right: 3,
+      width: 18,
+      height: 18,
+      borderRadius: 9,
+      backgroundColor: 'rgba(0,0,0,0.6)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
     inputContainer: {
       flexDirection: 'row',
       alignItems: 'flex-end',
@@ -4681,6 +4895,9 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     attachButton: {
       padding: 8,
       marginBottom: 1,
+    },
+    attachButtonDisabled: {
+      opacity: 0.6,
     },
     pollComposerButton: {
       padding: 8,
@@ -4707,6 +4924,35 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     },
     sendButtonDisabled: {
       opacity: 0.5,
+    },
+    imagePreviewBackdrop: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.92)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingHorizontal: Spacing.md,
+    },
+    imagePreviewContainer: {
+      width: '100%',
+      height: '82%',
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    imagePreviewImage: {
+      width: '100%',
+      height: '100%',
+    },
+    imagePreviewClose: {
+      position: 'absolute',
+      top: 56,
+      right: 20,
+      zIndex: 10,
+      width: 42,
+      height: 42,
+      borderRadius: 21,
+      backgroundColor: 'rgba(0,0,0,0.36)',
+      justifyContent: 'center',
+      alignItems: 'center',
     },
     loadingContainer: {
       flex: 1,
