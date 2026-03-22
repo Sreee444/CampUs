@@ -470,6 +470,7 @@ export default function ChatScreen() {
       ? activeGroupSize > 0 && seenByOthersCount >= requiredSeenByOthers
       : !!conversation.last_message?.seen_by_others || seenByOthersCount >= 1;
     const lastMessageContent = conversation.last_message?.content || 'No messages yet';
+    const isImageLastMessage = conversation.last_message?.message_type === 'image';
     const groupSenderName = conversation.last_message
       ? (conversation.last_message.sender_id === currentUserId
         ? 'You'
@@ -478,9 +479,13 @@ export default function ChatScreen() {
           || conversation.participants?.find((p: any) => p.id === conversation.last_message?.sender_id)?.email
           || 'Someone'))
       : '';
-    const lastMessagePreview = conversation.is_group && conversation.last_message
+    const baseTextPreview = conversation.is_group && conversation.last_message
       ? `${groupSenderName}: ${lastMessageContent}`
       : lastMessageContent;
+    const imagePreviewLabel = conversation.is_group && conversation.last_message
+      ? `${groupSenderName}: Photo`
+      : 'Photo';
+    const lastMessagePreview = isImageLastMessage ? imagePreviewLabel : baseTextPreview;
 
     return (
       <TouchableOpacity
@@ -544,6 +549,14 @@ export default function ChatScreen() {
                 size={14}
                 color={showDoubleTick ? '#2196F3' : Colors.textSecondary}
                 style={styles.seenIcon}
+              />
+            )}
+            {isImageLastMessage && (
+              <MaterialIcons
+                name="image"
+                size={15}
+                color={unreadCount > 0 ? '#111827' : '#6B7280'}
+                style={styles.mediaTypeIcon}
               />
             )}
             <Text
@@ -1433,6 +1446,9 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   seenIcon: {
     marginRight: 6,
+  },
+  mediaTypeIcon: {
+    marginRight: 4,
   },
   unreadBadge: {
     minWidth: 24,

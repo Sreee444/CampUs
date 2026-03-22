@@ -1165,7 +1165,9 @@ export const sendMessage = async (
   }
 
   // Encrypt on the client before storing in Supabase (DB stores only encrypted text).
-  const encryptedContent = encryptMessage(content);
+  // Keep attachment-only messages captionless by persisting null instead of decrypt fallback text.
+  const normalizedContent = typeof content === 'string' ? content : String(content ?? '');
+  const encryptedContent = normalizedContent.trim().length > 0 ? encryptMessage(normalizedContent) : null;
 
   const { data, error } = await supabase
     .from("messages")
