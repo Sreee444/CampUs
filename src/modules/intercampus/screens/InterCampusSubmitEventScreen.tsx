@@ -4,7 +4,6 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -22,6 +21,7 @@ import { RootStackParamList } from '../../../navigation/types';
 import { useAuth } from '../../../contexts/AuthContext';
 import { isFacultyOrAdminRole } from '../../../utils/roles';
 import { supabase } from '../../../api/supabase';
+import InterCampusScreen from '../components/InterCampusScreen';
 import {
   extractInterCampusEventFromLink,
   extractInterCampusFestFromLink,
@@ -198,6 +198,19 @@ const getEventCompleteness = (event: EventDraft) => {
   };
 };
 
+const formatEventDateLabel = (event: EventDraft) => {
+  const raw = asTrimmed(event.event_start_date) || dateOnlyFromDateTime(event.event_start_datetime);
+  if (!raw) return 'Date TBA';
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return raw;
+  return parsed.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+};
+
+const formatEventTimeLabel = (event: EventDraft) => {
+  const raw = asTrimmed(event.event_start_time) || timeOnlyFromDateTime(event.event_start_datetime);
+  return raw || 'Time TBA';
+};
+
 const toIso = (value: string) => {
   const raw = asTrimmed(value);
   if (!raw) return null;
@@ -310,7 +323,7 @@ function SourcePicker({
           style={[styles.sourceCard, selected === item.key && styles.sourceCardActive]}
           onPress={() => onSelect(item.key)}
         >
-          <MaterialIcons name={item.icon} size={18} color={selected === item.key ? '#ffffff' : '#0f766e'} />
+          <MaterialIcons name={item.icon} size={18} color={selected === item.key ? '#ffffff' : '#6366F1'} />
           <Text style={[styles.sourceText, selected === item.key && styles.sourceTextActive]}>{item.label}</Text>
         </TouchableOpacity>
       ))}
@@ -1004,8 +1017,9 @@ export default function InterCampusSubmitEventScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <InterCampusScreen>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+          <View style={styles.keyboardAvoidingContainer}>
         <View style={styles.header}>
           <TouchableOpacity
             onPress={() => {
@@ -1024,7 +1038,7 @@ export default function InterCampusSubmitEventScreen() {
             <>
               <Text style={styles.title}>What do you want to submit?</Text>
               <TouchableOpacity style={styles.choiceCard} onPress={() => setSubmissionType('single')}>
-                <MaterialIcons name="event" size={20} color="#0f766e" />
+                <MaterialIcons name="event" size={20} color="#6366F1" />
                 <Text style={styles.choiceTitle}>Standalone Event</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -1034,7 +1048,7 @@ export default function InterCampusSubmitEventScreen() {
                   setFestStep('details');
                 }}
               >
-                <MaterialIcons name="celebration" size={20} color="#0f766e" />
+                <MaterialIcons name="celebration" size={20} color="#6366F1" />
                 <Text style={styles.choiceTitle}>Fest + Events</Text>
               </TouchableOpacity>
             </>
@@ -1095,21 +1109,40 @@ export default function InterCampusSubmitEventScreen() {
                 <TextField label="College Location" value={collegeLocation} onChangeText={setCollegeLocation} />
               </View>
 
-              <TouchableOpacity
-                style={styles.primaryBtn}
-                disabled={saving}
-                onPress={() => {
-                  const blocker = getSingleSubmitBlocker();
-                  if (blocker) {
-                    console.warn('[InterCampus AI UI] submit blocked', { blocker });
-                    Toast.show({ type: 'info', text1: blocker });
-                    return;
-                  }
-                  saveSingle();
-                }}
-              >
-                <Text style={styles.primaryBtnText}>{saving ? 'Submitting...' : 'Submit Event'}</Text>
-              </TouchableOpacity>
+              {/* Event Preview */}
+              {singleDraft.title && (
+                <View style={styles.previewCard}>
+                  <Text style={styles.previewTitle}>Event Preview</Text>
+                  {singleDraft.banner_image && (
+                    <Image
+                      source={{ uri: singleDraft.banner_image }}
+                      style={styles.previewBanner}
+                      contentFit="cover"
+                    />
+                  )}
+                  <View style={styles.previewDetails}>
+                    <Text style={styles.previewEventTitle}>{singleDraft.title}</Text>
+                    <View style={styles.previewMetaRow}>
+                      <MaterialIcons name="event" size={14} color="#6366F1" />
+                      <Text style={styles.previewMeta}>{singleDraft.event_start_date || 'Date TBA'}</Text>
+                    </View>
+                    {singleDraft.venue && (
+                      <View style={styles.previewMetaRow}>
+                        <MaterialIcons name="location-on" size={14} color="#6366F1" />
+                        <Text style={styles.previewMeta}>{singleDraft.venue}</Text>
+                      </View>
+                    )}
+                    <View style={styles.previewMetaRow}>
+                      <MaterialIcons name="group" size={14} color="#6366F1" />
+                      <Text style={styles.previewMeta}>{singleDraft.participation_type === 'team' ? `Team Event (${singleDraft.min_team_size}-${singleDraft.max_team_size})` : 'Individual Event'}</Text>
+                    </View>
+                    {singleDraft.description && (
+                      <Text style={styles.previewDesc} numberOfLines={2}>{singleDraft.description}</Text>
+                    )}
+                  </View>
+                </View>
+              )}
+              <View style={{ height: 20 }} />
             </>
           )}
 
@@ -1229,19 +1262,75 @@ export default function InterCampusSubmitEventScreen() {
                     ) : (
                       festEvents.map((event, index) => (
                         <View key={`${event.title}-${index}`} style={styles.addedEvent}>
-                          <Text style={styles.addedEventTitle}>{event.title}</Text>
-                          <Text style={styles.muted}>
-                            {(event.event_start_datetime || event.event_start_date) || 'Date TBA'} | {event.participation_type}
-                          </Text>
-                          <Text style={[styles.muted, { marginTop: 2 }]}>Event Link: {asTrimmed(event.source_url) || 'N/A'}</Text>
-                          {(() => {
-                            const status = getEventCompleteness(event);
-                            return (
-                              <Text style={[styles.muted, { marginTop: 4, color: status.full ? '#0f766e' : '#b45309' }]}>
-                                {status.full ? '✅ full details' : `⚠ missing: ${status.missing.join(', ')}`}
-                              </Text>
-                            );
-                          })()}
+                          {event.banner_image && (
+                            <Image
+                              source={{ uri: event.banner_image }}
+                              style={styles.addedEventBanner}
+                              contentFit="cover"
+                            />
+                          )}
+                          <View style={styles.addedEventContent}>
+                            <Text style={styles.addedEventTitle}>{event.title}</Text>
+                            <View style={styles.addedEventMetaGrid}>
+                              <View style={styles.addedEventMetaRow}>
+                                <MaterialIcons name="event" size={14} color="#6366F1" />
+                                <Text style={styles.addedEventMetaText}>{formatEventDateLabel(event)}</Text>
+                              </View>
+                              <View style={styles.addedEventMetaRow}>
+                                <MaterialIcons name="schedule" size={14} color="#6366F1" />
+                                <Text style={styles.addedEventMetaText}>{formatEventTimeLabel(event)}</Text>
+                              </View>
+                              <View style={styles.addedEventMetaRow}>
+                                <MaterialIcons name="location-on" size={14} color="#6366F1" />
+                                <Text style={styles.addedEventMetaText}>{asTrimmed(event.venue) || 'Venue TBA'}</Text>
+                              </View>
+                              <View style={styles.addedEventMetaRow}>
+                                <MaterialIcons name="category" size={14} color="#6366F1" />
+                                <Text style={styles.addedEventMetaText}>{asTrimmed(event.event_type) || 'General'}</Text>
+                              </View>
+                            </View>
+
+                            {asTrimmed(event.description) ? (
+                              <Text style={styles.addedEventDesc} numberOfLines={2}>{asTrimmed(event.description)}</Text>
+                            ) : null}
+
+                            <View style={styles.addedEventBadgeRow}>
+                              <View style={styles.addedEventBadge}>
+                                <MaterialIcons name="group" size={12} color="#4338ca" />
+                                <Text style={styles.addedEventBadgeText}>
+                                  {event.participation_type === 'team'
+                                    ? `Team ${asTrimmed(event.min_team_size) || '?'}-${asTrimmed(event.max_team_size) || '?'} members`
+                                    : 'Individual'}
+                                </Text>
+                              </View>
+                              <View style={styles.addedEventBadge}>
+                                <MaterialIcons name="travel-explore" size={12} color="#4338ca" />
+                                <Text style={styles.addedEventBadgeText}>
+                                  {event.source_type === 'link' ? 'From Website' : event.source_type === 'poster' ? 'From Poster' : 'Manual Entry'}
+                                </Text>
+                              </View>
+                            </View>
+
+                            <Text style={styles.addedEventLinkText} numberOfLines={1}>
+                              Registration: {asTrimmed(event.registration_link) || 'Not added yet'}
+                            </Text>
+
+                            {(() => {
+                              const status = getEventCompleteness(event);
+                              return (
+                                <View style={[styles.completenessChip, status.full ? styles.completenessChipGood : styles.completenessChipWarn]}>
+                                  <MaterialIcons
+                                    name={status.full ? 'check-circle' : 'warning-amber'}
+                                    size={13}
+                                    color={status.full ? '#166534' : '#b45309'}
+                                  />
+                                  <Text style={[styles.completenessText, { color: status.full ? '#166534' : '#b45309' }]}>
+                                    {status.full ? 'Ready: all key fields added' : `Missing: ${status.missing.join(', ')}`}
+                                  </Text>
+                                </View>
+                              );
+                            })()}
+                          </View>
                           <View style={styles.row}>
                             <TouchableOpacity
                               style={[styles.outlineBtn, { flex: 1 }]}
@@ -1278,93 +1367,125 @@ export default function InterCampusSubmitEventScreen() {
                     <Text style={styles.outlineBtnText}>Back to Fest Details</Text>
                   </TouchableOpacity>
 
-                  <TouchableOpacity style={styles.primaryBtn} onPress={submitFest} disabled={saving}>
-                    <Text style={styles.primaryBtnText}>{saving ? 'Submitting...' : 'Submit Fest Proposal'}</Text>
-                  </TouchableOpacity>
+                  <View style={{ height: 20 }} />
                 </>
               )}
             </>
           )}
         </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+
+              {/* Fixed Bottom Button Bar - Single Event */}
+              {submissionType === 'single' && (
+                <View style={styles.bottomFixedBar}>
+                  <TouchableOpacity
+                    style={styles.bottomSubmitBtn}
+                    disabled={saving}
+                    onPress={() => {
+                      const blocker = getSingleSubmitBlocker();
+                      if (blocker) {
+                        console.warn('[InterCampus AI UI] submit blocked', { blocker });
+                        Toast.show({ type: 'info', text1: blocker });
+                        return;
+                      }
+                      saveSingle();
+                    }}
+                  >
+                    <MaterialIcons name="check-circle" size={20} color="#ffffff" />
+                    <Text style={styles.bottomSubmitBtnText}>
+                      {saving ? 'Submitting...' : 'Submit Event'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {/* Fixed Bottom Button Bar - Fest Submit */}
+              {submissionType === 'fest' && festStep === 'events' && (
+                <View style={styles.bottomFixedBar}>
+                  <TouchableOpacity
+                    style={styles.bottomSubmitBtn}
+                    onPress={submitFest}
+                    disabled={saving}
+                  >
+                    <MaterialIcons name="check-circle" size={20} color="#ffffff" />
+                    <Text style={styles.bottomSubmitBtnText}>
+                      {saving ? 'Submitting...' : 'Submit Fest'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+            </KeyboardAvoidingView>
+    </InterCampusScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
-  centerWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f8fafc', padding: 20, gap: 12 },
+  container: { flex: 1, backgroundColor: 'transparent' },
+  centerWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 20, gap: 12 },
   header: {
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: '#ffffff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    backgroundColor: 'rgba(255,255,255,0.6)',
+    marginHorizontal: 16,
+    marginTop: 8,
+    borderRadius: 16,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
   headerTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a' },
-  content: { padding: 16, gap: 12, paddingBottom: 40 },
+  content: { padding: 16, gap: 12, paddingBottom: 90 },
+    contentWithFixedBtn: { padding: 16, gap: 12, paddingBottom: 120 },
   title: { fontSize: 18, fontWeight: '800', color: '#0f172a' },
   sectionTitle: { fontSize: 15, fontWeight: '700', color: '#0f172a' },
   muted: { fontSize: 12, color: '#64748b' },
 
   choiceCard: {
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#ffffff',
-    padding: 14,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.85)',
+    padding: 16,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    shadowColor: '#0f172a',
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 1,
+    gap: 10,
+    shadowColor: '#000000',
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 4,
   },
   choiceTitle: { fontSize: 14, fontWeight: '700', color: '#0f172a' },
 
   card: {
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#ffffff',
-    padding: 12,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.6)',
+    padding: 16,
     gap: 8,
-    shadowColor: '#0f172a',
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 1,
   },
 
   sourceGrid: { gap: 8 },
   sourceCard: {
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#0f766e',
-    backgroundColor: '#ecfdf5',
+    borderColor: '#6366F1',
+    backgroundColor: 'rgba(99,102,241,0.1)',
     padding: 11,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-  sourceCardActive: { backgroundColor: '#0f766e' },
-  sourceText: { fontSize: 13, fontWeight: '700', color: '#0f766e' },
+  sourceCardActive: { backgroundColor: '#6366F1' },
+  sourceText: { fontSize: 13, fontWeight: '700', color: '#6366F1' },
   sourceTextActive: { color: '#ffffff' },
 
   fieldWrap: { marginBottom: 4 },
   fieldLabel: { fontSize: 12, fontWeight: '700', color: '#334155', marginBottom: 6 },
   input: {
     borderWidth: 1,
-    borderColor: '#cbd5e1',
-    borderRadius: 10,
-    backgroundColor: '#ffffff',
-    paddingHorizontal: 10,
-    paddingVertical: 9,
+    borderColor: '#E5E7EB',
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
     fontSize: 13,
     color: '#0f172a',
   },
@@ -1372,19 +1493,19 @@ const styles = StyleSheet.create({
 
   segmentWrap: {
     flexDirection: 'row',
-    borderRadius: 10,
-    backgroundColor: '#e2e8f0',
-    padding: 3,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.6)',
+    padding: 4,
     marginBottom: 8,
   },
-  segmentBtn: { flex: 1, borderRadius: 8, paddingVertical: 8, alignItems: 'center' },
-  segmentBtnActive: { backgroundColor: '#0f766e' },
+  segmentBtn: { flex: 1, borderRadius: 999, paddingVertical: 8, alignItems: 'center' },
+  segmentBtnActive: { backgroundColor: '#6366F1' },
   segmentText: { fontSize: 12, color: '#334155', fontWeight: '700' },
   segmentTextActive: { color: '#ffffff' },
 
   primaryBtn: {
     borderRadius: 12,
-    backgroundColor: '#0f766e',
+    backgroundColor: '#6366F1',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 12,
@@ -1392,24 +1513,24 @@ const styles = StyleSheet.create({
   primaryBtnText: { color: '#ffffff', fontSize: 14, fontWeight: '800' },
   secondaryBtn: {
     borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: '#0f766e',
-    backgroundColor: '#ecfdf5',
+    borderWidth: 1,
+    borderColor: 'rgba(99,102,241,0.2)',
+    backgroundColor: 'rgba(99,102,241,0.1)',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 12,
   },
-  secondaryBtnText: { color: '#0f766e', fontSize: 14, fontWeight: '700' },
+  secondaryBtnText: { color: '#6366F1', fontSize: 14, fontWeight: '700' },
   outlineBtn: {
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#0f766e',
-    backgroundColor: '#ffffff',
+    borderColor: 'rgba(99,102,241,0.2)',
+    backgroundColor: 'rgba(99,102,241,0.1)',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 10,
   },
-  outlineBtnText: { color: '#0f766e', fontSize: 13, fontWeight: '700' },
+  outlineBtnText: { color: '#6366F1', fontSize: 13, fontWeight: '700' },
   confirmedBtn: { backgroundColor: '#dcfce7', borderColor: '#15803d' },
   confirmedText: { color: '#166534' },
 
@@ -1419,10 +1540,174 @@ const styles = StyleSheet.create({
   addedEvent: {
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#d1fae5',
-    backgroundColor: '#ecfdf5',
+    borderColor: '#c7d2fe',
+    backgroundColor: 'rgba(99,102,241,0.08)',
     padding: 10,
-    marginTop: 6,
+    marginTop: 10,
   },
-  addedEventTitle: { fontSize: 13, fontWeight: '700', color: '#0f172a' },
+  addedEventTitle: { fontSize: 15, fontWeight: '800', color: '#0f172a', marginBottom: 8 },
+  addedEventBanner: {
+    width: '100%',
+    height: 160,
+    borderRadius: 8,
+    marginBottom: 10,
+    backgroundColor: '#e2e8f0',
+  },
+  addedEventContent: {
+    paddingHorizontal: 4,
+    gap: 8,
+  },
+  addedEventMetaGrid: {
+    gap: 6,
+  },
+  addedEventMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  addedEventMetaText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#334155',
+    flexShrink: 1,
+  },
+  addedEventDesc: {
+    fontSize: 12,
+    color: '#475569',
+    lineHeight: 18,
+  },
+  addedEventBadgeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  addedEventBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: 999,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    backgroundColor: '#eef2ff',
+    borderWidth: 1,
+    borderColor: '#c7d2fe',
+  },
+  addedEventBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#4338ca',
+  },
+  addedEventLinkText: {
+    fontSize: 11,
+    color: '#64748b',
+    fontWeight: '600',
+  },
+  completenessChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+  },
+  completenessChipGood: {
+    backgroundColor: '#dcfce7',
+  },
+  completenessChipWarn: {
+    backgroundColor: '#fef3c7',
+  },
+  completenessText: {
+    fontSize: 11,
+    fontWeight: '700',
+    flexShrink: 1,
+  },
+
+  /* Event Preview Card */
+  previewCard: {
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#ddd6fe',
+    backgroundColor: 'rgba(99,102,241,0.08)',
+    overflow: 'hidden',
+  },
+  previewTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#4c1d95',
+    paddingHorizontal: 12,
+    paddingTop: 10,
+  },
+  previewBanner: {
+    width: '100%',
+    height: 180,
+    marginTop: 8,
+    backgroundColor: '#e2e8f0',
+  },
+  previewDetails: {
+    padding: 12,
+    gap: 8,
+  },
+  previewEventTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#0f172a',
+    marginBottom: 4,
+  },
+  previewMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  previewMeta: {
+    fontSize: 12,
+    color: '#475569',
+    fontWeight: '500',
+  },
+  previewDesc: {
+    fontSize: 12,
+    color: '#64748b',
+    lineHeight: 17,
+    marginTop: 4,
+  },
+
+  /* Fixed Bottom Submit Button Bar */
+  bottomFixedBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+    padding: 12,
+    paddingBottom: 16,
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+  },
+  bottomSubmitBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#6366F1',
+    borderRadius: 12,
+    paddingVertical: 13,
+    shadowColor: '#000000',
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 5,
+  },
+  bottomSubmitBtnText: {
+    color: '#ffffff',
+
+      keyboardAvoidingContainer: {
+        flex: 1,
+        position: 'relative',
+      },
+    fontSize: 15,
+    fontWeight: '800',
+  },
 });

@@ -10,6 +10,8 @@ export type MainTabParamList = {
 
 export type RootStackParamList = {
   Login: undefined;
+  Signup: undefined;
+  VerifyEmail: { email: string };
   Banned: undefined;
   CompleteProfile: undefined;
   ResetPassword: undefined;
@@ -24,7 +26,12 @@ export type RootStackParamList = {
   Notifications: undefined;
   NotificationSettings: undefined;
   Privacy: undefined;
-  ChatConversation: { conversationId: string; name: string; isGroup: boolean; partnerUserId?: string };
+  ChatConversation: {
+    conversationId: string;
+    name: string;
+    isGroup: boolean;
+    partnerUserId?: string;
+  };
   DiscussionTopic: { topicId: string };
   CreateTopic: undefined;
   CreateProject: undefined;
@@ -61,19 +68,26 @@ export type RootStackParamList = {
   MentorshipChatList: undefined;
   MentorshipChat: { chatId: string };
   ProjectChat: { chatId: string; teamName: string };
+
   InterCampusHome: undefined;
   InterCampusSubmitEvent: undefined;
   InterCampusEventDetails: { eventId: string };
   InterCampusFestDetails: { festId: string };
-  InterCampusTeamUp: { eventId: string };
+  InterCampusTeamUp: { eventId: string; eventTitle?: string };
   InterCampusDiscussion: { eventId: string };
   MySubmittedEvents: undefined;
   FacultyInterCampusDashboard: undefined;
   AdminInterCampusManagement: undefined;
   CreateInterCampusEvent: undefined;
   EditInterCampusEvent: { eventId: string };
+
   AcademicFeed: undefined;
-  FeedDetails: { postId: string; focusComment?: boolean; focusAttachment?: boolean; attachmentIndex?: number };
+  FeedDetails: {
+    postId: string;
+    focusComment?: boolean;
+    focusAttachment?: boolean;
+    attachmentIndex?: number;
+  };
   CreateFeed: undefined;
 };
 

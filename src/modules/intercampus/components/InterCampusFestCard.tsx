@@ -45,7 +45,7 @@ export default function InterCampusFestCard({ fest, onPress }: Props) {
           />
         ) : (
           <View style={styles.bannerPlaceholder}>
-            <MaterialIcons name="celebration" size={36} color="#0f766e" />
+            <MaterialIcons name="celebration" size={36} color="#6366F1" />
           </View>
         )}
         {/* Gradient overlay for text readability */}
@@ -98,7 +98,7 @@ export default function InterCampusFestCard({ fest, onPress }: Props) {
                 setViewerVisible(true);
               }}
             >
-              <MaterialIcons name="image" size={13} color="#0f766e" />
+              <MaterialIcons name="image" size={13} color="#6366F1" />
               <Text style={styles.quickText}>Image</Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -109,13 +109,13 @@ export default function InterCampusFestCard({ fest, onPress }: Props) {
                 openUrl(fest.source_url);
               }}
             >
-              <MaterialIcons name="language" size={13} color="#0f766e" />
+              <MaterialIcons name="language" size={13} color="#6366F1" />
               <Text style={styles.quickText}>Website</Text>
             </TouchableOpacity>
           </View>
           <View style={styles.openBtn}>
             <Text style={styles.openBtnText}>View Fest</Text>
-            <MaterialIcons name="arrow-forward" size={14} color="#0f766e" />
+            <MaterialIcons name="arrow-forward" size={14} color="#6366F1" />
           </View>
         </View>
       </View>
@@ -153,13 +153,13 @@ export default function InterCampusFestCard({ fest, onPress }: Props) {
 const styles = StyleSheet.create({
   card: {
     borderRadius: 20,
-    backgroundColor: '#ffffff',
+    backgroundColor: 'rgba(255,255,255,0.85)',
     overflow: 'hidden',
-    shadowColor: '#0f172a',
+    shadowColor: '#000000',
     shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
+    shadowRadius: 15,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 5,
   },
   bannerWrap: {
     position: 'relative',
@@ -172,7 +172,7 @@ const styles = StyleSheet.create({
   bannerPlaceholder: {
     width: '100%',
     aspectRatio: 16 / 9,
-    backgroundColor: '#ecfdf5',
+    backgroundColor: 'rgba(99,102,241,0.1)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -193,7 +193,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
     borderRadius: 999,
-    backgroundColor: 'rgba(15, 118, 110, 0.9)',
+    backgroundColor: 'rgba(99,102,241,0.9)',
     paddingHorizontal: 10,
     paddingVertical: 5,
   },
@@ -204,8 +204,8 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   body: {
-    padding: 14,
-    gap: 6,
+    padding: 16,
+    gap: 10,
   },
   title: {
     fontSize: 18,
@@ -238,10 +238,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    borderRadius: 999,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#99f6e4',
-    backgroundColor: '#e6fffa',
+    borderColor: 'rgba(99,102,241,0.2)',
+    backgroundColor: 'rgba(99,102,241,0.1)',
     paddingHorizontal: 10,
     paddingVertical: 7,
   },
@@ -251,22 +251,22 @@ const styles = StyleSheet.create({
   quickText: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#0f766e',
+    color: '#6366F1',
   },
   openBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    borderRadius: 999,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#0f766e',
+    borderColor: '#6366F1',
     paddingHorizontal: 14,
     paddingVertical: 7,
   },
   openBtnText: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#0f766e',
+    color: '#6366F1',
   },
   imageViewerOverlay: {
     flex: 1,

@@ -3,13 +3,13 @@ import {
   ActivityIndicator,
   FlatList,
   RefreshControl,
-  SafeAreaView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../../../navigation/types';
@@ -19,6 +19,7 @@ import { getVerifiedFestsPaginated, getVerifiedStandaloneEventsPaginated } from 
 import { InterCampusEvent } from '../types/intercampus';
 import InterCampusFestCard from '../components/InterCampusFestCard';
 import InterCampusEventCard from '../components/InterCampusEventCard';
+import InterCampusScreen from '../components/InterCampusScreen';
 
 type Nav = StackNavigationProp<RootStackParamList>;
 type TabKey = 'fests' | 'events';
@@ -159,7 +160,7 @@ export default function InterCampusHomeScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <InterCampusScreen>
       {/* ─── Header ─── */}
       <View style={styles.headerGradient}>
         <View style={styles.headerTopRow}>
@@ -198,7 +199,7 @@ export default function InterCampusHomeScreen() {
               <MaterialIcons
                 name={tab === 'fests' ? 'celebration' : 'event'}
                 size={16}
-                color={activeTab === tab ? '#ffffff' : '#334155'}
+                color={activeTab === tab ? '#ffffff' : '#6B7280'}
                 style={{ marginRight: 6 }}
               />
               <Text style={[styles.segmentText, activeTab === tab && styles.segmentTextActive]}>
@@ -230,39 +231,51 @@ export default function InterCampusHomeScreen() {
           onEndReached={loadMore}
           onEndReachedThreshold={0.4}
           ListFooterComponent={
-            loadingMore ? <ActivityIndicator color="#0f766e" style={{ marginTop: 8 }} /> : null
+            loadingMore ? <ActivityIndicator color="#6366F1" style={{ marginTop: 8 }} /> : null
           }
           refreshControl={
-            <RefreshControl refreshing={loading} onRefresh={reload} tintColor="#0f766e" />
+            <RefreshControl refreshing={loading} onRefresh={reload} tintColor="#6366F1" />
           }
         />
       )}
 
       {/* ─── FABs ─── */}
       <TouchableOpacity
-        style={canModerate ? styles.facultyFab : styles.fab}
+        style={styles.fab}
         onPress={() => navigation.navigate('InterCampusSubmitEvent')}
         activeOpacity={0.9}
       >
-        <MaterialIcons name={canModerate ? 'add-circle-outline' : 'add'} size={22} color="#ffffff" />
-        <Text style={styles.fabText}>{canModerate ? 'Submit Event' : 'Submit Event'}</Text>
+        <LinearGradient
+          colors={['#8B5CF6', '#6366F1']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.fabGradient}
+        >
+          <MaterialIcons name={canModerate ? 'add-circle-outline' : 'add'} size={22} color="#ffffff" />
+          <Text style={styles.fabText}>Submit Event</Text>
+        </LinearGradient>
       </TouchableOpacity>
-    </SafeAreaView>
+    </InterCampusScreen>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8fafc',
+    backgroundColor: 'transparent',
   },
   headerGradient: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 6,
     paddingHorizontal: 16,
     paddingTop: 8,
     paddingBottom: 14,
-    backgroundColor: '#eefcf8',
+    backgroundColor: 'rgba(255,255,255,0.6)',
     borderBottomLeftRadius: 22,
     borderBottomRightRadius: 22,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
   },
   headerTopRow: {
     flexDirection: 'row',
@@ -285,32 +298,32 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 22,
     fontWeight: '800',
-    color: '#0f172a',
+    color: '#111827',
   },
   subtitle: {
     marginTop: 2,
     fontSize: 12,
-    color: '#475569',
+    color: '#6B7280',
   },
 
   /* ─── Segmented Tabs ─── */
   segmentWrap: {
     flexDirection: 'row',
-    borderRadius: 14,
-    backgroundColor: '#e2e8f0',
-    padding: 3,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.6)',
+    padding: 4,
   },
   segmentBtn: {
     flex: 1,
     flexDirection: 'row',
-    borderRadius: 11,
+    borderRadius: 999,
     paddingVertical: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
   segmentBtnActive: {
-    backgroundColor: '#0f766e',
-    shadowColor: '#0f766e',
+    backgroundColor: '#6366F1',
+    shadowColor: '#6366F1',
     shadowOpacity: 0.3,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
@@ -319,7 +332,7 @@ const styles = StyleSheet.create({
   segmentText: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#334155',
+    color: '#6B7280',
   },
   segmentTextActive: {
     color: '#ffffff',
@@ -348,7 +361,7 @@ const styles = StyleSheet.create({
   listContent: {
     padding: 16,
     gap: 12,
-    paddingBottom: 100,
+    paddingBottom: 90,
   },
 
   /* ─── Empty ─── */
@@ -409,37 +422,25 @@ const styles = StyleSheet.create({
   /* ─── FABs ─── */
   fab: {
     position: 'absolute',
-    right: 16,
-    bottom: 24,
-    borderRadius: 999,
-    backgroundColor: '#0f766e',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    shadowColor: '#0f172a',
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
-  },
-  facultyFab: {
-    position: 'absolute',
     left: 16,
-    bottom: 24,
+    bottom: 26,
     borderRadius: 999,
-    backgroundColor: '#0f172a',
+    flexDirection: 'row',
+    alignItems: 'center',
+    overflow: 'hidden',
+    shadowColor: '#0f172a',
+    shadowOpacity: 0.25,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 8,
+  },
+  fabGradient: {
+    borderRadius: 999,
     paddingHorizontal: 16,
     paddingVertical: 12,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    shadowColor: '#0f172a',
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
   },
   fabText: {
     color: '#ffffff',

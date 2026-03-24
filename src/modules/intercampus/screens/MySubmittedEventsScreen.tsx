@@ -1,7 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -9,6 +8,7 @@ import {
   View,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import Toast from 'react-native-toast-message';
@@ -20,6 +20,7 @@ import {
   resolveApprovedEventForSubmission,
 } from '../api/intercampus';
 import { InterCampusEventSubmission } from '../types/intercampus';
+import InterCampusScreen from '../components/InterCampusScreen';
 
 type Nav = StackNavigationProp<RootStackParamList, 'MySubmittedEvents'>;
 
@@ -32,7 +33,7 @@ const formatDisplayDate = (value?: string | null) => {
 
 const statusConfig: Record<string, { label: string; bg: string; text: string }> = {
   pending: { label: 'Pending Review', bg: '#ffedd5', text: '#c2410c' },
-  approved: { label: 'Approved', bg: '#dcfce7', text: '#047857' },
+  approved: { label: 'Approved', bg: 'rgba(16,185,129,0.14)', text: '#10B981' },
   rejected: { label: 'Rejected', bg: '#fee2e2', text: '#b91c1c' },
 };
 
@@ -91,7 +92,7 @@ export default function MySubmittedEventsScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <InterCampusScreen>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <MaterialIcons name="arrow-back" size={24} color="#0f172a" />
@@ -128,117 +129,262 @@ export default function MySubmittedEventsScreen() {
         ) : (
           submissions.map((item) => {
             const config = statusConfig[item.status] || statusConfig.pending;
+            const nextStepText =
+              item.status === 'pending'
+                ? 'Awaiting faculty review. We\'ll notify you when it\'s approved.'
+                : item.status === 'approved'
+                  ? 'Your event has been approved! It\'s now visible to other colleges.'
+                  : 'Please review the faculty notes and resubmit if needed.';
+
             return (
               <View key={item.id} style={styles.card}>
-                <View style={styles.cardHeader}>
-                  <Text style={styles.eventTitle}>{item.event_title || 'Untitled Event'}</Text>
-                  <View style={[styles.statusBadge, { backgroundColor: config.bg }]}>
-                    <Text style={[styles.statusText, { color: config.text }]}>{config.label}</Text>
+                {/* Event Image Banner */}
+                {(item as any)?.poster_image || (item as any)?.banner_image ? (
+                  <View style={styles.imageBanner}>
+                    <Image
+                      source={{ uri: (item as any)?.poster_image || (item as any)?.banner_image || '' }}
+                      style={styles.bannerImage}
+                      contentFit="cover"
+                      transition={200}
+                      cachePolicy="memory-disk"
+                    />
+                    <View style={[styles.statusBadgeOverlay, { backgroundColor: config.bg }]}>
+                      <Text style={[styles.statusText, { color: config.text }]}>{config.label}</Text>
+                    </View>
                   </View>
-                </View>
-
-                <Text style={styles.metaText}>College: {item.college_name || 'Unknown'}</Text>
-                {!!item.fest_name && <Text style={styles.metaText}>Fest: {item.fest_name}</Text>}
-                <Text style={styles.metaText}>Event Start: {formatDisplayDate(item.event_start_date)}</Text>
-                <Text style={styles.metaText}>Submitted: {formatDisplayDate(item.created_at)}</Text>
-
-                {item.status === 'approved' && (
-                  <TouchableOpacity style={styles.viewBtn} onPress={() => handleViewEvent(item)}>
-                    <Text style={styles.viewBtnText}>View Event</Text>
-                  </TouchableOpacity>
+                ) : (
+                  <View style={styles.imagePlaceholder}>
+                    <MaterialIcons name="event" size={32} color="#6366F1" />
+                  </View>
                 )}
 
-                {item.status === 'rejected' && (
-                  <View style={styles.rejectedBox}>
-                    <Text style={styles.rejectedText}>This submission was not approved by faculty.</Text>
-                    {!!(item as any).faculty_notes && (
-                      <Text style={styles.rejectedNotes}>Notes: {(item as any).faculty_notes}</Text>
+                <View style={styles.cardContent}>
+                  <Text style={styles.eventTitle} numberOfLines={2}>
+                    {item.event_title || 'Untitled Event'}
+                  </Text>
+
+                  <View style={styles.detailsGrid}>
+                    <View style={styles.detailRow}>
+                      <MaterialIcons name="school" size={14} color="#64748b" />
+                      <Text style={styles.detailText} numberOfLines={1}>
+                        {item.college_name || 'Unknown'}
+                      </Text>
+                    </View>
+
+                    {!!item.fest_name && (
+                      <View style={styles.detailRow}>
+                        <MaterialIcons name="celebration" size={14} color="#64748b" />
+                        <Text style={styles.detailText} numberOfLines={1}>
+                          {item.fest_name}
+                        </Text>
+                      </View>
                     )}
+
+                    <View style={styles.detailRow}>
+                      <MaterialIcons name="calendar-today" size={14} color="#64748b" />
+                      <Text style={styles.detailText}>{formatDisplayDate(item.event_start_date)}</Text>
+                    </View>
+
+                    <View style={styles.detailRow}>
+                      <MaterialIcons name="upload" size={14} color="#64748b" />
+                      <Text style={styles.detailText}>{formatDisplayDate(item.created_at)}</Text>
+                    </View>
                   </View>
-                )}
+
+                  {/* Next Steps Info */}
+                  <View style={styles.nextStepsBox}>
+                    <View style={styles.nextStepsHeader}>
+                      <MaterialIcons
+                        name={
+                          item.status === 'approved'
+                            ? 'check-circle'
+                            : item.status === 'rejected'
+                              ? 'error'
+                              : 'hourglass-empty'
+                        }
+                        size={16}
+                        color={config.text}
+                      />
+                      <Text
+                        style={[
+                          styles.nextStepsLabel,
+                          { color: item.status === 'pending' ? '#92400e' : config.text },
+                        ]}
+                      >
+                        {item.status === 'pending' ? 'Under Review' : 'Status Update'}
+                      </Text>
+                    </View>
+                    <Text style={[styles.nextStepsText, { color: item.status === 'pending' ? '#92400e' : config.text }]}>
+                      {nextStepText}
+                    </Text>
+                  </View>
+
+                  {item.status === 'approved' && (
+                    <TouchableOpacity style={styles.viewBtn} onPress={() => handleViewEvent(item)}>
+                      <MaterialIcons name="open-in-new" size={16} color="#ffffff" />
+                      <Text style={styles.viewBtnText}>View Event</Text>
+                    </TouchableOpacity>
+                  )}
+
+                  {item.status === 'rejected' && !!((item as any).faculty_notes) && (
+                    <View style={styles.rejectedBox}>
+                      <Text style={styles.rejectedLabel}>Faculty Feedback</Text>
+                      <Text style={styles.rejectedNotes}>{(item as any).faculty_notes}</Text>
+                    </View>
+                  )}
+                </View>
               </View>
             );
           })
         )}
       </ScrollView>
-    </SafeAreaView>
+    </InterCampusScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
+  container: { flex: 1, backgroundColor: 'transparent' },
   header: {
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: '#ffffff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    backgroundColor: 'rgba(255,255,255,0.6)',
+    marginHorizontal: 16,
+    marginTop: 8,
+    borderRadius: 16,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
   headerTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a' },
-  content: { padding: 16, gap: 10, paddingBottom: 30 },
+  content: { padding: 16, gap: 12, paddingBottom: 90 },
   summaryCard: {
     borderRadius: 16,
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    padding: 12,
+    backgroundColor: 'rgba(255,255,255,0.6)',
+    padding: 16,
   },
   summaryLabel: { fontSize: 12, color: '#64748b', fontWeight: '700' },
   summaryValue: { marginTop: 4, marginBottom: 10, fontSize: 20, color: '#0f172a', fontWeight: '800' },
   card: {
-    borderRadius: 16,
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    padding: 12,
-    shadowColor: '#0f172a',
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 1,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.85)',
+    overflow: 'hidden',
+    shadowColor: '#000000',
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 4,
   },
   skeleton: { borderRadius: 8, backgroundColor: '#e2e8f0' },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
-  eventTitle: { flex: 1, fontSize: 15, fontWeight: '700', color: '#0f172a' },
+
+  /* Image banner */
+  imageBanner: {
+    position: 'relative',
+    width: '100%',
+    aspectRatio: 16 / 9,
+    backgroundColor: '#e2e8f0',
+  },
+  bannerImage: {
+    width: '100%',
+    height: '100%',
+  },
+  imagePlaceholder: {
+    width: '100%',
+    aspectRatio: 16 / 9,
+    backgroundColor: 'rgba(99,102,241,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statusBadgeOverlay: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+
+  /* Card content */
+  cardContent: {
+    padding: 16,
+    gap: 12,
+  },
+  eventTitle: { fontSize: 16, fontWeight: '800', color: '#0f172a' },
+
+  /* Details grid */
+  detailsGrid: {
+    gap: 8,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  detailText: { flex: 1, fontSize: 12, color: '#64748b', fontWeight: '500' },
+
+  /* Status badge */
   statusBadge: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
   statusText: { fontSize: 11, fontWeight: '800' },
-  metaText: { marginTop: 4, fontSize: 12, color: '#64748b' },
-  viewBtn: {
-    marginTop: 10,
-    borderRadius: 10,
-    backgroundColor: '#0f766e',
-    paddingVertical: 10,
+
+  /* Next steps info */
+  nextStepsBox: {
+    borderRadius: 12,
+    backgroundColor: '#fffbeb',
+    borderLeftWidth: 4,
+    borderLeftColor: '#f59e0b',
+    padding: 12,
+    gap: 6,
+  },
+  nextStepsHeader: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 6,
+  },
+  nextStepsLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#92400e',
+  },
+  nextStepsText: {
+    fontSize: 12,
+    color: '#92400e',
+    lineHeight: 18,
+  },
+
+  /* Buttons */
+  viewBtn: {
+    borderRadius: 12,
+    backgroundColor: '#6366F1',
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
   },
   viewBtnText: { color: '#ffffff', fontSize: 13, fontWeight: '800' },
   rejectedBox: {
-    marginTop: 10,
     borderRadius: 10,
     backgroundColor: '#fff1f2',
     borderWidth: 1,
     borderColor: '#fecdd3',
-    padding: 10,
+    padding: 12,
+    gap: 6,
   },
+  rejectedLabel: { fontSize: 12, color: '#be123c', fontWeight: '700' },
   rejectedText: { fontSize: 12, color: '#be123c', fontWeight: '600' },
-  rejectedNotes: { marginTop: 4, fontSize: 12, color: '#9f1239' },
+  rejectedNotes: { marginTop: 4, fontSize: 12, color: '#9f1239', lineHeight: 16 },
   emptyCard: {
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#ffffff',
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.85)',
     padding: 20,
     alignItems: 'center',
     gap: 12,
   },
   emptyText: { fontSize: 13, color: '#64748b', textAlign: 'center' },
   submitBtn: {
-    borderRadius: 10,
+    borderRadius: 12,
     paddingVertical: 10,
     paddingHorizontal: 16,
-    backgroundColor: '#0f766e',
+    backgroundColor: '#6366F1',
   },
   submitBtnText: { color: '#ffffff', fontSize: 13, fontWeight: '800' },
 });

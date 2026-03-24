@@ -2,7 +2,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -26,6 +25,7 @@ import {
   lockInterCampusDiscussion,
 } from '../api/intercampus';
 import { InterCampusDiscussion, InterCampusDiscussionReply } from '../types/intercampus';
+import InterCampusScreen from '../components/InterCampusScreen';
 
 type Route = RouteProp<RootStackParamList, 'InterCampusDiscussion'>;
 type Nav = StackNavigationProp<RootStackParamList>;
@@ -141,15 +141,15 @@ export default function InterCampusDiscussionScreen({ eventId, embedded = false 
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.centerWrap}>
-        <ActivityIndicator color="#0f766e" />
-      </SafeAreaView>
+      <InterCampusScreen contentStyle={styles.centerWrap}>
+        <ActivityIndicator color="#6366F1" />
+      </InterCampusScreen>
     );
   }
 
   const selectedDiscussion = discussions.find((item) => item.id === selectedDiscussionId) || null;
 
-  const Container = embedded ? View : SafeAreaView;
+  const Container = embedded ? View : InterCampusScreen;
 
   return (
     <Container style={[styles.container, embedded && { flex: 0 }]}>
@@ -202,7 +202,7 @@ export default function InterCampusDiscussionScreen({ eventId, embedded = false 
                 </View>
                 {isModerator && (
                   <TouchableOpacity onPress={() => toggleLock(discussion)}>
-                    <MaterialIcons name={discussion.is_locked ? 'lock-open' : 'lock'} size={18} color="#0f766e" />
+                    <MaterialIcons name={discussion.is_locked ? 'lock-open' : 'lock'} size={18} color="#6366F1" />
                   </TouchableOpacity>
                 )}
               </TouchableOpacity>
@@ -247,7 +247,7 @@ export default function InterCampusDiscussionScreen({ eventId, embedded = false 
                     placeholderTextColor="#94a3b8"
                   />
                   <TouchableOpacity onPress={sendReply}>
-                    <MaterialIcons name="send" size={18} color="#0f766e" />
+                    <MaterialIcons name="send" size={18} color="#6366F1" />
                   </TouchableOpacity>
                 </View>
               )}
@@ -260,68 +260,72 @@ export default function InterCampusDiscussionScreen({ eventId, embedded = false 
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
-  centerWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f8fafc' },
+  container: { flex: 1, backgroundColor: 'transparent' },
+  centerWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   header: {
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: '#ffffff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    backgroundColor: 'rgba(255,255,255,0.6)',
+    marginHorizontal: 16,
+    marginTop: 8,
+    borderRadius: 16,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
   headerTitle: { fontSize: 17, fontWeight: '700', color: '#0f172a' },
-  content: { padding: 16, gap: 10 },
+  content: { padding: 16, gap: 12, paddingBottom: 90 },
   card: {
-    borderRadius: 14,
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    padding: 12,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.85)',
+    padding: 16,
     gap: 8,
+    shadowColor: '#000000',
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 4,
   },
   sectionTitle: { fontSize: 14, fontWeight: '700', color: '#0f172a' },
   input: {
     borderWidth: 1,
-    borderColor: '#cbd5e1',
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 9,
+    borderColor: '#E5E7EB',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
     fontSize: 13,
     color: '#0f172a',
-    backgroundColor: '#ffffff',
+    backgroundColor: 'rgba(255,255,255,0.7)',
   },
   primaryBtn: {
-    borderRadius: 10,
-    backgroundColor: '#0f766e',
+    borderRadius: 12,
+    backgroundColor: '#6366F1',
     alignItems: 'center',
     paddingVertical: 10,
   },
   primaryBtnText: { color: '#ffffff', fontSize: 13, fontWeight: '800' },
   emptyText: { fontSize: 12, color: '#64748b' },
   topicRow: {
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
+    backgroundColor: 'rgba(255,255,255,0.6)',
     padding: 10,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
   topicRowActive: {
-    borderColor: '#0f766e',
-    backgroundColor: '#ecfdf5',
+    borderColor: 'rgba(99,102,241,0.35)',
+    backgroundColor: 'rgba(99,102,241,0.1)',
   },
   topicTitle: { fontSize: 13, fontWeight: '700', color: '#0f172a' },
   topicMeta: { marginTop: 3, fontSize: 11, color: '#64748b' },
   replyRow: {
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
+    backgroundColor: 'rgba(255,255,255,0.6)',
     padding: 10,
     flexDirection: 'row',
     alignItems: 'center',
@@ -334,10 +338,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#cbd5e1',
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    backgroundColor: '#ffffff',
+    borderColor: '#E5E7EB',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(255,255,255,0.7)',
   },
   replyInput: { flex: 1, paddingVertical: 8, fontSize: 13, color: '#0f172a' },
 });

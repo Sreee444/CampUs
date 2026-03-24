@@ -26,6 +26,7 @@ import { isFacultyOrAdminRole } from '../../../utils/roles';
 import { supabase } from '../../../api/supabase';
 import { getInterCampusEventById, updateInterCampusEvent } from '../api/intercampus';
 import { InterCampusEvent } from '../types/intercampus';
+import InterCampusScreen from '../components/InterCampusScreen';
 
 type Route = RouteProp<RootStackParamList, 'EditInterCampusEvent'>;
 type Nav = StackNavigationProp<RootStackParamList>;
@@ -248,25 +249,25 @@ export default function EditInterCampusEventScreen() {
 
     if (loading) {
         return (
-            <SafeAreaView style={styles.center}>
-                <ActivityIndicator color="#7c3aed" size="large" />
-            </SafeAreaView>
+            <InterCampusScreen style={styles.center}>
+                <ActivityIndicator color="#6366F1" size="large" />
+            </InterCampusScreen>
         );
     }
 
     if (!isFaculty) {
         return (
-            <SafeAreaView style={styles.center}>
+            <InterCampusScreen style={styles.center}>
                 <MaterialIcons name="lock" size={36} color="#94a3b8" />
                 <Text style={styles.accessText}>Faculty or Admin access required</Text>
-            </SafeAreaView>
+            </InterCampusScreen>
         );
     }
 
     const isFestRow = event?.is_fest;
 
     return (
-        <SafeAreaView style={styles.container}>
+        <InterCampusScreen style={styles.container}>
             <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
                 {/* Header */}
                 <View style={styles.header}>
@@ -288,7 +289,7 @@ export default function EditInterCampusEventScreen() {
                 <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
                     {/* Meta banner */}
                     <View style={styles.metaBanner}>
-                        <MaterialIcons name={isFestRow ? 'celebration' : 'event'} size={18} color="#7c3aed" />
+                        <MaterialIcons name={isFestRow ? 'celebration' : 'event'} size={18} color="#6366F1" />
                         <Text style={styles.metaBannerText}>
                             {isFestRow ? 'Fest Row' : 'Event'} · {event?.verification_status}
                         </Text>
@@ -376,7 +377,7 @@ export default function EditInterCampusEventScreen() {
                                 onPress={pickAndUploadImage}
                                 disabled={uploadingImage}
                             >
-                                <MaterialIcons name="upload" size={16} color="#0f766e" />
+                                <MaterialIcons name="upload" size={16} color="#6366F1" />
                                 <Text style={styles.uploadText}>
                                     {uploadingImage ? 'Uploading...' : posterImage.trim() ? 'Change Image' : 'Upload Image'}
                                 </Text>
@@ -401,7 +402,7 @@ export default function EditInterCampusEventScreen() {
                     <View style={{ height: 32 }} />
                 </ScrollView>
             </KeyboardAvoidingView>
-        </SafeAreaView>
+        </InterCampusScreen>
     );
 }
 
@@ -418,7 +419,7 @@ const styles = StyleSheet.create({
     backBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
     headerTitle: { fontSize: 16, fontWeight: '800', color: '#0f172a' },
     saveBtn: {
-        backgroundColor: '#7c3aed', borderRadius: 8,
+        backgroundColor: '#6366F1', borderRadius: 8,
         paddingHorizontal: 16, paddingVertical: 8,
     },
     saveBtnText: { color: '#fff', fontSize: 13, fontWeight: '800' },
@@ -430,7 +431,7 @@ const styles = StyleSheet.create({
         backgroundColor: '#f5f3ff', borderRadius: 10, padding: 10,
         borderWidth: 1, borderColor: '#ddd6fe',
     },
-    metaBannerText: { fontSize: 12, color: '#7c3aed', fontWeight: '700' },
+    metaBannerText: { fontSize: 12, color: '#6366F1', fontWeight: '700' },
 
     section: {
         backgroundColor: '#fff', borderRadius: 14,
@@ -439,7 +440,7 @@ const styles = StyleSheet.create({
         shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
         shadowOpacity: 0.04, shadowRadius: 3, elevation: 1,
     },
-    sectionTitle: { fontSize: 13, fontWeight: '800', color: '#7c3aed', marginBottom: 2 },
+    sectionTitle: { fontSize: 13, fontWeight: '800', color: '#6366F1', marginBottom: 2 },
 
     fieldWrap: { gap: 4 },
     fieldLabel: { fontSize: 12, fontWeight: '700', color: '#475569' },
@@ -455,13 +456,13 @@ const styles = StyleSheet.create({
         flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 9,
         backgroundColor: '#f1f5f9', borderWidth: 1, borderColor: '#e2e8f0',
     },
-    segBtnActive: { backgroundColor: '#7c3aed', borderColor: '#7c3aed' },
+    segBtnActive: { backgroundColor: '#6366F1', borderColor: '#6366F1' },
     segText: { fontSize: 13, fontWeight: '700', color: '#64748b' },
     segTextActive: { color: '#fff' },
 
     saveBigBtn: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-        gap: 8, backgroundColor: '#7c3aed', borderRadius: 14, paddingVertical: 15,
+        gap: 8, backgroundColor: '#6366F1', borderRadius: 14, paddingVertical: 15,
     },
     saveBigBtnText: { color: '#fff', fontSize: 15, fontWeight: '800' },
 
@@ -477,7 +478,7 @@ const styles = StyleSheet.create({
         borderColor: '#99f6e4',
         backgroundColor: '#ecfeff',
     },
-    uploadText: { color: '#0f766e', fontWeight: '700', fontSize: 13 },
+    uploadText: { color: '#6366F1', fontWeight: '700', fontSize: 13 },
     previewImage: {
         marginTop: 10,
         width: '100%',

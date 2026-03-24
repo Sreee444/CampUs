@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -27,6 +26,7 @@ import {
 } from '../api/intercampus';
 import { createDirectConversation } from '../../../api/chat';
 import { InterCampusEvent, InterCampusTeamPost, InterCampusTeamPostReply } from '../types/intercampus';
+import InterCampusScreen from '../components/InterCampusScreen';
 
 type Route = RouteProp<RootStackParamList, 'InterCampusTeamUp'>;
 type Nav = StackNavigationProp<RootStackParamList>;
@@ -162,22 +162,22 @@ export default function InterCampusTeamUpScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.centerWrap}>
-        <ActivityIndicator color="#0f766e" />
-      </SafeAreaView>
+      <InterCampusScreen contentStyle={styles.centerWrap}>
+        <ActivityIndicator color="#6366F1" />
+      </InterCampusScreen>
     );
   }
 
   if (!event || event.participation_type !== 'team') {
     return (
-      <SafeAreaView style={styles.centerWrap}>
+      <InterCampusScreen contentStyle={styles.centerWrap}>
         <Text style={styles.emptyText}>Team up is available only for team events.</Text>
-      </SafeAreaView>
+      </InterCampusScreen>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <InterCampusScreen>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <MaterialIcons name="arrow-back" size={24} color="#0f172a" />
@@ -291,7 +291,7 @@ export default function InterCampusTeamUpScreen() {
                         onChangeText={(text) => setReplyInputs((prev) => ({ ...prev, [post.id]: text }))}
                       />
                       <TouchableOpacity onPress={() => handleReply(post.id)}>
-                        <MaterialIcons name="send" size={18} color="#0f766e" />
+                        <MaterialIcons name="send" size={18} color="#6366F1" />
                       </TouchableOpacity>
                     </View>
                   )}
@@ -301,93 +301,91 @@ export default function InterCampusTeamUpScreen() {
           })
         )}
       </ScrollView>
-    </SafeAreaView>
+    </InterCampusScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
-  centerWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f8fafc' },
+  container: { flex: 1, backgroundColor: 'transparent' },
+  centerWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   emptyText: { fontSize: 13, color: '#64748b', textAlign: 'center' },
   header: {
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: '#ffffff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    backgroundColor: 'rgba(255,255,255,0.6)',
+    marginHorizontal: 16,
+    marginTop: 8,
+    borderRadius: 16,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
   headerTitle: { fontSize: 17, fontWeight: '700', color: '#0f172a' },
-  content: { padding: 16, gap: 10 },
+  content: { padding: 16, gap: 12, paddingBottom: 90 },
   eventInfo: {
-    borderRadius: 14,
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    padding: 12,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.6)',
+    padding: 16,
   },
   eventTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a' },
   eventSub: { marginTop: 3, fontSize: 12, color: '#64748b' },
   createCard: {
-    borderRadius: 14,
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    padding: 12,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.6)',
+    padding: 16,
     gap: 8,
   },
   sectionTitle: { fontSize: 14, fontWeight: '700', color: '#0f172a' },
   input: {
     borderWidth: 1,
-    borderColor: '#cbd5e1',
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 9,
+    borderColor: '#E5E7EB',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
     fontSize: 13,
     color: '#0f172a',
-    backgroundColor: '#ffffff',
+    backgroundColor: 'rgba(255,255,255,0.7)',
   },
   multiline: { minHeight: 72, textAlignVertical: 'top' },
   primaryBtn: {
     marginTop: 2,
-    borderRadius: 10,
-    backgroundColor: '#0f766e',
+    borderRadius: 12,
+    backgroundColor: '#6366F1',
     alignItems: 'center',
     paddingVertical: 11,
   },
   primaryBtnText: { color: '#ffffff', fontSize: 13, fontWeight: '800' },
   emptyCard: {
-    borderRadius: 14,
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.6)',
     padding: 18,
   },
   postCard: {
-    borderRadius: 14,
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    padding: 12,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.85)',
+    padding: 16,
     gap: 8,
+    shadowColor: '#000000',
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 4,
   },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
   postAuthor: { fontSize: 13, fontWeight: '700', color: '#0f172a' },
   status: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase' },
-  statusOpen: { color: '#047857' },
+  statusOpen: { color: '#10B981' },
   statusClosed: { color: '#b45309' },
   postMessage: { fontSize: 13, color: '#0f172a' },
   postMeta: { fontSize: 12, color: '#64748b' },
   actionsRow: { flexDirection: 'row', gap: 8 },
   smallBtn: {
-    borderRadius: 999,
+    borderRadius: 12,
     paddingHorizontal: 10,
     paddingVertical: 5,
-    backgroundColor: '#dcfce7',
+    backgroundColor: 'rgba(99,102,241,0.1)',
   },
-  smallBtnText: { color: '#047857', fontSize: 11, fontWeight: '700' },
+  smallBtnText: { color: '#6366F1', fontSize: 11, fontWeight: '700' },
   smallBtnDanger: {
     borderRadius: 999,
     paddingHorizontal: 10,
@@ -396,18 +394,18 @@ const styles = StyleSheet.create({
   },
   smallBtnDangerText: { color: '#b91c1c', fontSize: 11, fontWeight: '700' },
   replyWrap: { gap: 6, marginTop: 2 },
-  replyCard: { borderRadius: 10, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', padding: 8, gap: 3 },
+  replyCard: { borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.6)', borderWidth: 1, borderColor: '#e2e8f0', padding: 8, gap: 3 },
   replyName: { fontSize: 12, fontWeight: '700', color: '#0f172a' },
-  dmLink: { fontSize: 11, color: '#0f766e', fontWeight: '700' },
+  dmLink: { fontSize: 11, color: '#6366F1', fontWeight: '700' },
   replyText: { fontSize: 12, color: '#334155' },
   replyInputRow: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#cbd5e1',
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    backgroundColor: '#ffffff',
+    borderColor: '#E5E7EB',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(255,255,255,0.7)',
   },
   replyInput: { flex: 1, paddingVertical: 8, fontSize: 13, color: '#0f172a' },
 });

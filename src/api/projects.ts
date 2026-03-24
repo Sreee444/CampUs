@@ -288,20 +288,6 @@ export const assignMentor = async (
   mentorId: string,
   mentorUserId: string
 ) => {
-  const { data: acceptedRequest, error: requestError } = await supabase
-    .from('mentorship_requests')
-    .select('id')
-    .eq('project_id', teamId)
-    .eq('mentor_id', mentorId)
-    .eq('purpose', 'project')
-    .eq('status', 'accepted')
-    .maybeSingle();
-
-  if (requestError) throw requestError;
-  if (!acceptedRequest) {
-    throw new Error('Mentor can only be assigned after accepting the project mentorship request.');
-  }
-
   // Update the project team with the mentor_id
   const { error: teamError } = await supabase
     .from('project_teams')
@@ -340,80 +326,6 @@ export const removeMentor = async (teamId: string, mentorId: string) => {
     .eq("team_id", teamId)
     .eq("user_id", mentorId)
     .in("role", ["mentor", "advisor"]);
-};
-
-export const removeProjectMentor = async (teamId: string, actorId: string) => {
-  const { data: team, error: teamError } = await supabase
-    .from('project_teams')
-    .select('created_by, mentor_id')
-    .eq('id', teamId)
-    .single();
-
-  if (teamError) throw teamError;
-  if (!team?.mentor_id) {
-    throw new Error('No mentor assigned to this project.');
-  }
-
-  const isCreator = team.created_by === actorId;
-  let isAdmin = false;
-
-  if (!isCreator) {
-    const { data: actorProfile, error: actorError } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', actorId)
-      .single();
-
-    if (actorError) throw actorError;
-    isAdmin = actorProfile?.role === 'admin';
-  }
-
-  if (!isCreator && !isAdmin) {
-    throw new Error('Only project lead or admin can remove the mentor.');
-  }
-
-  const mentorUserId = team.mentor_id;
-
-  const { data: mentorRecord, error: mentorRecordError } = await supabase
-    .from('mentors')
-    .select('id')
-    .eq('user_id', mentorUserId)
-    .maybeSingle();
-
-  if (mentorRecordError) throw mentorRecordError;
-
-  // End active project mentorship link for this project + mentor.
-  // We close accepted requests when mentor is removed from the project.
-  if (mentorRecord?.id) {
-    const { error: closeMentorshipError } = await supabase
-      .from('mentorship_requests')
-      .update({ status: 'closed' })
-      .eq('project_id', teamId)
-      .eq('mentor_id', mentorRecord.id)
-      .eq('purpose', 'project')
-      .eq('status', 'accepted');
-
-    if (closeMentorshipError) throw closeMentorshipError;
-  }
-
-  const { error: clearMentorError } = await supabase
-    .from('project_teams')
-    .update({ mentor_id: null })
-    .eq('id', teamId)
-    .eq('mentor_id', mentorUserId);
-
-  if (clearMentorError) throw clearMentorError;
-
-  const { error: removeAdvisorError } = await supabase
-    .from('project_team_members')
-    .delete()
-    .eq('team_id', teamId)
-    .eq('user_id', mentorUserId)
-    .in('role', ['mentor', 'advisor']);
-
-  if (removeAdvisorError) throw removeAdvisorError;
-
-  return true;
 };
 
 // Update project status (Students can update, Faculty can override)
@@ -455,7 +367,7 @@ export const featureProject = async (teamId: string, featured: boolean) => {
 
 // Get projects by role-based filters
 export const getProjectsByRole = async (
-  userRole: 'student' | 'faculty' | 'alumni' | 'admin' | 'developer',
+  userRole: 'student' | 'faculty' | 'alumni' | 'admin',
   userId: string
 ) => {
   let query = supabase
@@ -469,7 +381,7 @@ export const getProjectsByRole = async (
   if (userRole === 'student') {
     // Students see: their projects + recruiting projects
     query = query.or(`created_by.eq.${ userId }, is_recruiting.eq.true`);
-  } else if (userRole === 'faculty' || userRole === 'alumni' || userRole === 'developer') {
+  } else if (userRole === 'faculty' || userRole === 'alumni') {
     // Faculty/Alumni see: all projects (for mentorship)
     // No filter - they can mentor any project
   }
@@ -531,31 +443,6 @@ export const getMentoredProjects = async (mentorId: string) => {
 
 // Send join request
 export const sendJoinRequest = async (teamId: string, userId: string, message?: string) => {
-  // Check recruiting + capacity before allowing request
-  const { data: team, error: teamError } = await supabase
-    .from("project_teams")
-    .select("id, max_members, is_recruiting")
-    .eq("id", teamId)
-    .single();
-
-  if (teamError) throw teamError;
-
-  if (!team.is_recruiting) {
-    throw new Error("Team is not recruiting");
-  }
-
-  const { count, error: countError } = await supabase
-    .from("project_team_members")
-    .select("id", { count: "exact", head: true })
-    .eq("team_id", teamId);
-
-  if (countError) throw countError;
-
-  const currentMembers = count || 0;
-  if (team.max_members && currentMembers >= team.max_members) {
-    throw new Error("Team is full");
-  }
-
   // Check if already a member
   const { data: existingMember } = await supabase
     .from("project_team_members")

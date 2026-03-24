@@ -35,6 +35,7 @@ import {
   rejectInterCampusEvent,
   rejectInterCampusSubmission,
 } from '../api/intercampus';
+import InterCampusScreen from '../components/InterCampusScreen';
 
 type Nav = StackNavigationProp<RootStackParamList>;
 
@@ -162,13 +163,13 @@ function EventRow({
       <View style={styles.quickBtnRow}>
         {!!(item.poster_image || item.banner_image) && (
           <TouchableOpacity style={styles.quickBtn} onPress={(e) => { e.stopPropagation?.(); openLink(item.poster_image || item.banner_image); }}>
-            <MaterialIcons name="image" size={13} color="#0f766e" />
+            <MaterialIcons name="image" size={13} color="#6366F1" />
             <Text style={styles.quickBtnText}>Image</Text>
           </TouchableOpacity>
         )}
         {!!item.registration_link && (
           <TouchableOpacity style={styles.quickBtn} onPress={(e) => { e.stopPropagation?.(); openLink(item.registration_link); }}>
-            <MaterialIcons name="open-in-new" size={13} color="#0f766e" />
+            <MaterialIcons name="open-in-new" size={13} color="#6366F1" />
             <Text style={styles.quickBtnText}>Registration</Text>
           </TouchableOpacity>
         )}
@@ -183,7 +184,7 @@ function EventRow({
       {/* Approve / Reject */}
       {isLoading ? (
         <View style={{ alignItems: 'center', paddingVertical: 8 }}>
-          <ActivityIndicator size="small" color="#0f766e" />
+          <ActivityIndicator size="small" color="#6366F1" />
         </View>
       ) : (
         <View style={styles.eventActionsRow}>
@@ -247,7 +248,7 @@ function FestGroupCard({
       {/* Fest Header */}
       <TouchableOpacity style={styles.festHeader} onPress={onToggle} activeOpacity={0.8}>
         <View style={styles.festIcon}>
-          <MaterialIcons name="celebration" size={20} color="#7c3aed" />
+          <MaterialIcons name="celebration" size={20} color="#6366F1" />
         </View>
         <View style={{ flex: 1 }} >
           <Text style={styles.festTitle} numberOfLines={1}>{festTitle}</Text>
@@ -271,7 +272,7 @@ function FestGroupCard({
           style={styles.viewFestBtn}
           onPress={() => onViewFest(festId)}
         >
-          <MaterialIcons name="open-in-new" size={13} color="#7c3aed" />
+          <MaterialIcons name="open-in-new" size={13} color="#6366F1" />
           <Text style={styles.viewFestBtnText}>View Fest Details</Text>
         </TouchableOpacity>
       )}
@@ -661,27 +662,27 @@ export default function AdminInterCampusManagementScreen() {
 
   if (!isAdmin) {
     return (
-      <SafeAreaView style={styles.centerWrap}>
+      <InterCampusScreen style={styles.centerWrap}>
         <MaterialIcons name="lock" size={48} color="#cbd5e1" />
         <Text style={styles.accessTitle}>Admin Access Required</Text>
         <Text style={styles.accessSub}>You don't have permission to view this page.</Text>
-      </SafeAreaView>
+      </InterCampusScreen>
     );
   }
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.centerWrap}>
-        <ActivityIndicator size="large" color="#7c3aed" />
+      <InterCampusScreen style={styles.centerWrap}>
+        <ActivityIndicator size="large" color="#6366F1" />
         <Text style={styles.loadingText}>Loading management data…</Text>
-      </SafeAreaView>
+      </InterCampusScreen>
     );
   }
 
   const totalPendingEvents = pendingEvents.length;
 
   return (
-    <SafeAreaView style={styles.container}>
+    <InterCampusScreen style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.headerBtn} onPress={() => navigation.goBack()}>
@@ -769,7 +770,7 @@ export default function AdminInterCampusManagementScreen() {
                   <Text style={styles.listRowMeta}>{item.college_name || 'Unknown college'}</Text>
                 </View>
                 <TouchableOpacity style={styles.approveBtn} onPress={() => approveSubmission(item.id)}>
-                  <MaterialIcons name="check" size={13} color="#047857" />
+                  <MaterialIcons name="check" size={13} color="#10B981" />
                   <Text style={styles.approveBtnText}>Approve</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.rejectBtn} onPress={() => rejectSubmission(item.id)}>
@@ -821,7 +822,7 @@ export default function AdminInterCampusManagementScreen() {
                   <MaterialIcons
                     name={discussion.is_locked ? 'lock-open' : 'lock'}
                     size={13}
-                    color={discussion.is_locked ? '#b91c1c' : '#047857'}
+                    color={discussion.is_locked ? '#b91c1c' : '#10B981'}
                   />
                   <Text style={discussion.is_locked ? styles.rejectBtnText : styles.approveBtnText}>
                     {discussion.is_locked ? 'Unlock' : 'Lock'}
@@ -857,7 +858,7 @@ export default function AdminInterCampusManagementScreen() {
 
         <View style={{ height: 32 }} />
       </ScrollView>
-    </SafeAreaView>
+    </InterCampusScreen>
   );
 }
 
@@ -930,7 +931,7 @@ const styles = StyleSheet.create({
   },
   sectionHeaderText: { fontSize: 15, fontWeight: '800', color: '#0f172a' },
   badge: {
-    backgroundColor: '#7c3aed',
+    backgroundColor: '#6366F1',
     borderRadius: 999,
     paddingHorizontal: 8,
     paddingVertical: 2,
@@ -1002,7 +1003,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#ddd6fe',
   },
-  viewFestBtnText: { fontSize: 12, fontWeight: '700', color: '#7c3aed' },
+  viewFestBtnText: { fontSize: 12, fontWeight: '700', color: '#6366F1' },
   festBody: {
     borderTopWidth: 1,
     borderTopColor: '#f1f5f9',
@@ -1026,7 +1027,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    backgroundColor: '#059669',
+    backgroundColor: '#10B981',
     borderRadius: 10,
     paddingVertical: 10,
     paddingHorizontal: 16,
@@ -1074,11 +1075,11 @@ const styles = StyleSheet.create({
     paddingVertical: 5, paddingHorizontal: 10,
     backgroundColor: '#f0fdf4', borderRadius: 999, borderWidth: 1, borderColor: '#bbf7d0',
   },
-  quickBtnText: { fontSize: 11, fontWeight: '600', color: '#0f766e' },
+  quickBtnText: { fontSize: 11, fontWeight: '600', color: '#6366F1' },
   eventActionsRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
   eventApproveBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 5, borderRadius: 10, backgroundColor: '#047857', paddingVertical: 10,
+    gap: 5, borderRadius: 10, backgroundColor: '#10B981', paddingVertical: 10,
   },
   eventApproveBtnText: { color: '#ffffff', fontSize: 13, fontWeight: '800' },
   eventRejectBtn: {
@@ -1093,7 +1094,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: 2,
   },
-  chipText: { fontSize: 10, fontWeight: '600', color: '#059669' },
+  chipText: { fontSize: 10, fontWeight: '600', color: '#10B981' },
 
   // Standalone divider
   standaloneSection: { gap: 8 },
@@ -1130,7 +1131,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     backgroundColor: '#dcfce7',
   },
-  approveBtnText: { color: '#047857', fontSize: 11, fontWeight: '700' },
+  approveBtnText: { color: '#10B981', fontSize: 11, fontWeight: '700' },
   rejectBtn: {
     flexDirection: 'row',
     alignItems: 'center',

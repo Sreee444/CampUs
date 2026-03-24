@@ -25,6 +25,7 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { isFacultyOrAdminRole } from '../../../utils/roles';
 import { supabase } from '../../../api/supabase';
 import { createInterCampusEventDirect } from '../api/intercampus';
+import InterCampusScreen from '../components/InterCampusScreen';
 import { buildInterCampusDetailsDescription } from '../utils/eventDetails';
 
 type Nav = StackNavigationProp<RootStackParamList, 'CreateInterCampusEvent'>;
@@ -314,17 +315,17 @@ export default function CreateInterCampusEventScreen() {
 
   if (!canCreateDirect) {
     return (
-      <SafeAreaView style={styles.centerWrap}>
+      <InterCampusScreen style={styles.centerWrap}>
         <Text style={styles.restrictedTitle}>Faculty/Admin access required</Text>
         <TouchableOpacity style={styles.primaryBtn} onPress={() => navigation.goBack()}>
           <Text style={styles.primaryBtnText}>Back</Text>
         </TouchableOpacity>
-      </SafeAreaView>
+      </InterCampusScreen>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <InterCampusScreen style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <MaterialIcons name="arrow-back" size={24} color="#0f172a" />
@@ -370,7 +371,7 @@ export default function CreateInterCampusEventScreen() {
 
         <Text style={styles.fieldLabel}>Event Start Date</Text>
         <TouchableOpacity style={styles.dateCard} onPress={() => openCalendar('event_start_date')}>
-          <MaterialIcons name="calendar-month" size={18} color="#0f766e" />
+          <MaterialIcons name="calendar-month" size={18} color="#6366F1" />
           <Text style={styles.dateCardLabel}>{formatDate(form.event_start_date) || 'Select Event Start Date'}</Text>
         </TouchableOpacity>
 
@@ -385,7 +386,7 @@ export default function CreateInterCampusEventScreen() {
         <Field label="Registration Link" value={form.registration_link} onChangeText={(v) => setField('registration_link', v)} keyboardType="url" />
         <Text style={styles.fieldLabel}>Registration Deadline</Text>
         <TouchableOpacity style={styles.dateCard} onPress={() => openCalendar('registration_deadline')}>
-          <MaterialIcons name="calendar-month" size={18} color="#0f766e" />
+          <MaterialIcons name="calendar-month" size={18} color="#6366F1" />
           <Text style={styles.dateCardLabel}>{formatDate(form.registration_deadline) || 'Select Registration Deadline'}</Text>
         </TouchableOpacity>
 
@@ -394,7 +395,7 @@ export default function CreateInterCampusEventScreen() {
         <View style={styles.fieldWrap}>
           <Text style={styles.fieldLabel}>Banner Image Upload</Text>
           <TouchableOpacity style={styles.uploadBtn} onPress={pickBanner} disabled={uploading}>
-            <MaterialIcons name="image" size={18} color="#0f766e" />
+            <MaterialIcons name="image" size={18} color="#6366F1" />
             <Text style={styles.uploadText}>{uploading ? 'Uploading...' : form.banner_image ? 'Change Banner' : 'Upload Banner'}</Text>
           </TouchableOpacity>
           {!!form.banner_image && <Image source={{ uri: form.banner_image }} style={styles.previewImage} />}
@@ -453,7 +454,7 @@ export default function CreateInterCampusEventScreen() {
           )}
         </>
       )}
-    </SafeAreaView>
+    </InterCampusScreen>
   );
 }
 
@@ -511,7 +512,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   segmentBtn: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 8 },
-  segmentBtnActive: { backgroundColor: '#0f766e' },
+  segmentBtnActive: { backgroundColor: '#6366F1' },
   segmentText: { fontSize: 12, fontWeight: '700', color: '#334155' },
   segmentTextActive: { color: '#ffffff' },
   row: { flexDirection: 'row', gap: 10 },
@@ -529,16 +530,16 @@ const styles = StyleSheet.create({
   },
   uploadBtn: {
     borderWidth: 1,
-    borderColor: '#0f766e',
+    borderColor: '#6366F1',
     borderRadius: 12,
-    backgroundColor: '#ecfdf5',
+    backgroundColor: 'rgba(99,102,241,0.1)',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 7,
     paddingVertical: 10,
   },
-  uploadText: { color: '#0f766e', fontWeight: '700', fontSize: 13 },
+  uploadText: { color: '#6366F1', fontWeight: '700', fontSize: 13 },
   previewImage: { width: '100%', height: 160, borderRadius: 12, marginTop: 8, backgroundColor: '#e2e8f0' },
   optionalCard: {
     marginTop: 8,
@@ -552,7 +553,7 @@ const styles = StyleSheet.create({
   primaryBtn: {
     marginTop: 8,
     borderRadius: 12,
-    backgroundColor: '#0f766e',
+    backgroundColor: '#6366F1',
     alignItems: 'center',
     paddingVertical: 12,
   },
@@ -581,7 +582,7 @@ const styles = StyleSheet.create({
   iosHeaderText: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#0f766e',
+    color: '#6366F1',
   },
   iosTitle: {
     fontSize: 15,

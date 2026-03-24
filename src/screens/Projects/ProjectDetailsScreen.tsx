@@ -35,14 +35,12 @@ import {
   rejectProjectInvite,
   cancelProjectInvite,
   removeTeamMember,
-  removeProjectMentor,
 } from '../../api/projects';
-import { updateMentorshipRequestStatus } from '../../api/mentors';
 import { getProjectChatId, ensureProjectChat } from '../../api/projectChat';
 import { ProjectTeam } from '../../types/database';
 import { UserAvatar } from '../../components/UserAvatar';
 import { ConfirmBottomSheet } from '../../components/ConfirmBottomSheet';
-import { getProjectStatusColor, getTeamFillColor, PROJECT_STATUS_OPTIONS } from '../../utils/semanticColors';
+import { getProjectStatusColor, PROJECT_STATUS_OPTIONS } from '../../utils/semanticColors';
 import { createNotification } from '../../api/notifications';
 import { supabase } from '../../api/supabase';
 import { computeMatchScore, detectSkillRoles, ParticipantWithMatch, sortByMatch } from '../../utils/matchingUtils';
@@ -89,11 +87,6 @@ export default function ProjectDetailsScreen() {
   const [invitedUserIds, setInvitedUserIds] = useState<Set<string>>(new Set());
   const [isHandlingInvite, setIsHandlingInvite] = useState(false);
   const [inviteFilter, setInviteFilter] = useState<'all' | 'best' | 'dept'>('all');
-  const [showRemoveMentorConfirmation, setShowRemoveMentorConfirmation] = useState(false);
-  const [isRemovingMentor, setIsRemovingMentor] = useState(false);
-  const [hasPendingProjectMentorRequest, setHasPendingProjectMentorRequest] = useState(false);
-  const [pendingProjectMentorRequestId, setPendingProjectMentorRequestId] = useState<string | null>(null);
-  const [isCancellingProjectMentorRequest, setIsCancellingProjectMentorRequest] = useState(false);
 
   // Status modal
   const [showStatusModal, setShowStatusModal] = useState(false);
@@ -133,7 +126,6 @@ export default function ProjectDetailsScreen() {
   // Join request confirmation
   const [showJoinConfirmation, setShowJoinConfirmation] = useState(false);
   const [showDeleteProjectConfirmation, setShowDeleteProjectConfirmation] = useState(false);
-  const [showProjectMenu, setShowProjectMenu] = useState(false);
 
   const creatorId = team?.creator?.id ?? team?.created_by;
   const isCreator = user?.id === creatorId;
@@ -150,7 +142,6 @@ export default function ProjectDetailsScreen() {
   const teamProgressPercent = safeMaxMembers > 0
     ? Math.min(100, Math.round((safeMembersCount / safeMaxMembers) * 100))
     : 0;
-  const teamFillColor = getTeamFillColor(teamProgressPercent);
   const displayMembers = hasCreatorInMembers || !team?.creator ? nonAdvisorMembers : [team.creator, ...nonAdvisorMembers];
   const isMember = !!user?.id && (isCreator || teamMembers.some((member) => member.id === user?.id));
   const isTeamFull = safeMaxMembers > 0 ? safeMembersCount >= safeMaxMembers : false;
@@ -213,33 +204,6 @@ export default function ProjectDetailsScreen() {
         } else {
           setJoinRequestStatus(null);
         }
-
-        const isProjectCreator = user.id === (data.created_by || data.creator?.id);
-        if (isProjectCreator && !(data as any)?.mentor_id) {
-          try {
-            const { data: pendingRequest, error: pendingMentorReqError } = await supabase
-              .from('mentorship_requests')
-              .select('id')
-              .eq('mentee_id', user.id)
-              .eq('project_id', teamId)
-              .eq('purpose', 'project')
-              .eq('status', 'pending')
-              .order('created_at', { ascending: false })
-              .limit(1)
-              .maybeSingle<{ id: string }>();
-
-            if (pendingMentorReqError) throw pendingMentorReqError;
-            setHasPendingProjectMentorRequest(!!pendingRequest?.id);
-            setPendingProjectMentorRequestId(pendingRequest?.id || null);
-          } catch (pendingErr) {
-            console.error('Failed to load pending mentorship request state', pendingErr);
-            setHasPendingProjectMentorRequest(false);
-            setPendingProjectMentorRequestId(null);
-          }
-        } else {
-          setHasPendingProjectMentorRequest(false);
-          setPendingProjectMentorRequestId(null);
-        }
       }
 
       // Load pending join requests if creator
@@ -286,7 +250,7 @@ export default function ProjectDetailsScreen() {
   const candidatesLoadedRef = React.useRef(false);
 
   const loadInviteCandidates = useCallback(async () => {
-    if (!team || !canManageTeam) return;
+    if (!team || !isCreator) return;
 
     try {
       setIsLoadingInvitees(true);
@@ -296,13 +260,7 @@ export default function ProjectDetailsScreen() {
 
       if (error) throw error;
 
-      const memberIds = new Set<string>((team.members || []).map((member: any) => member.id).filter(Boolean));
-      if (team.created_by) {
-        memberIds.add(team.created_by);
-      }
-      if ((team as any).mentor_id) {
-        memberIds.add((team as any).mentor_id);
-      }
+      const memberIds = new Set(displayMembers.map((member) => member.id));
       const pendingIds = new Set(pendingJoinRequests.map((request) => request.user_id));
       if (user?.id) {
         memberIds.add(user.id);
@@ -333,7 +291,7 @@ export default function ProjectDetailsScreen() {
     }
     // Only re-run when team/required skills change, NOT on every displayMembers change
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [team?.id, requiredRoles, canManageTeam]);
+  }, [team?.id, requiredRoles, isCreator]);
 
   useEffect(() => {
     if (showInviteModal) {
@@ -467,18 +425,6 @@ export default function ProjectDetailsScreen() {
     setShowJoinConfirmation(true);
   };
 
-  const handleOpenInviteModal = () => {
-    if (isTeamFull) {
-      Toast.show({
-        type: 'info',
-        text1: 'Team Full',
-        text2: 'This project has reached the maximum members.',
-      });
-      return;
-    }
-    setShowInviteModal(true);
-  };
-
   const handleSendJoinRequest = async () => {
     if (!user?.id || !team) return;
 
@@ -500,25 +446,18 @@ export default function ProjectDetailsScreen() {
       setIsSendingRequest(true);
       setShowJoinConfirmation(false);
 
-      const request: any = await sendJoinRequest(teamId, user.id, joinMessage.trim() || undefined);
+      await sendJoinRequest(teamId, user.id, joinMessage.trim() || undefined);
 
       // Try to send notifications (don't fail if this fails)
       try {
         // Notify team creator
-        if (creatorId) {
-          await createNotification({
-            user_id: creatorId,
-            title: 'New Join Request',
-            body: `${profile?.full_name || user?.email || 'Someone'} wants to join ${team.name}`,
-            type: 'project_request',
-            related_id: teamId,
-            metadata: {
-              project_request_id: request?.id,
-              requester_user_id: user.id,
-              team_id: teamId,
-            },
-          });
-        }
+        await createNotification({
+          user_id: creatorId,
+          title: 'New Join Request',
+          body: `${profile?.full_name || user?.email || 'Someone'} wants to join ${team.name}`,
+          type: 'project_request',
+          related_id: teamId,
+        });
 
         // Notify all admins
         await notifyAdmins(
@@ -575,7 +514,7 @@ export default function ProjectDetailsScreen() {
 
     try {
       setInvitingUserId(userId);
-      const inviteRequest: any = await sendProjectInvite(teamId, userId, profile?.full_name || user.email || 'Team leader');
+      await sendProjectInvite(teamId, userId, profile?.full_name || user.email || 'Team leader');
 
       await createNotification({
         user_id: userId,
@@ -583,11 +522,6 @@ export default function ProjectDetailsScreen() {
         body: `${profile?.full_name || user.email || 'A team leader'} invited you to join ${team.name}`,
         type: 'project_invite',
         related_id: teamId,
-        metadata: {
-          project_request_id: inviteRequest?.id,
-          requester_user_id: user.id,
-          team_id: teamId,
-        },
       });
 
       // Update local state only — avoids modal glitch from full screen reload
@@ -674,15 +608,13 @@ export default function ProjectDetailsScreen() {
       setIsHandlingInvite(true);
       await acceptProjectInvite(joinRequestStatus.id, teamId, user.id);
 
-      if (creatorId) {
-        await createNotification({
-          user_id: creatorId,
-          title: 'Invite Accepted',
-          body: `${profile?.full_name || user.email || 'A user'} accepted the invite to ${team.name}`,
-          type: 'project_update',
-          related_id: teamId,
-        });
-      }
+      await createNotification({
+        user_id: creatorId,
+        title: 'Invite Accepted',
+        body: `${profile?.full_name || user.email || 'A user'} accepted the invite to ${team.name}`,
+        type: 'project_update',
+        related_id: teamId,
+      });
 
       Toast.show({ type: 'success', text1: 'Invitation accepted' });
       await loadTeamData();
@@ -703,15 +635,13 @@ export default function ProjectDetailsScreen() {
       setIsHandlingInvite(true);
       await rejectProjectInvite(joinRequestStatus.id);
 
-      if (creatorId) {
-        await createNotification({
-          user_id: creatorId,
-          title: 'Invite Declined',
-          body: `${profile?.full_name || user?.email || 'A user'} declined the invite to ${team.name}`,
-          type: 'project_update',
-          related_id: teamId,
-        });
-      }
+      await createNotification({
+        user_id: creatorId,
+        title: 'Invite Declined',
+        body: `${profile?.full_name || user?.email || 'A user'} declined the invite to ${team.name}`,
+        type: 'project_update',
+        related_id: teamId,
+      });
 
       Toast.show({ type: 'info', text1: 'Invitation declined' });
       await loadTeamData();
@@ -870,15 +800,13 @@ export default function ProjectDetailsScreen() {
       // Try to send notifications (don't fail if this fails)
       try {
         // Notify team creator
-        if (creatorId) {
-          await createNotification({
-            user_id: creatorId,
-            title: 'Team Member Left',
-            body: `${profile?.full_name || user?.email || 'A member'} left ${team.name}`,
-            type: 'project_update',
-            related_id: teamId,
-          });
-        }
+        await createNotification({
+          user_id: creatorId,
+          title: 'Team Member Left',
+          body: `${profile?.full_name || user?.email || 'A member'} left ${team.name}`,
+          type: 'project_update',
+          related_id: teamId,
+        });
 
         // Notify admins
         await notifyAdmins(
@@ -909,69 +837,6 @@ export default function ProjectDetailsScreen() {
     }
   };
 
-  const handleRemoveMentor = async () => {
-    if (!team || !canManageTeam || !user?.id || !(team as any)?.mentor_id) return;
-
-    try {
-      setIsRemovingMentor(true);
-      await removeProjectMentor(teamId, user.id);
-
-      try {
-        await createNotification({
-          user_id: (team as any).mentor_id,
-          title: 'Removed from Project Mentor Role',
-          body: `You have been removed as mentor from ${team.name}`,
-          type: 'project_update',
-          related_id: teamId,
-        });
-      } catch (notifErr) {
-        console.error('Failed to notify removed mentor:', notifErr);
-      }
-
-      Toast.show({
-        type: 'success',
-        text1: 'Mentorship Ended',
-        text2: `${(team as any)?.mentor?.full_name || 'Mentor'} removed from project mentor role`,
-      });
-
-      setShowRemoveMentorConfirmation(false);
-      await loadTeamData();
-    } catch (err: any) {
-      console.error('Failed to remove mentor', err);
-      Toast.show({
-        type: 'error',
-        text1: 'Remove Failed',
-        text2: err?.message || 'Unable to remove mentor',
-      });
-    } finally {
-      setIsRemovingMentor(false);
-    }
-  };
-
-  const handleCancelProjectMentorRequest = async () => {
-    if (!pendingProjectMentorRequestId) return;
-
-    try {
-      setIsCancellingProjectMentorRequest(true);
-      await updateMentorshipRequestStatus(pendingProjectMentorRequestId, 'rejected');
-      Toast.show({
-        type: 'success',
-        text1: 'Request Cancelled',
-        text2: 'Pending mentor request has been cancelled.',
-      });
-      await loadTeamData();
-    } catch (err: any) {
-      console.error('Failed to cancel pending mentor request', err);
-      Toast.show({
-        type: 'error',
-        text1: 'Cancel Failed',
-        text2: err?.message || 'Unable to cancel mentor request',
-      });
-    } finally {
-      setIsCancellingProjectMentorRequest(false);
-    }
-  };
-
   const notifyAdmins = async (title: string, body: string) => {
     try {
       // Get all admin users
@@ -998,9 +863,6 @@ export default function ProjectDetailsScreen() {
       // Don't throw - this is a non-critical error
     }
   };
-
-  const currentStatus = team?.status || 'planning';
-  const statusInfo = getProjectStatusColor(currentStatus);
 
   const renderJoinButton = () => {
     if (!user?.id) return null;
@@ -1087,7 +949,7 @@ export default function ProjectDetailsScreen() {
 
     return (
       <TouchableOpacity
-        style={[styles.joinButton, { backgroundColor: statusInfo.color }]}
+        style={styles.joinButton}
         onPress={() => setShowJoinRequestModal(true)}
       >
         <MaterialIcons name="group-add" size={18} color="#fff" />
@@ -1095,6 +957,9 @@ export default function ProjectDetailsScreen() {
       </TouchableOpacity>
     );
   };
+
+  const currentStatus = team?.status || 'planning';
+  const statusInfo = getProjectStatusColor(currentStatus);
 
   const filteredInviteCandidates = useMemo(() => {
     const query = inviteSearch.trim().toLowerCase();
@@ -1129,13 +994,7 @@ export default function ProjectDetailsScreen() {
         <Text style={styles.headerTitle} numberOfLines={1}>
           {team?.name || 'Project Details'}
         </Text>
-        {canManageTeam ? (
-          <TouchableOpacity style={styles.headerMenuBtn} onPress={() => setShowProjectMenu(true)}>
-            <MaterialIcons name="more-vert" size={24} color={Colors.text} />
-          </TouchableOpacity>
-        ) : (
-          <View style={{ width: 40 }} />
-        )}
+        <View style={{ width: 40 }} />
       </View>
 
       {isLoading ? (
@@ -1156,32 +1015,18 @@ export default function ProjectDetailsScreen() {
                 <Text style={styles.category}>{team?.category || 'General'}</Text>
                 {team?.is_ai_generated && (
                   <View style={styles.aiBadge}>
-                    <MaterialIcons name="auto-awesome" size={12} color="#4f46e5" />
+                    <MaterialIcons name="auto-awesome" size={12} color="#fb7185" />
                     <Text style={styles.aiText}>AI</Text>
                   </View>
                 )}
               </View>
 
-              {canManageTeam ? (
-                <TouchableOpacity
-                  style={[styles.statusBadge, { backgroundColor: statusInfo.bg }]}
-                  onPress={() => setShowStatusModal(true)}
-                  activeOpacity={0.7}
-                >
-                  <View style={[styles.statusDot, { backgroundColor: statusInfo.color }]} />
-                  <Text style={[styles.statusText, { color: statusInfo.color }]}>
-                    {currentStatus.charAt(0).toUpperCase() + currentStatus.slice(1).replace(/-/g, ' ')}
-                  </Text>
-                  <MaterialIcons name="keyboard-arrow-down" size={16} color={statusInfo.color} />
-                </TouchableOpacity>
-              ) : (
-                <View style={[styles.statusBadge, { backgroundColor: statusInfo.bg }]}>
-                  <View style={[styles.statusDot, { backgroundColor: statusInfo.color }]} />
-                  <Text style={[styles.statusText, { color: statusInfo.color }]}>
-                    {currentStatus.charAt(0).toUpperCase() + currentStatus.slice(1).replace(/-/g, ' ')}
-                  </Text>
-                </View>
-              )}
+              <View style={[styles.statusBadge, { backgroundColor: statusInfo.bg }]}>
+                <View style={[styles.statusDot, { backgroundColor: statusInfo.color }]} />
+                <Text style={[styles.statusText, { color: statusInfo.color }]}>
+                  {currentStatus.charAt(0).toUpperCase() + currentStatus.slice(1).replace(/-/g, ' ')}
+                </Text>
+              </View>
             </View>
 
             <Text style={styles.projectTitle}>{team?.name}</Text>
@@ -1190,57 +1035,45 @@ export default function ProjectDetailsScreen() {
             </Text>
 
             {/* Action Buttons */}
-            {canManageTeam && (
-              <View style={styles.actionButtons}>
+            <View style={styles.actionButtons}>
+              {canManageTeam && (
                 <TouchableOpacity
-                  style={[styles.actionBtn, { borderColor: statusInfo.color }]}
+                  style={styles.changeStatusButton}
                   onPress={() => setShowStatusModal(true)}
                 >
-                  <MaterialIcons name="swap-horiz" size={16} color={statusInfo.color} />
-                  <Text style={[styles.actionBtnText, { color: statusInfo.color }]}>Status</Text>
+                  <MaterialIcons name="swap-horiz" size={18} color="#fb7185" />
+                  <Text style={styles.changeStatusText}>Change Status</Text>
                 </TouchableOpacity>
+              )}
+              {canManageTeam && (
                 <TouchableOpacity
-                  style={[styles.actionBtn, { borderColor: '#4f46e5' }]}
+                  style={styles.editProjectButton}
                   onPress={handleOpenEditProject}
                 >
-                  <MaterialIcons name="edit" size={16} color="#4f46e5" />
-                  <Text style={[styles.actionBtnText, { color: '#4f46e5' }]}>Edit</Text>
+                  <MaterialIcons name="edit" size={18} color="#fb7185" />
+                  <Text style={styles.editProjectText}>Edit Project</Text>
                 </TouchableOpacity>
+              )}
+              {canManageTeam && (
                 <TouchableOpacity
-                  style={[
-                    styles.actionBtn,
-                    { borderColor: isTeamFull ? '#94a3b8' : '#4f46e5' },
-                    isTeamFull && { opacity: 0.6 },
-                  ]}
-                  onPress={handleOpenInviteModal}
-                >
-                  <MaterialIcons name={isTeamFull ? 'group' : 'person-add'} size={16} color={isTeamFull ? '#64748b' : '#4f46e5'} />
-                  <Text style={[styles.actionBtnText, { color: isTeamFull ? '#64748b' : '#4f46e5' }]}>
-                    {isTeamFull ? 'Team Full' : 'Invite'}
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.actionBtn, { borderColor: '#dc2626' }]}
+                  style={styles.deleteProjectButton}
                   onPress={() => setShowDeleteProjectConfirmation(true)}
                 >
-                  <MaterialIcons name="delete-outline" size={16} color="#dc2626" />
-                  <Text style={[styles.actionBtnText, { color: '#dc2626' }]}>Delete</Text>
+                  <MaterialIcons name="delete-outline" size={18} color="#ef4444" />
+                  <Text style={styles.deleteProjectText}>Delete Project</Text>
                 </TouchableOpacity>
-              </View>
-            )}
-
-            {/* Role-based action row */}
-            <View style={styles.roleActions}>
+              )}
               {renderJoinButton()}
               {isMember && (
                 <TouchableOpacity
-                  style={[styles.teamChatButton, { backgroundColor: statusInfo.color }]}
+                  style={[styles.inviteMembersButton, { backgroundColor: '#4F46E5', marginTop: 12 }]}
                   onPress={async () => {
                     if (isOpeningProjectChat) return;
                     try {
                       setIsOpeningProjectChat(true);
                       let chatId = projectChatId;
                       if (!chatId) {
+                        // Auto-create chat if it doesn't exist (for old projects)
                         const memberIds = (team?.members || []).map((m) => m.id).filter(Boolean);
                         if (team?.creator?.id) memberIds.push(team.creator.id);
                         chatId = await ensureProjectChat(teamId, memberIds);
@@ -1262,7 +1095,7 @@ export default function ProjectDetailsScreen() {
                     ? <ActivityIndicator size="small" color="#fff" />
                     : <>
                       <MaterialIcons name="chat" size={18} color="#fff" />
-                      <Text style={styles.teamChatBtnText}>Team Chat</Text>
+                      <Text style={styles.inviteMembersText}>Team Chat</Text>
                     </>
                   }
                 </TouchableOpacity>
@@ -1273,7 +1106,7 @@ export default function ProjectDetailsScreen() {
           {/* Stats Cards */}
           <View style={styles.statsContainer}>
             <View style={styles.statCard}>
-              <MaterialIcons name="group" size={24} color={statusInfo.color} />
+              <MaterialIcons name="group" size={24} color="#fb7185" />
               <Text style={styles.statValue}>{safeMembersCount}</Text>
               <Text style={styles.statLabel}>Members</Text>
             </View>
@@ -1296,7 +1129,7 @@ export default function ProjectDetailsScreen() {
             <View style={styles.progressSection}>
               <View style={styles.progressHeader}>
                 <Text style={styles.progressLabel}>Team Progress</Text>
-                <Text style={[styles.progressValue, { color: teamFillColor }]}>{teamProgressPercent}%</Text>
+                <Text style={styles.progressValue}>{teamProgressPercent}%</Text>
               </View>
               <View style={styles.progressBar}>
                 <View
@@ -1304,7 +1137,6 @@ export default function ProjectDetailsScreen() {
                     styles.progressFill,
                     {
                       width: `${teamProgressPercent}%`,
-                      backgroundColor: teamFillColor,
                     },
                   ]}
                 />
@@ -1317,7 +1149,7 @@ export default function ProjectDetailsScreen() {
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Required Skills</Text>
               <View style={styles.skillsRow}>
-                {(team?.required_skills ?? []).map((skill) => (
+                {team.required_skills?.map((skill) => (
                   <View key={skill} style={styles.skillChip}>
                     <Text style={styles.skillText}>{skill}</Text>
                   </View>
@@ -1424,58 +1256,24 @@ export default function ProjectDetailsScreen() {
                     showRing
                   />
                   <View>
-                    <Text style={styles.mentorName}>{(team as any).mentor.full_name || 'Mentor'}</Text>
+                    <Text style={styles.facultyName}>{(team as any).mentor.full_name || 'Mentor'}</Text>
                     <Text style={styles.facultyRole}>{(team as any).mentor.department || (team as any).mentor.role || 'Mentor'}</Text>
                   </View>
                 </View>
                 <MaterialIcons name="chevron-right" size={24} color={Colors.textSecondary} />
               </TouchableOpacity>
-              {canManageTeam && (
-                <TouchableOpacity
-                  style={[styles.inviteMembersButton, { marginTop: 10, backgroundColor: '#ef4444' }]}
-                  onPress={() => setShowRemoveMentorConfirmation(true)}
-                  disabled={isRemovingMentor}
-                >
-                  <MaterialIcons name="person-remove" size={18} color="#fff" />
-                  <Text style={styles.inviteMembersText}>{isRemovingMentor ? 'Removing...' : 'Remove Mentor'}</Text>
-                </TouchableOpacity>
-              )}
             </View>
           ) : isCreator ? (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Project Mentor</Text>
-              <Text style={[styles.sectionSubtitle, { marginBottom: 8 }]}>
-                {hasPendingProjectMentorRequest
-                  ? 'Mentor request pending. Wait for mentor response before sending another request.'
-                  : 'No mentor assigned yet.'}
-              </Text>
-              {hasPendingProjectMentorRequest ? (
-                <TouchableOpacity
-                  style={[styles.inviteMembersButton, { backgroundColor: '#ef4444' }]}
-                  onPress={handleCancelProjectMentorRequest}
-                  disabled={isCancellingProjectMentorRequest}
-                >
-                  {isCancellingProjectMentorRequest ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <>
-                      <MaterialIcons name="cancel" size={18} color="#fff" />
-                      <Text style={styles.inviteMembersText}>Cancel Pending Request</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-              ) : (
-                <TouchableOpacity
-                  style={[
-                    styles.inviteMembersButton,
-                    { backgroundColor: '#4F46E5' },
-                  ]}
-                  onPress={() => (navigation as any).navigate('MentorHub', { prefillProjectId: teamId })}
-                >
-                  <MaterialIcons name="school" size={18} color="#fff" />
-                  <Text style={styles.inviteMembersText}>Find a Mentor</Text>
-                </TouchableOpacity>
-              )}
+              <Text style={[styles.sectionSubtitle, { marginBottom: 8 }]}>No mentor assigned yet.</Text>
+              <TouchableOpacity
+                style={[styles.inviteMembersButton, { backgroundColor: '#4F46E5' }]}
+                onPress={() => (navigation as any).navigate('MentorHub', { prefillProjectId: teamId })}
+              >
+                <MaterialIcons name="school" size={18} color="#fff" />
+                <Text style={styles.inviteMembersText}>Find a Mentor</Text>
+              </TouchableOpacity>
             </View>
           ) : null}
 
@@ -1538,33 +1336,48 @@ export default function ProjectDetailsScreen() {
             </View>
           </View>
 
-          {/* Invite Members — pending invites only (button moved to header actions) */}
-          {isCreator && pendingInvites.length > 0 && (
+          {/* Invite Members */}
+          {isCreator && (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Pending Invites</Text>
-              {pendingInvites.slice(0, 3).map((invite) => (
-                <View key={invite.id} style={styles.pendingInviteItem}>
-                  <UserAvatar
-                    uri={invite.user.avatar_url}
-                    name={invite.user.full_name || invite.user.email}
-                    size={36}
-                    role={invite.user.role}
-                    showRing
-                  />
-                  <View style={styles.pendingInviteInfo}>
-                    <Text style={styles.pendingInviteName}>
-                      {invite.user.full_name || invite.user.email}
-                    </Text>
-                    <Text style={styles.pendingInviteMeta}>Invitation sent</Text>
-                  </View>
-                  <TouchableOpacity
-                    style={styles.cancelInviteButton}
-                    onPress={() => handleCancelInvite(invite)}
-                  >
-                    <MaterialIcons name="close" size={16} color="#ef4444" />
-                  </TouchableOpacity>
+              <Text style={styles.sectionTitle}>Invite Members</Text>
+              <Text style={styles.sectionSubtitle}>
+                Invite students to join your project and see how well they match your required skills.
+              </Text>
+              <TouchableOpacity
+                style={styles.inviteMembersButton}
+                onPress={() => setShowInviteModal(true)}
+              >
+                <MaterialIcons name="person-add" size={18} color="#fff" />
+                <Text style={styles.inviteMembersText}>Invite People</Text>
+              </TouchableOpacity>
+              {pendingInvites.length > 0 && (
+                <View style={styles.pendingInvites}>
+                  <Text style={styles.pendingInvitesTitle}>Pending Invites</Text>
+                  {pendingInvites.slice(0, 3).map((invite) => (
+                    <View key={invite.id} style={styles.pendingInviteItem}>
+                      <UserAvatar
+                        uri={invite.user.avatar_url}
+                        name={invite.user.full_name || invite.user.email}
+                        size={36}
+                        role={invite.user.role}
+                        showRing
+                      />
+                      <View style={styles.pendingInviteInfo}>
+                        <Text style={styles.pendingInviteName}>
+                          {invite.user.full_name || invite.user.email}
+                        </Text>
+                        <Text style={styles.pendingInviteMeta}>Invitation sent</Text>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.cancelInviteButton}
+                        onPress={() => handleCancelInvite(invite)}
+                      >
+                        <MaterialIcons name="close" size={16} color="#ef4444" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
                 </View>
-              ))}
+              )}
             </View>
           )}
 
@@ -1603,7 +1416,7 @@ export default function ProjectDetailsScreen() {
                       {status.label}
                     </Text>
                   </View>
-                  {isActive && <MaterialIcons name="check" size={20} color="#4f46e5" />}
+                  {isActive && <MaterialIcons name="check" size={20} color="#fb7185" />}
                 </TouchableOpacity>
               );
             })}
@@ -1705,14 +1518,7 @@ export default function ProjectDetailsScreen() {
             {inviteFilter === 'dept' && !profile?.department && (
               <Text style={styles.inviteFilterHint}>Set your department to filter by department.</Text>
             )}
-            {isTeamFull ? (
-              <View style={styles.inviteEmpty}>
-                <Text style={styles.inviteEmptyTitle}>Team Full</Text>
-                <Text style={styles.inviteEmptySubtitle}>
-                  This project already has the maximum members.
-                </Text>
-              </View>
-            ) : isLoadingInvitees ? (
+            {isLoadingInvitees ? (
               <View style={styles.inviteLoading}>
                 <ActivityIndicator size="small" color={Colors.primary} />
                 <Text style={styles.inviteLoadingText}>Loading users...</Text>
@@ -1890,18 +1696,6 @@ export default function ProjectDetailsScreen() {
         icon="exit-to-app"
       />
 
-      <ConfirmBottomSheet
-        visible={showRemoveMentorConfirmation}
-        onClose={() => setShowRemoveMentorConfirmation(false)}
-        onConfirm={handleRemoveMentor}
-        title="Remove Project Mentor?"
-        message={`Are you sure you want to remove ${(team as any)?.mentor?.full_name || 'this mentor'} from ${team?.name}?`}
-        confirmText={isRemovingMentor ? 'Removing...' : 'Remove'}
-        cancelText="Cancel"
-        confirmColor="#ef4444"
-        icon="person-remove"
-      />
-
       {/* Join Request Confirmation */}
       <ConfirmBottomSheet
         visible={showJoinConfirmation}
@@ -1914,7 +1708,7 @@ export default function ProjectDetailsScreen() {
         message={`Send your request to join ${team?.name}? The team creator will review and respond to your request.`}
         confirmText={isSendingRequest ? 'Sending...' : 'Send Request'}
         cancelText="Go Back"
-        confirmColor="#4f46e5"
+        confirmColor="#fb7185"
         icon="send"
       />
 
@@ -1965,71 +1759,6 @@ export default function ProjectDetailsScreen() {
               <Text style={[styles.memberActionItemText, { color: '#ef4444' }]}>Remove from Team</Text>
             </TouchableOpacity>
           </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
-
-      {/* Project Menu (3-dot) */}
-      <Modal
-        visible={showProjectMenu}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowProjectMenu(false)}
-      >
-        <TouchableOpacity
-          activeOpacity={1}
-          style={styles.projectMenuOverlay}
-          onPress={() => setShowProjectMenu(false)}
-        >
-          <View style={styles.projectMenuSheet}>
-            <View style={styles.modalHandle} />
-            <Text style={[styles.modalTitle, { marginBottom: 12 }]}>Project Options</Text>
-            <TouchableOpacity
-              style={styles.projectMenuItem}
-              onPress={() => {
-                setShowProjectMenu(false);
-                setShowStatusModal(true);
-              }}
-            >
-              <View style={[styles.projectMenuIcon, { backgroundColor: statusInfo.bg }]}>  
-                <MaterialIcons name="swap-horiz" size={20} color={statusInfo.color} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.projectMenuItemText}>Change Status</Text>
-                <Text style={styles.projectMenuItemSub}>Currently: {currentStatus.replace(/-/g, ' ')}</Text>
-              </View>
-              <MaterialIcons name="chevron-right" size={20} color="#9ca3af" />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.projectMenuItem}
-              onPress={() => {
-                setShowProjectMenu(false);
-                handleOpenEditProject();
-              }}
-            >
-              <View style={[styles.projectMenuIcon, { backgroundColor: '#eef2ff' }]}>
-                <MaterialIcons name="edit" size={20} color="#4f46e5" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.projectMenuItemText}>Edit Project</Text>
-                <Text style={styles.projectMenuItemSub}>Name, description, members</Text>
-              </View>
-              <MaterialIcons name="chevron-right" size={20} color="#9ca3af" />
-            </TouchableOpacity>
-            <View style={styles.projectMenuDivider} />
-            <TouchableOpacity
-              style={styles.projectMenuItem}
-              onPress={() => {
-                setShowProjectMenu(false);
-                setShowDeleteProjectConfirmation(true);
-              }}
-            >
-              <View style={[styles.projectMenuIcon, { backgroundColor: '#fee2e2' }]}>
-                <MaterialIcons name="delete-outline" size={20} color="#dc2626" />
-              </View>
-              <Text style={[styles.projectMenuItemText, { color: '#dc2626', flex: 1 }]}>Delete Project</Text>
-              <MaterialIcons name="chevron-right" size={20} color="#9ca3af" />
-            </TouchableOpacity>
-          </View>
         </TouchableOpacity>
       </Modal>
 
@@ -2122,7 +1851,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     category: {
       fontSize: FontSizes.xs,
       fontWeight: FontWeights.bold,
-      color: '#4f46e5',
+      color: '#fb7185',
       letterSpacing: 1.2,
       textTransform: 'uppercase',
     },
@@ -2133,12 +1862,12 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       paddingHorizontal: 8,
       paddingVertical: 2,
       borderRadius: BorderRadius.full,
-      backgroundColor: '#eef2ff',
+      backgroundColor: '#ffe4e6',
     },
     aiText: {
       fontSize: FontSizes.xs,
       fontWeight: FontWeights.semibold,
-      color: '#4f46e5',
+      color: '#fb7185',
     },
     statusBadge: {
       flexDirection: 'row',
@@ -2174,50 +1903,56 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     actionButtons: {
       flexDirection: 'row',
       flexWrap: 'wrap',
-      gap: 8,
-      marginTop: Spacing.md,
-    },
-    actionBtn: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: 5,
-      paddingHorizontal: 14,
-      paddingVertical: 9,
-      borderRadius: BorderRadius.full,
-      borderWidth: 1.5,
-      backgroundColor: 'transparent',
-      flexGrow: 1,
-      flexBasis: '40%',
-    },
-    actionBtnText: {
-      fontSize: FontSizes.xs,
-      fontWeight: FontWeights.semibold,
-    },
-    roleActions: {
-      flexDirection: 'row',
       gap: Spacing.sm,
       marginTop: Spacing.sm,
     },
-    teamChatButton: {
-      flex: 1,
+    changeStatusButton: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'center',
-      gap: 8,
-      paddingVertical: 12,
+      gap: 6,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
       borderRadius: BorderRadius.lg,
+      borderWidth: 1.5,
+      borderColor: '#fb7185',
+      backgroundColor: 'transparent',
     },
-    teamChatBtnText: {
+    changeStatusText: {
       fontSize: FontSizes.sm,
       fontWeight: FontWeights.semibold,
-      color: '#fff',
+      color: '#fb7185',
     },
-    headerMenuBtn: {
-      width: 40,
-      height: 40,
+    editProjectButton: {
+      flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'center',
+      gap: 6,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderRadius: BorderRadius.lg,
+      borderWidth: 1.5,
+      borderColor: '#fb7185',
+      backgroundColor: 'transparent',
+    },
+    editProjectText: {
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.semibold,
+      color: '#fb7185',
+    },
+    deleteProjectButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderRadius: BorderRadius.lg,
+      borderWidth: 1.5,
+      borderColor: '#ef4444',
+      backgroundColor: 'transparent',
+    },
+    deleteProjectText: {
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.semibold,
+      color: '#ef4444',
     },
     joinButton: {
       flex: 1,
@@ -2227,7 +1962,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       gap: 6,
       paddingVertical: 10,
       borderRadius: BorderRadius.lg,
-      backgroundColor: '#4f46e5',
+      backgroundColor: '#fb7185',
     },
     joinButtonText: {
       fontSize: FontSizes.sm,
@@ -2340,7 +2075,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     progressValue: {
       fontSize: FontSizes.sm,
       fontWeight: FontWeights.bold,
-      color: '#4f46e5',
+      color: '#fb7185',
     },
     progressBar: {
       height: 10,
@@ -2350,7 +2085,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     },
     progressFill: {
       height: '100%',
-      backgroundColor: '#4f46e5',
+      backgroundColor: '#fb7185',
       borderRadius: 5,
     },
 
@@ -2381,7 +2116,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       width: 24,
       height: 24,
       borderRadius: 12,
-      backgroundColor: '#4f46e5',
+      backgroundColor: '#fb7185',
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -2485,11 +2220,6 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       fontSize: FontSizes.md,
       fontWeight: FontWeights.semibold,
       color: Colors.text,
-    },
-    mentorName: {
-      fontSize: FontSizes.md,
-      fontWeight: FontWeights.semibold,
-      color: '#0369a1',
     },
     facultyRole: {
       fontSize: FontSizes.sm,
@@ -2697,7 +2427,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       marginBottom: Spacing.xs,
     },
     statusOptionActive: {
-      backgroundColor: '#eef2ff',
+      backgroundColor: '#ffe4e6',
     },
     statusOptionLeft: {
       flexDirection: 'row',
@@ -2716,7 +2446,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     },
     statusOptionLabelActive: {
       fontWeight: FontWeights.semibold,
-      color: '#4f46e5',
+      color: '#fb7185',
     },
     joinInput: {
       backgroundColor: Colors.card,
@@ -2948,7 +2678,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       flex: 1,
       paddingVertical: 14,
       borderRadius: BorderRadius.lg,
-      backgroundColor: '#4f46e5',
+      backgroundColor: '#fb7185',
       alignItems: 'center',
     },
     joinModalSendText: {
@@ -2997,48 +2727,5 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       height: 1,
       backgroundColor: Colors.border,
       marginVertical: 2,
-    },
-
-    // Project Menu (3-dot)
-    projectMenuOverlay: {
-      flex: 1,
-      backgroundColor: 'rgba(0,0,0,0.4)',
-      justifyContent: 'flex-end',
-    },
-    projectMenuSheet: {
-      backgroundColor: Colors.surface,
-      borderTopLeftRadius: 20,
-      borderTopRightRadius: 20,
-      padding: Spacing.lg,
-      paddingBottom: Spacing.xl,
-    },
-    projectMenuItem: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 14,
-      paddingVertical: 14,
-      paddingHorizontal: 4,
-    },
-    projectMenuIcon: {
-      width: 40,
-      height: 40,
-      borderRadius: 12,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    projectMenuItemText: {
-      fontSize: FontSizes.md,
-      fontWeight: FontWeights.semibold,
-      color: Colors.text,
-    },
-    projectMenuItemSub: {
-      fontSize: FontSizes.xs,
-      color: Colors.textSecondary,
-      marginTop: 2,
-    },
-    projectMenuDivider: {
-      height: 1,
-      backgroundColor: Colors.border,
-      marginVertical: 4,
     },
   });

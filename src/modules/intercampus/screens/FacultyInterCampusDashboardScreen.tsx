@@ -28,6 +28,7 @@ import {
   rejectInterCampusSubmission,
 } from '../api/intercampus';
 import { InterCampusEventSubmission } from '../types/intercampus';
+import InterCampusScreen from '../components/InterCampusScreen';
 
 type Nav = StackNavigationProp<RootStackParamList>;
 
@@ -110,7 +111,7 @@ function EventRow({
         ) : null}
         {item.is_fest ? (
           <View style={[styles.chip, { backgroundColor: '#f5f3ff' }]}>
-            <Text style={[styles.chipText, { color: '#7c3aed' }]}>Fest</Text>
+            <Text style={[styles.chipText, { color: '#6366F1' }]}>Fest</Text>
           </View>
         ) : null}
       </View>
@@ -133,7 +134,7 @@ function EventRow({
             openLink(item.poster_image || item.banner_image);
           }}
         >
-          <MaterialIcons name="image" size={13} color="#0f766e" />
+          <MaterialIcons name="image" size={13} color="#6366F1" />
           <Text style={styles.linkActionText}>View Image</Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -144,7 +145,7 @@ function EventRow({
             openLink(item.registration_link);
           }}
         >
-          <MaterialIcons name="open-in-new" size={13} color="#0f766e" />
+          <MaterialIcons name="open-in-new" size={13} color="#6366F1" />
           <Text style={styles.linkActionText}>Registration</Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -155,7 +156,7 @@ function EventRow({
             openLink(item.source_url);
           }}
         >
-          <MaterialIcons name="language" size={13} color="#0f766e" />
+          <MaterialIcons name="language" size={13} color="#6366F1" />
           <Text style={styles.linkActionText}>Website</Text>
         </TouchableOpacity>
       </View>
@@ -174,7 +175,7 @@ function EventRow({
       <View style={styles.actionsRow}>
         {isLoading ? (
           <View style={{ flex: 1, alignItems: 'center' }}>
-            <ActivityIndicator color="#047857" />
+            <ActivityIndicator color="#10B981" />
           </View>
         ) : (
           <>
@@ -247,7 +248,7 @@ function FestGroupCard({
       {/* Fest Header */}
       <TouchableOpacity style={styles.festHeader} onPress={onToggle} activeOpacity={0.85}>
         <View style={styles.festIcon}>
-          <MaterialIcons name="celebration" size={20} color="#7c3aed" />
+          <MaterialIcons name="celebration" size={20} color="#6366F1" />
         </View>
         <View style={{ flex: 1 }}>
           <Text style={styles.festTitle} numberOfLines={1}>{festTitle}</Text>
@@ -271,7 +272,7 @@ function FestGroupCard({
           style={styles.viewFestBtn}
           onPress={() => onViewFest(festId)}
         >
-          <MaterialIcons name="open-in-new" size={13} color="#7c3aed" />
+          <MaterialIcons name="open-in-new" size={13} color="#6366F1" />
           <Text style={styles.viewFestBtnText}>View Fest Details</Text>
         </TouchableOpacity>
       )}
@@ -325,7 +326,7 @@ function FestGroupCard({
               style={styles.showAllEventsBtn}
               onPress={() => setShowAllEvents(true)}
             >
-              <MaterialIcons name="expand-more" size={16} color="#7c3aed" />
+              <MaterialIcons name="expand-more" size={16} color="#6366F1" />
               <Text style={styles.showAllEventsBtnText}>
                 Show {events.length - INITIAL_DISPLAY_LIMIT} more events
               </Text>
@@ -603,27 +604,27 @@ export default function FacultyInterCampusDashboardScreen() {
 
   if (!canModerate) {
     return (
-      <SafeAreaView style={styles.centerWrap}>
+      <InterCampusScreen style={styles.centerWrap}>
         <MaterialIcons name="lock" size={48} color="#cbd5e1" />
         <Text style={styles.accessTitle}>Faculty Access Required</Text>
         <Text style={styles.accessSub}>You don't have permission to view this page.</Text>
-      </SafeAreaView>
+      </InterCampusScreen>
     );
   }
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.centerWrap}>
-        <ActivityIndicator size="large" color="#7c3aed" />
+      <InterCampusScreen style={styles.centerWrap}>
+        <ActivityIndicator size="large" color="#6366F1" />
         <Text style={styles.loadingText}>Loading pending events…</Text>
-      </SafeAreaView>
+      </InterCampusScreen>
     );
   }
 
   const totalPending = pendingEvents.length;
 
   return (
-    <SafeAreaView style={styles.container}>
+    <InterCampusScreen style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.headerBtn} onPress={() => navigation.goBack()}>
@@ -705,7 +706,7 @@ export default function FacultyInterCampusDashboardScreen() {
                 {!!item.fest_name && (
                   <View style={styles.chipRow}>
                     <View style={[styles.chip, { backgroundColor: '#f5f3ff' }]}>
-                      <Text style={[styles.chipText, { color: '#7c3aed' }]}>Fest: {item.fest_name}</Text>
+                      <Text style={[styles.chipText, { color: '#6366F1' }]}>Fest: {item.fest_name}</Text>
                     </View>
                   </View>
                 )}
@@ -758,7 +759,7 @@ export default function FacultyInterCampusDashboardScreen() {
 
         <View style={{ height: 32 }} />
       </ScrollView>
-    </SafeAreaView>
+    </InterCampusScreen>
   );
 }
 
@@ -800,7 +801,7 @@ const styles = StyleSheet.create({
   // Section header
   sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 2 },
   sectionHeaderText: { fontSize: 15, fontWeight: '800', color: '#0f172a' },
-  badge: { backgroundColor: '#7c3aed', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
+  badge: { backgroundColor: '#6366F1', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
   badgeText: { color: '#fff', fontSize: 11, fontWeight: '700' },
 
   // Empty state
@@ -853,7 +854,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#ddd6fe',
   },
-  viewFestBtnText: { fontSize: 12, fontWeight: '700', color: '#7c3aed' },
+  viewFestBtnText: { fontSize: 12, fontWeight: '700', color: '#6366F1' },
   festBody: { borderTopWidth: 1, borderTopColor: '#f1f5f9', padding: 12, gap: 10 },
   bulkNotesInput: {
     borderWidth: 1,
@@ -870,7 +871,7 @@ const styles = StyleSheet.create({
 
   approveAllBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-    backgroundColor: '#059669', borderRadius: 10, paddingVertical: 10, paddingHorizontal: 16,
+    backgroundColor: '#10B981', borderRadius: 10, paddingVertical: 10, paddingHorizontal: 16,
   },
   approveAllText: { color: '#fff', fontSize: 13, fontWeight: '700' },
 
@@ -879,7 +880,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f1f5f9', borderRadius: 10, paddingVertical: 10, paddingHorizontal: 16,
     marginTop: 8, borderWidth: 1, borderColor: '#cbd5e1',
   },
-  showAllEventsBtnText: { color: '#7c3aed', fontSize: 13, fontWeight: '600' },
+  showAllEventsBtnText: { color: '#6366F1', fontSize: 13, fontWeight: '600' },
 
   // Event card (expandable)
   eventCard: {
@@ -915,12 +916,12 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   linkActionBtnDisabled: { opacity: 0.45 },
-  linkActionText: { fontSize: 11, fontWeight: '700', color: '#0f766e' },
+  linkActionText: { fontSize: 11, fontWeight: '700', color: '#6366F1' },
 
   // Chips
   chipRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
   chip: { backgroundColor: '#f0fdf4', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
-  chipText: { fontSize: 10, fontWeight: '600', color: '#059669' },
+  chipText: { fontSize: 10, fontWeight: '600', color: '#10B981' },
 
   // Standalone divider
   standaloneSection: { gap: 10 },
@@ -944,7 +945,7 @@ const styles = StyleSheet.create({
   actionsRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
   approveBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 5, borderRadius: 10, backgroundColor: '#047857', paddingVertical: 10,
+    gap: 5, borderRadius: 10, backgroundColor: '#10B981', paddingVertical: 10,
   },
   approveBtnText: { color: '#ffffff', fontSize: 13, fontWeight: '800' },
   rejectBtn: {

@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Alert,
   Linking,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -22,6 +21,7 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { isFacultyOrAdminRole } from '../../../utils/roles';
 import { approveInterCampusEvent, deleteInterCampusEvent, getInterCampusEventById, rejectInterCampusEvent, toggleInterCampusInterested } from '../api/intercampus';
 import { InterCampusEvent } from '../types/intercampus';
+import InterCampusScreen from '../components/InterCampusScreen';
 
 type Route = RouteProp<RootStackParamList, 'InterCampusEventDetails'>;
 type Nav = StackNavigationProp<RootStackParamList>;
@@ -57,6 +57,7 @@ export default function InterCampusEventDetailsScreen() {
 
   const isFaculty = isFacultyOrAdminRole(profile?.role);
   const isPending = event?.verification_status === 'pending';
+  const isUnapproved = event?.verification_status === 'pending' || event?.verification_status === 'rejected';
 
   const handleDelete = () => {
     if (!event?.id) return;
@@ -199,18 +200,18 @@ export default function InterCampusEventDetailsScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.centerWrap}>
-        <ActivityIndicator color="#0f766e" size="large" />
-      </SafeAreaView>
+      <InterCampusScreen contentStyle={styles.centerWrap}>
+        <ActivityIndicator color="#6366F1" size="large" />
+      </InterCampusScreen>
     );
   }
 
   if (!event) {
     return (
-      <SafeAreaView style={styles.centerWrap}>
+      <InterCampusScreen contentStyle={styles.centerWrap}>
         <MaterialIcons name="error-outline" size={36} color="#94a3b8" />
         <Text style={styles.emptyTitle}>Event not available</Text>
-      </SafeAreaView>
+      </InterCampusScreen>
     );
   }
 
@@ -218,7 +219,7 @@ export default function InterCampusEventDetailsScreen() {
   const isRejected = event.verification_status === 'rejected';
 
   return (
-    <SafeAreaView style={styles.container}>
+    <InterCampusScreen>
       <ScrollView style={styles.scroll}>
         {/* ─── Banner ─── */}
         <View style={styles.bannerWrap}>
@@ -226,7 +227,7 @@ export default function InterCampusEventDetailsScreen() {
             <Image source={{ uri: event.poster_image || event.banner_image || '' }} style={styles.banner} contentFit="cover" transition={200} />
           ) : (
             <View style={styles.bannerPlaceholder}>
-              <MaterialIcons name={event.is_fest ? 'celebration' : 'public'} size={42} color="#0f766e" />
+              <MaterialIcons name={event.is_fest ? 'celebration' : 'public'} size={42} color="#6366F1" />
               <Text style={styles.bannerPlaceholderText}>{event.is_fest ? 'College Fest' : 'InterCampus Event'}</Text>
             </View>
           )}
@@ -239,8 +240,8 @@ export default function InterCampusEventDetailsScreen() {
           </View>
         </View>
 
-        {/* ─── Faculty Approval Banner (shown only if pending + faculty) ─── */}
-        {isFaculty && isPending && (
+        {/* ─── Faculty Approval Banner (ONLY for faculty/admin) ─── */}
+        {isFaculty && isPending && user?.id && (
           <View style={styles.approvalBanner}>
             <View style={styles.approvalBannerLeft}>
               <MaterialIcons name="pending-actions" size={20} color="#d97706" />
@@ -285,22 +286,22 @@ export default function InterCampusEventDetailsScreen() {
           </View>
         )}
 
-        {/* Rejected banner for faculty */}
-        {isFaculty && isRejected && (
+        {/* Rejected banner for faculty ONLY */}
+        {isFaculty && isRejected && user?.id && (
           <View style={[styles.approvalBanner, { backgroundColor: '#fef2f2', borderColor: '#fca5a5' }]}>
             <MaterialIcons name="cancel" size={20} color="#ef4444" />
             <Text style={[styles.approvalBannerTitle, { color: '#b91c1c', marginLeft: 8 }]}>This event was rejected</Text>
           </View>
         )}
 
-        {/* ── Edit / Delete actions (faculty/admin only) ── */}
-        {isFaculty && (
+        {/* ── Edit / Delete actions (FACULTY/ADMIN ONLY - not for regular users) ── */}
+        {isFaculty && user?.id && (
           <View style={styles.adminActionsRow}>
             <TouchableOpacity
               style={styles.adminEditBtn}
               onPress={handleEdit}
             >
-              <MaterialIcons name="edit" size={15} color="#7c3aed" />
+              <MaterialIcons name="edit" size={15} color="#6366F1" />
               <Text style={styles.adminEditBtnText}>Edit Event</Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -315,20 +316,46 @@ export default function InterCampusEventDetailsScreen() {
           </View>
         )}
 
+        {/* ─── Pending Verification Notice (for regular users viewing pending events) ─── */}
+        {!isFaculty && isUnapproved && (
+          <View style={styles.verificationNoticeBox}>
+            <MaterialIcons
+              name={event.verification_status === 'rejected' ? 'cancel' : 'hourglass-empty'}
+              size={20}
+              color={event.verification_status === 'rejected' ? '#b91c1c' : '#d97706'}
+            />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.verificationNoticeTitle, { color: event.verification_status === 'rejected' ? '#b91c1c' : '#d97706' }]}>
+                {event.verification_status === 'rejected' ? 'Verification Rejected' : 'Pending Verification'}
+              </Text>
+              <Text style={[styles.verificationNoticeSubtitle, { color: event.verification_status === 'rejected' ? '#92400e' : '#92400e' }]}>
+                {event.verification_status === 'rejected'
+                  ? 'This event was not approved by faculty.'
+                  : 'This event is under review by faculty and will be approved shortly.'}
+              </Text>
+              {event.faculty_notes && (
+                <Text style={styles.verificationNoteFacultyNotes}>
+                  Faculty Notes: {event.faculty_notes}
+                </Text>
+              )}
+            </View>
+          </View>
+        )}
+
         {/* ─── Info Section ─── */}
         <View style={styles.infoSection}>
           <View style={styles.infoRow}>
-            <MaterialIcons name="school" size={18} color="#0f766e" />
+              <MaterialIcons name="school" size={18} color="#6B7280" />
             <Text style={styles.infoText}>{event.college_name}</Text>
           </View>
           {!!event.college_location && (
             <View style={styles.infoRow}>
-              <MaterialIcons name="location-on" size={18} color="#0f766e" />
+              <MaterialIcons name="location-on" size={18} color="#6B7280" />
               <Text style={styles.infoText}>{event.college_location}</Text>
             </View>
           )}
           <View style={styles.infoRow}>
-            <MaterialIcons name="calendar-month" size={18} color="#0f766e" />
+            <MaterialIcons name="calendar-month" size={18} color="#6B7280" />
             <Text style={styles.infoText}>
               {formatDate(event.event_start_date) || 'Date TBA'}
               {!!event.event_end_date && ` – ${formatDate(event.event_end_date)}`}
@@ -336,7 +363,7 @@ export default function InterCampusEventDetailsScreen() {
           </View>
           {!!event.venue && (
             <View style={styles.infoRow}>
-              <MaterialIcons name="place" size={18} color="#0f766e" />
+              <MaterialIcons name="place" size={18} color="#6B7280" />
               <Text style={styles.infoText}>
                 {event.venue.trim() || (event.is_online ? 'Online' : 'Venue TBA')}
               </Text>
@@ -344,7 +371,7 @@ export default function InterCampusEventDetailsScreen() {
           )}
           {!!event.fest_name && (
             <View style={styles.infoRow}>
-              <MaterialIcons name="celebration" size={18} color="#0f766e" />
+              <MaterialIcons name="celebration" size={18} color="#6B7280" />
               <Text style={styles.infoText}>Part of {event.fest_name}</Text>
             </View>
           )}
@@ -358,7 +385,7 @@ export default function InterCampusEventDetailsScreen() {
 
             {event.verification_status === 'verified' ? (
               <View style={styles.badgeVerified}>
-                <MaterialIcons name="verified" size={14} color="#047857" />
+                <MaterialIcons name="verified" size={14} color="#10B981" />
                 <Text style={styles.badgeVerifiedText}>Verified</Text>
               </View>
             ) : event.verification_status === 'rejected' ? (
@@ -375,7 +402,7 @@ export default function InterCampusEventDetailsScreen() {
 
             {event.verification_status === 'verified' && (
               <View style={styles.badgeInterested}>
-                <MaterialIcons name="favorite" size={14} color="#0f766e" />
+                <MaterialIcons name="favorite" size={14} color="#6366F1" />
                 <Text style={styles.badgeInterestedText}>{event.interested_count || 0} interested</Text>
               </View>
             )}
@@ -450,9 +477,9 @@ export default function InterCampusEventDetailsScreen() {
 
           {/* Event source URL (event website) */}
           {!!event.source_url && (
-            <TouchableOpacity style={[styles.outlineBtn, { borderColor: '#7c3aed' }]} onPress={openSourceUrl}>
-              <MaterialIcons name="link" size={18} color="#7c3aed" />
-              <Text style={[styles.outlineBtnText, { color: '#7c3aed' }]} numberOfLines={1}>Event Website</Text>
+            <TouchableOpacity style={[styles.outlineBtn, { borderColor: '#6366F1' }]} onPress={openSourceUrl}>
+              <MaterialIcons name="link" size={18} color="#6366F1" />
+              <Text style={[styles.outlineBtnText, { color: '#6366F1' }]} numberOfLines={1}>Event Website</Text>
             </TouchableOpacity>
           )}
 
@@ -475,7 +502,7 @@ export default function InterCampusEventDetailsScreen() {
                 <MaterialIcons
                   name={event.is_interested ? 'favorite' : 'favorite-border'}
                   size={18}
-                  color={event.is_interested ? '#ffffff' : '#0f766e'}
+                  color={event.is_interested ? '#ffffff' : '#6366F1'}
                 />
                 <Text style={[styles.outlineBtnText, event.is_interested && styles.outlineBtnTextActive]}>
                   {event.is_interested ? 'Interested ✓' : 'Mark Interested'}
@@ -486,7 +513,7 @@ export default function InterCampusEventDetailsScreen() {
                 style={styles.outlineBtn}
                 onPress={() => navigation.navigate('InterCampusDiscussion', { eventId: event.id })}
               >
-                <MaterialIcons name="forum" size={18} color="#0f766e" />
+                <MaterialIcons name="forum" size={18} color="#6366F1" />
                 <Text style={styles.outlineBtnText}>Discussion</Text>
               </TouchableOpacity>
 
@@ -495,7 +522,7 @@ export default function InterCampusEventDetailsScreen() {
                   style={styles.outlineBtn}
                   onPress={() => navigation.navigate('InterCampusTeamUp', { eventId: event.id })}
                 >
-                  <MaterialIcons name="groups" size={18} color="#0f766e" />
+                  <MaterialIcons name="groups" size={18} color="#6366F1" />
                   <Text style={styles.outlineBtnText}>Team Up</Text>
                 </TouchableOpacity>
               )}
@@ -505,13 +532,13 @@ export default function InterCampusEventDetailsScreen() {
           <View style={{ height: 40 }} />
         </View>
       </ScrollView>
-    </SafeAreaView>
+    </InterCampusScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
-  centerWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f8fafc', gap: 10 },
+  container: { flex: 1, backgroundColor: 'transparent' },
+  centerWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 },
   emptyTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a' },
   scroll: { flex: 1 },
 
@@ -521,7 +548,7 @@ const styles = StyleSheet.create({
   bannerPlaceholder: {
     width: '100%',
     aspectRatio: 16 / 9,
-    backgroundColor: '#ecfdf5',
+    backgroundColor: 'rgba(99,102,241,0.1)',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
@@ -559,7 +586,7 @@ const styles = StyleSheet.create({
   approvalBannerBtns: { flexDirection: 'row', gap: 8 },
   approvalBannerApprove: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 5, backgroundColor: '#059669', borderRadius: 10, paddingVertical: 10,
+    gap: 5, backgroundColor: '#10B981', borderRadius: 10, paddingVertical: 10,
   },
   approvalBannerApproveText: { color: '#fff', fontSize: 13, fontWeight: '800' },
   approvalBannerReject: {
@@ -582,11 +609,12 @@ const styles = StyleSheet.create({
 
   /* ─── Info Section ─── */
   infoSection: {
+    marginHorizontal: 16,
+    marginTop: 12,
     padding: 16,
     gap: 8,
-    backgroundColor: '#ffffff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    backgroundColor: 'rgba(255,255,255,0.6)',
+    borderRadius: 16,
   },
   infoRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   infoText: { flex: 1, fontSize: 14, color: '#334155', fontWeight: '500' },
@@ -601,7 +629,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 4,
     borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: '#dcfce7',
   },
-  badgeVerifiedText: { fontSize: 12, fontWeight: '700', color: '#047857' },
+  badgeVerifiedText: { fontSize: 12, fontWeight: '700', color: '#10B981' },
   badgePending: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: '#fef3c7',
@@ -614,18 +642,16 @@ const styles = StyleSheet.create({
   badgeRejectedText: { fontSize: 12, fontWeight: '700', color: '#b91c1c' },
   badgeInterested: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
-    borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: '#ecfdf5',
+    borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: 'rgba(99,102,241,0.1)',
   },
-  badgeInterestedText: { fontSize: 12, fontWeight: '700', color: '#0f766e' },
+  badgeInterestedText: { fontSize: 12, fontWeight: '700', color: '#6366F1' },
 
   /* ─── Content ─── */
-  contentPad: { padding: 16, gap: 12 },
+  contentPad: { padding: 16, gap: 12, paddingBottom: 90 },
   card: {
     borderRadius: 16,
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    padding: 14,
+    backgroundColor: 'rgba(255,255,255,0.6)',
+    padding: 16,
     gap: 8,
   },
   cardTitle: { fontSize: 15, fontWeight: '700', color: '#0f172a' },
@@ -652,7 +678,7 @@ const styles = StyleSheet.create({
   facultyActionsRow: { flexDirection: 'row', gap: 10 },
   facultyApproveBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 6, borderRadius: 12, backgroundColor: '#059669', paddingVertical: 12,
+    gap: 6, borderRadius: 12, backgroundColor: '#10B981', paddingVertical: 12,
   },
   facultyApproveBtnText: { color: '#ffffff', fontWeight: '800', fontSize: 14 },
   facultyRejectBtn: {
@@ -663,31 +689,31 @@ const styles = StyleSheet.create({
 
   /* ─── Buttons ─── */
   primaryBtn: {
-    borderRadius: 14,
-    backgroundColor: '#0f766e',
+    borderRadius: 12,
+    backgroundColor: '#6366F1',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 14,
+    paddingVertical: 12,
     gap: 8,
   },
   primaryBtnText: { color: '#ffffff', fontWeight: '800', fontSize: 15 },
   outlineBtn: {
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: '#0f766e',
-    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(99,102,241,0.2)',
+    backgroundColor: 'rgba(99,102,241,0.1)',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 13,
+    paddingVertical: 12,
     gap: 8,
   },
   outlineBtnActive: {
-    backgroundColor: '#0f766e',
-    borderColor: '#0f766e',
+    backgroundColor: '#6366F1',
+    borderColor: '#6366F1',
   },
-  outlineBtnText: { color: '#0f766e', fontWeight: '800', fontSize: 14 },
+  outlineBtnText: { color: '#6366F1', fontWeight: '800', fontSize: 14 },
   outlineBtnTextActive: { color: '#ffffff' },
 
   /* Admin edit/delete actions */
@@ -701,11 +727,43 @@ const styles = StyleSheet.create({
     gap: 6, borderRadius: 10, backgroundColor: '#f5f3ff',
     paddingVertical: 10, borderWidth: 1, borderColor: '#ddd6fe',
   },
-  adminEditBtnText: { color: '#7c3aed', fontWeight: '700', fontSize: 13 },
+  adminEditBtnText: { color: '#6366F1', fontWeight: '700', fontSize: 13 },
   adminDeleteBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: 6, borderRadius: 10, backgroundColor: '#fef2f2',
     paddingVertical: 10, borderWidth: 1, borderColor: '#fca5a5',
   },
   adminDeleteBtnText: { color: '#b91c1c', fontWeight: '700', fontSize: 13 },
+
+  /* ─── Verification Notice (for regular users) ─── */
+  verificationNoticeBox: {
+    margin: 16,
+    marginBottom: 0,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 245, 235, 0.95)',
+    borderWidth: 1.5,
+    borderColor: '#fed7aa',
+    padding: 14,
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'flex-start',
+  },
+  verificationNoticeTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    marginBottom: 2,
+  },
+  verificationNoticeSubtitle: {
+    fontSize: 12,
+    color: '#92400e',
+    fontWeight: '500',
+    lineHeight: 17,
+  },
+  verificationNoteFacultyNotes: {
+    fontSize: 11,
+    color: '#b45309',
+    fontWeight: '500',
+    marginTop: 6,
+    fontStyle: 'italic',
+  },
 });

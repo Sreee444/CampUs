@@ -6,7 +6,6 @@ import {
   FlatList,
   Linking,
   RefreshControl,
-  SafeAreaView,
   StyleSheet,
   Text,
   TextInput,
@@ -33,6 +32,8 @@ import {
 import { InterCampusEvent } from '../types/intercampus';
 import InterCampusEventCard from '../components/InterCampusEventCard';
 import InterCampusDiscussionScreen from './InterCampusDiscussionScreen';
+import InterCampusScreen from '../components/InterCampusScreen';
+import EventActionMenu, { EventActionMenuOption } from '../components/EventActionMenu';
 
 type Route = RouteProp<RootStackParamList, 'InterCampusFestDetails'>;
 type Nav = StackNavigationProp<RootStackParamList>;
@@ -77,6 +78,7 @@ export default function InterCampusFestDetailsScreen() {
   const isPending = fest?.verification_status === 'pending';
   const isRejected = fest?.verification_status === 'rejected';
   const isVerified = fest?.verification_status === 'verified';
+  const isUnapproved = fest?.verification_status === 'pending' || fest?.verification_status === 'rejected';
 
   const handleDeleteFest = () => {
     const targetFestId = resolvedFestId || fest?.id;
@@ -238,19 +240,19 @@ export default function InterCampusFestDetailsScreen() {
 
   if (loadingFest) {
     return (
-      <SafeAreaView style={styles.centerWrap}>
-        <ActivityIndicator color="#7c3aed" size="large" />
+      <InterCampusScreen contentStyle={styles.centerWrap}>
+        <ActivityIndicator color="#6366F1" size="large" />
         <Text style={styles.loadingText}>Loading fest details…</Text>
-      </SafeAreaView>
+      </InterCampusScreen>
     );
   }
 
   if (!fest) {
     return (
-      <SafeAreaView style={styles.centerWrap}>
+      <InterCampusScreen contentStyle={styles.centerWrap}>
         <MaterialIcons name="error-outline" size={36} color="#94a3b8" />
         <Text style={styles.emptyTitle}>Fest not found</Text>
-      </SafeAreaView>
+      </InterCampusScreen>
     );
   }
 
@@ -267,7 +269,7 @@ export default function InterCampusFestDetailsScreen() {
           <Image source={{ uri: bannerUri }} style={styles.banner} contentFit="cover" transition={200} />
         ) : (
           <View style={styles.bannerPlaceholder}>
-            <MaterialIcons name="celebration" size={52} color="#7c3aed" />
+            <MaterialIcons name="celebration" size={52} color="#6366F1" />
             <Text style={styles.bannerPlaceholderText}>College Fest</Text>
           </View>
         )}
@@ -289,7 +291,7 @@ export default function InterCampusFestDetailsScreen() {
             </View>
           ) : (
             <View style={styles.statusChipVerified}>
-              <MaterialIcons name="verified" size={12} color="#047857" />
+              <MaterialIcons name="verified" size={12} color="#10B981" />
               <Text style={styles.statusChipVerifiedText}>Verified</Text>
             </View>
           )}
@@ -298,8 +300,8 @@ export default function InterCampusFestDetailsScreen() {
         </View>
       </View>
 
-      {/* ── Faculty Approval Banner ── */}
-      {isFaculty && isPending && (
+      {/* ── Faculty Approval Banner (ONLY for faculty/admin) ── */}
+      {isFaculty && isPending && user?.id && (
         <View style={styles.approvalBanner}>
           <View style={styles.approvalBannerHeader}>
             <MaterialIcons name="pending-actions" size={18} color="#d97706" />
@@ -341,8 +343,8 @@ export default function InterCampusFestDetailsScreen() {
         </View>
       )}
 
-      {/* Rejected notice */}
-      {isFaculty && isRejected && (
+      {/* Rejected notice (FACULTY ONLY) */}
+      {isFaculty && isRejected && user?.id && (
         <View style={[styles.approvalBanner, { backgroundColor: '#fef2f2', borderColor: '#fca5a5' }]}>
           <View style={styles.approvalBannerHeader}>
             <MaterialIcons name="cancel" size={18} color="#ef4444" />
@@ -354,18 +356,18 @@ export default function InterCampusFestDetailsScreen() {
       {/* ── Info Card ── */}
       <View style={styles.infoCard}>
         <View style={styles.infoRow}>
-          <View style={styles.infoIcon}><MaterialIcons name="calendar-month" size={15} color="#7c3aed" /></View>
+          <View style={styles.infoIcon}><MaterialIcons name="calendar-month" size={15} color="#6366F1" /></View>
           <Text style={styles.infoText}>{dateRange}</Text>
         </View>
         {!!fest.college_location && (
           <View style={styles.infoRow}>
-            <View style={styles.infoIcon}><MaterialIcons name="location-on" size={15} color="#7c3aed" /></View>
+            <View style={styles.infoIcon}><MaterialIcons name="location-on" size={15} color="#6366F1" /></View>
             <Text style={styles.infoText}>{fest.college_location}</Text>
           </View>
         )}
         {!!fest.fest_year && (
           <View style={styles.infoRow}>
-            <View style={styles.infoIcon}><MaterialIcons name="event" size={15} color="#7c3aed" /></View>
+            <View style={styles.infoIcon}><MaterialIcons name="event" size={15} color="#6366F1" /></View>
             <Text style={styles.infoText}>Fest Year: {fest.fest_year}</Text>
           </View>
         )}
@@ -390,17 +392,17 @@ export default function InterCampusFestDetailsScreen() {
           )}
           {!!fest.source_url && (
             <TouchableOpacity style={[styles.linkBtn, { backgroundColor: '#f5f3ff', borderColor: '#ddd6fe' }]} onPress={() => openUrl(fest.source_url)}>
-              <MaterialIcons name="open-in-new" size={14} color="#7c3aed" />
-              <Text style={[styles.linkBtnText, { color: '#7c3aed' }]}>Official Link</Text>
+              <MaterialIcons name="open-in-new" size={14} color="#6366F1" />
+              <Text style={[styles.linkBtnText, { color: '#6366F1' }]}>Official Link</Text>
             </TouchableOpacity>
           )}
         </View>
 
-        {/* Edit / Delete Fest (faculty/admin) */}
-        {isFaculty && (
+        {/* Edit / Delete Fest (FACULTY/ADMIN ONLY - not for regular users) */}
+        {isFaculty && user?.id && (
           <View style={styles.festAdminRow}>
             <TouchableOpacity style={styles.festEditBtn} onPress={handleEditFest}>
-              <MaterialIcons name="edit" size={14} color="#7c3aed" />
+              <MaterialIcons name="edit" size={14} color="#6366F1" />
               <Text style={styles.festEditBtnText}>Edit Fest</Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -415,6 +417,32 @@ export default function InterCampusFestDetailsScreen() {
           </View>
         )}
       </View>
+
+      {/* ─── Pending Verification Notice (for regular users viewing pending/rejected fests) ─── */}
+      {!isFaculty && isUnapproved && (
+        <View style={styles.verificationNoticeBox}>
+          <MaterialIcons
+            name={fest.verification_status === 'rejected' ? 'cancel' : 'hourglass-empty'}
+            size={20}
+            color={fest.verification_status === 'rejected' ? '#b91c1c' : '#d97706'}
+          />
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.verificationNoticeTitle, { color: fest.verification_status === 'rejected' ? '#b91c1c' : '#d97706' }]}>
+              {fest.verification_status === 'rejected' ? 'Verification Rejected' : 'Pending Verification'}
+            </Text>
+            <Text style={[styles.verificationNoticeSubtitle, { color: fest.verification_status === 'rejected' ? '#92400e' : '#92400e' }]}>
+              {fest.verification_status === 'rejected'
+                ? 'This fest was not approved by faculty.'
+                : 'This fest is under review by faculty and will be approved shortly.'}
+            </Text>
+            {fest.faculty_notes && (
+              <Text style={styles.verificationNoteFacultyNotes}>
+                Faculty Notes: {fest.faculty_notes}
+              </Text>
+            )}
+          </View>
+        </View>
+      )}
 
       {/* ── Tabs (only show Discussion for verified fests) ── */}
       <View style={styles.subTabWrap}>
@@ -445,38 +473,46 @@ export default function InterCampusFestDetailsScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <InterCampusScreen>
       <FlatList
         data={subTab === 'events' ? events : []}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <View style={styles.eventCardWrapper}>
-            <InterCampusEventCard
-              event={item}
-              onPress={() => navigation.navigate('InterCampusEventDetails', { eventId: item.id })}
-            />
-            {isFaculty && (
-              <View style={styles.eventItemAdminRow}>
-                <TouchableOpacity
-                  style={styles.eventItemEditBtn}
-                  onPress={() => navigation.navigate('EditInterCampusEvent', { eventId: item.id })}
-                >
-                  <MaterialIcons name="edit" size={13} color="#7c3aed" />
-                  <Text style={styles.eventItemEditText}>Edit</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.eventItemDeleteBtn}
-                  onPress={() => handleDeleteEvent(item)}
-                >
-                  <MaterialIcons name="delete" size={13} color="#b91c1c" />
-                  <Text style={styles.eventItemDeleteText}>Delete</Text>
-                </TouchableOpacity>
-                <View style={{ flex: 1 }} />
-                <Text style={styles.eventItemAdminLabel}>Admin</Text>
+        renderItem={({ item }) => {
+          const menuOptions: EventActionMenuOption[] = [];
+          
+          if (isFaculty) {
+            menuOptions.push({
+              id: 'edit',
+              label: 'Edit Event',
+              icon: 'edit',
+              color: '#6366F1',
+              onPress: () => navigation.navigate('EditInterCampusEvent', { eventId: item.id }),
+            });
+            menuOptions.push({
+              id: 'delete',
+              label: 'Delete Event',
+              icon: 'delete',
+              isDangerous: true,
+              onPress: () => handleDeleteEvent(item),
+            });
+          }
+
+          return (
+            <View style={styles.eventCardWrapper}>
+              <View style={styles.eventCardContainer}>
+                <InterCampusEventCard
+                  event={item}
+                  onPress={() => navigation.navigate('InterCampusEventDetails', { eventId: item.id })}
+                />
+                {isFaculty && menuOptions.length > 0 && (
+                  <View style={styles.eventMenuBtn}>
+                    <EventActionMenu options={menuOptions} />
+                  </View>
+                )}
               </View>
-            )}
-          </View>
-        )}
+            </View>
+          );
+        }}
         onEndReached={onLoadMore}
         onEndReachedThreshold={0.45}
         ListHeaderComponent={ListHeader}
@@ -491,7 +527,7 @@ export default function InterCampusFestDetailsScreen() {
         ListFooterComponent={
           subTab === 'events' ? (
             loadingEvents || loadingMore
-              ? <ActivityIndicator color="#7c3aed" style={{ marginVertical: 12 }} />
+              ? <ActivityIndicator color="#6366F1" style={{ marginVertical: 12 }} />
               : <View style={{ height: 20 }} />
           ) : null
         }
@@ -499,18 +535,18 @@ export default function InterCampusFestDetailsScreen() {
           <RefreshControl
             refreshing={loadingFest || loadingEvents}
             onRefresh={() => { loadFest(); loadFestEvents(1, false); }}
-            tintColor="#7c3aed"
+            tintColor="#6366F1"
           />
         }
         contentContainerStyle={styles.listContent}
       />
-    </SafeAreaView>
+    </InterCampusScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f1f5f9' },
-  centerWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f1f5f9', gap: 8 },
+  container: { flex: 1, backgroundColor: 'transparent' },
+  centerWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
   loadingText: { fontSize: 13, color: '#64748b', marginTop: 8 },
   emptyTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a' },
   listContent: { paddingBottom: 32 },
@@ -522,7 +558,7 @@ const styles = StyleSheet.create({
     width: '100%', aspectRatio: 16 / 9,
     backgroundColor: '#f5f3ff', alignItems: 'center', justifyContent: 'center', gap: 6,
   },
-  bannerPlaceholderText: { fontSize: 14, fontWeight: '700', color: '#7c3aed' },
+  bannerPlaceholderText: { fontSize: 14, fontWeight: '700', color: '#6366F1' },
   bannerOverlay: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 130 },
   backBtn: {
     position: 'absolute', top: 12, left: 12, width: 38, height: 38,
@@ -547,7 +583,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start',
     backgroundColor: '#dcfce7', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3, marginBottom: 4,
   },
-  statusChipVerifiedText: { fontSize: 10, fontWeight: '700', color: '#047857' },
+  statusChipVerifiedText: { fontSize: 10, fontWeight: '700', color: '#10B981' },
 
   // ── Approval Banner ──
   approvalBanner: {
@@ -565,7 +601,7 @@ const styles = StyleSheet.create({
   approvalBtns: { flexDirection: 'row', gap: 8 },
   approveAllBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 6, backgroundColor: '#059669', borderRadius: 10, paddingVertical: 11,
+    gap: 6, backgroundColor: '#10B981', borderRadius: 10, paddingVertical: 11,
   },
   approveAllBtnText: { color: '#fff', fontSize: 13, fontWeight: '800' },
   rejectBtn: {
@@ -577,10 +613,8 @@ const styles = StyleSheet.create({
   // ── Info Card ──
   infoCard: {
     margin: 16, marginBottom: 0, borderRadius: 16,
-    backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e2e8f0',
-    padding: 14, gap: 10,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
+    backgroundColor: 'rgba(255,255,255,0.6)',
+    padding: 16, gap: 10,
   },
   infoRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   infoIcon: {
@@ -595,20 +629,20 @@ const styles = StyleSheet.create({
   linkBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
     paddingVertical: 7, paddingHorizontal: 12,
-    backgroundColor: '#eff6ff', borderRadius: 10, borderWidth: 1, borderColor: '#bfdbfe',
+    backgroundColor: 'rgba(99,102,241,0.1)', borderRadius: 12, borderWidth: 1, borderColor: 'rgba(99,102,241,0.2)',
   },
   linkBtnText: { fontSize: 12, fontWeight: '700' },
 
   // ── Tabs ──
   subTabWrap: {
     flexDirection: 'row', margin: 16, marginBottom: 8,
-    borderRadius: 12, backgroundColor: '#e2e8f0', padding: 3, gap: 2,
+    borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.6)', padding: 4, gap: 2,
   },
   subTabBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 5, borderRadius: 10, paddingVertical: 10,
+    gap: 5, borderRadius: 999, paddingVertical: 10,
   },
-  subTabBtnActive: { backgroundColor: '#7c3aed' },
+  subTabBtnActive: { backgroundColor: '#6366F1' },
   subTabText: { fontSize: 13, fontWeight: '700', color: '#64748b' },
   subTabTextActive: { color: '#ffffff' },
 
@@ -625,7 +659,7 @@ const styles = StyleSheet.create({
     gap: 6, borderRadius: 10, backgroundColor: '#f5f3ff',
     paddingVertical: 10, borderWidth: 1, borderColor: '#ddd6fe',
   },
-  festEditBtnText: { color: '#7c3aed', fontWeight: '700', fontSize: 13 },
+  festEditBtnText: { color: '#6366F1', fontWeight: '700', fontSize: 13 },
   festDeleteBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: 6, borderRadius: 10, backgroundColor: '#fef2f2',
@@ -633,37 +667,57 @@ const styles = StyleSheet.create({
   },
   festDeleteBtnText: { color: '#b91c1c', fontWeight: '700', fontSize: 13 },
 
-  // Per-event admin row (under each event card)
+  // Per-event admin row (with menu)
   eventCardWrapper: {
     marginHorizontal: 12,
     marginBottom: 12,
   },
-  eventItemAdminRow: {
+  eventCardContainer: {
+    position: 'relative',
+  },
+  eventMenuBtn: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    zIndex: 10,
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    borderRadius: 18,
+    shadowColor: '#000000',
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+  },
+
+  /* ─── Verification Notice (for regular users) ─── */
+  verificationNoticeBox: {
+    margin: 16,
+    marginBottom: 0,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 245, 235, 0.95)',
+    borderWidth: 1.5,
+    borderColor: '#fed7aa',
+    padding: 14,
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+    gap: 12,
+    alignItems: 'flex-start',
+  },
+  verificationNoticeTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    marginBottom: 2,
+  },
+  verificationNoticeSubtitle: {
+    fontSize: 12,
+    color: '#92400e',
+    fontWeight: '500',
+    lineHeight: 17,
+  },
+  verificationNoteFacultyNotes: {
+    fontSize: 11,
+    color: '#b45309',
+    fontWeight: '500',
     marginTop: 6,
-    paddingHorizontal: 4,
+    fontStyle: 'italic',
   },
-  eventItemAdminLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#94a3b8',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  eventItemEditBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    paddingVertical: 6, paddingHorizontal: 14,
-    backgroundColor: '#f5f3ff', borderRadius: 999,
-    borderWidth: 1, borderColor: '#ddd6fe',
-  },
-  eventItemEditText: { fontSize: 11, fontWeight: '700', color: '#7c3aed' },
-  eventItemDeleteBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    paddingVertical: 6, paddingHorizontal: 14,
-    backgroundColor: '#fef2f2', borderRadius: 999,
-    borderWidth: 1, borderColor: '#fca5a5',
-  },
-  eventItemDeleteText: { fontSize: 11, fontWeight: '700', color: '#b91c1c' },
 });

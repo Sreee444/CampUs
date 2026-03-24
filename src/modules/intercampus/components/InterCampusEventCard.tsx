@@ -52,7 +52,7 @@ export default function InterCampusEventCard({ event, onPress, showSubmitter = f
         />
       ) : (
         <View style={styles.bannerPlaceholder}>
-          <MaterialIcons name="public" size={22} color="#0f766e" />
+          <MaterialIcons name="public" size={22} color="#6366F1" />
           <Text style={styles.bannerPlaceholderText}>InterCampus Event</Text>
         </View>
       )}
@@ -92,7 +92,7 @@ export default function InterCampusEventCard({ event, onPress, showSubmitter = f
 
         {!!event.verified_by_name && event.verification_status === 'verified' && (
           <View style={styles.infoRow}>
-            <MaterialIcons name="verified-user" size={15} color="#047857" />
+            <MaterialIcons name="verified-user" size={15} color="#10B981" />
             <Text style={styles.infoText} numberOfLines={1}>
               Verified by: {event.verified_by_name}
             </Text>
@@ -117,7 +117,7 @@ export default function InterCampusEventCard({ event, onPress, showSubmitter = f
               onPress={onViewPoster}
               disabled={!(event.poster_image || event.banner_image)}
             >
-              <MaterialIcons name="image" size={13} color="#0f766e" />
+              <MaterialIcons name="image" size={13} color="#6366F1" />
               <Text style={styles.secondaryBtnText}>Image</Text>
             </TouchableOpacity>
 
@@ -126,7 +126,7 @@ export default function InterCampusEventCard({ event, onPress, showSubmitter = f
               onPress={onOpenWebsite}
               disabled={!event.source_url}
             >
-              <MaterialIcons name="language" size={13} color="#0f766e" />
+              <MaterialIcons name="language" size={13} color="#6366F1" />
               <Text style={styles.secondaryBtnText}>Website</Text>
             </TouchableOpacity>
 
@@ -175,13 +175,13 @@ export default function InterCampusEventCard({ event, onPress, showSubmitter = f
 const styles = StyleSheet.create({
   card: {
     borderRadius: 20,
-    backgroundColor: '#ffffff',
+    backgroundColor: 'rgba(255,255,255,0.85)',
     overflow: 'hidden',
-    shadowColor: '#0f172a',
+    shadowColor: '#000000',
     shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
+    shadowRadius: 15,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 5,
   },
   banner: {
     width: '100%',
@@ -191,7 +191,7 @@ const styles = StyleSheet.create({
   bannerPlaceholder: {
     width: '100%',
     aspectRatio: 16 / 9,
-    backgroundColor: '#ecfdf5',
+    backgroundColor: 'rgba(99,102,241,0.1)',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
@@ -202,8 +202,8 @@ const styles = StyleSheet.create({
     color: '#334155',
   },
   body: {
-    padding: 14,
-    gap: 6,
+    padding: 16,
+    gap: 10,
   },
   title: {
     fontSize: 16,
@@ -250,18 +250,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    borderRadius: 999,
+    borderRadius: 12,
     paddingHorizontal: 10,
     paddingVertical: 8,
-    backgroundColor: '#e6fffa',
+    backgroundColor: 'rgba(99,102,241,0.1)',
     borderWidth: 1,
-    borderColor: '#99f6e4',
+    borderColor: 'rgba(99,102,241,0.2)',
   },
   secondaryBtnDisabled: {
     opacity: 0.45,
   },
   secondaryBtnText: {
-    color: '#0f766e',
+    color: '#6366F1',
     fontSize: 11,
     fontWeight: '700',
   },
@@ -269,10 +269,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    borderRadius: 999,
+    borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: '#0f766e',
+    backgroundColor: '#6366F1',
   },
   registerBtnDisabled: {
     backgroundColor: '#94a3b8',
