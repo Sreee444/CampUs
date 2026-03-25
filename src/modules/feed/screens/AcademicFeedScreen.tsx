@@ -4,10 +4,14 @@ import {
   FlatList,
   RefreshControl,
   SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import Toast from 'react-native-toast-message';
@@ -18,11 +22,18 @@ import { supabase } from '../../../api/supabase';
 import { deleteFeedPost, togglePostLike } from '../api/feed';
 import FeedCard from '../components/FeedCard';
 import CreateFeedFAB from '../components/CreateFeedFAB';
-import { FeedPost } from '../types/feed';
+import { FeedPost, FeedPostType } from '../types/feed';
 
 type Nav = StackNavigationProp<RootStackParamList, 'AcademicFeed'>;
 
 const PAGE_SIZE = 10;
+const FEED_TYPE_FILTERS: Array<{ label: string; value: FeedPostType | null }> = [
+  { label: 'All', value: null },
+  { label: 'Announcements', value: 'announcement' },
+  { label: 'Events', value: 'event' },
+  { label: 'Exams', value: 'exam' },
+  { label: 'General', value: 'general' },
+];
 
 const normalizeJoined = (value: any) => {
   if (!value) return undefined;
@@ -88,6 +99,7 @@ export default function AcademicFeedScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [deletePostId, setDeletePostId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [selectedTypeFilter, setSelectedTypeFilter] = useState<FeedPostType | null>(null);
 
   const role = (profile?.role || '').toLowerCase();
 
@@ -260,38 +272,79 @@ export default function AcademicFeedScreen() {
     );
   };
 
+  const filteredPosts = posts.filter((post) => {
+    if (!selectedTypeFilter) return true;
+    return post.type === selectedTypeFilter;
+  });
+
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Academic Feed</Text>
-      </View>
+      <LinearGradient
+        colors={['#F5E6D8', '#EDEBFF', '#DFF3EE']}
+        locations={[0, 0.5, 1]}
+        style={styles.gradientBg}
+      >
+        <View style={styles.topSection}>
+          <View style={styles.header}>
+            <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+              <MaterialIcons name="arrow-back" size={22} color="#0f172a" />
+            </TouchableOpacity>
 
-      <FlatList
-        data={posts}
-        renderItem={renderItem}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.listContent}
-        ListEmptyComponent={renderEmptyState}
-        ListFooterComponent={renderFooter}
-        onEndReached={handleLoadMore}
-        onEndReachedThreshold={0.5}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#0f766e" />
-        }
-      />
+            <View style={styles.titleWrap}>
+              <Text style={styles.title}>Academic Feed</Text>
+              <Text style={styles.subtitle}>Browse updates by post type</Text>
+            </View>
 
-      <CreateFeedFAB />
+            <View style={styles.headerRightSpacer} />
+          </View>
 
-      <ConfirmDialog
-        visible={!!deletePostId}
-        title="Delete Feed Post"
-        message="This post will be removed from the feed. This action cannot be undone."
-        confirmText={deleting ? 'Deleting...' : 'Delete'}
-        cancelText="Cancel"
-        onConfirm={handleDeletePost}
-        onCancel={() => !deleting && setDeletePostId(null)}
-        type="danger"
-      />
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filtersRow}
+          >
+            {FEED_TYPE_FILTERS.map((filter) => {
+              const isActive = selectedTypeFilter === filter.value;
+              return (
+                <TouchableOpacity
+                  key={filter.label}
+                  style={[styles.filterChip, isActive && styles.filterChipActive]}
+                  onPress={() => setSelectedTypeFilter(filter.value)}
+                >
+                  <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>{filter.label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+
+        <FlatList
+          data={filteredPosts}
+          renderItem={renderItem}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.listContent}
+          ListEmptyComponent={renderEmptyState}
+          ListFooterComponent={renderFooter}
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.5}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#6366F1" />
+          }
+        />
+
+        <CreateFeedFAB />
+
+        <ConfirmDialog
+          visible={!!deletePostId}
+          title="Delete Feed Post"
+          message="This post will be removed from the feed. This action cannot be undone."
+          confirmText={deleting ? 'Deleting...' : 'Delete'}
+          cancelText="Cancel"
+          onConfirm={handleDeletePost}
+          onCancel={() => !deleting && setDeletePostId(null)}
+          type="danger"
+        />
+      </LinearGradient>
     </SafeAreaView>
   );
 }
@@ -299,27 +352,84 @@ export default function AcademicFeedScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8fafc',
+    backgroundColor: 'transparent',
+  },
+  gradientBg: {
+    flex: 1,
   },
   header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: '#eefcf8',
-    borderBottomLeftRadius: 16,
-    borderBottomRightRadius: 16,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.85)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
+  },
+  topSection: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 10,
+    gap: 10,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  titleWrap: {
+    flex: 1,
+    paddingHorizontal: 8,
   },
   title: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '800',
     color: '#0f172a',
   },
+  subtitle: {
+    marginTop: 2,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  headerRightSpacer: {
+    width: 40,
+  },
+  filtersRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  filterChip: {
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(255,255,255,0.85)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
+  },
+  filterChipActive: {
+    backgroundColor: '#6366F1',
+    borderColor: '#6366F1',
+  },
+  filterChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  filterChipTextActive: {
+    color: '#ffffff',
+  },
   listContent: {
     paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 24,
+    paddingTop: 6,
+    paddingBottom: 20,
   },
   cardWrap: {
-    marginBottom: 10,
+    marginBottom: 16,
   },
   emptyState: {
     alignItems: 'center',

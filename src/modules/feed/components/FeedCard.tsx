@@ -206,7 +206,7 @@ export default function FeedCard({
             <Text style={styles.statText}>{post.likes_count || 0}</Text>
           </View>
           <View style={styles.stat}>
-            <MaterialIcons name="comment" size={14} color="#0f172a" />
+            <MaterialIcons name="chat" size={14} color="#0f172a" />
             <Text style={styles.statText}>{post.comments_count || 0}</Text>
           </View>
         </View>
@@ -222,7 +222,7 @@ export default function FeedCard({
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.actionBtn} onPress={() => onCommentPress(post.id)} activeOpacity={0.7}>
-            <MaterialIcons name="comment" size={16} color="#64748b" />
+            <MaterialIcons name="chat" size={16} color="#64748b" />
             <Text style={styles.actionText}>Comment</Text>
           </TouchableOpacity>
 
@@ -251,23 +251,17 @@ function formatTime(dateString: string): string {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
-    marginBottom: 12,
-    overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.85)',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    shadowColor: '#0f172a',
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-    minHeight: 280,
+    borderColor: 'rgba(255,255,255,0.25)',
+    borderRadius: 20,
+    marginBottom: 16,
+    overflow: 'hidden',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
+    padding: 16,
     gap: 10,
   },
   avatarWrap: {
@@ -338,7 +332,7 @@ const styles = StyleSheet.create({
   },
   badgesRow: {
     flexDirection: 'row',
-    paddingHorizontal: 12,
+    paddingHorizontal: 16,
     paddingBottom: 8,
     gap: 6,
   },
@@ -365,7 +359,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   content: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 16,
     paddingBottom: 8,
     fontSize: 13,
     color: '#0f172a',
@@ -373,11 +367,11 @@ const styles = StyleSheet.create({
   },
   divider: {
     height: 1,
-    backgroundColor: '#e2e8f0',
-    marginHorizontal: 12,
+    backgroundColor: 'rgba(148,163,184,0.28)',
+    marginHorizontal: 16,
   },
   compactWrap: {
-    marginHorizontal: 12,
+    marginHorizontal: 16,
     marginBottom: 8,
     borderRadius: 12,
     overflow: 'hidden',
@@ -405,7 +399,7 @@ const styles = StyleSheet.create({
   attachmentsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginHorizontal: 12,
+    marginHorizontal: 16,
     marginBottom: 8,
     gap: 6,
   },
@@ -444,7 +438,7 @@ const styles = StyleSheet.create({
     height: 120,
   },
   fileListWrap: {
-    marginHorizontal: 12,
+    marginHorizontal: 16,
     marginBottom: 8,
     gap: 8,
   },
@@ -452,11 +446,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 12,
-    backgroundColor: '#f2f2f2',
+    backgroundColor: 'transparent',
     borderRadius: 10,
   },
   compactFileCard: {
-    marginHorizontal: 12,
+    marginHorizontal: 16,
     marginBottom: 8,
   },
   fileIcon: {
@@ -469,7 +463,8 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   footer: {
-    padding: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     gap: 8,
   },
   statsRow: {
@@ -497,7 +492,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 6,
     paddingVertical: 8,
-    borderRadius: 8,
+    borderRadius: 10,
+    backgroundColor: 'transparent',
   },
   actionText: {
     fontSize: 12,

@@ -35,7 +35,6 @@ const ROLE_FILTERS = [
   { label: 'Students', value: 'student' },
   { label: 'Faculty', value: 'faculty' },
   { label: 'Alumni', value: 'alumni' },
-  { label: 'Developers', value: 'developer' },
 ];
 
 export default function AllUsersScreen() {
@@ -283,7 +282,13 @@ export default function AllUsersScreen() {
             <Text style={styles.messageUserButtonText}>Message</Text>
           </TouchableOpacity>
         ) : (
-          <MaterialIcons name="chevron-right" size={24} color={Colors.textSecondary} />
+          <TouchableOpacity
+            style={styles.connectButton}
+            onPress={() => navigation.navigate('PublicProfile', { userId: item.id })}
+          >
+            <MaterialIcons name="person" size={14} color="#6366F1" />
+            <Text style={styles.connectButtonText}>Connect</Text>
+          </TouchableOpacity>
         )}
       </TouchableOpacity>
     );
@@ -316,6 +321,11 @@ export default function AllUsersScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      <LinearGradient
+        colors={['#F5E6D8', '#EDEBFF', '#DFF3EE']}
+        locations={[0, 0.5, 1]}
+        style={styles.gradientBg}
+      >
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <MaterialIcons name="arrow-back" size={24} color={Colors.text} />
@@ -388,6 +398,7 @@ export default function AllUsersScreen() {
           keyboardShouldPersistTaps="handled"
         />
       )}
+      </LinearGradient>
     </SafeAreaView>
   );
 }
@@ -396,17 +407,23 @@ const createStyles = (Colors: any) =>
   StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: Colors.background,
+      backgroundColor: 'transparent',
+    },
+    gradientBg: {
+      flex: 1,
     },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
+      marginHorizontal: Spacing.md,
+      marginTop: 8,
       paddingHorizontal: Spacing.md,
       paddingVertical: Spacing.md,
-      backgroundColor: Colors.surface,
-      borderBottomWidth: 1,
-      borderBottomColor: Colors.border,
+      backgroundColor: 'rgba(255,255,255,0.85)',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.25)',
+      borderRadius: 20,
     },
     backButton: {
       width: 40,
@@ -424,26 +441,23 @@ const createStyles = (Colors: any) =>
     searchSection: {
       paddingHorizontal: Spacing.md,
       paddingTop: Spacing.md,
-      paddingBottom: Spacing.sm,
-      backgroundColor: Colors.surface,
-      borderBottomWidth: 1,
-      borderBottomColor: Colors.border,
+      paddingBottom: 4,
       gap: Spacing.sm,
     },
     searchContainer: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: Colors.background,
-      borderRadius: BorderRadius.md,
+      backgroundColor: 'rgba(255,255,255,0.85)',
+      borderRadius: 12,
       paddingHorizontal: Spacing.md,
-      paddingVertical: Spacing.sm,
-      borderWidth: 1,
-      borderColor: Colors.border,
+      paddingVertical: 7,
       gap: Spacing.xs,
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.25)',
     },
     searchInput: {
       flex: 1,
-      fontSize: FontSizes.md,
+      fontSize: FontSizes.sm,
       color: Colors.text,
       marginLeft: Spacing.xs,
     },
@@ -454,23 +468,22 @@ const createStyles = (Colors: any) =>
     },
     filterChip: {
       paddingHorizontal: Spacing.md,
-      paddingVertical: Spacing.xs,
-      borderRadius: BorderRadius.full,
-      backgroundColor: Colors.card,
+      paddingVertical: 8,
+      borderRadius: 999,
+      backgroundColor: 'rgba(255,255,255,0.85)',
       borderWidth: 1,
-      borderColor: Colors.border,
+      borderColor: 'rgba(255,255,255,0.25)',
     },
     filterChipActive: {
-      backgroundColor: Colors.primary,
-      borderColor: Colors.primary,
+      backgroundColor: '#6366F1',
     },
     filterChipText: {
       fontSize: FontSizes.sm,
       fontWeight: FontWeights.medium,
-      color: Colors.text,
+      color: '#6B7280',
     },
     filterChipTextActive: {
-      color: Colors.primaryContent,
+      color: '#ffffff',
     },
     resultsCount: {
       fontSize: FontSizes.sm,
@@ -499,8 +512,8 @@ const createStyles = (Colors: any) =>
     },
     listContent: {
       paddingHorizontal: Spacing.md,
-      paddingTop: Spacing.md,
-      paddingBottom: Spacing.xl,
+      paddingTop: 8,
+      paddingBottom: 8,
     },
     emptyList: {
       flexGrow: 1,
@@ -508,13 +521,12 @@ const createStyles = (Colors: any) =>
     userCard: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: Colors.surface,
-      borderRadius: BorderRadius.lg,
+      backgroundColor: 'rgba(255,255,255,0.85)',
+      borderRadius: 20,
       padding: Spacing.md,
-      marginBottom: Spacing.md,
+      marginBottom: 16,
       borderWidth: 1,
-      borderColor: Colors.border,
-      ...Shadows.sm,
+      borderColor: 'rgba(255,255,255,0.25)',
     },
     messageUserButton: {
       flexDirection: 'row',
@@ -529,6 +541,22 @@ const createStyles = (Colors: any) =>
     },
     messageUserButtonText: {
       color: Colors.primaryContent,
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.semibold,
+    },
+    connectButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: '#6366F1',
+      backgroundColor: 'rgba(99,102,241,0.1)',
+      paddingHorizontal: Spacing.sm,
+      paddingVertical: Spacing.xs,
+    },
+    connectButtonText: {
+      color: '#6366F1',
       fontSize: FontSizes.sm,
       fontWeight: FontWeights.semibold,
     },

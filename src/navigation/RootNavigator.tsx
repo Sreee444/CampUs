@@ -51,6 +51,7 @@ import AdminDiscussionsScreen from '../screens/Admin/AdminDiscussionsScreen';
 import AdminAuditScreen from '../screens/Admin/AdminAuditScreen';
 import MentorHubScreen from '../screens/Home/MentorHubScreen';
 import MentorDashboardScreen from '../screens/Home/MentorDashboardScreen';
+import MentorshipRequestDetailsScreen from '../screens/Home/MentorshipRequestDetailsScreen';
 import MentorshipChatScreen from '../screens/Home/MentorshipChatScreen';
 import MentorshipChatListScreen from '../screens/Home/MentorshipChatListScreen';
 import ProjectChatScreen from '../screens/Projects/ProjectChatScreen';
@@ -390,6 +391,11 @@ export default function RootNavigator() {
             <Stack.Screen
               name="MentorDashboard"
               component={MentorDashboardScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="MentorshipRequestDetails"
+              component={MentorshipRequestDetailsScreen}
               options={{ animationEnabled: true }}
             />
             <Stack.Screen

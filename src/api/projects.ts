@@ -328,6 +328,9 @@ export const removeMentor = async (teamId: string, mentorId: string) => {
     .in("role", ["mentor", "advisor"]);
 };
 
+// Alias for component imports
+export const removeProjectMentor = removeMentor;
+
 // Update project status (Students can update, Faculty can override)
 export const updateProjectStatus = async (
   teamId: string,
@@ -367,7 +370,7 @@ export const featureProject = async (teamId: string, featured: boolean) => {
 
 // Get projects by role-based filters
 export const getProjectsByRole = async (
-  userRole: 'student' | 'faculty' | 'alumni' | 'admin',
+  userRole: 'student' | 'faculty' | 'alumni' | 'admin' | 'developer',
   userId: string
 ) => {
   let query = supabase

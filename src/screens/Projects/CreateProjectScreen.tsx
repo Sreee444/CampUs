@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  SafeAreaView,
   View,
   Text,
   TextInput,
@@ -7,6 +8,7 @@ import {
   ScrollView,
   StyleSheet,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -184,12 +186,17 @@ export default function CreateProjectScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      <ScrollView
-        style={styles.content}
-        contentContainerStyle={styles.contentContainer}
-        showsVerticalScrollIndicator={false}
+    <SafeAreaView style={styles.container}>
+      <LinearGradient
+        colors={['#F5E6D8', '#EDEBFF', '#DFF3EE']}
+        locations={[0, 0.5, 1]}
+        style={styles.gradientBg}
       >
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={styles.contentContainer}
+          showsVerticalScrollIndicator={false}
+        >
         <View style={styles.headerCard}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBackButton}>
             <Ionicons name="arrow-back" size={20} color="#111827" />
@@ -401,15 +408,19 @@ export default function CreateProjectScreen() {
             </View>
           )}
         </View>
-      </ScrollView>
-    </View>
+        </ScrollView>
+      </LinearGradient>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f7',
+    backgroundColor: 'transparent',
+  },
+  gradientBg: {
+    flex: 1,
   },
   content: {
     flex: 1,
@@ -417,13 +428,13 @@ const styles = StyleSheet.create({
   contentContainer: {
     paddingHorizontal: 16,
     paddingTop: 12,
-    paddingBottom: 24,
+    paddingBottom: 18,
     gap: 14,
   },
   headerCard: {
-    backgroundColor: '#ffffff',
+    backgroundColor: 'rgba(255,255,255,0.8)',
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: 'rgba(255,255,255,0.3)',
     borderRadius: 16,
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -437,7 +448,7 @@ const styles = StyleSheet.create({
     borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#f3f4f6',
+    backgroundColor: 'rgba(255,255,255,0.75)',
   },
   headerTitle: {
     fontSize: 18,
@@ -462,9 +473,9 @@ const styles = StyleSheet.create({
     color: '#ffffff',
   },
   sectionCard: {
-    backgroundColor: '#ffffff',
+    backgroundColor: 'rgba(255,255,255,0.8)',
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: 'rgba(255,255,255,0.3)',
     borderRadius: 16,
     padding: 16,
   },
@@ -483,13 +494,13 @@ const styles = StyleSheet.create({
   },
   textInput: {
     borderWidth: 1,
-    borderColor: '#d1d5db',
+    borderColor: 'rgba(255,255,255,0.45)',
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 15,
     color: '#111827',
-    backgroundColor: '#fafafa',
+    backgroundColor: 'rgba(255,255,255,0.68)',
   },
   textArea: {
     height: 110,
@@ -505,12 +516,12 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: '#d1d5db',
-    backgroundColor: '#f9fafb',
+    borderColor: 'rgba(255,255,255,0.45)',
+    backgroundColor: 'rgba(255,255,255,0.64)',
   },
   chipSelected: {
-    borderColor: '#4f46e5',
-    backgroundColor: '#eef2ff',
+    borderColor: 'rgba(79,70,229,0.35)',
+    backgroundColor: 'rgba(99,102,241,0.16)',
   },
   chipText: {
     fontSize: 13,
@@ -533,12 +544,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#c7d2fe',
-    backgroundColor: '#eef2ff',
+    borderColor: 'rgba(79,70,229,0.28)',
+    backgroundColor: 'rgba(99,102,241,0.12)',
   },
   memberButtonDisabled: {
-    borderColor: '#e5e7eb',
-    backgroundColor: '#f3f4f6',
+    borderColor: 'rgba(255,255,255,0.45)',
+    backgroundColor: 'rgba(255,255,255,0.6)',
   },
   memberCount: {
     minWidth: 28,
@@ -550,14 +561,14 @@ const styles = StyleSheet.create({
   memberCountInput: {
     minWidth: 62,
     borderWidth: 1,
-    borderColor: '#d1d5db',
+    borderColor: 'rgba(255,255,255,0.45)',
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 8,
     fontSize: 22,
     fontWeight: '700',
     color: '#111827',
-    backgroundColor: '#fafafa',
+    backgroundColor: 'rgba(255,255,255,0.68)',
   },
   addInputRow: {
     flexDirection: 'row',
@@ -567,13 +578,13 @@ const styles = StyleSheet.create({
   addInput: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#d1d5db',
+    borderColor: 'rgba(255,255,255,0.45)',
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 15,
     color: '#111827',
-    backgroundColor: '#fafafa',
+    backgroundColor: 'rgba(255,255,255,0.68)',
   },
   smallAddButton: {
     width: 38,
@@ -591,8 +602,8 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: '#c7d2fe',
-    backgroundColor: '#eef2ff',
+    borderColor: 'rgba(79,70,229,0.28)',
+    backgroundColor: 'rgba(99,102,241,0.14)',
   },
   selectedChipText: {
     fontSize: 13,

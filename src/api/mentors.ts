@@ -38,7 +38,34 @@ export const getMentors = async (filters?: {
 
   const { data, error } = await query;
   if (error) throw error;
-  return (data || []) as Mentor[];
+
+  const mentors = (data || []) as any[];
+  if (!mentors.length) return [];
+
+  // Compute real-time active mentee count per mentor from accepted mentorship requests.
+  const mentorIds = mentors.map((mentor) => mentor.id);
+  const { data: activeRows, error: activeError } = await supabase
+    .from('mentorship_requests')
+    .select('mentor_id')
+    .in('mentor_id', mentorIds)
+    .eq('status', 'accepted');
+
+  if (activeError) throw activeError;
+
+  const activeCountByMentor: Record<string, number> = {};
+  (activeRows || []).forEach((row: any) => {
+    activeCountByMentor[row.mentor_id] = (activeCountByMentor[row.mentor_id] || 0) + 1;
+  });
+
+  return mentors.map((mentor) => {
+    const activeMenteesCount = activeCountByMentor[mentor.id] || 0;
+    const maxMentees = Number(mentor.max_mentees || 0);
+    return {
+      ...mentor,
+      active_mentees_count: activeMenteesCount,
+      available_slots: Math.max(0, maxMentees - activeMenteesCount),
+    };
+  }) as Mentor[];
 };
 
 export const getMyMentorProfile = async (userId: string): Promise<Mentor | null> => {

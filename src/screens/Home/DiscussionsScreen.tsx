@@ -11,6 +11,7 @@ import {
   Platform,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../../navigation/types';
@@ -109,15 +110,20 @@ export default function DiscussionsScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      <LinearGradient
+        colors={['#F5E6D8', '#EDEBFF', '#DFF3EE']}
+        locations={[0, 0.5, 1]}
+        style={styles.gradientBg}
+      >
       <View style={styles.header}>
         <View style={styles.headerTop}>
-          <Text style={styles.headerTitle}>Discussions</Text>
-          <TouchableOpacity
-            style={styles.addButton}
-            onPress={() => navigation.navigate('CreateTopic')}
-          >
-            <MaterialIcons name="add" size={24} color="#fff" />
+          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+            <MaterialIcons name="arrow-back" size={22} color={Colors.text} />
           </TouchableOpacity>
+          <Text style={styles.headerTitle}>Discussions</Text>
+          <View style={styles.headerIconWrap}>
+            <MaterialIcons name="chat" size={18} color="#6366F1" />
+          </View>
         </View>
       </View>
 
@@ -232,6 +238,15 @@ export default function DiscussionsScreen() {
           <View style={{ height: 32 }} />
         </ScrollView>
       )}
+
+      <TouchableOpacity
+        style={styles.fab}
+        onPress={() => navigation.navigate('CreateTopic')}
+        activeOpacity={0.9}
+      >
+        <MaterialIcons name="add" size={22} color="#ffffff" />
+      </TouchableOpacity>
+      </LinearGradient>
     </SafeAreaView>
   );
 }
@@ -253,7 +268,7 @@ function TopicCard({ topic, onPress, onPin, canPin, Colors, styles }: TopicCardP
 
   return (
     <TouchableOpacity 
-      style={[styles.topicCard, { borderColor: Colors.border }]} 
+      style={styles.topicCard}
       onPress={onPress}
       activeOpacity={0.7}
     >
@@ -328,49 +343,63 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
   StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: '#fdfbf7',
+      backgroundColor: 'transparent',
+    },
+    gradientBg: {
+      flex: 1,
     },
     header: {
-      backgroundColor: '#ffffff',
-      borderBottomWidth: 1,
-      borderBottomColor: 'rgba(0,0,0,0.06)',
+      marginHorizontal: Spacing.md,
+      marginTop: 8,
+      borderRadius: 20,
+      backgroundColor: 'rgba(255,255,255,0.85)',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.25)',
     },
     headerTop: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingHorizontal: Spacing.md,
-      paddingVertical: 12,
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+    },
+    backButton: {
+      width: 34,
+      height: 34,
+      borderRadius: 17,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'rgba(255,255,255,0.65)',
     },
     headerTitle: {
       fontSize: FontSizes.xl,
       fontWeight: FontWeights.bold,
       color: Colors.text,
+      flex: 1,
+      textAlign: 'center',
     },
-    addButton: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      backgroundColor: Colors.primary,
+    headerIconWrap: {
+      width: 34,
+      height: 34,
+      borderRadius: 17,
+      backgroundColor: 'rgba(99,102,241,0.12)',
       alignItems: 'center',
       justifyContent: 'center',
-      ...Shadows.sm,
     },
     searchSection: {
       paddingHorizontal: Spacing.md,
       paddingVertical: 10,
-      backgroundColor: '#ffffff',
     },
     searchBar: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: '#f8fafc',
-      borderRadius: BorderRadius.lg,
+      backgroundColor: 'rgba(255,255,255,0.85)',
+      borderRadius: 14,
       paddingHorizontal: 12,
-      paddingVertical: 10,
+      paddingVertical: 12,
       gap: 8,
       borderWidth: 1,
-      borderColor: 'rgba(0,0,0,0.08)',
+      borderColor: 'rgba(255,255,255,0.25)',
     },
     searchInput: {
       flex: 1,
@@ -379,9 +408,6 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     },
     categoriesContainer: {
       maxHeight: 50,
-      backgroundColor: '#ffffff',
-      borderBottomWidth: 1,
-      borderBottomColor: 'rgba(0,0,0,0.06)',
     },
     categoriesContent: {
       paddingHorizontal: Spacing.md,
@@ -391,22 +417,21 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     categoryChip: {
       paddingHorizontal: 16,
       paddingVertical: 8,
-      borderRadius: BorderRadius.full,
-      backgroundColor: 'rgba(255,255,255,0.6)',
+      borderRadius: 999,
+      backgroundColor: 'rgba(255,255,255,0.85)',
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.8)',
+      borderColor: 'rgba(255,255,255,0.25)',
     },
     categoryChipActive: {
-      backgroundColor: '#13ecec',
-      borderColor: '#13ecec',
+      backgroundColor: '#6366F1',
     },
     categoryText: {
       fontSize: FontSizes.sm,
       fontWeight: FontWeights.medium,
-      color: Colors.textSecondary,
+      color: '#6B7280',
     },
     categoryTextActive: {
-      color: '#111818',
+      color: '#ffffff',
       fontWeight: '700',
     },
     scrollView: {
@@ -414,6 +439,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     },
     scrollContent: {
       padding: Spacing.md,
+      paddingBottom: 90,
     },
     resultsText: {
       fontSize: FontSizes.sm,
@@ -432,17 +458,12 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       color: Colors.text,
     },
     topicCard: {
-      backgroundColor: '#ffffff',
-      borderRadius: 16,
+      backgroundColor: 'rgba(255,255,255,0.85)',
+      borderRadius: 20,
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.25)',
       padding: 16,
       marginBottom: 16,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.12,
-      shadowRadius: 12,
-      elevation: 5,
-      borderWidth: 1,
-      borderColor: 'rgba(0,0,0,0.05)',
     },
     topicHeader: {
       flexDirection: 'row',
@@ -526,10 +547,10 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       paddingHorizontal: 12,
       paddingVertical: 6,
       borderRadius: 16,
-      backgroundColor: 'rgba(0,0,0,0.04)',
+      backgroundColor: 'transparent',
     },
     replyBadgeActive: {
-      backgroundColor: 'rgba(0,0,0,0.06)',
+      backgroundColor: 'rgba(99,102,241,0.12)',
     },
     replyCount: {
       fontSize: 13,
@@ -577,5 +598,21 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     emptySubtext: {
       fontSize: FontSizes.sm,
       color: Colors.textSecondary,
+    },
+    fab: {
+      position: 'absolute',
+      right: 18,
+      bottom: 24,
+      width: 54,
+      height: 54,
+      borderRadius: 27,
+      backgroundColor: '#6366F1',
+      alignItems: 'center',
+      justifyContent: 'center',
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.05,
+      shadowRadius: 6,
+      elevation: 1,
     },
   });

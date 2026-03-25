@@ -11,6 +11,7 @@ import {
     RefreshControl,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -79,6 +80,25 @@ export default function MentorshipChatListScreen() {
         const avatar = getOtherParticipantAvatar(item);
         const lastMsg = item.last_message;
         const purpose = item.mentorship?.purpose;
+        const status = item.mentorship?.status || 'pending';
+
+        const statusLabel =
+            status === 'accepted'
+                ? 'Active'
+                : status === 'closed'
+                    ? 'Closed'
+                    : status === 'rejected'
+                        ? 'Rejected'
+                        : 'Pending';
+
+        const statusColor =
+            status === 'accepted'
+                ? '#10B981'
+                : status === 'closed'
+                    ? '#6B7280'
+                    : status === 'rejected'
+                        ? '#EF4444'
+                        : '#F59E0B';
 
         return (
             <TouchableOpacity
@@ -94,11 +114,14 @@ export default function MentorshipChatListScreen() {
                             <Text style={S.chatTime}>{dayjs(lastMsg.created_at).fromNow()}</Text>
                         )}
                     </View>
-                    {purpose && (
-                        <View style={S.purposeBadge}>
-                            <Text style={S.purposeText}>{purpose}</Text>
-                        </View>
-                    )}
+                    <View style={S.chatMetaRow}>
+                        {purpose && (
+                            <View style={S.purposeBadge}>
+                                <Text style={S.purposeText}>{purpose}</Text>
+                            </View>
+                        )}
+                        <Text style={[S.chatStatus, { color: statusColor }]}>{statusLabel}</Text>
+                    </View>
                     {lastMsg ? (
                         <Text style={S.lastMessage} numberOfLines={1}>
                             {lastMsg.content}
@@ -114,60 +137,78 @@ export default function MentorshipChatListScreen() {
 
     return (
         <SafeAreaView style={S.container}>
-            {/* Header */}
-            <View style={S.header}>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={S.backBtn}>
-                    <MaterialIcons name="arrow-back" size={24} color={Colors.text} />
-                </TouchableOpacity>
-                <Text style={S.headerTitle}>Mentorship Chats</Text>
-                <View style={{ width: 40 }} />
-            </View>
-
-            {isLoading ? (
-                <View style={S.centered}>
-                    <ActivityIndicator size="large" color="#4F46E5" />
+            <LinearGradient
+                colors={['#F5E6D8', '#EDEBFF', '#DFF3EE']}
+                locations={[0, 0.5, 1]}
+                style={S.gradientBg}
+            >
+                <View style={S.header}>
+                    <TouchableOpacity onPress={() => navigation.goBack()} style={S.backBtn}>
+                        <MaterialIcons name="arrow-back" size={24} color={Colors.text} />
+                    </TouchableOpacity>
+                    <View style={S.headerTextWrap}>
+                        <Text style={S.headerTitle}>Mentorship Chats</Text>
+                        <Text style={S.headerSubtitle}>Continue your mentor conversations</Text>
+                    </View>
+                    <View style={{ width: 40 }} />
                 </View>
-            ) : (
-                <FlatList
-                    data={chats}
-                    keyExtractor={(item) => item.id}
-                    renderItem={renderItem}
-                    contentContainerStyle={chats.length === 0 ? S.centered : S.listContent}
-                    refreshControl={
-                        <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor="#4F46E5" />
-                    }
-                    ListEmptyComponent={
-                        <View style={S.emptyState}>
-                            <MaterialIcons name="chat-bubble-outline" size={64} color={Colors.border} />
-                            <Text style={S.emptyTitle}>No mentorship chats</Text>
-                            <Text style={S.emptySub}>Your mentorship conversations will appear here</Text>
-                        </View>
-                    }
-                    showsVerticalScrollIndicator={false}
-                />
-            )}
+
+                {isLoading ? (
+                    <View style={S.centered}>
+                        <ActivityIndicator size="large" color="#4F46E5" />
+                    </View>
+                ) : (
+                    <FlatList
+                        data={chats}
+                        keyExtractor={(item) => item.id}
+                        renderItem={renderItem}
+                        contentContainerStyle={chats.length === 0 ? S.emptyList : S.listContent}
+                        refreshControl={
+                            <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor="#4F46E5" />
+                        }
+                        ListEmptyComponent={
+                            <View style={S.emptyState}>
+                                <MaterialIcons name="chat-bubble-outline" size={64} color={Colors.border} />
+                                <Text style={S.emptyTitle}>No mentorship chats</Text>
+                                <Text style={S.emptySub}>Accepted mentorships will appear here.</Text>
+                            </View>
+                        }
+                        showsVerticalScrollIndicator={false}
+                    />
+                )}
+            </LinearGradient>
         </SafeAreaView>
     );
 }
 
 const styles = (Colors: any) =>
     StyleSheet.create({
-        container: { flex: 1, backgroundColor: Colors.background },
+        container: { flex: 1, backgroundColor: 'transparent' },
+        gradientBg: { flex: 1 },
         header: {
             flexDirection: 'row',
             alignItems: 'center',
             justifyContent: 'space-between',
-            paddingHorizontal: Spacing.md,
-            paddingVertical: 12,
-            backgroundColor: Colors.surface,
-            borderBottomWidth: 1,
-            borderBottomColor: Colors.border,
+            marginHorizontal: 12,
+            marginTop: 8,
+            paddingHorizontal: 12,
+            paddingVertical: 11,
+            backgroundColor: 'rgba(255,255,255,0.85)',
+            borderWidth: 1,
+            borderColor: 'rgba(255,255,255,0.25)',
+            borderRadius: 20,
         },
         backBtn: { padding: 8 },
+        headerTextWrap: { flex: 1, alignItems: 'center' },
         headerTitle: {
             fontSize: FontSizes.lg,
             fontWeight: FontWeights.bold,
             color: Colors.text,
+        },
+        headerSubtitle: {
+            fontSize: FontSizes.xs,
+            color: Colors.textSecondary,
+            marginTop: 1,
         },
         centered: {
             flex: 1,
@@ -175,17 +216,27 @@ const styles = (Colors: any) =>
             justifyContent: 'center',
         },
         listContent: {
-            paddingBottom: 20,
+            paddingHorizontal: 12,
+            paddingTop: 12,
+            paddingBottom: 24,
+            gap: 10,
+        },
+        emptyList: {
+            flexGrow: 1,
+            justifyContent: 'center',
+            paddingHorizontal: 12,
         },
         chatItem: {
             flexDirection: 'row',
             alignItems: 'center',
-            paddingHorizontal: Spacing.md,
+            paddingHorizontal: 12,
             paddingVertical: 12,
-            backgroundColor: Colors.surface,
-            borderBottomWidth: 1,
-            borderBottomColor: Colors.border,
+            backgroundColor: 'rgba(255,255,255,0.85)',
+            borderWidth: 1,
+            borderColor: 'rgba(255,255,255,0.25)',
+            borderRadius: 18,
             gap: 12,
+            marginBottom: 16,
         },
         chatInfo: { flex: 1, gap: 3 },
         chatRow: {
@@ -204,6 +255,11 @@ const styles = (Colors: any) =>
             color: Colors.textSecondary,
             marginLeft: 8,
         },
+        chatMetaRow: {
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+        },
         purposeBadge: {
             alignSelf: 'flex-start',
             backgroundColor: '#4F46E514',
@@ -216,6 +272,10 @@ const styles = (Colors: any) =>
             color: '#4F46E5',
             fontWeight: '700',
             textTransform: 'capitalize',
+        },
+        chatStatus: {
+            fontSize: 11,
+            fontWeight: '700',
         },
         lastMessage: {
             fontSize: FontSizes.sm,

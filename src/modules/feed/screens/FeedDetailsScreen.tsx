@@ -16,6 +16,7 @@ import {
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { MaterialIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import Toast from 'react-native-toast-message';
 import * as Linking from 'expo-linking';
 import { WebView } from 'react-native-webview';
@@ -170,9 +171,11 @@ export default function FeedDetailsScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.loadingWrap}>
-          <ActivityIndicator size="large" color="#0f766e" />
-        </View>
+        <LinearGradient colors={['#F5E6D8', '#EDEBFF', '#DFF3EE']} locations={[0, 0.5, 1]} style={styles.gradientBg}>
+          <View style={styles.loadingWrap}>
+            <ActivityIndicator size="large" color="#6366F1" />
+          </View>
+        </LinearGradient>
       </SafeAreaView>
     );
   }
@@ -180,9 +183,11 @@ export default function FeedDetailsScreen() {
   if (!post) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.errorWrap}>
-          <Text style={styles.errorText}>Post not found</Text>
-        </View>
+        <LinearGradient colors={['#F5E6D8', '#EDEBFF', '#DFF3EE']} locations={[0, 0.5, 1]} style={styles.gradientBg}>
+          <View style={styles.errorWrap}>
+            <Text style={styles.errorText}>Post not found</Text>
+          </View>
+        </LinearGradient>
       </SafeAreaView>
     );
   }
@@ -366,6 +371,7 @@ export default function FeedDetailsScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      <LinearGradient colors={['#F5E6D8', '#EDEBFF', '#DFF3EE']} locations={[0, 0.5, 1]} style={styles.gradientBg}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <MaterialIcons name="arrow-back" size={24} color="#0f172a" />
@@ -479,6 +485,7 @@ export default function FeedDetailsScreen() {
         onConfirm={confirmDeletePost}
         onCancel={() => setShowDeleteDialog(false)}
       />
+      </LinearGradient>
     </SafeAreaView>
   );
 }
@@ -518,14 +525,20 @@ function formatFullDate(dateString: string): string {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8fafc',
+    backgroundColor: 'transparent',
+  },
+  gradientBg: {
+    flex: 1,
   },
   header: {
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: '#ffffff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    marginHorizontal: 16,
+    marginTop: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.85)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -550,16 +563,16 @@ const styles = StyleSheet.create({
     color: '#64748b',
   },
   listContent: {
-    paddingBottom: 24,
+    paddingBottom: 90,
   },
   postContainer: {
-    backgroundColor: '#ffffff',
+    backgroundColor: 'rgba(255,255,255,0.85)',
     margin: 12,
-    borderRadius: 16,
+    borderRadius: 20,
     padding: 16,
     marginBottom: 24,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: 'rgba(255,255,255,0.25)',
   },
   postHeader: {
     marginBottom: 12,
@@ -661,8 +674,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 12,
-    backgroundColor: '#f2f2f2',
-    borderRadius: 10,
+    backgroundColor: 'transparent',
+    borderRadius: 12,
   },
   fileIcon: {
     marginRight: 10,
@@ -702,9 +715,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 6,
     paddingVertical: 10,
-    borderRadius: 8,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: 'rgba(255,255,255,0.25)',
+    backgroundColor: 'transparent',
   },
   actionBtnActive: {
     backgroundColor: '#fee2e2',
@@ -729,13 +743,13 @@ const styles = StyleSheet.create({
     color: '#0f172a',
   },
   commentWrap: {
-    backgroundColor: '#ffffff',
+    backgroundColor: 'rgba(255,255,255,0.85)',
     marginHorizontal: 12,
     marginVertical: 8,
-    borderRadius: 12,
+    borderRadius: 14,
     padding: 12,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: 'rgba(255,255,255,0.25)',
   },
   commentHeader: {
     flexDirection: 'row',
@@ -768,9 +782,9 @@ const styles = StyleSheet.create({
   commentInputWrap: {
     paddingHorizontal: 12,
     paddingVertical: 12,
-    backgroundColor: '#ffffff',
+    backgroundColor: 'rgba(255,255,255,0.85)',
     borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
+    borderTopColor: 'rgba(255,255,255,0.25)',
     flexDirection: 'row',
     gap: 8,
   },

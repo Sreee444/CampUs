@@ -12,6 +12,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { MaterialIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import Toast from 'react-native-toast-message';
@@ -136,6 +137,11 @@ export default function CreateFeedScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      <LinearGradient
+        colors={['#F5E6D8', '#EDEBFF', '#DFF3EE']}
+        locations={[0, 0.5, 1]}
+        style={styles.gradientBg}
+      >
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <MaterialIcons name="arrow-back" size={24} color="#0f172a" />
@@ -155,7 +161,7 @@ export default function CreateFeedScreen() {
                 style={[styles.typeBtn, type === option.id && styles.typeBtnActive]}
                 onPress={() => setType(option.id)}
               >
-                <MaterialIcons name={option.icon} size={20} color={type === option.id ? '#0f766e' : '#64748b'} />
+                <MaterialIcons name={option.icon} size={20} color={type === option.id ? '#ffffff' : '#64748b'} />
                 <View style={styles.typeTextWrap}>
                   <Text style={[styles.typeLabel, type === option.id && styles.typeLabelActive]}>{option.label}</Text>
                   <Text style={styles.typeHint}>{option.hint}</Text>
@@ -228,7 +234,7 @@ export default function CreateFeedScreen() {
               onPress={() => setVisibility('global')}
               disabled={submitting}
             >
-              <MaterialIcons name="public" size={16} color={visibility === 'global' ? '#0f766e' : '#64748b'} />
+              <MaterialIcons name="public" size={16} color={visibility === 'global' ? '#ffffff' : '#64748b'} />
               <Text style={[styles.visibilityChoiceText, visibility === 'global' && styles.visibilityChoiceTextActive]}>All Users</Text>
             </TouchableOpacity>
 
@@ -237,7 +243,7 @@ export default function CreateFeedScreen() {
               onPress={() => setVisibility('department')}
               disabled={submitting}
             >
-              <MaterialIcons name="groups" size={16} color={visibility === 'department' ? '#0f766e' : '#64748b'} />
+              <MaterialIcons name="groups" size={16} color={visibility === 'department' ? '#ffffff' : '#64748b'} />
               <Text style={[styles.visibilityChoiceText, visibility === 'department' && styles.visibilityChoiceTextActive]}>By Department</Text>
             </TouchableOpacity>
           </View>
@@ -305,6 +311,7 @@ export default function CreateFeedScreen() {
           </Text>
         </TouchableOpacity>
       </ScrollView>
+      </LinearGradient>
     </SafeAreaView>
   );
 }
@@ -312,14 +319,20 @@ export default function CreateFeedScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8fafc',
+    backgroundColor: 'transparent',
+  },
+  gradientBg: {
+    flex: 1,
   },
   header: {
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: '#ffffff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    marginHorizontal: 16,
+    marginTop: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.85)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -332,14 +345,15 @@ const styles = StyleSheet.create({
   content: {
     padding: 16,
     gap: 20,
-    paddingBottom: 30,
+    paddingBottom: 90,
   },
   section: {
-    backgroundColor: '#ffffff',
-    borderRadius: 14,
-    padding: 14,
+    backgroundColor: 'rgba(255,255,255,0.85)',
+    borderRadius: 20,
+    padding: 16,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: 'rgba(255,255,255,0.25)',
+    marginBottom: 12,
   },
   sectionTitle: {
     fontSize: 13,
@@ -359,14 +373,11 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingHorizontal: 10,
     paddingVertical: 10,
-    borderRadius: 10,
-    backgroundColor: '#f1f5f9',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderRadius: 12,
+    backgroundColor: 'transparent',
   },
   typeBtnActive: {
-    backgroundColor: '#ecfdf5',
-    borderColor: '#0f766e',
+    backgroundColor: '#6366F1',
   },
   typeTextWrap: {
     flex: 1,
@@ -377,7 +388,7 @@ const styles = StyleSheet.create({
     color: '#475569',
   },
   typeLabelActive: {
-    color: '#0f766e',
+    color: '#ffffff',
   },
   typeHint: {
     fontSize: 11,
@@ -412,15 +423,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 6,
     paddingVertical: 10,
-    borderRadius: 10,
-    backgroundColor: '#f0fdfa',
+    borderRadius: 12,
+    backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: '#99f6e0',
+    borderColor: '#c7d2fe',
   },
   attachBtnText: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#0f766e',
+    color: '#6366F1',
   },
   attachmentChip: {
     marginTop: 10,
@@ -430,9 +441,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
     borderRadius: 8,
-    backgroundColor: '#f8fafc',
+    backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: 'rgba(255,255,255,0.25)',
   },
   attachmentText: {
     flex: 1,
@@ -451,14 +462,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 6,
     paddingVertical: 10,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#cbd5e1',
-    backgroundColor: '#f8fafc',
+    backgroundColor: 'transparent',
   },
   visibilityChoiceActive: {
-    borderColor: '#0f766e',
-    backgroundColor: '#ecfdf5',
+    borderColor: '#6366F1',
+    backgroundColor: '#6366F1',
   },
   visibilityChoiceText: {
     fontSize: 12,
@@ -466,7 +477,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   visibilityChoiceTextActive: {
-    color: '#0f766e',
+    color: '#ffffff',
   },
   visibilitySubtitle: {
     fontSize: 12,
@@ -489,7 +500,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 8,
     paddingVertical: 8,
-    backgroundColor: '#ffffff',
+    backgroundColor: 'transparent',
   },
   departmentChipActive: {
     backgroundColor: '#ecfdf5',
@@ -507,12 +518,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: '#f0fdfa',
+    backgroundColor: 'transparent',
     borderRadius: 10,
     paddingHorizontal: 10,
     paddingVertical: 8,
     borderWidth: 1,
-    borderColor: '#99f6e0',
+    borderColor: 'rgba(255,255,255,0.25)',
   },
   visibilityText: {
     flex: 1,
@@ -540,7 +551,7 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingVertical: 12,
     borderRadius: 12,
-    backgroundColor: '#0f766e',
+    backgroundColor: '#6366F1',
   },
   submitBtnDisabled: {
     opacity: 0.6,

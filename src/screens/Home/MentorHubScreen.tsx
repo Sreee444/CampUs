@@ -13,7 +13,8 @@ import {
   Animated,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../../navigation/types';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights } from '../../theme';
@@ -64,6 +65,19 @@ const STATUS_CONFIG: Record<string, { bg: string; text: string; label: string }>
   closed: { bg: '#F3F4F6', text: '#9CA3AF', label: 'Closed' },
 };
 
+const MESSAGE_HIGHLIGHT_TERMS = [
+  'project',
+  'career',
+  'startup',
+  'skill',
+  'academic',
+  'mentor',
+  'mentorship',
+  'chat',
+  'guidance',
+];
+const MESSAGE_HIGHLIGHT_REGEX = new RegExp(`(${MESSAGE_HIGHLIGHT_TERMS.join('|')})`, 'ig');
+
 // Loading skeleton card
 function SkeletonCard({ Colors }: { Colors: any }) {
   const opacity = useRef(new Animated.Value(0.4)).current;
@@ -103,6 +117,7 @@ export default function MentorHubScreen() {
   const S = styles(Colors);
 
   const prefillProjectId = route.params?.prefillProjectId;
+  const lockedProjectId = prefillProjectId || undefined;
 
   const tabAnim = useRef(new Animated.Value(0)).current;
   const [activeTab, setActiveTab] = useState<'discover' | 'requests' | 'active'>('discover');
@@ -120,7 +135,7 @@ export default function MentorHubScreen() {
   const [selectedMentor, setSelectedMentor] = useState<Mentor | null>(null);
   const [purpose, setPurpose] = useState<MentorshipPurpose>('career');
   const [description, setDescription] = useState('');
-  const [projectId, setProjectId] = useState<string | undefined>(prefillProjectId);
+  const [projectId, setProjectId] = useState<string | undefined>(lockedProjectId);
   const [myProjects, setMyProjects] = useState<any[]>([]);
   const [creatorProjectIds, setCreatorProjectIds] = useState<Set<string>>(new Set());
   const [projectMentorMap, setProjectMentorMap] = useState<Record<string, string | null>>({});
@@ -224,29 +239,44 @@ export default function MentorHubScreen() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  useFocusEffect(
+    useCallback(() => {
+      if (!user?.id) return;
+      loadData();
+    }, [user?.id, loadData])
+  );
+
   // Auto-open modal if project prefill
   useEffect(() => {
-    if (prefillProjectId && !isLoading) {
+    if (lockedProjectId && !isLoading) {
       setPurpose('project');
-      setProjectId(prefillProjectId);
+      setProjectId(lockedProjectId);
       // open modal with first available mentor if any
     }
-  }, [prefillProjectId, isLoading]);
+  }, [lockedProjectId, isLoading]);
 
   const openModal = (mentor: Mentor) => {
     setSelectedMentor(mentor);
-    setPurpose(prefillProjectId ? 'project' : 'career');
-    setProjectId(prefillProjectId);
+    setPurpose(lockedProjectId ? 'project' : 'career');
+    setProjectId(lockedProjectId);
     setDescription('');
     setModalVisible(true);
   };
 
   const handleSubmit = async () => {
     if (!user?.id || !selectedMentor) return;
-    const requestPurpose: MentorshipPurpose = prefillProjectId ? 'project' : purpose;
-    const requestProjectId = prefillProjectId || projectId;
+    const requestPurpose: MentorshipPurpose = lockedProjectId ? 'project' : purpose;
+    const requestProjectId = lockedProjectId || projectId;
     if (!description.trim()) { Toast.show({ type: 'error', text1: 'Please describe your mentorship goal' }); return; }
     if (requestPurpose === 'project' && !requestProjectId) { Toast.show({ type: 'error', text1: 'Please select a project' }); return; }
+    if (requestPurpose === 'project' && requestProjectId && !creatorProjectIds.has(requestProjectId)) {
+      Toast.show({
+        type: 'error',
+        text1: 'Cannot Send Request',
+        text2: 'Only the project creator can send project mentorship requests.',
+      });
+      return;
+    }
     try {
       console.log('[MentorHub] handleSubmit - mentor:', selectedMentor.id, '| purpose:', requestPurpose, '| project:', requestProjectId || 'none');
       setIsSubmitting(true);
@@ -344,6 +374,43 @@ export default function MentorHubScreen() {
     return mentorshipConvs.find((c: any) => c.mentorship_id === req.id);
   };
 
+  const openRequestDetails = (request: any) => {
+    navigation.navigate('MentorshipRequestDetails', {
+      request,
+      viewer: 'mentee',
+    });
+  };
+
+  const requestPreview = (text?: string) => {
+    const trimmed = (text || '').trim();
+    if (!trimmed) return 'No message provided';
+    return trimmed.length > 88 ? `${trimmed.slice(0, 88)}...` : trimmed;
+  };
+
+  const renderHighlightedMessage = (text?: string) => {
+    const preview = requestPreview(text);
+    const parts = preview.split(MESSAGE_HIGHLIGHT_REGEX);
+    return (
+      <Text style={S.requestMessageText} numberOfLines={2}>
+        {parts.map((part, index) => {
+          const isHighlighted = MESSAGE_HIGHLIGHT_TERMS.some(
+            (term) => term.toLowerCase() === part.toLowerCase()
+          );
+          return isHighlighted
+            ? <Text key={`msg-hl-${index}`} style={S.requestMessageHighlight}>{part}</Text>
+            : part;
+        })}
+      </Text>
+    );
+  };
+
+  const formatShortDate = (value?: string) => {
+    if (!value) return 'Unknown date';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'Unknown date';
+    return date.toLocaleDateString(undefined, { day: '2-digit', month: 'short' });
+  };
+
   // Opens existing chat or creates one on-demand for any accepted mentorship
   const openOrCreateChat = async (req: any) => {
     if (openingChatId === req.id) return;
@@ -378,6 +445,11 @@ export default function MentorHubScreen() {
 
   return (
     <SafeAreaView style={S.container}>
+      <LinearGradient
+        colors={['#F5E6D8', '#EDEBFF', '#DFF3EE']}
+        locations={[0, 0.5, 1]}
+        style={S.gradientBg}
+      >
       {/* Header */}
       <View style={S.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
@@ -479,6 +551,11 @@ export default function MentorHubScreen() {
                   mentor={mentor}
                   Colors={Colors}
                   S={S}
+                  onViewProfile={() => {
+                    if (mentor?.profile?.id) {
+                      navigation.navigate('PublicProfile', { userId: mentor.profile.id });
+                    }
+                  }}
                   onRequest={() => openModal(mentor)}
                 />
               ))
@@ -504,22 +581,34 @@ export default function MentorHubScreen() {
                 const conv = getConvForRequest(req);
                 return (
                   <View key={req.id} style={S.card}>
-                    <View style={S.cardRow}>
-                      <UserAvatar uri={req.mentor?.profile?.avatar_url} name={req.mentor?.profile?.full_name || 'Mentor'} size={44} showRing={false} />
-                      <View style={{ flex: 1 }}>
-                        <Text style={S.cardTitle}>{req.mentor?.profile?.full_name || 'Mentor'}</Text>
-                        <Text style={S.cardSub}>{req.mentor?.role} · {req.mentor?.profile?.department || ''}</Text>
+                    <TouchableOpacity activeOpacity={0.88} onPress={() => openRequestDetails(req)}>
+                      <View style={S.cardRow}>
+                        <UserAvatar uri={req.mentor?.profile?.avatar_url} name={req.mentor?.profile?.full_name || 'Mentor'} size={44} showRing={false} />
+                        <View style={S.reqIdentity}>
+                          <Text style={S.cardTitle}>{req.mentor?.profile?.full_name || 'Mentor'}</Text>
+                          <Text style={S.cardSub}>{req.mentor?.role} · {req.mentor?.profile?.department || ''}</Text>
+                        </View>
+                        <View style={[S.statusBadge, { backgroundColor: sc.bg }]}>
+                          <Text style={[S.statusText, { color: sc.text }]}>{sc.label}</Text>
+                        </View>
                       </View>
-                      <View style={[S.statusBadge, { backgroundColor: sc.bg }]}>
-                        <Text style={[S.statusText, { color: sc.text }]}>{sc.label}</Text>
+                      <View style={S.purposeRow}>
+                        <View style={S.purposePillSmall}>
+                          <Text style={S.purposePillSmallText}>{req.purpose}</Text>
+                        </View>
+                        <View style={S.requestMessageBox}>
+                          <MaterialIcons name="chat-bubble-outline" size={14} color="#6366F1" />
+                          <Text style={S.requestMessageText} numberOfLines={2}>{requestPreview(req.description)}</Text>
+                        </View>
                       </View>
-                    </View>
-                    <View style={S.purposeRow}>
-                      <View style={S.purposePillSmall}>
-                        <Text style={S.purposePillSmallText}>{req.purpose}</Text>
+                      <View style={S.reqMetaRow}>
+                        <Text style={S.reqMetaText}>Requested {formatShortDate(req.created_at)}</Text>
+                        <View style={S.reqMetaAction}>
+                          <Text style={S.reqMetaText}>View details</Text>
+                          <MaterialIcons name="chevron-right" size={14} color={Colors.textSecondary} />
+                        </View>
                       </View>
-                      <Text style={S.descText} numberOfLines={2}>{req.description}</Text>
-                    </View>
+                    </TouchableOpacity>
                     {req.status === 'pending' && (
                       <View style={S.actionRow}>
                         <TouchableOpacity
@@ -566,19 +655,32 @@ export default function MentorHubScreen() {
                 const roleColors = ROLE_BADGE_COLORS[req.mentor?.role] || ROLE_BADGE_COLORS.alumni;
                 return (
                   <View key={req.id} style={S.card}>
-                    <View style={S.cardRow}>
-                      <UserAvatar uri={req.mentor?.profile?.avatar_url} name={req.mentor?.profile?.full_name || 'Mentor'} size={48} showRing={false} />
-                      <View style={{ flex: 1 }}>
-                        <Text style={S.cardTitle}>{req.mentor?.profile?.full_name || 'Mentor'}</Text>
-                        <Text style={S.cardSub}>{req.mentor?.profile?.department || ''}</Text>
+                    <TouchableOpacity activeOpacity={0.88} onPress={() => openRequestDetails(req)}>
+                      <View style={S.cardRow}>
+                        <UserAvatar uri={req.mentor?.profile?.avatar_url} name={req.mentor?.profile?.full_name || 'Mentor'} size={48} showRing={false} />
+                        <View style={S.reqIdentity}>
+                          <Text style={S.cardTitle}>{req.mentor?.profile?.full_name || 'Mentor'}</Text>
+                          <Text style={S.cardSub}>{req.mentor?.profile?.department || ''}</Text>
+                        </View>
+                        <View style={[S.roleBadge, { backgroundColor: roleColors.bg }]}>
+                          <Text style={[S.roleText, { color: roleColors.text }]}>{req.mentor?.role}</Text>
+                        </View>
                       </View>
-                      <View style={[S.roleBadge, { backgroundColor: roleColors.bg }]}>
-                        <Text style={[S.roleText, { color: roleColors.text }]}>{req.mentor?.role}</Text>
+                      <View style={S.purposePillSmall}>
+                        <Text style={S.purposePillSmallText}>{req.purpose} mentorship</Text>
                       </View>
-                    </View>
-                    <View style={S.purposePillSmall}>
-                      <Text style={S.purposePillSmallText}>{req.purpose} mentorship</Text>
-                    </View>
+                      <View style={S.requestMessageBox}>
+                        <MaterialIcons name="chat-bubble-outline" size={14} color="#6366F1" />
+                        <Text style={S.requestMessageText} numberOfLines={2}>{requestPreview(req.description)}</Text>
+                      </View>
+                      <View style={S.reqMetaRow}>
+                        <Text style={S.reqMetaText}>Started {formatShortDate(req.created_at)}</Text>
+                        <View style={S.reqMetaAction}>
+                          <Text style={S.reqMetaText}>View details</Text>
+                          <MaterialIcons name="chevron-right" size={14} color={Colors.textSecondary} />
+                        </View>
+                      </View>
+                    </TouchableOpacity>
                     <View style={S.actionRow}>
                       {req.purpose !== 'project' && (
                         <TouchableOpacity
@@ -658,18 +760,18 @@ export default function MentorHubScreen() {
                     key={p.key}
                     style={[S.purposePill, purpose === p.key && S.purposePillActive]}
                     onPress={() => {
-                      if (prefillProjectId) return;
+                      if (lockedProjectId) return;
                       setPurpose(p.key);
                       if (p.key !== 'project') setProjectId(undefined);
                     }}
-                    disabled={!!prefillProjectId}
+                    disabled={!!lockedProjectId}
                   >
                     <MaterialIcons name={p.icon as any} size={13} color={purpose === p.key ? '#fff' : Colors.textSecondary} />
                     <Text style={[S.purposePillText, purpose === p.key && { color: '#fff' }]}>{p.label}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
-              {!!prefillProjectId && (
+              {!!lockedProjectId && (
                 <View style={S.helperBox}>
                   <MaterialIcons name="lock" size={12} color="#6B7280" />
                   <Text style={S.helperText}>From project flow, mentorship purpose is locked to Project.</Text>
@@ -723,26 +825,30 @@ export default function MentorHubScreen() {
           </ScrollView>
         </View>
       </Modal>
+      </LinearGradient>
     </SafeAreaView>
   );
 }
 
 // ── Mentor Card Component ──────────────────────────────────────
 
-function MentorCard({ mentor, Colors, S, onRequest }: any) {
+function MentorCard({ mentor, Colors, S, onRequest, onViewProfile }: any) {
   const name = mentor.profile?.full_name || 'Mentor';
   const roleColors = ROLE_BADGE_COLORS[mentor.role] || ROLE_BADGE_COLORS.alumni;
 
-  // For now assume active_count = 0 since we don't have that join yet; disable if mentor.available=false
-  const isFull = mentor.max_mentees <= 0; // will be improved when count join is added
+  const activeMentees = Number(mentor?.active_mentees_count || 0);
+  const maxMentees = Number(mentor?.max_mentees || 0);
+  const availableSlots = Math.max(0, Number(mentor?.available_slots ?? (maxMentees - activeMentees)));
+  const isFull = availableSlots <= 0;
   const isDisabled = !mentor.available || isFull;
 
   let btnLabel = 'Request Mentorship';
   if (!mentor.available) btnLabel = 'Unavailable';
   else if (isFull) btnLabel = 'At Capacity';
+  else btnLabel = 'Request Mentor';
 
   return (
-    <View style={S.card}>
+    <TouchableOpacity style={S.card} activeOpacity={0.9} onPress={onViewProfile}>
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
         <UserAvatar uri={mentor.profile?.avatar_url} name={name} size={48} showRing={false} />
         <View style={{ flex: 1 }}>
@@ -755,8 +861,19 @@ function MentorCard({ mentor, Colors, S, onRequest }: any) {
           <Text style={S.cardSub}>{mentor.profile?.department || mentor.department || ''}{mentor.company ? ` · ${mentor.company}` : ''}</Text>
           {/* Capacity indicator */}
           <Text style={[S.capacityText, isFull && { color: '#EF4444' }]}>
-            {`${mentor.max_mentees} slot${mentor.max_mentees !== 1 ? 's' : ''} available`}
+            {`${availableSlots} slot${availableSlots !== 1 ? 's' : ''} available`}
           </Text>
+
+          <View style={S.mentorMetaRow}>
+            <View style={S.mentorMetaItem}>
+              <MaterialIcons name="star" size={16} color="#f59e0b" />
+              <Text style={S.mentorMetaText}>{mentor?.rating ? Number(mentor.rating).toFixed(1) : 'New'}</Text>
+            </View>
+            <View style={S.mentorMetaItem}>
+              <MaterialIcons name="calendar-today" size={16} color={mentor.available ? '#10B981' : '#9CA3AF'} />
+              <Text style={S.mentorMetaText}>{mentor.available ? 'Available' : 'Unavailable'}</Text>
+            </View>
+          </View>
         </View>
         {/* Availability dot top-right */}
         <View style={[S.availDotLg, { backgroundColor: mentor.available ? '#10B981' : '#CBD5E1' }]} />
@@ -772,26 +889,40 @@ function MentorCard({ mentor, Colors, S, onRequest }: any) {
         </View>
       )}
 
-      <TouchableOpacity
-        style={[S.requestBtn, isDisabled && S.requestBtnDisabled]}
-        onPress={isDisabled ? undefined : onRequest}
-        disabled={isDisabled}
-        activeOpacity={isDisabled ? 1 : 0.8}
-      >
-        <Text style={[S.requestBtnText, isDisabled && { color: Colors.textSecondary }]}>{btnLabel}</Text>
-      </TouchableOpacity>
-    </View>
+      <View style={S.mentorCardActionRow}>
+        <TouchableOpacity
+          style={S.viewProfileBtn}
+          onPress={onViewProfile}
+          activeOpacity={0.85}
+        >
+          <MaterialIcons name="person" size={16} color="#6366F1" />
+          <Text style={S.viewProfileBtnText}>View Profile</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[S.requestBtn, isDisabled && S.requestBtnDisabled]}
+          onPress={isDisabled ? undefined : onRequest}
+          disabled={isDisabled}
+          activeOpacity={isDisabled ? 1 : 0.8}
+        >
+          <Text style={[S.requestBtnText, isDisabled && { color: Colors.textSecondary }]}>{btnLabel}</Text>
+        </TouchableOpacity>
+      </View>
+    </TouchableOpacity>
   );
 }
 
 // ── Styles ────────────────────────────────────────────────────
 
 const styles = (Colors: any) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
+  container: { flex: 1, backgroundColor: 'transparent' },
+  gradientBg: { flex: 1 },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: Spacing.md, paddingVertical: 12,
-    backgroundColor: Colors.surface, borderBottomWidth: 1, borderBottomColor: Colors.border,
+    paddingHorizontal: 12, paddingVertical: 11,
+    marginHorizontal: 12, marginTop: 8,
+    borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.85)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)',
   },
   headerTitle: { fontSize: FontSizes.lg, fontWeight: FontWeights.bold, color: Colors.text },
   headerSub: { fontSize: 10, color: Colors.textSecondary, marginTop: 1 },
@@ -802,9 +933,10 @@ const styles = (Colors: any) => StyleSheet.create({
 
   chatBanner: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    marginHorizontal: Spacing.md, marginTop: 10, marginBottom: 2,
-    backgroundColor: '#EEF2FF', borderRadius: BorderRadius.lg,
-    padding: 12, borderWidth: 1, borderColor: '#C7D2FE',
+    marginHorizontal: 12, marginTop: 10, marginBottom: 2,
+    backgroundColor: 'rgba(255,255,255,0.85)', borderRadius: BorderRadius.lg,
+    padding: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)',
+    marginBottom: 16,
   },
   chatBannerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   chatBannerIcon: {
@@ -814,13 +946,12 @@ const styles = (Colors: any) => StyleSheet.create({
   chatBannerTitle: { fontSize: 13, fontWeight: '700', color: '#312E81' },
   chatBannerSub: { fontSize: 11, color: '#4F46E5', marginTop: 1 },
 
-  tabRow: { flexDirection: 'row', paddingHorizontal: Spacing.md, paddingVertical: 10, gap: 6 },
+  tabRow: { flexDirection: 'row', paddingHorizontal: 12, paddingVertical: 10, gap: 6 },
   tab: {
     flex: 1, alignItems: 'center', paddingVertical: 9,
-    borderRadius: BorderRadius.lg, backgroundColor: Colors.card,
-    borderWidth: 1, borderColor: Colors.border,
+    borderRadius: BorderRadius.lg, backgroundColor: 'rgba(255,255,255,0.85)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)',
   },
-  tabActive: { backgroundColor: '#4F46E5', borderColor: '#4F46E5' },
+  tabActive: { backgroundColor: '#6366F1' },
   tabInner: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   tabText: { fontSize: 11, fontWeight: FontWeights.semibold, color: Colors.textSecondary },
   tabTextActive: { color: '#fff' },
@@ -831,28 +962,36 @@ const styles = (Colors: any) => StyleSheet.create({
   tabBadgeText: { color: '#fff', fontSize: 9, fontWeight: '700' },
 
   scroll: { flex: 1 },
-  scrollContent: { padding: Spacing.md, gap: 10 },
+  scrollContent: { paddingHorizontal: 12, paddingTop: 12, gap: 10, paddingBottom: 90 },
 
   chipRow: { flexDirection: 'row', gap: 7, paddingBottom: 2 },
   chip: {
     paddingHorizontal: 14, paddingVertical: 7, borderRadius: 999,
-    backgroundColor: Colors.card, borderWidth: 1, borderColor: Colors.border,
+    backgroundColor: 'rgba(255,255,255,0.85)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)',
   },
-  chipActive: { backgroundColor: '#4F46E5', borderColor: '#4F46E5' },
+  chipActive: { backgroundColor: '#6366F1' },
   chipText: { fontSize: 12, fontWeight: '600', color: Colors.textSecondary },
   chipTextActive: { color: '#fff' },
 
   card: {
-    backgroundColor: Colors.surface, borderRadius: BorderRadius.xl,
-    padding: Spacing.md, gap: 10,
-    borderWidth: 1, borderColor: Colors.border,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1,
+    backgroundColor: 'rgba(255,255,255,0.85)', borderRadius: 20,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)',
+    padding: 12, gap: 12,
+    marginBottom: 16,
   },
   cardRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  reqIdentity: { flex: 1, minWidth: 0, gap: 2 },
   cardTitle: { fontSize: FontSizes.md, fontWeight: FontWeights.bold, color: Colors.text },
   cardSub: { fontSize: 12, color: Colors.textSecondary, marginTop: 1 },
 
   capacityText: { fontSize: 11, color: Colors.textSecondary, marginTop: 2, fontWeight: '500' },
+  mentorMetaRow: { flexDirection: 'row', gap: 10, marginTop: 6 },
+  mentorMetaItem: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: 'transparent', borderRadius: 999,
+    paddingHorizontal: 8, paddingVertical: 4,
+  },
+  mentorMetaText: { fontSize: 11, color: '#475569', fontWeight: '700' },
   availDotLg: { width: 10, height: 10, borderRadius: 5, marginTop: 4 },
 
   roleBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 },
@@ -863,30 +1002,66 @@ const styles = (Colors: any) => StyleSheet.create({
   tagText: { fontSize: 11, color: '#4F46E5', fontWeight: '600' },
 
   requestBtn: {
-    backgroundColor: '#4F46E5', borderRadius: BorderRadius.md,
+    flex: 1,
+    backgroundColor: '#6366F1', borderRadius: BorderRadius.md,
     paddingVertical: 10, alignItems: 'center',
   },
-  requestBtnDisabled: { backgroundColor: Colors.card, borderWidth: 1, borderColor: Colors.border },
+  requestBtnDisabled: { backgroundColor: 'transparent', borderWidth: 1, borderColor: Colors.border },
   requestBtnText: { color: '#fff', fontWeight: FontWeights.bold, fontSize: FontSizes.sm },
+  mentorCardActionRow: { flexDirection: 'row', gap: 8 },
+  viewProfileBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: '#6366F1',
+    backgroundColor: 'rgba(99,102,241,0.1)',
+    paddingVertical: 10,
+  },
+  viewProfileBtnText: { color: '#6366F1', fontWeight: FontWeights.bold, fontSize: FontSizes.sm },
 
   statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
   statusText: { fontSize: 11, fontWeight: '700' },
-  purposeRow: { gap: 4 },
+  purposeRow: { gap: 6 },
   purposePillSmall: { backgroundColor: '#EEF2FF', paddingHorizontal: 9, paddingVertical: 3, borderRadius: 999, alignSelf: 'flex-start' },
   purposePillSmallText: { fontSize: 10, color: '#4F46E5', fontWeight: '700', textTransform: 'capitalize' },
   descText: { fontSize: 13, color: Colors.textSecondary, lineHeight: 18 },
+  requestMessageBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
+    backgroundColor: 'transparent',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  requestMessageText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#3730A3',
+    fontWeight: '600',
+  },
+  reqMetaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  reqMetaAction: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  reqMetaText: { fontSize: 11, color: Colors.textSecondary, fontWeight: '600' },
 
-  actionRow: { flexDirection: 'row', gap: 8 },
+  actionRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   openChatBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5,
-    backgroundColor: '#4F46E5', borderRadius: BorderRadius.md, paddingVertical: 9,
+    backgroundColor: '#6366F1', borderRadius: BorderRadius.md, minHeight: 42, paddingVertical: 9,
   },
   openChatBtnText: { color: '#fff', fontWeight: FontWeights.bold, fontSize: 12 },
   endBtn: {
-    flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 9,
-    borderWidth: 1.5, borderColor: '#4F46E5', borderRadius: BorderRadius.md,
+    flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 42, paddingVertical: 9,
+    borderWidth: 1.5, borderColor: '#6366F1', borderRadius: BorderRadius.md,
   },
-  endBtnText: { color: '#4F46E5', fontWeight: FontWeights.semibold, fontSize: 12 },
+  endBtnText: { color: '#6366F1', fontWeight: FontWeights.semibold, fontSize: 12 },
 
   empty: { alignItems: 'center', paddingVertical: 48, gap: 8 },
   emptyTitle: { fontSize: FontSizes.md, fontWeight: FontWeights.bold, color: Colors.text },
@@ -901,7 +1076,7 @@ const styles = (Colors: any) => StyleSheet.create({
   modalOverlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', justifyContent: 'flex-end' },
   modalCard: {
     backgroundColor: Colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    padding: Spacing.lg, gap: 14,
+    padding: 16, gap: 14,
   },
   modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   modalTitle: { fontSize: FontSizes.lg, fontWeight: FontWeights.bold, color: Colors.text },
@@ -918,7 +1093,7 @@ const styles = (Colors: any) => StyleSheet.create({
   purposePill: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
     paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999,
-    borderWidth: 1, borderColor: Colors.border, backgroundColor: Colors.card,
+    borderWidth: 1, borderColor: Colors.border, backgroundColor: 'transparent',
   },
   purposePillActive: { backgroundColor: '#4F46E5', borderColor: '#4F46E5' },
   purposePillText: { fontSize: 12, fontWeight: '600', color: Colors.textSecondary },
@@ -928,7 +1103,8 @@ const styles = (Colors: any) => StyleSheet.create({
 
   textArea: {
     borderWidth: 1, borderColor: Colors.border, borderRadius: BorderRadius.md,
-    padding: Spacing.sm, minHeight: 90, color: Colors.text, fontSize: FontSizes.sm,
+    padding: 11, minHeight: 90, color: Colors.text, fontSize: FontSizes.sm,
+    backgroundColor: 'transparent',
   },
   submitBtn: { backgroundColor: '#4F46E5', borderRadius: BorderRadius.md, paddingVertical: 14, alignItems: 'center' },
   submitBtnText: { color: '#fff', fontWeight: FontWeights.bold, fontSize: FontSizes.md },
