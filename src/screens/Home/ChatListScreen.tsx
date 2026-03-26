@@ -29,7 +29,7 @@ import {
   createGroupConversation,
   updateUserStatus,
   deleteConversationForUser,
-  searchPublicGroups,
+  getPublicGroupsForUser,
   requestToJoinPublicGroup,
 } from '../../api/chat';
 import { supabase } from '../../api/supabase';
@@ -56,7 +56,7 @@ export default function ChatScreen() {
   const [activeSearch, setActiveSearch] = useState('');
   const [connectionSearchQuery, setConnectionSearchQuery] = useState('');
   const [refreshing, setRefreshing] = useState(false);
-  const [activeFilter, setActiveFilter] = useState<'all' | 'unread' | 'groups' | 'direct' | 'mentorship'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'unread' | 'groups' | 'direct' | 'public_groups' | 'mentorship'>('all');
   const [showComposeMenu, setShowComposeMenu] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const discoverSearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -75,6 +75,8 @@ export default function ChatScreen() {
   const [discoverResults, setDiscoverResults] = useState<any[]>([]);
   const [loadingDiscoverGroups, setLoadingDiscoverGroups] = useState(false);
   const [requestingGroupId, setRequestingGroupId] = useState<string | null>(null);
+  const [publicGroupsCatalog, setPublicGroupsCatalog] = useState<any[]>([]);
+  const [loadingPublicGroupsCatalog, setLoadingPublicGroupsCatalog] = useState(false);
 
   const loadConversations = async () => {
     if (!user?.id) return;
@@ -92,6 +94,9 @@ export default function ChatScreen() {
     try {
       setRefreshing(true);
       await loadConversations();
+      if (activeFilter === 'public_groups') {
+        await loadPublicGroupsCatalog(activeSearch);
+      }
     } finally {
       setRefreshing(false);
     }
@@ -222,16 +227,9 @@ export default function ChatScreen() {
   const loadDiscoverableGroups = async (query: string) => {
     if (!user?.id) return;
 
-    const trimmed = query.trim();
-    if (trimmed.length < 2) {
-      setDiscoverResults([]);
-      setLoadingDiscoverGroups(false);
-      return;
-    }
-
     try {
       setLoadingDiscoverGroups(true);
-      const groups = await searchPublicGroups(user.id, trimmed);
+      const groups = await getPublicGroupsForUser(user.id, query);
       setDiscoverResults(groups || []);
     } catch (error: any) {
       console.error('Error searching public groups:', error);
@@ -245,6 +243,30 @@ export default function ChatScreen() {
     }
   };
 
+  const loadPublicGroupsCatalog = async (query = '') => {
+    if (!user?.id) return;
+
+    try {
+      setLoadingPublicGroupsCatalog(true);
+      const groups = await getPublicGroupsForUser(user.id, query);
+      setPublicGroupsCatalog(groups || []);
+    } catch (error: any) {
+      console.error('Error loading public groups catalog:', error);
+      Toast.show({
+        type: 'error',
+        text1: 'Unable to load public groups',
+        text2: error?.message || 'Please try again',
+      });
+    } finally {
+      setLoadingPublicGroupsCatalog(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!user?.id || activeFilter !== 'public_groups') return;
+    loadPublicGroupsCatalog(activeSearch);
+  }, [activeFilter, activeSearch, user?.id]);
+
   const handleRequestGroupJoin = async (groupId: string) => {
     if (!user?.id) return;
 
@@ -252,6 +274,11 @@ export default function ChatScreen() {
       setRequestingGroupId(groupId);
       await requestToJoinPublicGroup(groupId, user.id);
       setDiscoverResults((prev) =>
+        prev.map((item) =>
+          item.id === groupId ? { ...item, request_status: 'pending' } : item
+        )
+      );
+      setPublicGroupsCatalog((prev) =>
         prev.map((item) =>
           item.id === groupId ? { ...item, request_status: 'pending' } : item
         )
@@ -367,10 +394,14 @@ export default function ChatScreen() {
               text1: conversation.is_group ? 'Left group chat' : 'Conversation deleted',
             });
           } catch (error: any) {
+            const errorMessage = String(error?.message || '');
+            const isOwnerLeaveBlocked = errorMessage.toLowerCase().includes('assign at least one other active member as admin');
             Toast.show({
               type: 'error',
-              text1: 'Unable to delete conversation',
-              text2: error?.message || 'Please try again',
+              text1: isOwnerLeaveBlocked ? 'Assign an admin before leaving' : 'Unable to delete conversation',
+              text2: isOwnerLeaveBlocked
+                ? 'Make another active member an admin, then leave the group.'
+                : (error?.message || 'Please try again'),
             });
           }
         },
@@ -379,6 +410,10 @@ export default function ChatScreen() {
   };
 
   const filteredConversations = useMemo(() => {
+    if (activeFilter === 'public_groups') {
+      return publicGroupsCatalog;
+    }
+
     let results = conversations;
 
     if (activeFilter === 'unread') {
@@ -400,7 +435,7 @@ export default function ChatScreen() {
       const lastMessage = (conversation.last_message?.content || '').toLowerCase();
       return name.toLowerCase().includes(query) || lastMessage.includes(query);
     });
-  }, [conversations, activeSearch, user?.id, activeFilter]);
+  }, [conversations, activeSearch, user?.id, activeFilter, publicGroupsCatalog]);
 
   const filteredConnections = useMemo(() => {
     if (!connectionSearchQuery.trim()) {
@@ -431,16 +466,104 @@ export default function ChatScreen() {
   const unreadTotal = conversations.reduce((sum, conversation) => sum + (conversation.unread_count || 0), 0);
   const groupCount = conversations.filter((conversation) => conversation.is_group).length;
   const directCount = conversations.filter((conversation) => !conversation.is_group).length;
+  const joinedPublicGroupCount = conversations.filter(
+    (conversation) => conversation.is_group && conversation.group_visibility === 'public'
+  ).length;
+  const publicGroupCount = publicGroupsCatalog.length > 0 || loadingPublicGroupsCatalog
+    ? publicGroupsCatalog.length
+    : joinedPublicGroupCount;
 
   const mentorshipCount = conversations.filter((c) => c.conv_type === 'mentorship').length;
-  const filterOptions: Array<{ key: 'all' | 'unread' | 'groups' | 'direct' | 'mentorship'; label: string; count: number; icon: string }> = [
+  const isPublicFilterActive = activeFilter === 'public_groups';
+  const filterOptions: Array<{ key: 'all' | 'unread' | 'groups' | 'direct' | 'public_groups' | 'mentorship'; label: string; count: number; icon: string }> = [
     { key: 'all', label: 'All', count: conversations.length, icon: 'forum' },
     { key: 'unread', label: 'Unread', count: unreadTotal, icon: 'notifications-none' },
     { key: 'groups', label: 'Groups', count: groupCount, icon: 'group' },
     { key: 'direct', label: 'Direct', count: directCount, icon: 'person' },
+    { key: 'public_groups', label: 'Public', count: publicGroupCount, icon: 'public' },
   ];
 
   const renderConversationItem = ({ item: conversation }: { item: any }) => {
+    if (activeFilter === 'public_groups') {
+      const isMember = !!conversation.is_member;
+      const status = conversation.request_status;
+      const isPending = status === 'pending';
+      const canRequest = !isMember && !isPending;
+      const showRequestLoader = requestingGroupId === conversation.id;
+
+      return (
+        <View style={styles.publicGroupCard}>
+          <View style={styles.publicGroupCardTopRow}>
+            <View style={[styles.avatarRingSmall, { borderColor: '#FF0000' }]}>
+              <UserAvatar
+                uri={conversation.group_avatar}
+                name={conversation.group_name || 'Group'}
+                size={44}
+                showRing={false}
+              />
+            </View>
+            <View style={styles.discoverGroupTextWrap}>
+              <Text style={styles.discoverGroupName}>{conversation.group_name || 'Group'}</Text>
+              <View style={styles.publicGroupMetaRow}>
+                <View style={[styles.typeChip, styles.typeChipGroup]}>
+                  <Text style={[styles.typeChipText, styles.typeChipTextGroup]}>Public group</Text>
+                </View>
+                {isMember && (
+                  <View style={styles.publicGroupInlineStatusPill}>
+                    <Text style={styles.publicGroupInlineStatusText}>Joined</Text>
+                  </View>
+                )}
+                {!isMember && isPending && (
+                  <View style={styles.publicGroupPendingPill}>
+                    <Text style={styles.publicGroupPendingText}>Pending</Text>
+                  </View>
+                )}
+              </View>
+              <Text style={styles.discoverGroupBio} numberOfLines={2}>
+                {conversation.group_bio || 'No group bio yet'}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.publicGroupItemActionWrap}>
+            {isMember ? (
+              <TouchableOpacity
+                style={[styles.publicGroupPrimaryActionButton, styles.publicGroupOpenButton]}
+                onPress={() => {
+                  navigation.navigate('ChatConversation', {
+                    conversationId: conversation.id,
+                    name: conversation.group_name || 'Group chat',
+                    isGroup: true,
+                  });
+                }}
+              >
+                <MaterialIcons name="forum" size={15} color="#ffffff" />
+                <Text style={styles.publicGroupPrimaryActionText}>Open Chat</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={[
+                  styles.publicGroupPrimaryActionButton,
+                  styles.publicGroupRequestButton,
+                  !canRequest && styles.publicGroupRequestButtonDisabled,
+                ]}
+                disabled={!canRequest || showRequestLoader}
+                onPress={() => handleRequestGroupJoin(conversation.id)}
+              >
+                {showRequestLoader ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <Text style={styles.publicGroupPrimaryActionText}>
+                    {isPending ? 'Pending' : 'Request'}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      );
+    }
+
     const name = getConversationName(conversation, currentUserId);
     const latestIncomingUnread =
       conversation.last_message &&
@@ -599,7 +722,11 @@ export default function ChatScreen() {
               <View style={styles.header}>
                 <View>
                   <Text style={styles.headerTitle}>Messages</Text>
-                  <Text style={styles.headerSubtitle}>{`${unreadTotal} unread • ${directCount} direct chats`}</Text>
+                  <Text style={styles.headerSubtitle}>
+                    {isPublicFilterActive
+                      ? `${publicGroupCount} public groups • joined + discover`
+                      : `${unreadTotal} unread • ${directCount} direct chats`}
+                  </Text>
                 </View>
                 <TouchableOpacity
                   style={styles.composeButton}
@@ -616,7 +743,7 @@ export default function ChatScreen() {
                   </View>
                   <TextInput
                     style={styles.searchInput}
-                    placeholder="Search conversations…"
+                    placeholder={isPublicFilterActive ? 'Search public groups…' : 'Search conversations…'}
                     placeholderTextColor="#B0B7C3"
                     value={searchInput}
                     onChangeText={setSearchInput}
@@ -669,7 +796,9 @@ export default function ChatScreen() {
                     <Text style={styles.resultsCount}>
                       {activeSearch
                         ? `${filteredConversations.length} results for "${activeSearch}"`
-                        : `${filteredConversations.length} conversation${filteredConversations.length !== 1 ? 's' : ''}`}
+                        : activeFilter === 'public_groups'
+                          ? `${filteredConversations.length} public group${filteredConversations.length !== 1 ? 's' : ''}`
+                          : `${filteredConversations.length} conversation${filteredConversations.length !== 1 ? 's' : ''}`}
                     </Text>
                   </View>
               </View>
@@ -680,11 +809,28 @@ export default function ChatScreen() {
           keyboardShouldPersistTaps="handled"
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6366F1" />}
           ListEmptyComponent={
-            <View style={styles.emptyStateContainer}>
-              <MaterialIcons name="chat-bubble-outline" size={44} color={Colors.textSecondary} />
-              <Text style={styles.emptyStateTitle}>No chats found</Text>
-              <Text style={styles.emptyStateSubtext}>Start a new conversation from the compose button.</Text>
-            </View>
+            loadingPublicGroupsCatalog && activeFilter === 'public_groups' ? (
+              <View style={styles.emptyStateContainer}>
+                <ActivityIndicator size="large" color={Colors.primary} />
+                <Text style={styles.emptyStateSubtext}>Loading public groups...</Text>
+              </View>
+            ) : (
+              <View style={styles.emptyStateContainer}>
+                <MaterialIcons
+                  name={activeFilter === 'public_groups' ? 'public' : 'chat-bubble-outline'}
+                  size={44}
+                  color={Colors.textSecondary}
+                />
+                <Text style={styles.emptyStateTitle}>
+                  {activeFilter === 'public_groups' ? 'No public groups found' : 'No chats found'}
+                </Text>
+                <Text style={styles.emptyStateSubtext}>
+                  {activeFilter === 'public_groups'
+                    ? 'Try a different search term or check back later.'
+                    : 'Start a new conversation from the compose button.'}
+                </Text>
+              </View>
+            )
           }
         />
 
@@ -792,7 +938,7 @@ export default function ChatScreen() {
             <View style={styles.modalHeader}>
               <View>
                 <Text style={styles.modalTitle}>Discover Public Groups</Text>
-                <Text style={styles.modalSubtitle}>Search by group name and request to join.</Text>
+                <Text style={styles.modalSubtitle}>Browse all public groups or search by name.</Text>
               </View>
               <TouchableOpacity onPress={() => setShowDiscoverGroupsModal(false)}>
                 <MaterialIcons name="close" size={24} color={Colors.text} />
@@ -805,7 +951,7 @@ export default function ChatScreen() {
                 <TextInput
                   value={discoverQuery}
                   onChangeText={setDiscoverQuery}
-                  placeholder="Type group name"
+                  placeholder="Search group name (optional)"
                   placeholderTextColor={Colors.textSecondary}
                   style={styles.modalSearchInput}
                 />
@@ -818,13 +964,7 @@ export default function ChatScreen() {
             </View>
 
             <ScrollView style={styles.modalScrollView} keyboardShouldPersistTaps="handled">
-              {discoverQuery.trim().length < 2 ? (
-                <View style={styles.emptyConnections}>
-                  <MaterialIcons name="manage-search" size={48} color={Colors.textSecondary} />
-                  <Text style={styles.emptyConnectionsText}>Search groups</Text>
-                  <Text style={styles.emptyConnectionsSubtext}>Enter at least 2 characters to find public groups.</Text>
-                </View>
-              ) : loadingDiscoverGroups ? (
+              {loadingDiscoverGroups ? (
                 <View style={styles.modalLoading}>
                   <ActivityIndicator size="large" color={Colors.primary} />
                 </View>
@@ -1923,5 +2063,90 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     fontSize: FontSizes.sm,
     fontWeight: FontWeights.semibold,
     color: '#ffffff',
+  },
+  publicGroupItemActionWrap: {
+    alignItems: 'flex-end',
+  },
+  publicGroupCard: {
+    marginBottom: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: BorderRadius.lg,
+    backgroundColor: Colors.card,
+    padding: Spacing.sm,
+    gap: Spacing.sm,
+  },
+  publicGroupCardTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  publicGroupMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    marginBottom: 4,
+    flexWrap: 'wrap',
+  },
+  publicGroupInlineStatusPill: {
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.primarySoft,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  publicGroupInlineStatusText: {
+    fontSize: FontSizes.xs,
+    fontWeight: FontWeights.semibold,
+    color: Colors.primaryContent,
+  },
+  publicGroupPendingPill: {
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.warning + '22',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  publicGroupPendingText: {
+    fontSize: FontSizes.xs,
+    fontWeight: FontWeights.semibold,
+    color: Colors.warning,
+  },
+  publicGroupPrimaryActionButton: {
+    minWidth: 116,
+    borderRadius: BorderRadius.md,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 6,
+  },
+  publicGroupOpenButton: {
+    backgroundColor: Colors.primary,
+  },
+  publicGroupRequestButton: {
+    backgroundColor: Colors.primary,
+  },
+  publicGroupRequestButtonDisabled: {
+    backgroundColor: Colors.textSecondary,
+    opacity: 0.75,
+  },
+  publicGroupPrimaryActionText: {
+    fontSize: FontSizes.sm,
+    fontWeight: FontWeights.semibold,
+    color: '#ffffff',
+  },
+  publicGroupStatusPill: {
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.primarySoft,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 8,
+    minWidth: 88,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  publicGroupStatusText: {
+    fontSize: FontSizes.sm,
+    fontWeight: FontWeights.semibold,
+    color: Colors.primaryContent,
   },
 });

@@ -42,6 +42,7 @@ import {
   removeMessageReaction,
   removeConversationSupervisor,
   removeParticipantFromGroup,
+  deleteGroupConversation,
   sendMessage,
   setTyping,
   removeTyping,
@@ -1305,6 +1306,31 @@ export default function ChatConversationScreen() {
     } catch (error: any) {
       Toast.show({ type: 'error', text1: 'Failed', text2: error?.message || 'Try again' });
     }
+  };
+
+  const handleDeleteGroup = async () => {
+    if (!conversationId || !user?.id || !isGroup || !canManageGroup) return;
+
+    setConfirmDialog({
+      visible: true,
+      title: 'Delete Group',
+      message: 'This will permanently delete the group, all messages, and pending join requests for everyone. This action cannot be undone.',
+      onConfirm: async () => {
+        try {
+          await deleteGroupConversation(conversationId, user.id);
+          setShowChatOptions(false);
+          setShowGroupMembers(false);
+          Toast.show({ type: 'success', text1: 'Group deleted' });
+          navigation.goBack();
+        } catch (error: any) {
+          Toast.show({
+            type: 'error',
+            text1: 'Failed to delete group',
+            text2: error?.message || 'Try again',
+          });
+        }
+      },
+    });
   };
 
   const handleAddSupervision = async () => {
@@ -2890,6 +2916,16 @@ export default function ChatConversationScreen() {
               >
                 <MaterialIcons name="campaign" size={20} color={Colors.warning} />
                 <Text style={styles.optionText}>Create Announcement</Text>
+              </TouchableOpacity>
+            )}
+
+            {isGroup && canManageGroup && (
+              <TouchableOpacity
+                style={styles.optionRow}
+                onPress={handleDeleteGroup}
+              >
+                <MaterialIcons name="delete-forever" size={20} color={Colors.error} />
+                <Text style={[styles.optionText, { color: Colors.error }]}>Delete Group</Text>
               </TouchableOpacity>
             )}
 

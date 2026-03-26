@@ -467,6 +467,100 @@ export const deleteConversationForUser = async (
     console.warn('deleteConversationForUser called with mismatched userId; using authenticated user instead');
   }
 
+  const { data: conversation, error: conversationError } = await supabase
+    .from('conversations')
+    .select('id, is_group, created_by')
+    .eq('id', conversationId)
+    .maybeSingle();
+
+  if (conversationError) {
+    throw conversationError;
+  }
+
+  const isGroupOwnerLeaving = !!conversation?.is_group && conversation?.created_by === currentUserId;
+
+  if (isGroupOwnerLeaving) {
+    const { data: otherActiveParticipants, error: membersError } = await supabase
+      .from('conversation_participants')
+      .select('user_id, is_admin, joined_at')
+      .eq('conversation_id', conversationId)
+      .is('left_at', null)
+      .neq('user_id', currentUserId)
+      .order('joined_at', { ascending: true });
+
+    if (membersError) {
+      throw membersError;
+    }
+
+    const activeAdmins = (otherActiveParticipants || []).filter((participant: any) => !!participant.is_admin);
+
+    if (!activeAdmins.length) {
+      throw new Error('Before leaving, assign at least one other active member as admin.');
+    }
+
+    const adminIds = activeAdmins
+      .map((participant: any) => participant.user_id)
+      .filter(Boolean);
+
+    let nextOwnerId: string | null = null;
+
+    if (adminIds.length > 0) {
+      const { data: promotionLogs, error: promotionLogsError } = await supabase
+        .from('group_activity_logs')
+        .select('target_user_id, created_at')
+        .eq('conversation_id', conversationId)
+        .eq('action', 'promoted')
+        .in('target_user_id', adminIds)
+        .order('created_at', { ascending: true });
+
+      if (promotionLogsError) {
+        throw promotionLogsError;
+      }
+
+      const firstPromotedAtByUser = new Map<string, string>();
+      (promotionLogs || []).forEach((log: any) => {
+        const targetUserId = log?.target_user_id;
+        if (!targetUserId || firstPromotedAtByUser.has(targetUserId)) return;
+        firstPromotedAtByUser.set(targetUserId, log.created_at || '');
+      });
+
+      const sortedAdmins = [...activeAdmins].sort((a: any, b: any) => {
+        const aPromotedAt = firstPromotedAtByUser.get(a.user_id);
+        const bPromotedAt = firstPromotedAtByUser.get(b.user_id);
+
+        if (aPromotedAt && bPromotedAt) {
+          return new Date(aPromotedAt).getTime() - new Date(bPromotedAt).getTime();
+        }
+
+        if (aPromotedAt && !bPromotedAt) return -1;
+        if (!aPromotedAt && bPromotedAt) return 1;
+
+        const aJoinedAt = a.joined_at ? new Date(a.joined_at).getTime() : Number.MAX_SAFE_INTEGER;
+        const bJoinedAt = b.joined_at ? new Date(b.joined_at).getTime() : Number.MAX_SAFE_INTEGER;
+        return aJoinedAt - bJoinedAt;
+      });
+
+      nextOwnerId = sortedAdmins[0]?.user_id || null;
+    }
+
+    if (!nextOwnerId) {
+      nextOwnerId = activeAdmins[0]?.user_id || null;
+    }
+
+    if (!nextOwnerId) {
+      throw new Error('Before leaving, assign at least one other active member as admin.');
+    }
+
+    const { error: transferOwnerError } = await supabase
+      .from('conversations')
+      .update({ created_by: nextOwnerId, updated_at: new Date().toISOString() } as any)
+      .eq('id', conversationId);
+
+    if (transferOwnerError) {
+      throw transferOwnerError;
+    }
+  }
+
   const { error } = await supabase
     .from("conversation_participants")
     .update({ left_at: new Date().toISOString(), is_admin: false } as any)
@@ -484,6 +578,91 @@ export const deleteConversationForUser = async (
     .delete()
     .eq("conversation_id", conversationId)
     .eq("user_id", currentUserId);
+
+  return { success: true };
+};
+
+export const deleteGroupConversation = async (
+  conversationId: string,
+  actorId: string
+) => {
+  const details = await ensureGroupAdminPermission(conversationId, actorId);
+
+  if (!details?.is_group) {
+    throw new Error('Only group conversations can be deleted');
+  }
+
+  const { data: messageRows, error: messageRowsError } = await supabase
+    .from('messages')
+    .select('id')
+    .eq('conversation_id', conversationId);
+
+  if (messageRowsError) throw messageRowsError;
+
+  const messageIds = (messageRows || []).map((row: any) => row.id).filter(Boolean);
+
+  if (messageIds.length > 0) {
+    const { error: messageReadsDeleteError } = await supabase
+      .from('message_reads')
+      .delete()
+      .in('message_id', messageIds);
+    if (messageReadsDeleteError) throw messageReadsDeleteError;
+
+    const { error: messageReactionsDeleteError } = await supabase
+      .from('message_reactions')
+      .delete()
+      .in('message_id', messageIds);
+    if (messageReactionsDeleteError) throw messageReactionsDeleteError;
+  }
+
+  const { error: pinnedMessagesDeleteError } = await supabase
+    .from('pinned_messages')
+    .delete()
+    .eq('conversation_id', conversationId);
+  if (pinnedMessagesDeleteError) throw pinnedMessagesDeleteError;
+
+  const { error: announcementsDeleteError } = await supabase
+    .from('group_announcements')
+    .delete()
+    .eq('conversation_id', conversationId);
+  if (announcementsDeleteError) throw announcementsDeleteError;
+
+  const { error: groupActivitiesDeleteError } = await supabase
+    .from('group_activity_logs')
+    .delete()
+    .eq('conversation_id', conversationId);
+  if (groupActivitiesDeleteError) throw groupActivitiesDeleteError;
+
+  const { error: groupJoinRequestsDeleteError } = await supabase
+    .from(GROUP_JOIN_REQUESTS_TABLE)
+    .delete()
+    .eq('conversation_id', conversationId);
+  if (groupJoinRequestsDeleteError) throwGroupJoinRequestTableMissing(groupJoinRequestsDeleteError);
+
+  const { error: typingIndicatorsDeleteError } = await supabase
+    .from('typing_indicators')
+    .delete()
+    .eq('conversation_id', conversationId);
+  if (typingIndicatorsDeleteError) throw typingIndicatorsDeleteError;
+
+  const { error: participantsDeleteError } = await supabase
+    .from('conversation_participants')
+    .delete()
+    .eq('conversation_id', conversationId);
+  if (participantsDeleteError) throw participantsDeleteError;
+
+  const { error: messagesDeleteError } = await supabase
+    .from('messages')
+    .delete()
+    .eq('conversation_id', conversationId);
+  if (messagesDeleteError) throw messagesDeleteError;
+
+  const { error: conversationDeleteError } = await supabase
+    .from('conversations')
+    .delete()
+    .eq('id', conversationId)
+    .eq('is_group', true);
+  if (conversationDeleteError) throw conversationDeleteError;
 
   return { success: true };
 };
@@ -761,14 +940,25 @@ export const searchPublicGroups = async (userId: string, rawQuery: string) => {
     return [];
   }
 
-  const { data: groups, error: groupsError } = await supabase
+  return getPublicGroupsForUser(userId, query);
+};
+
+export const getPublicGroupsForUser = async (userId: string, rawQuery = '') => {
+  const query = rawQuery.trim();
+
+  let groupsQuery = supabase
     .from('conversations')
     .select('id, group_name, group_avatar, group_bio, group_visibility, created_by, updated_at')
     .eq('is_group', true)
-    .eq('group_visibility', 'public')
-    .ilike('group_name', `%${query}%`)
+    .eq('group_visibility', 'public');
+
+  if (query.length > 0) {
+    groupsQuery = groupsQuery.ilike('group_name', `%${query}%`);
+  }
+
+  const { data: groups, error: groupsError } = await groupsQuery
     .order('updated_at', { ascending: false })
-    .limit(40);
+    .limit(80);
 
   if (groupsError) {
     const message = `${groupsError?.message || ''}`.toLowerCase();
@@ -880,20 +1070,43 @@ export const requestToJoinPublicGroup = async (conversationId: string, requester
     .eq('id', requesterId)
     .maybeSingle();
 
-  await supabase.from('notifications').insert({
-    user_id: group.created_by,
-    type: 'group_join_request',
-    title: 'New Group Join Request',
-    body: `${requesterProfile?.full_name || 'A user'} requested to join ${group.group_name || 'your group'}`,
-    related_id: conversationId,
-    related_type: 'conversation',
-    metadata: {
-      requester_id: requesterId,
-      request_id: createdRequest?.id,
-      conversation_id: conversationId,
-    },
-    is_read: false,
-  } as any);
+  const { data: adminRows, error: adminRowsError } = await supabase
+    .from('conversation_participants')
+    .select('user_id')
+    .eq('conversation_id', conversationId)
+    .eq('is_admin', true)
+    .is('left_at', null);
+
+  if (adminRowsError) throw adminRowsError;
+
+  const adminRecipientIds = Array.from(
+    new Set(
+      ((adminRows || []).map((row: any) => row.user_id).filter(Boolean) as string[])
+    )
+  );
+
+  const recipientIds = adminRecipientIds.length > 0
+    ? adminRecipientIds
+    : (group.created_by ? [group.created_by] : []);
+
+  if (recipientIds.length > 0) {
+    await supabase.from('notifications').insert(
+      recipientIds.map((recipientId) => ({
+        user_id: recipientId,
+        type: 'group_join_request',
+        title: 'New Group Join Request',
+        body: `${requesterProfile?.full_name || 'A user'} requested to join ${group.group_name || 'your group'}`,
+        related_id: conversationId,
+        related_type: 'conversation',
+        metadata: {
+          requester_id: requesterId,
+          request_id: createdRequest?.id,
+          conversation_id: conversationId,
+        },
+        is_read: false,
+      })) as any
+    );
+  }
 
   return createdRequest;
 };
@@ -1032,6 +1245,18 @@ export const setGroupParticipantAdmin = async (
     .is("left_at", null);
 
   if (error) throw error;
+
+  try {
+    await logGroupActivity(
+      conversationId,
+      actorId,
+      isAdmin ? 'promoted' : 'demoted',
+      targetUserId,
+      isAdmin ? 'Member promoted to admin' : 'Admin role removed'
+    );
+  } catch (_err) {
+    // Activity logs should not block admin-role changes.
+  }
 };
 
 export const addParticipantsToGroup = async (
