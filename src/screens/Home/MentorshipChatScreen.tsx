@@ -12,8 +12,10 @@ import {
     Platform,
     ActivityIndicator,
     Modal,
+    Image,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../../navigation/types';
@@ -25,6 +27,7 @@ import ConfirmDialog from '../../components/ConfirmDialog';
 import Toast from 'react-native-toast-message';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { updateUserStatus, getUserStatus } from '../../api/chat';
+import { uploadChatAttachment } from '../../api/chat';
 import {
     getMentorshipMessages,
     sendMentorshipMessage,
@@ -85,7 +88,10 @@ export default function MentorshipChatScreen() {
     const [messages, setMessages] = useState<MentorshipMessage[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isSending, setIsSending] = useState(false);
+    const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
     const [messageText, setMessageText] = useState('');
+    const [selectedAttachmentUri, setSelectedAttachmentUri] = useState<string | null>(null);
+    const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
     const [reactions, setReactions] = useState<Map<string, MessageReaction[]>>(new Map());
     const [showChatOptions, setShowChatOptions] = useState(false);
     const [showMessageOptions, setShowMessageOptions] = useState(false);
@@ -306,12 +312,40 @@ export default function MentorshipChatScreen() {
     // ===== SEND / DELETE =====
     const handleSend = async () => {
         const content = messageText.trim();
-        if (!content || isSending) return;
+        const hasAttachment = !!selectedAttachmentUri;
+        if ((!content && !hasAttachment) || isSending || isUploadingAttachment || !user?.id) return;
         setMessageText(''); setIsSending(true);
         clearTypingStopTimeout(); stopTypingSignal().catch(() => { });
-        try { await sendMentorshipMessage(chatId, content); }
+        try {
+            if (selectedAttachmentUri) {
+                setIsUploadingAttachment(true);
+                const attachmentUrl = await uploadChatAttachment(user.id, selectedAttachmentUri);
+                await sendMentorshipMessage(chatId, content, 'image', attachmentUrl);
+                setSelectedAttachmentUri(null);
+            } else {
+                await sendMentorshipMessage(chatId, content, 'text');
+            }
+        }
         catch (e: any) { Toast.show({ type: 'error', text1: 'Failed to send', text2: e?.message }); setMessageText(content); }
-        finally { setIsSending(false); }
+        finally { setIsUploadingAttachment(false); setIsSending(false); }
+    };
+
+    const handlePickAttachment = async () => {
+        if (!user?.id || isSending || isUploadingAttachment) return;
+        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (permission.status !== 'granted') {
+            Toast.show({ type: 'error', text1: 'Photo permission required' });
+            return;
+        }
+
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ['images'],
+            quality: 0.85,
+            allowsMultipleSelection: false,
+        });
+
+        if (result.canceled || !result.assets?.length) return;
+        setSelectedAttachmentUri(result.assets[0].uri);
     };
 
     const handleDeleteMessage = (messageId: string) => {
@@ -401,6 +435,9 @@ export default function MentorshipChatScreen() {
     // ===== RENDER MESSAGE =====
     const renderMessage = ({ item: message, index }: { item: MentorshipMessage; index: number }) => {
         const isMe = message.sender_id === user?.id;
+        const isImageMessage = message.message_type === 'image' && !!message.attachment_url;
+        const imageCaptionRaw = (message.content || '').trim();
+        const imageCaption = imageCaptionRaw === 'Unable to decrypt message' ? '' : imageCaptionRaw;
         const prev = index > 0 ? filteredMessages[index - 1] : null;
         const showDate = index === 0 || new Date(prev?.created_at || '').toDateString() !== new Date(message.created_at).toDateString();
         const senderDisplayName = isMe ? profile?.full_name || message.sender?.full_name || 'You' : message.sender?.full_name || 'Member';
@@ -410,7 +447,13 @@ export default function MentorshipChatScreen() {
         const groupedReactions = getGroupedReactions(message.id);
         const groupedReactionEntries = Object.entries(groupedReactions);
         const msgLen = (message.content || '').trim().length;
-        const bubbleWidthStyle = msgLen <= 12 ? styles.bubbleShort : msgLen <= 40 ? styles.bubbleMedium : styles.bubbleLong;
+        const bubbleWidthStyle = isImageMessage
+            ? styles.bubbleImage
+            : msgLen <= 12
+                ? styles.bubbleShort
+                : msgLen <= 40
+                    ? styles.bubbleMedium
+                    : styles.bubbleLong;
 
         return (
             <View>
@@ -420,14 +463,28 @@ export default function MentorshipChatScreen() {
                     <View style={[styles.messageBubbleWrap, bubbleWidthStyle]}>
                         <TouchableOpacity
                             style={[styles.messageBubble,
+                            isImageMessage && styles.imageMessageBubble,
                             isMe ? [styles.myMessage, { backgroundColor: chatTheme.bubbleColor }]
                                 : [styles.otherMessage, { backgroundColor: chatTheme.incomingBubbleColor, borderColor: chatTheme.incomingBorderColor }]]}
                             onLongPress={() => handleMessageLongPress(message)} delayLongPress={400} activeOpacity={0.8}>
                             {!isMe && (<Text style={[styles.senderName, { color: chatTheme.incomingTextColor }]} numberOfLines={1}>{senderDisplayName}</Text>)}
                             <View style={styles.messageContentWrap}>
-                                <Text style={[styles.messageText, isMe ? [styles.myMessageText, { color: chatTheme.textColor }] : [styles.otherMessageText, { color: chatTheme.incomingTextColor }]]}>
-                                    {message.content}
-                                </Text>
+                                {isImageMessage ? (
+                                    <View style={styles.imageMessageWrap}>
+                                        <TouchableOpacity activeOpacity={0.9} onPress={() => setImagePreviewUrl(message.attachment_url || null)}>
+                                            <Image source={{ uri: message.attachment_url as string }} style={styles.imageMessage} resizeMode="cover" />
+                                        </TouchableOpacity>
+                                        {!!imageCaption && (
+                                            <Text style={[styles.messageText, isMe ? [styles.myMessageText, { color: chatTheme.textColor }] : [styles.otherMessageText, { color: chatTheme.incomingTextColor }]]}>
+                                                {imageCaption}
+                                            </Text>
+                                        )}
+                                    </View>
+                                ) : (
+                                    <Text style={[styles.messageText, isMe ? [styles.myMessageText, { color: chatTheme.textColor }] : [styles.otherMessageText, { color: chatTheme.incomingTextColor }]]}>
+                                        {message.content}
+                                    </Text>
+                                )}
                             </View>
                             <View style={[styles.messageFooter, isMe ? styles.myMessageFooter : styles.otherMessageFooter]}>
                                 <Text style={[styles.messageTime, isMe ? [styles.myMessageTime, { color: chatTheme.timeColor, opacity: 0.85 }] : [styles.otherMessageTime, { color: chatTheme.incomingTimeColor, opacity: 0.9 }]]}>

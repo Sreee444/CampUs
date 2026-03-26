@@ -11,8 +11,11 @@ import {
     KeyboardAvoidingView,
     Platform,
     ActivityIndicator,
+    Image,
+    Modal,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../../navigation/types';
@@ -21,6 +24,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { UserAvatar } from '../../components/UserAvatar';
 import Toast from 'react-native-toast-message';
+import { uploadChatAttachment } from '../../api/chat';
 import {
     getProjectChatMessages,
     sendProjectChatMessage,
@@ -43,7 +47,10 @@ export default function ProjectChatScreen() {
     const [messages, setMessages] = useState<ProjectChatMessage[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isSending, setIsSending] = useState(false);
+    const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
     const [messageText, setMessageText] = useState('');
+    const [selectedAttachmentUri, setSelectedAttachmentUri] = useState<string | null>(null);
+    const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
     const listRef = useRef<FlatList>(null);
 
     const loadMessages = useCallback(async () => {
@@ -92,21 +99,48 @@ export default function ProjectChatScreen() {
 
     const handleSend = async () => {
         const content = messageText.trim();
-        if (!content || isSending || !user?.id) return;
+        const hasAttachment = !!selectedAttachmentUri;
+        if ((!content && !hasAttachment) || isSending || isUploadingAttachment || !user?.id) return;
 
         console.log('[ProjectChatScreen] Sending message, length:', content.length);
         setMessageText('');
         setIsSending(true);
         try {
-            await sendProjectChatMessage(chatId, user.id, content);
+            if (selectedAttachmentUri) {
+                setIsUploadingAttachment(true);
+                const attachmentUrl = await uploadChatAttachment(user.id, selectedAttachmentUri);
+                await sendProjectChatMessage(chatId, user.id, content, 'image', attachmentUrl);
+                setSelectedAttachmentUri(null);
+            } else {
+                await sendProjectChatMessage(chatId, user.id, content, 'text');
+            }
             console.log('[ProjectChatScreen] Message sent successfully');
         } catch (e: any) {
             console.error('[ProjectChatScreen] Failed to send message:', e);
             Toast.show({ type: 'error', text1: 'Failed to send', text2: e?.message });
             setMessageText(content);
         } finally {
+            setIsUploadingAttachment(false);
             setIsSending(false);
         }
+    };
+
+    const handlePickAttachment = async () => {
+        if (!user?.id || isSending || isUploadingAttachment) return;
+        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (permission.status !== 'granted') {
+            Toast.show({ type: 'error', text1: 'Photo permission required' });
+            return;
+        }
+
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ['images'],
+            quality: 0.85,
+            allowsMultipleSelection: false,
+        });
+
+        if (result.canceled || !result.assets?.length) return;
+        setSelectedAttachmentUri(result.assets[0].uri);
     };
 
     const getDateLabel = (isoDate: string) => {
@@ -123,6 +157,8 @@ export default function ProjectChatScreen() {
 
     const renderMessage = ({ item, index }: { item: ProjectChatMessage; index: number }) => {
         const isMe = item.sender_id === user?.id;
+        const isImageMessage = item.message_type === 'image' && !!item.attachment_url;
+        const imageCaption = (item.content || '').trim();
         const prev = index > 0 ? messages[index - 1] : null;
         const showDate =
             index === 0 ||
@@ -155,13 +191,24 @@ export default function ProjectChatScreen() {
                             )}
                         </View>
                     )}
-                    <View style={[S.bubble, isMe ? S.myBubble : S.otherBubble]}>
+                    <View style={[S.bubble, isImageMessage && S.imageMessageBubble, isMe ? S.myBubble : S.otherBubble]}>
                         {showAvatar && !isMe && (
                             <Text style={S.senderName}>{item.sender?.full_name || 'Member'}</Text>
                         )}
-                        <Text style={[S.msgText, isMe ? S.myMsgText : S.otherMsgText]}>
-                            {item.content}
-                        </Text>
+                        {isImageMessage ? (
+                            <View style={S.imageMessageWrap}>
+                                <TouchableOpacity activeOpacity={0.9} onPress={() => setImagePreviewUrl(item.attachment_url || null)}>
+                                    <Image source={{ uri: item.attachment_url as string }} style={S.imageMessage} resizeMode="cover" />
+                                </TouchableOpacity>
+                                {!!imageCaption && (
+                                    <Text style={[S.msgText, isMe ? S.myMsgText : S.otherMsgText]}>{imageCaption}</Text>
+                                )}
+                            </View>
+                        ) : (
+                            <Text style={[S.msgText, isMe ? S.myMsgText : S.otherMsgText]}>
+                                {item.content}
+                            </Text>
+                        )}
                         <Text style={[S.msgTime, isMe ? S.myMsgTime : S.otherMsgTime]}>{time}</Text>
                     </View>
                 </View>
@@ -228,29 +275,61 @@ export default function ProjectChatScreen() {
 
                 {/* Input */}
                 <View style={S.inputContainer}>
-                    <TextInput
-                        style={S.input}
-                        value={messageText}
-                        onChangeText={setMessageText}
-                        placeholder="Message your team…"
-                        placeholderTextColor={Colors.textSecondary}
-                        multiline
-                        maxLength={2000}
-                        returnKeyType="default"
-                    />
-                    <TouchableOpacity
-                        style={[S.sendBtn, (!messageText.trim() || isSending) && S.sendBtnDisabled]}
-                        onPress={handleSend}
-                        disabled={!messageText.trim() || isSending}
-                    >
-                        {isSending ? (
-                            <ActivityIndicator size="small" color="#fff" />
-                        ) : (
-                            <MaterialIcons name="send" size={20} color="#fff" />
-                        )}
-                    </TouchableOpacity>
+                    {!!selectedAttachmentUri && (
+                        <View style={S.attachmentPreviewRow}>
+                            <Image source={{ uri: selectedAttachmentUri }} style={S.attachmentPreviewImage} />
+                            <TouchableOpacity style={S.attachmentRemoveBtn} onPress={() => setSelectedAttachmentUri(null)}>
+                                <MaterialIcons name="close" size={16} color="#fff" />
+                            </TouchableOpacity>
+                        </View>
+                    )}
+                    <View style={S.inputRow}>
+                        <TouchableOpacity
+                            style={[S.attachBtn, (isUploadingAttachment || isSending) && S.attachBtnDisabled]}
+                            onPress={handlePickAttachment}
+                            disabled={isUploadingAttachment || isSending}
+                        >
+                            {isUploadingAttachment
+                                ? <ActivityIndicator size="small" color={Colors.textSecondary} />
+                                : <MaterialIcons name="attach-file" size={20} color={Colors.textSecondary} />}
+                        </TouchableOpacity>
+                        <TextInput
+                            style={S.input}
+                            value={messageText}
+                            onChangeText={setMessageText}
+                            placeholder="Message your team…"
+                            placeholderTextColor={Colors.textSecondary}
+                            multiline
+                            maxLength={2000}
+                            returnKeyType="default"
+                        />
+                        <TouchableOpacity
+                            style={[S.sendBtn, (!messageText.trim() && !selectedAttachmentUri || isSending || isUploadingAttachment) && S.sendBtnDisabled]}
+                            onPress={handleSend}
+                            disabled={(!messageText.trim() && !selectedAttachmentUri) || isSending || isUploadingAttachment}
+                        >
+                            {(isSending || isUploadingAttachment) ? (
+                                <ActivityIndicator size="small" color="#fff" />
+                            ) : (
+                                <MaterialIcons name="send" size={20} color="#fff" />
+                            )}
+                        </TouchableOpacity>
+                    </View>
                 </View>
             </KeyboardAvoidingView>
+
+            <Modal visible={!!imagePreviewUrl} transparent animationType="fade" onRequestClose={() => setImagePreviewUrl(null)}>
+                <View style={S.imagePreviewBackdrop}>
+                    <TouchableOpacity style={S.imagePreviewClose} onPress={() => setImagePreviewUrl(null)}>
+                        <MaterialIcons name="close" size={28} color="#fff" />
+                    </TouchableOpacity>
+                    <View style={S.imagePreviewContainer}>
+                        {!!imagePreviewUrl && (
+                            <Image source={{ uri: imagePreviewUrl }} style={S.imagePreviewImage} resizeMode="contain" />
+                        )}
+                    </View>
+                </View>
+            </Modal>
         </SafeAreaView>
     );
 }
@@ -328,6 +407,21 @@ const styles = (Colors: any) =>
             paddingVertical: 8,
             gap: 2,
         },
+        imageMessageBubble: {
+            paddingHorizontal: 4,
+            paddingVertical: 4,
+            borderRadius: 14,
+        },
+        imageMessageWrap: {
+            gap: 6,
+        },
+        imageMessage: {
+            width: '100%',
+            aspectRatio: 3 / 4,
+            maxHeight: 300,
+            borderRadius: 10,
+            backgroundColor: Colors.border,
+        },
         myBubble: {
             backgroundColor: '#4F46E5',
             borderBottomRightRadius: 4,
@@ -357,13 +451,17 @@ const styles = (Colors: any) =>
         myMsgTime: { color: 'rgba(255,255,255,0.65)' },
         otherMsgTime: { color: Colors.textSecondary },
         inputContainer: {
-            flexDirection: 'row',
-            alignItems: 'flex-end',
+            flexDirection: 'column',
             paddingHorizontal: Spacing.md,
             paddingVertical: 10,
             backgroundColor: Colors.surface,
             borderTopWidth: 1,
             borderTopColor: Colors.border,
+            gap: 8,
+        },
+        inputRow: {
+            flexDirection: 'row',
+            alignItems: 'flex-end',
             gap: 10,
         },
         input: {
@@ -379,6 +477,20 @@ const styles = (Colors: any) =>
             borderWidth: 1,
             borderColor: Colors.border,
         },
+        attachBtn: {
+            width: 38,
+            height: 38,
+            borderRadius: 19,
+            borderWidth: 1,
+            borderColor: Colors.border,
+            backgroundColor: Colors.background,
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginBottom: 2,
+        },
+        attachBtnDisabled: {
+            opacity: 0.6,
+        },
         sendBtn: {
             width: 42,
             height: 42,
@@ -389,6 +501,51 @@ const styles = (Colors: any) =>
         },
         sendBtnDisabled: {
             backgroundColor: Colors.border,
+        },
+        attachmentPreviewRow: {
+            width: 84,
+            height: 84,
+            borderRadius: 10,
+            overflow: 'hidden',
+            borderWidth: 1,
+            borderColor: Colors.border,
+            backgroundColor: Colors.background,
+        },
+        attachmentPreviewImage: {
+            width: '100%',
+            height: '100%',
+        },
+        attachmentRemoveBtn: {
+            position: 'absolute',
+            right: 4,
+            top: 4,
+            width: 20,
+            height: 20,
+            borderRadius: 10,
+            backgroundColor: 'rgba(0,0,0,0.65)',
+            alignItems: 'center',
+            justifyContent: 'center',
+        },
+        imagePreviewBackdrop: {
+            flex: 1,
+            backgroundColor: 'rgba(0,0,0,0.9)',
+            justifyContent: 'center',
+            alignItems: 'center',
+        },
+        imagePreviewClose: {
+            position: 'absolute',
+            top: 54,
+            right: 18,
+            zIndex: 10,
+            padding: 6,
+        },
+        imagePreviewContainer: {
+            width: '92%',
+            height: '72%',
+        },
+        imagePreviewImage: {
+            width: '100%',
+            height: '100%',
         },
         emptyChat: {
             flex: 1,
