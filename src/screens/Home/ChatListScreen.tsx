@@ -14,6 +14,7 @@ import {
   Image,
   RefreshControl,
   Alert,
+  useWindowDimensions,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -51,6 +52,7 @@ export default function ChatScreen() {
   const { user } = useAuth();
   const Colors = getColors(isDark);
   const styles = createStyles(Colors);
+  const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
   const [conversations, setConversations] = useState<any[]>([]);
   const [searchInput, setSearchInput] = useState('');
   const [activeSearch, setActiveSearch] = useState('');
@@ -475,6 +477,19 @@ export default function ChatScreen() {
 
   const mentorshipCount = conversations.filter((c) => c.conv_type === 'mentorship').length;
   const isPublicFilterActive = activeFilter === 'public_groups';
+  const aiFabSize = useMemo(() => {
+    if (viewportWidth >= 1024) return 52;
+    if (viewportWidth >= 768) return 50;
+    return 46;
+  }, [viewportWidth]);
+  const aiFabIconSize = useMemo(() => Math.max(18, Math.round(aiFabSize * 0.42)), [aiFabSize]);
+  const aiFabBottomOffset = useMemo(() => {
+    const baseOffset = Platform.OS === 'web' ? 26 : 84;
+    if (viewportHeight < 700) return baseOffset - 10;
+    if (viewportWidth >= 768) return baseOffset + 2;
+    return baseOffset;
+  }, [viewportHeight, viewportWidth]);
+  const aiFabRightOffset = viewportWidth >= 768 ? 24 : 16;
   const filterOptions: Array<{ key: 'all' | 'unread' | 'groups' | 'direct' | 'public_groups' | 'mentorship'; label: string; count: number; icon: string }> = [
     { key: 'all', label: 'All', count: conversations.length, icon: 'forum' },
     { key: 'unread', label: 'Unread', count: unreadTotal, icon: 'notifications-none' },
@@ -838,7 +853,16 @@ export default function ChatScreen() {
 
       {/* AI Chat Assistant FAB */}
       <TouchableOpacity
-        style={styles.aiChatFabTouch}
+        style={[
+          styles.aiChatFabTouch,
+          {
+            width: aiFabSize,
+            height: aiFabSize,
+            borderRadius: aiFabSize / 2,
+            bottom: aiFabBottomOffset,
+            right: aiFabRightOffset,
+          },
+        ]}
         activeOpacity={0.9}
         onPress={() => navigation.navigate('ChatConversation', {
           conversationId: 'ai-assistant',
@@ -850,9 +874,20 @@ export default function ChatScreen() {
           colors={['#8B5CF6', '#6366F1']}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          style={styles.aiChatFab}
+          style={[styles.aiChatFab, { borderRadius: aiFabSize / 2 }]}
         >
-          <MaterialIcons name="auto-awesome" size={26} color="#fff" />
+          <View
+            style={[
+              styles.aiChatFabInner,
+              {
+                width: aiFabSize - 12,
+                height: aiFabSize - 12,
+                borderRadius: (aiFabSize - 12) / 2,
+              },
+            ]}
+          >
+            <MaterialIcons name="auto-awesome" size={aiFabIconSize} color="#fff" />
+          </View>
         </LinearGradient>
       </TouchableOpacity>
 
@@ -1612,27 +1647,34 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   aiChatFabTouch: {
     position: 'absolute',
-    bottom: 96,
-    right: 18,
-    width: 62,
-    height: 62,
-    borderRadius: 31,
+    bottom: 84,
+    right: 16,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     overflow: 'hidden',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.28,
-    shadowRadius: 24,
-    elevation: 16,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 14,
+    elevation: 10,
     zIndex: 999,
   },
   aiChatFab: {
     width: '100%',
     height: '100%',
-    borderRadius: 31,
+    borderRadius: 23,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#6366F1',
     elevation: 0,
+  },
+  aiChatFabInner: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
+    backgroundColor: 'rgba(255,255,255,0.12)',
   },
   modalOverlayCenter: {
     flex: 1,
