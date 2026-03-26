@@ -6,6 +6,8 @@ export type ProjectChatMessage = {
     chat_id: string;
     sender_id: string;
     content: string;
+    message_type?: 'text' | 'image' | 'file' | 'system';
+    attachment_url?: string | null;
     created_at: string;
     sender?: {
         id: string;
@@ -127,6 +129,8 @@ export const getProjectChatMessages = async (chatId: string): Promise<ProjectCha
       chat_id,
       sender_id,
       content,
+            message_type,
+            attachment_url,
       created_at,
       sender:profiles!project_chat_messages_sender_id_fkey(
         id, full_name, avatar_url, role
@@ -149,13 +153,21 @@ export const getProjectChatMessages = async (chatId: string): Promise<ProjectCha
 export const sendProjectChatMessage = async (
     chatId: string,
     senderId: string,
-    content: string
+    content: string,
+    messageType: 'text' | 'image' | 'file' | 'system' = 'text',
+    attachmentUrl?: string
 ): Promise<void> => {
     console.log('[ProjectChat] sendMessage - chatId:', chatId, '| senderId:', senderId, '| length:', content.length);
     
     const { error } = await supabase
         .from('project_chat_messages')
-        .insert({ chat_id: chatId, sender_id: senderId, content });
+        .insert({
+            chat_id: chatId,
+            sender_id: senderId,
+            content,
+            message_type: messageType,
+            attachment_url: attachmentUrl,
+        });
     
     if (error) {
         console.error('[ProjectChat] sendMessage - Error:', error);

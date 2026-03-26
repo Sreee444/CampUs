@@ -171,6 +171,8 @@ export type MentorshipMessage = {
   chat_id: string;
   sender_id: string;
   content: string;
+  message_type?: 'text' | 'image' | 'file' | 'system';
+  attachment_url?: string | null;
   created_at: string;
   sender?: Profile;
 };
@@ -204,7 +206,9 @@ export const getMentorshipMessages = async (
 // Send a message in a mentorship chat
 export const sendMentorshipMessage = async (
   chatId: string,
-  content: string
+  content: string,
+  messageType: 'text' | 'image' | 'file' | 'system' = 'text',
+  attachmentUrl?: string
 ): Promise<MentorshipMessage> => {
   const {
     data: { user },
@@ -217,7 +221,8 @@ export const sendMentorshipMessage = async (
   console.log('[SendMsg] sender:', user.id, '| chatId:', chatId);
 
   // Encrypt on the client before storing in Supabase (DB stores only encrypted text).
-  const encryptedContent = encryptMessage(content);
+  const normalizedContent = typeof content === 'string' ? content : String(content ?? '');
+  const encryptedContent = normalizedContent.trim().length > 0 ? encryptMessage(normalizedContent) : null;
 
   const { data, error } = await supabase
     .from('mentorship_messages')
@@ -225,6 +230,8 @@ export const sendMentorshipMessage = async (
       chat_id: chatId,
       sender_id: user.id,
       content: encryptedContent,
+      message_type: messageType,
+      attachment_url: attachmentUrl,
     } as any)
     .select(`
       *,

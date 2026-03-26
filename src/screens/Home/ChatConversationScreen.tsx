@@ -1982,6 +1982,7 @@ export default function ChatConversationScreen() {
             <TouchableOpacity
               style={[
                 styles.messageBubble,
+                isImageMessage && styles.imageMessageBubble,
                 isMyMessage
                   ? [styles.myMessage, { backgroundColor: chatTheme.bubbleColor }]
                   : [
@@ -4377,6 +4378,11 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       maxWidth: '72%',
       minWidth: 180,
     },
+    imageMessageBubble: {
+      paddingHorizontal: 4,
+      paddingVertical: 4,
+      borderRadius: 14,
+    },
     messageFooter: {
       flexDirection: 'row',
       marginTop: 6,
@@ -4386,7 +4392,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       width: '100%',
     },
     imageMessageWrap: {
-      gap: 8,
+      gap: 6,
     },
     imageMessage: {
       width: '100%',
