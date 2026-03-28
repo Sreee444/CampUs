@@ -41,6 +41,12 @@ const isMissingMentorshipReactionTableError = (error: any) => {
   return code === 'PGRST205' || message.includes('mentorship_message_reactions') || message.includes('schema cache');
 };
 
+const isMissingMentorshipMessageReadsTableError = (error: any) => {
+  const code = String(error?.code || '');
+  const message = String(error?.message || '').toLowerCase();
+  return code === 'PGRST205' || message.includes('mentorship_message_reads') || message.includes('schema cache');
+};
+
 // Get all mentorship chats where the user is a participant
 export const getMentorshipChatsForUser = async (userId: string): Promise<MentorshipChat[]> => {
   // First, find chat IDs where the user is a participant
@@ -172,9 +178,26 @@ export type MentorshipMessage = {
   sender_id: string;
   content: string;
   message_type?: 'text' | 'image' | 'file' | 'system';
+  type?: 'text' | 'image' | 'file' | 'system';
   attachment_url?: string | null;
   created_at: string;
   sender?: Profile;
+};
+
+const isMissingColumnError = (error: any) => {
+  const code = String(error?.code || '');
+  const message = String(error?.message || '');
+  return code === '42703' || code === 'PGRST204' || message.includes("Could not find the '");
+};
+
+const normalizeMentorshipMessage = (message: any): MentorshipMessage => {
+  const attachmentUrl = message?.attachment_url ?? null;
+  const normalizedType = message?.message_type ?? message?.type ?? (attachmentUrl ? 'image' : 'text');
+  return {
+    ...message,
+    message_type: normalizedType,
+    attachment_url: attachmentUrl,
+  } as MentorshipMessage;
 };
 
 // Load messages for a mentorship chat
@@ -200,7 +223,9 @@ export const getMentorshipMessages = async (
 
   if (error) throw error;
   // Reverse so oldest is first
-  return (data || []).reverse().map((m: any) => decryptMentorshipMessage(m)) as MentorshipMessage[];
+  return (data || [])
+    .reverse()
+    .map((m: any) => normalizeMentorshipMessage(decryptMentorshipMessage(m))) as MentorshipMessage[];
 };
 
 // Send a message in a mentorship chat
@@ -224,25 +249,41 @@ export const sendMentorshipMessage = async (
   const normalizedContent = typeof content === 'string' ? content : String(content ?? '');
   const encryptedContent = normalizedContent.trim().length > 0 ? encryptMessage(normalizedContent) : null;
 
-  const { data, error } = await supabase
-    .from('mentorship_messages')
-    .insert({
-      chat_id: chatId,
-      sender_id: user.id,
-      content: encryptedContent,
-      message_type: messageType,
-      attachment_url: attachmentUrl,
-    } as any)
-    .select(`
-      *,
-      sender:profiles!mentorship_messages_sender_id_fkey(
-        id,
-        full_name,
-        avatar_url,
-        role
-      )
-    `)
-    .single();
+  const basePayload = {
+    chat_id: chatId,
+    sender_id: user.id,
+    content: encryptedContent,
+  } as any;
+  const attachmentPayload = attachmentUrl !== undefined ? { attachment_url: attachmentUrl } : {};
+  const insertPayloads = [
+    { ...basePayload, message_type: messageType, ...attachmentPayload },
+    { ...basePayload, type: messageType, ...attachmentPayload },
+    { ...basePayload, ...attachmentPayload },
+    { ...basePayload },
+  ];
+
+  let data: any = null;
+  let error: any = null;
+
+  for (const payload of insertPayloads) {
+    ({ data, error } = await supabase
+      .from('mentorship_messages')
+      .insert(payload)
+      .select(`
+        *,
+        sender:profiles!mentorship_messages_sender_id_fkey(
+          id,
+          full_name,
+          avatar_url,
+          role
+        )
+      `)
+      .single());
+
+    if (!error) break;
+    if (!isMissingColumnError(error)) break;
+    console.warn('[SendMsg] retrying insert with fallback payload:', error?.message);
+  }
 
   if (error) {
     console.error('[SendMsg] INSERT error code:', error.code, '| message:', error.message);
@@ -250,7 +291,7 @@ export const sendMentorshipMessage = async (
   }
   console.log('[SendMsg] message inserted OK, id:', data?.id);
   // Decrypt only when returning to UI.
-  return decryptMentorshipMessage(data) as MentorshipMessage;
+  return normalizeMentorshipMessage(decryptMentorshipMessage(data)) as MentorshipMessage;
 };
 
 
@@ -296,7 +337,7 @@ export const subscribeToMentorshipMessages = (
           console.log('[Realtime] delivering message to UI');
           callback({
             type: 'insert',
-            message: decryptMentorshipMessage(data) as MentorshipMessage,
+            message: normalizeMentorshipMessage(decryptMentorshipMessage(data)) as MentorshipMessage,
           });
         } else {
           console.warn('[Realtime] re-fetch returned null — RLS blocking SELECT?');
@@ -403,6 +444,56 @@ export const deleteMentorshipMessage = async (messageId: string): Promise<void> 
     .eq('sender_id', user.id);
 
   if (error) throw error;
+};
+
+// ========== MESSAGE READ RECEIPTS ==========
+
+export const markMentorshipMessagesRead = async (
+  messageIds: string[],
+  userId: string
+): Promise<void> => {
+  if (!messageIds.length || !userId) return;
+
+  const rows = Array.from(new Set(messageIds)).map((messageId) => ({
+    message_id: messageId,
+    user_id: userId,
+    read_at: new Date().toISOString(),
+  }));
+
+  const { error } = await supabase
+    .from('mentorship_message_reads')
+    .upsert(rows, { onConflict: 'message_id,user_id', ignoreDuplicates: true });
+
+  if (error) {
+    if (isMissingMentorshipMessageReadsTableError(error)) return;
+    throw error;
+  }
+};
+
+export const getMentorshipSeenByOthers = async (
+  messageIds: string[],
+  currentUserId: string
+): Promise<Map<string, number>> => {
+  const counts = new Map<string, number>();
+  if (!messageIds.length || !currentUserId) return counts;
+
+  const { data, error } = await supabase
+    .from('mentorship_message_reads')
+    .select('message_id,user_id')
+    .in('message_id', messageIds)
+    .neq('user_id', currentUserId);
+
+  if (error) {
+    if (isMissingMentorshipMessageReadsTableError(error)) return counts;
+    throw error;
+  }
+
+  for (const row of data || []) {
+    const current = counts.get(row.message_id) || 0;
+    counts.set(row.message_id, current + 1);
+  }
+
+  return counts;
 };
 
 // ========== MESSAGE REACTIONS ==========

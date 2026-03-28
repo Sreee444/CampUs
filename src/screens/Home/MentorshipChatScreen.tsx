@@ -33,6 +33,8 @@ import {
     sendMentorshipMessage,
     subscribeToMentorshipMessages,
     getMentorshipChatById,
+    markMentorshipMessagesRead,
+    getMentorshipSeenByOthers,
     MentorshipMessage,
     MentorshipChat,
     addMentorshipMessageReaction,
@@ -104,6 +106,7 @@ export default function MentorshipChatScreen() {
     const [reactionTargetMessageId, setReactionTargetMessageId] = useState<string | null>(null);
     const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
     const [directPartnerStatus, setDirectPartnerStatus] = useState<'online' | 'away' | 'offline' | null>(null);
+    const [seenByOthersMap, setSeenByOthersMap] = useState<Map<string, number>>(new Map());
     const listRef = useRef<FlatList>(null);
     const messageInputRef = useRef<TextInput | null>(null);
     const typingStopTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -279,6 +282,31 @@ export default function MentorshipChatScreen() {
     }, [chatId, loadData]);
 
     useEffect(() => {
+        const syncSeenState = async () => {
+            if (!user?.id || messages.length === 0) return;
+
+            const incomingIds = messages.filter((m) => m.sender_id !== user.id).map((m) => m.id);
+            const outgoingIds = messages.filter((m) => m.sender_id === user.id).map((m) => m.id);
+
+            try {
+                if (incomingIds.length > 0) {
+                    await markMentorshipMessagesRead(incomingIds, user.id);
+                }
+                if (outgoingIds.length > 0) {
+                    const seenCounts = await getMentorshipSeenByOthers(outgoingIds, user.id);
+                    setSeenByOthersMap(seenCounts);
+                } else {
+                    setSeenByOthersMap(new Map());
+                }
+            } catch {
+                // Read receipts are optional; keep chat usable even if table/policy is missing.
+            }
+        };
+
+        syncSeenState();
+    }, [messages, user?.id]);
+
+    useEffect(() => {
         if (messages.length > 0 && !showMessageSearch) {
             setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
         }
@@ -435,7 +463,9 @@ export default function MentorshipChatScreen() {
     // ===== RENDER MESSAGE =====
     const renderMessage = ({ item: message, index }: { item: MentorshipMessage; index: number }) => {
         const isMe = message.sender_id === user?.id;
-        const isImageMessage = message.message_type === 'image' && !!message.attachment_url;
+        const rawType = (message as any)?.message_type ?? (message as any)?.type;
+        const normalizedType = typeof rawType === 'string' ? rawType.toLowerCase() : '';
+        const isImageMessage = !!message.attachment_url && (normalizedType === 'image' || !normalizedType);
         const imageCaptionRaw = (message.content || '').trim();
         const imageCaption = imageCaptionRaw === 'Unable to decrypt message' ? '' : imageCaptionRaw;
         const prev = index > 0 ? filteredMessages[index - 1] : null;
@@ -446,6 +476,9 @@ export default function MentorshipChatScreen() {
         const time = new Date(message.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
         const groupedReactions = getGroupedReactions(message.id);
         const groupedReactionEntries = Object.entries(groupedReactions);
+        const seenByCount = isMe ? (seenByOthersMap.get(message.id) || 0) : 0;
+        const tickName = seenByCount > 0 ? 'done-all' : 'done';
+        const tickColor = seenByCount > 0 ? '#60A5FA' : chatTheme.timeColor;
         const msgLen = (message.content || '').trim().length;
         const bubbleWidthStyle = isImageMessage
             ? styles.bubbleImage
@@ -490,6 +523,7 @@ export default function MentorshipChatScreen() {
                                 <Text style={[styles.messageTime, isMe ? [styles.myMessageTime, { color: chatTheme.timeColor, opacity: 0.85 }] : [styles.otherMessageTime, { color: chatTheme.incomingTimeColor, opacity: 0.9 }]]}>
                                     {time}
                                 </Text>
+                                {isMe && <MaterialIcons name={tickName} size={14} color={tickColor} style={styles.statusTick} />}
                             </View>
                         </TouchableOpacity>
                         {groupedReactionEntries.length > 0 && (
@@ -568,13 +602,37 @@ export default function MentorshipChatScreen() {
 
                 <KeyboardAvoidingView style={styles.composerOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}>
                     <View style={styles.inputContainer}>
+                        {!!selectedAttachmentUri && (
+                            <View style={styles.attachmentPreviewRow}>
+                                <Image source={{ uri: selectedAttachmentUri }} style={styles.attachmentPreviewImage} />
+                                <TouchableOpacity style={styles.attachmentRemoveBtn} onPress={() => setSelectedAttachmentUri(null)}>
+                                    <MaterialIcons name="close" size={16} color="#fff" />
+                                </TouchableOpacity>
+                            </View>
+                        )}
                         <View style={[styles.inputMain, { backgroundColor: Colors.surface, borderColor: composerBorderColor }]}>
+                            <TouchableOpacity
+                                style={[styles.attachBtn, (isUploadingAttachment || isSending) && styles.attachBtnDisabled]}
+                                onPress={handlePickAttachment}
+                                disabled={isUploadingAttachment || isSending}
+                            >
+                                {isUploadingAttachment
+                                    ? <ActivityIndicator size="small" color={Colors.textSecondary} />
+                                    : <MaterialIcons name="attach-file" size={20} color={Colors.textSecondary} />}
+                            </TouchableOpacity>
                             <TextInput ref={messageInputRef} style={styles.input} value={messageText}
-                                onChangeText={(text) => { setMessageText(text); if (!text.trim()) { stopTypingSignal().catch(() => { }); return; } sendTypingSignal(); }}
+                                onChangeText={(text) => { setMessageText(text); if (!text.trim() && !selectedAttachmentUri) { stopTypingSignal().catch(() => { }); return; } sendTypingSignal(); }}
                                 placeholder="Type a message" placeholderTextColor={Colors.textSecondary} multiline maxLength={2000} editable={!isSending} />
                         </View>
-                        <TouchableOpacity style={[styles.sendButton, { backgroundColor: chatTheme.bubbleColor }, (isSending || !messageText.trim()) && styles.sendButtonDisabled]}
-                            onPress={handleSend} disabled={isSending || !messageText.trim()}>
+                        <TouchableOpacity
+                            style={[
+                                styles.sendButton,
+                                { backgroundColor: chatTheme.bubbleColor },
+                                (isSending || isUploadingAttachment || (!messageText.trim() && !selectedAttachmentUri)) && styles.sendButtonDisabled,
+                            ]}
+                            onPress={handleSend}
+                            disabled={isSending || isUploadingAttachment || (!messageText.trim() && !selectedAttachmentUri)}
+                        >
                             {isSending ? <ActivityIndicator size="small" color={chatTheme.textColor} /> : <MaterialIcons name="send" size={22} color={chatTheme.textColor} />}
                         </TouchableOpacity>
                     </View>
@@ -665,6 +723,19 @@ export default function MentorshipChatScreen() {
             <ConfirmDialog visible={confirmDialog.visible} title={confirmDialog.title} message={confirmDialog.message}
                 onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog({ ...confirmDialog, visible: false }); }}
                 onCancel={() => setConfirmDialog({ ...confirmDialog, visible: false })} />
+
+            <Modal visible={!!imagePreviewUrl} transparent animationType="fade" onRequestClose={() => setImagePreviewUrl(null)}>
+                <View style={styles.imagePreviewBackdrop}>
+                    <TouchableOpacity style={styles.imagePreviewClose} onPress={() => setImagePreviewUrl(null)}>
+                        <MaterialIcons name="close" size={28} color="#fff" />
+                    </TouchableOpacity>
+                    <View style={styles.imagePreviewContainer}>
+                        {!!imagePreviewUrl && (
+                            <Image source={{ uri: imagePreviewUrl }} style={styles.imagePreviewImage} resizeMode="contain" />
+                        )}
+                    </View>
+                </View>
+            </Modal>
         </SafeAreaView>
     );
 }
@@ -697,14 +768,18 @@ const createStyles = (Colors: any) =>
         dateSeparatorContainer: { alignItems: 'center', marginBottom: Spacing.sm, marginTop: Spacing.sm },
         dateSeparatorLabel: { fontSize: FontSizes.xs, color: Colors.textSecondary, backgroundColor: Colors.card, borderWidth: 1, borderColor: Colors.border, borderRadius: BorderRadius.full, paddingHorizontal: Spacing.sm, paddingVertical: 2, overflow: 'hidden', fontWeight: FontWeights.medium },
         messageBubbleWrap: { width: 'auto', maxWidth: '84%' },
+        bubbleImage: { maxWidth: '76%' },
         bubbleShort: { maxWidth: '42%' },
         bubbleMedium: { maxWidth: '64%' },
         bubbleLong: { maxWidth: '82%' },
         messageBubble: { maxWidth: '100%', borderRadius: 18, paddingHorizontal: 12, paddingVertical: 9, ...Shadows.sm },
+        imageMessageBubble: { paddingHorizontal: 4, paddingVertical: 4, borderRadius: 14 },
         myMessage: { backgroundColor: Colors.primary, borderBottomRightRadius: 8 },
         otherMessage: { backgroundColor: Colors.card, borderWidth: 1, borderColor: Colors.border, borderBottomLeftRadius: 8 },
         senderName: { fontSize: FontSizes.xs, marginBottom: 3, fontWeight: FontWeights.semibold },
         messageContentWrap: { paddingRight: 2 },
+        imageMessageWrap: { gap: 6 },
+        imageMessage: { width: '100%', minWidth: 160, maxWidth: 260, aspectRatio: 3 / 4, borderRadius: 12, backgroundColor: Colors.surface },
         messageText: { fontSize: FontSizes.md, lineHeight: 21, letterSpacing: 0.1 },
         myMessageText: { color: Colors.primaryContent, textAlign: 'right' },
         otherMessageText: { color: Colors.text },
@@ -714,6 +789,7 @@ const createStyles = (Colors: any) =>
         messageTime: { fontSize: 10, fontWeight: FontWeights.medium, lineHeight: 14 },
         myMessageTime: { color: Colors.primaryContent, opacity: 0.8 },
         otherMessageTime: { color: Colors.textSecondary },
+        statusTick: { marginLeft: -2 },
         reactionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 5 },
         myReactionRow: { justifyContent: 'flex-end' },
         otherReactionRow: { justifyContent: 'flex-start' },
@@ -726,8 +802,41 @@ const createStyles = (Colors: any) =>
         reactionChoiceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: Spacing.sm },
         reactionChoiceButton: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border },
         reactionChoiceText: { fontSize: 21 },
-        inputContainer: { flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: Spacing.md, paddingTop: 6, paddingBottom: Platform.OS === 'ios' ? 10 : 8, gap: 8 },
+        inputContainer: { paddingHorizontal: Spacing.md, paddingTop: 6, paddingBottom: Platform.OS === 'ios' ? 10 : 8, gap: 8 },
+        attachmentPreviewRow: {
+            alignSelf: 'flex-start',
+            marginBottom: 4,
+            position: 'relative',
+        },
+        attachmentPreviewImage: {
+            width: 88,
+            height: 88,
+            borderRadius: 12,
+            borderWidth: 1,
+            borderColor: Colors.border,
+            backgroundColor: Colors.card,
+        },
+        attachmentRemoveBtn: {
+            position: 'absolute',
+            top: -6,
+            right: -6,
+            width: 22,
+            height: 22,
+            borderRadius: 11,
+            backgroundColor: 'rgba(0,0,0,0.72)',
+            alignItems: 'center',
+            justifyContent: 'center',
+        },
         inputMain: { flex: 1, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderRadius: 24, paddingLeft: 4, paddingRight: 4, paddingVertical: 3, ...Shadows.sm },
+        attachBtn: {
+            width: 36,
+            height: 36,
+            borderRadius: 18,
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginLeft: 2,
+        },
+        attachBtnDisabled: { opacity: 0.55 },
         input: { flex: 1, backgroundColor: 'transparent', borderWidth: 0, paddingHorizontal: 6, paddingVertical: 10, fontSize: FontSizes.md, color: Colors.text, maxHeight: 110 },
         sendButton: { width: 46, height: 46, borderRadius: 23, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center', ...Shadows.sm },
         sendButtonDisabled: { opacity: 0.5 },
@@ -751,4 +860,8 @@ const createStyles = (Colors: any) =>
         themePreview: { marginTop: Spacing.md, marginBottom: Spacing.sm, paddingHorizontal: Spacing.md, paddingVertical: Spacing.md, backgroundColor: Colors.background, borderRadius: BorderRadius.lg, gap: 8 },
         previewBubbleOther: { alignSelf: 'flex-start', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 16, borderBottomLeftRadius: 6, borderWidth: 1, maxWidth: '70%' },
         previewBubbleMine: { alignSelf: 'flex-end', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 16, borderBottomRightRadius: 6, maxWidth: '70%' },
+        imagePreviewBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center' },
+        imagePreviewClose: { position: 'absolute', top: 48, right: 20, padding: 8, zIndex: 2 },
+        imagePreviewContainer: { width: '100%', height: '100%', paddingHorizontal: 16, paddingVertical: 72, justifyContent: 'center', alignItems: 'center' },
+        imagePreviewImage: { width: '100%', height: '100%' },
     });
