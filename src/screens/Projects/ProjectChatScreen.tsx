@@ -29,6 +29,9 @@ import {
     getProjectChatMessages,
     sendProjectChatMessage,
     subscribeToProjectChatMessages,
+    deleteProjectChatMessage,
+    markProjectMessagesRead,
+    getProjectSeenByOthers,
     ProjectChatMessage,
 } from '../../api/projectChat';
 
@@ -51,6 +54,10 @@ export default function ProjectChatScreen() {
     const [messageText, setMessageText] = useState('');
     const [selectedAttachmentUri, setSelectedAttachmentUri] = useState<string | null>(null);
     const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+    const [showMessageOptions, setShowMessageOptions] = useState(false);
+    const [selectedMessage, setSelectedMessage] = useState<ProjectChatMessage | null>(null);
+    const [seenByOthersMap, setSeenByOthersMap] = useState<Map<string, number>>(new Map());
+    const [imageLoadFailures, setImageLoadFailures] = useState<Record<string, boolean>>({});
     const listRef = useRef<FlatList>(null);
 
     const loadMessages = useCallback(async () => {
@@ -96,6 +103,31 @@ export default function ProjectChatScreen() {
             setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
         }
     }, [messages.length]);
+
+    useEffect(() => {
+        const syncSeen = async () => {
+            if (!user?.id || messages.length === 0) return;
+
+            const incomingIds = messages.filter((m) => m.sender_id !== user.id).map((m) => m.id);
+            const outgoingIds = messages.filter((m) => m.sender_id === user.id).map((m) => m.id);
+
+            try {
+                if (incomingIds.length) {
+                    await markProjectMessagesRead(incomingIds, user.id);
+                }
+                if (outgoingIds.length) {
+                    const map = await getProjectSeenByOthers(outgoingIds, user.id);
+                    setSeenByOthersMap(map);
+                } else {
+                    setSeenByOthersMap(new Map());
+                }
+            } catch {
+                // Read receipts are optional.
+            }
+        };
+
+        syncSeen();
+    }, [messages, user?.id]);
 
     const handleSend = async () => {
         const content = messageText.trim();
@@ -143,6 +175,20 @@ export default function ProjectChatScreen() {
         setSelectedAttachmentUri(result.assets[0].uri);
     };
 
+    const handleDeleteMessage = async () => {
+        if (!selectedMessage?.id || !user?.id) return;
+        try {
+            await deleteProjectChatMessage(selectedMessage.id, user.id);
+            setMessages((prev) => prev.filter((m) => m.id !== selectedMessage.id));
+            Toast.show({ type: 'success', text1: 'Message deleted' });
+        } catch (e: any) {
+            Toast.show({ type: 'error', text1: 'Delete failed', text2: e?.message });
+        } finally {
+            setShowMessageOptions(false);
+            setSelectedMessage(null);
+        }
+    };
+
     const getDateLabel = (isoDate: string) => {
         const date = new Date(isoDate);
         const today = new Date();
@@ -157,8 +203,13 @@ export default function ProjectChatScreen() {
 
     const renderMessage = ({ item, index }: { item: ProjectChatMessage; index: number }) => {
         const isMe = item.sender_id === user?.id;
-        const isImageMessage = item.message_type === 'image' && !!item.attachment_url;
+        const rawType = (item as any)?.message_type ?? (item as any)?.type;
+        const normalizedType = typeof rawType === 'string' ? rawType.toLowerCase() : '';
+        const contentAsUrl = typeof item.content === 'string' && /^https?:\/\/\S+$/i.test(item.content.trim()) ? item.content.trim() : '';
+        const imageUri = item.attachment_url || contentAsUrl || '';
+        const isImageMessage = !!imageUri && (normalizedType === 'image' || !normalizedType);
         const imageCaption = (item.content || '').trim();
+        const hasImageLoadFailure = !!imageLoadFailures[item.id];
         const prev = index > 0 ? messages[index - 1] : null;
         const showDate =
             index === 0 ||
@@ -168,6 +219,9 @@ export default function ProjectChatScreen() {
             hour: 'numeric',
             minute: '2-digit',
         });
+        const seenByCount = isMe ? (seenByOthersMap.get(item.id) || 0) : 0;
+        const tickName = seenByCount > 0 ? 'done-all' : 'done';
+        const tickColor = seenByCount > 0 ? '#60A5FA' : 'rgba(255,255,255,0.72)';
 
         return (
             <View>
@@ -191,14 +245,35 @@ export default function ProjectChatScreen() {
                             )}
                         </View>
                     )}
-                    <View style={[S.bubble, isImageMessage && S.imageMessageBubble, isMe ? S.myBubble : S.otherBubble]}>
+                    <TouchableOpacity
+                        style={[S.bubble, isImageMessage && S.imageMessageBubble, isMe ? S.myBubble : S.otherBubble]}
+                        onLongPress={() => {
+                            if (!isMe) return;
+                            setSelectedMessage(item);
+                            setShowMessageOptions(true);
+                        }}
+                        delayLongPress={350}
+                        activeOpacity={0.85}
+                    >
                         {showAvatar && !isMe && (
                             <Text style={S.senderName}>{item.sender?.full_name || 'Member'}</Text>
                         )}
                         {isImageMessage ? (
                             <View style={S.imageMessageWrap}>
-                                <TouchableOpacity activeOpacity={0.9} onPress={() => setImagePreviewUrl(item.attachment_url || null)}>
-                                    <Image source={{ uri: item.attachment_url as string }} style={S.imageMessage} resizeMode="cover" />
+                                <TouchableOpacity activeOpacity={0.9} onPress={() => !hasImageLoadFailure && setImagePreviewUrl(imageUri)}>
+                                    {!hasImageLoadFailure ? (
+                                        <Image
+                                            source={{ uri: imageUri }}
+                                            style={S.imageMessage}
+                                            resizeMode="cover"
+                                            onError={() => setImageLoadFailures((prevState) => ({ ...prevState, [item.id]: true }))}
+                                        />
+                                    ) : (
+                                        <View style={S.imageLoadFallback}>
+                                            <MaterialIcons name="broken-image" size={22} color={isMe ? 'rgba(255,255,255,0.85)' : Colors.textSecondary} />
+                                            <Text style={[S.imageLoadFallbackText, isMe ? S.myMsgText : S.otherMsgText]}>Image unavailable</Text>
+                                        </View>
+                                    )}
                                 </TouchableOpacity>
                                 {!!imageCaption && (
                                     <Text style={[S.msgText, isMe ? S.myMsgText : S.otherMsgText]}>{imageCaption}</Text>
@@ -209,8 +284,11 @@ export default function ProjectChatScreen() {
                                 {item.content}
                             </Text>
                         )}
-                        <Text style={[S.msgTime, isMe ? S.myMsgTime : S.otherMsgTime]}>{time}</Text>
-                    </View>
+                        <View style={S.timeRow}>
+                            <Text style={[S.msgTime, isMe ? S.myMsgTime : S.otherMsgTime]}>{time}</Text>
+                            {isMe && <MaterialIcons name={tickName} size={14} color={tickColor} />}
+                        </View>
+                    </TouchableOpacity>
                 </View>
             </View>
         );
@@ -330,6 +408,28 @@ export default function ProjectChatScreen() {
                     </View>
                 </View>
             </Modal>
+
+            <Modal visible={showMessageOptions} transparent animationType="slide" onRequestClose={() => setShowMessageOptions(false)}>
+                <View style={S.modalOverlay}>
+                    <View style={S.optionsSheet}>
+                        <Text style={S.optionsTitle}>Message options</Text>
+                        <TouchableOpacity style={S.optionRow} onPress={handleDeleteMessage}>
+                            <MaterialIcons name="delete-outline" size={20} color={Colors.error} />
+                            <Text style={[S.optionText, { color: Colors.error }]}>Delete message</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={[S.optionRow, S.optionCancel]}
+                            onPress={() => {
+                                setShowMessageOptions(false);
+                                setSelectedMessage(null);
+                            }}
+                        >
+                            <MaterialIcons name="close" size={20} color={Colors.textSecondary} />
+                            <Text style={[S.optionText, { color: Colors.textSecondary }]}>Cancel</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
         </SafeAreaView>
     );
 }
@@ -416,11 +516,25 @@ const styles = (Colors: any) =>
             gap: 6,
         },
         imageMessage: {
-            width: '100%',
-            aspectRatio: 3 / 4,
-            maxHeight: 300,
+            width: 220,
+            height: 220,
             borderRadius: 10,
             backgroundColor: Colors.border,
+        },
+        imageLoadFallback: {
+            width: 220,
+            height: 220,
+            borderRadius: 10,
+            borderWidth: 1,
+            borderColor: Colors.border,
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 6,
+            backgroundColor: Colors.background,
+        },
+        imageLoadFallbackText: {
+            fontSize: 12,
+            fontWeight: '600',
         },
         myBubble: {
             backgroundColor: '#4F46E5',
@@ -447,6 +561,12 @@ const styles = (Colors: any) =>
         msgTime: {
             fontSize: 10,
             alignSelf: 'flex-end',
+        },
+        timeRow: {
+            alignSelf: 'flex-end',
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 3,
         },
         myMsgTime: { color: 'rgba(255,255,255,0.65)' },
         otherMsgTime: { color: Colors.textSecondary },
@@ -558,5 +678,44 @@ const styles = (Colors: any) =>
             fontSize: FontSizes.md,
             color: Colors.textSecondary,
             textAlign: 'center',
+        },
+        modalOverlay: {
+            flex: 1,
+            backgroundColor: 'rgba(0,0,0,0.35)',
+            justifyContent: 'flex-end',
+        },
+        optionsSheet: {
+            backgroundColor: Colors.surface,
+            borderTopLeftRadius: BorderRadius.xl,
+            borderTopRightRadius: BorderRadius.xl,
+            paddingHorizontal: Spacing.md,
+            paddingTop: Spacing.md,
+            paddingBottom: Spacing.lg,
+            gap: Spacing.xs,
+        },
+        optionsTitle: {
+            fontSize: FontSizes.lg,
+            fontWeight: FontWeights.semibold,
+            color: Colors.text,
+            marginBottom: Spacing.xs,
+        },
+        optionRow: {
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: Spacing.md,
+            borderRadius: BorderRadius.md,
+            borderWidth: 1,
+            borderColor: Colors.border,
+            paddingHorizontal: Spacing.md,
+            paddingVertical: Spacing.md,
+            backgroundColor: Colors.card,
+        },
+        optionText: {
+            fontSize: FontSizes.md,
+            color: Colors.text,
+            fontWeight: FontWeights.medium,
+        },
+        optionCancel: {
+            marginTop: Spacing.xs,
         },
     });

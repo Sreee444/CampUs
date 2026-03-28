@@ -7,6 +7,7 @@ export type ProjectChatMessage = {
     sender_id: string;
     content: string;
     message_type?: 'text' | 'image' | 'file' | 'system';
+    type?: 'text' | 'image' | 'file' | 'system';
     attachment_url?: string | null;
     created_at: string;
     sender?: {
@@ -15,6 +16,34 @@ export type ProjectChatMessage = {
         avatar_url?: string;
         role?: string;
     } | null;
+};
+
+const isMissingColumnError = (error: any): boolean => {
+    const code = `${error?.code || ''}`;
+    const message = `${error?.message || ''}`;
+    return code === '42703' || code === 'PGRST204' || message.includes("Could not find the '");
+};
+
+const isMissingProjectMessageReadsTableError = (error: any): boolean => {
+    const code = `${error?.code || ''}`;
+    const message = `${error?.message || ''}`.toLowerCase();
+    return code === 'PGRST205' || message.includes('project_chat_message_reads') || message.includes('schema cache');
+};
+
+const normalizeProjectChatMessage = (message: any): ProjectChatMessage => {
+    const rawContent = typeof message?.content === 'string' ? message.content.trim() : '';
+    const hasExplicitType = typeof message?.message_type === 'string' || typeof message?.type === 'string';
+    const inferredAttachmentFromContent =
+        !hasExplicitType && /^https?:\/\/\S+$/i.test(rawContent) ? rawContent : null;
+    const resolvedAttachmentUrl = message?.attachment_url ?? inferredAttachmentFromContent ?? null;
+    const resolvedType = message?.message_type ?? message?.type ?? (resolvedAttachmentUrl ? 'image' : 'text');
+
+    return {
+        ...message,
+        content: inferredAttachmentFromContent ? '' : message?.content,
+        message_type: resolvedType,
+        attachment_url: resolvedAttachmentUrl,
+    } as ProjectChatMessage;
 };
 
 /**
@@ -121,30 +150,82 @@ export const addParticipantToProjectChat = async (
  */
 export const getProjectChatMessages = async (chatId: string): Promise<ProjectChatMessage[]> => {
     console.log('[ProjectChat] getMessages - chatId:', chatId);
-    
-    const { data, error } = await supabase
-        .from('project_chat_messages')
-        .select(`
-      id,
-      chat_id,
-      sender_id,
-      content,
+
+        const selectShapes = [
+                `
+            id,
+            chat_id,
+            sender_id,
+            content,
             message_type,
             attachment_url,
-      created_at,
-      sender:profiles!project_chat_messages_sender_id_fkey(
-        id, full_name, avatar_url, role
-      )
-    `)
-        .eq('chat_id', chatId)
-        .order('created_at', { ascending: true });
+            created_at,
+            sender:profiles!project_chat_messages_sender_id_fkey(
+                id, full_name, avatar_url, role
+            )
+        `,
+                `
+            id,
+            chat_id,
+            sender_id,
+            content,
+            type,
+            attachment_url,
+            created_at,
+            sender:profiles!project_chat_messages_sender_id_fkey(
+                id, full_name, avatar_url, role
+            )
+        `,
+                `
+            id,
+            chat_id,
+            sender_id,
+            content,
+            attachment_url,
+            created_at,
+            sender:profiles!project_chat_messages_sender_id_fkey(
+                id, full_name, avatar_url, role
+            )
+        `,
+                `
+            id,
+            chat_id,
+            sender_id,
+            content,
+            created_at,
+            sender:profiles!project_chat_messages_sender_id_fkey(
+                id, full_name, avatar_url, role
+            )
+        `,
+        ];
+
+        let data: any[] | null = null;
+        let error: any = null;
+
+        for (const shape of selectShapes) {
+                ({ data, error } = await supabase
+                        .from('project_chat_messages')
+                        .select(shape)
+                        .eq('chat_id', chatId)
+                        .order('created_at', { ascending: true }));
+
+                if (!error) {
+                        break;
+                }
+
+                if (!isMissingColumnError(error)) {
+                        break;
+                }
+
+                console.warn('[ProjectChat] getMessages - Retrying with fallback select shape due to missing column:', error?.message);
+        }
 
     if (error) {
         console.error('[ProjectChat] getMessages - Error:', error);
         throw error;
     }
     console.log('[ProjectChat] getMessages - Retrieved', (data || []).length, 'messages');
-    return (data || []) as ProjectChatMessage[];
+        return (data || []).map(normalizeProjectChatMessage);
 };
 
 /**
@@ -158,22 +239,118 @@ export const sendProjectChatMessage = async (
     attachmentUrl?: string
 ): Promise<void> => {
     console.log('[ProjectChat] sendMessage - chatId:', chatId, '| senderId:', senderId, '| length:', content.length);
-    
-    const { error } = await supabase
-        .from('project_chat_messages')
-        .insert({
-            chat_id: chatId,
-            sender_id: senderId,
-            content,
-            message_type: messageType,
-            attachment_url: attachmentUrl,
-        });
+
+    const basePayload = {
+        chat_id: chatId,
+        sender_id: senderId,
+        content,
+    };
+
+    const basePayloadWithAttachmentFallbackContent = {
+        chat_id: chatId,
+        sender_id: senderId,
+        content: content || attachmentUrl || '',
+    };
+
+    const attachmentPayload = attachmentUrl !== undefined ? { attachment_url: attachmentUrl } : {};
+
+    const insertPayloads = [
+        { ...basePayload, message_type: messageType, ...attachmentPayload },
+        { ...basePayload, type: messageType, ...attachmentPayload },
+        { ...basePayloadWithAttachmentFallbackContent, message_type: messageType },
+        { ...basePayloadWithAttachmentFallbackContent, type: messageType },
+        { ...basePayload, ...attachmentPayload },
+        { ...basePayloadWithAttachmentFallbackContent },
+        { ...basePayload },
+    ];
+
+    let error: any = null;
+
+    for (const payload of insertPayloads) {
+        ({ error } = await supabase
+            .from('project_chat_messages')
+            .insert(payload));
+
+        if (!error) {
+            break;
+        }
+
+        if (!isMissingColumnError(error)) {
+            break;
+        }
+
+        console.warn('[ProjectChat] sendMessage - Retrying insert with fallback payload due to missing column:', error?.message);
+    }
     
     if (error) {
         console.error('[ProjectChat] sendMessage - Error:', error);
         throw error;
     }
     console.log('[ProjectChat] sendMessage - Success');
+};
+
+export const deleteProjectChatMessage = async (
+    messageId: string,
+    senderId: string
+): Promise<void> => {
+    const { error } = await supabase
+        .from('project_chat_messages')
+        .delete()
+        .eq('id', messageId)
+        .eq('sender_id', senderId);
+
+    if (error) {
+        console.error('[ProjectChat] deleteMessage - Error:', error);
+        throw error;
+    }
+};
+
+export const markProjectMessagesRead = async (
+    messageIds: string[],
+    userId: string
+): Promise<void> => {
+    if (!messageIds.length || !userId) return;
+
+    const rows = Array.from(new Set(messageIds)).map((messageId) => ({
+        message_id: messageId,
+        user_id: userId,
+        read_at: new Date().toISOString(),
+    }));
+
+    const { error } = await supabase
+        .from('project_chat_message_reads')
+        .upsert(rows, { onConflict: 'message_id,user_id', ignoreDuplicates: true });
+
+    if (error) {
+        if (isMissingProjectMessageReadsTableError(error)) return;
+        throw error;
+    }
+};
+
+export const getProjectSeenByOthers = async (
+    messageIds: string[],
+    currentUserId: string
+): Promise<Map<string, number>> => {
+    const counts = new Map<string, number>();
+    if (!messageIds.length || !currentUserId) return counts;
+
+    const { data, error } = await supabase
+        .from('project_chat_message_reads')
+        .select('message_id,user_id')
+        .in('message_id', messageIds)
+        .neq('user_id', currentUserId);
+
+    if (error) {
+        if (isMissingProjectMessageReadsTableError(error)) return counts;
+        throw error;
+    }
+
+    for (const row of data || []) {
+        const current = counts.get(row.message_id) || 0;
+        counts.set(row.message_id, current + 1);
+    }
+
+    return counts;
 };
 
 /**
@@ -209,8 +386,8 @@ export const subscribeToProjectChatMessages = (
                 if (senderError) {
                     console.error('[ProjectChat] Realtime - Failed to fetch sender profile:', senderError);
                 }
-                
-                const message = { ...payload.new, sender: senderData ?? null };
+
+                const message = normalizeProjectChatMessage({ ...payload.new, sender: senderData ?? null });
                 console.log('[ProjectChat] Realtime - Delivering message to UI, sender:', senderData?.full_name || 'unknown');
                 onInsert(message);
             }
