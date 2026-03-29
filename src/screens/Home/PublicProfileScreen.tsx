@@ -41,6 +41,7 @@ import {
   ConnectionStatusResult,
 } from '../../api/connections';
 import { getUserVerifications, getMutualConnections, createDirectConversation } from '../../api/chat';
+import { formatFacultyDesignation } from '../../utils/roles';
 
 type PublicProfileScreenNavigationProp = StackNavigationProp<RootStackParamList, 'PublicProfile'>;
 type PublicProfileScreenRouteProp = RouteProp<RootStackParamList, 'PublicProfile'>;
@@ -434,8 +435,22 @@ export default function PublicProfileScreen() {
   }
 
   const roleConfig = getRoleConfig();
+  const role = profile?.role;
+  const isStudent = role === 'student';
+  const isFaculty = role === 'faculty';
+  const isAlumni = role === 'alumni';
+  const isAdmin = role === 'admin';
+  const isFacultyLike = isFaculty || isAdmin;
   const skills = Array.isArray(profile.skills) ? profile.skills : [];
   const interests = Array.isArray(profile.interests) ? profile.interests : [];
+  const academicStatusLabel = profile.academic_status
+    ? profile.academic_status.charAt(0).toUpperCase() + profile.academic_status.slice(1)
+    : '';
+  const hasAcademicRows = Boolean(
+    (isStudent && (profile.year_of_admission || profile.section || profile.department || profile.specialization || profile.roll_number || profile.year || profile.semester)) ||
+    (isFacultyLike && (profile.department || profile.specialization || profile.faculty_designation)) ||
+    (isAlumni && (profile.department || profile.specialization || profile.batch || profile.academic_status))
+  );
 
   // =====================================
   // RENDER
@@ -568,28 +583,70 @@ export default function PublicProfileScreen() {
           </View>
 
           {/* ── ACADEMIC INFO SECTION ── */}
-          {(profile.department || profile.enrollment_number || profile.year) && (
+          {hasAcademicRows && (
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <MaterialIcons name="school" size={18} color="#3b82f6" />
                 <Text style={styles.sectionTitle}>Academic Info</Text>
               </View>
-              {profile.department ? (
+              {isStudent && profile.year_of_admission ? (
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoKey}>Year of Admission</Text>
+                  <Text style={styles.infoVal}>{profile.year_of_admission}</Text>
+                </View>
+              ) : null}
+              {isStudent && profile.section ? (
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoKey}>Section</Text>
+                  <Text style={styles.infoVal}>{profile.section}</Text>
+                </View>
+              ) : null}
+              {(isStudent || isFacultyLike || isAlumni) && profile.department ? (
                 <View style={styles.infoRow}>
                   <Text style={styles.infoKey}>Department</Text>
                   <Text style={styles.infoVal}>{profile.department}</Text>
                 </View>
               ) : null}
-              {profile.year ? (
+              {(isStudent || isFacultyLike || isAlumni) && profile.specialization ? (
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoKey}>Specialization</Text>
+                  <Text style={styles.infoVal}>{profile.specialization}</Text>
+                </View>
+              ) : null}
+              {isStudent && profile.roll_number ? (
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoKey}>Roll Number</Text>
+                  <Text style={styles.infoVal}>{profile.roll_number}</Text>
+                </View>
+              ) : null}
+              {isStudent && profile.year ? (
                 <View style={styles.infoRow}>
                   <Text style={styles.infoKey}>Year</Text>
                   <Text style={styles.infoVal}>{formatYearValue(profile.year)}</Text>
                 </View>
               ) : null}
-              {profile.enrollment_number ? (
-                <View style={[styles.infoRow, { borderBottomWidth: 0 }]}>
-                  <Text style={styles.infoKey}>Enrollment</Text>
-                  <Text style={styles.infoVal}>{profile.enrollment_number}</Text>
+              {isStudent && profile.semester ? (
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoKey}>Semester</Text>
+                  <Text style={styles.infoVal}>{profile.semester}</Text>
+                </View>
+              ) : null}
+              {isFacultyLike && profile.faculty_designation ? (
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoKey}>Designation</Text>
+                  <Text style={styles.infoVal}>{formatFacultyDesignation(profile.faculty_designation)}</Text>
+                </View>
+              ) : null}
+              {isAlumni && profile.batch ? (
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoKey}>Batch</Text>
+                  <Text style={styles.infoVal}>{profile.batch}</Text>
+                </View>
+              ) : null}
+              {isAlumni && academicStatusLabel ? (
+                <View style={[styles.infoRow, { borderBottomWidth: 0 }]}> 
+                  <Text style={styles.infoKey}>Academic Status</Text>
+                  <Text style={styles.infoVal}>{academicStatusLabel}</Text>
                 </View>
               ) : null}
             </View>

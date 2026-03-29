@@ -21,6 +21,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { Toast } from '../../components/Toast';
 import DropdownSheet from '../../components/DropdownSheet';
 import { updateProfile, uploadAvatar } from '../../api/auth';
+import { Profile } from '../../types/database';
 import * as ImagePicker from 'expo-image-picker';
 import {
   DEPARTMENT_OPTIONS,
@@ -28,6 +29,7 @@ import {
   getSpecializationOptions,
 } from '../../constants/academic';
 import { calculateAcademicFields, ROLL_NUMBER_REGEX } from '../../utils/academic';
+import { FACULTY_DESIGNATIONS, formatFacultyDesignation } from '../../utils/roles';
 
 type EditProfileScreenNavigationProp = StackNavigationProp<RootStackParamList, 'EditProfile'>;
 
@@ -246,13 +248,14 @@ export default function EditProfileScreen() {
   const [department, setDepartment] = useState<string | null>(null);
   const [specialization, setSpecialization] = useState<string | null>(null);
   const [section, setSection] = useState<'A' | 'B' | 'C' | 'D' | null>(null);
+  const [facultyDesignation, setFacultyDesignation] = useState<string | null>(null);
   const [rollNumber, setRollNumber] = useState('');
   const [yearOfAdmission, setYearOfAdmission] = useState<number | null>(null);
 
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<
-    'department' | 'year_of_admission' | 'specialization' | 'section' | null
+    'department' | 'year_of_admission' | 'specialization' | 'section' | 'faculty_designation' | null
   >(null);
   const [errors, setErrors] = useState<{
     department?: string;
@@ -260,6 +263,7 @@ export default function EditProfileScreen() {
     section?: string;
     roll_number?: string;
     year_of_admission?: string;
+    faculty_designation?: string;
   }>({});
   const [toast, setToast] = useState<{
     visible: boolean;
@@ -271,7 +275,14 @@ export default function EditProfileScreen() {
     () => calculateAcademicFields(yearOfAdmission),
     [yearOfAdmission]
   );
-  const isGraduated = computedAcademic.academic_status === 'graduated';
+  const role = profile?.role;
+  const isStudent = role === 'student';
+  const isFaculty = role === 'faculty';
+  const isAlumni = role === 'alumni';
+  const isAdmin = role === 'admin';
+  const isFacultyLike = isFaculty || isAdmin;
+  const isAlumniLocked = isAlumni;
+  const isGraduated = (isAlumni ? profile?.academic_status : computedAcademic.academic_status) === 'graduated';
   const specializationOptions = useMemo(
     () => getSpecializationOptions(department),
     [department]
@@ -294,6 +305,7 @@ export default function EditProfileScreen() {
     setDepartment(profile.department || null);
     setSpecialization(profile.specialization || null);
     setSection(profile.section || null);
+    setFacultyDesignation(profile.faculty_designation || null);
     setRollNumber(profile.roll_number || '');
     setYearOfAdmission(profile.year_of_admission ?? null);
   }, [profile]);
@@ -370,22 +382,31 @@ export default function EditProfileScreen() {
       section?: string;
       roll_number?: string;
       year_of_admission?: string;
+      faculty_designation?: string;
     } = {};
 
-    if (!yearOfAdmission) {
-      nextErrors.year_of_admission = 'Select year of admission';
-    } else if (yearOfAdmission < 2000 || yearOfAdmission > currentYear + 1) {
-      nextErrors.year_of_admission = 'Enter a valid admission year';
+    if (isStudent) {
+      if (!yearOfAdmission) {
+        nextErrors.year_of_admission = 'Select year of admission';
+      } else if (yearOfAdmission < 2000 || yearOfAdmission > currentYear + 1) {
+        nextErrors.year_of_admission = 'Enter a valid admission year';
+      }
+
+      if (!department) nextErrors.department = 'Select department';
+      if (!specialization) nextErrors.specialization = 'Select specialization';
+      if (!section) nextErrors.section = 'Select section';
+
+      if (!rollNumber.trim()) {
+        nextErrors.roll_number = 'Roll number is required';
+      } else if (!ROLL_NUMBER_REGEX.test(rollNumber.trim())) {
+        nextErrors.roll_number = 'Invalid roll number format';
+      }
     }
 
-    if (!department) nextErrors.department = 'Select department';
-    if (!specialization) nextErrors.specialization = 'Select specialization';
-    if (!section) nextErrors.section = 'Select section';
-
-    if (!rollNumber.trim()) {
-      nextErrors.roll_number = 'Roll number is required';
-    } else if (!ROLL_NUMBER_REGEX.test(rollNumber.trim())) {
-      nextErrors.roll_number = 'Invalid roll number format';
+    if (isFacultyLike) {
+      if (!department) nextErrors.department = 'Select department';
+      if (!specialization) nextErrors.specialization = 'Select specialization';
+      if (!facultyDesignation) nextErrors.faculty_designation = 'Select designation';
     }
 
     setErrors(nextErrors);
@@ -393,21 +414,53 @@ export default function EditProfileScreen() {
 
     try {
       setIsLoading(true);
-      await updateProfile(user.id, {
+      const updates: Partial<Profile> = {
         full_name: fullName.trim(),
         phone: phone.trim() || undefined,
         bio: bio.trim() || undefined,
         avatar_url: avatarUrl || undefined,
-        department: department || undefined,
-        specialization: specialization || undefined,
-        section: section || undefined,
-        roll_number: rollNumber.trim(),
-        year_of_admission: yearOfAdmission || undefined,
-        year: computedAcademic.year || undefined,
-        semester: computedAcademic.semester || undefined,
-        batch: computedAcademic.batch || undefined,
-        academic_status: computedAcademic.academic_status,
-      });
+      };
+
+      if (isStudent) {
+        updates.department = department || undefined;
+        updates.specialization = specialization || undefined;
+        updates.section = section || undefined;
+        updates.roll_number = rollNumber.trim() || undefined;
+        updates.year_of_admission = yearOfAdmission || undefined;
+        updates.year = computedAcademic.year || undefined;
+        updates.semester = computedAcademic.semester || undefined;
+        updates.batch = computedAcademic.batch || undefined;
+        updates.academic_status = computedAcademic.academic_status;
+        updates.faculty_designation = undefined;
+      }
+
+      if (isFacultyLike) {
+        updates.department = department || undefined;
+        updates.specialization = specialization || undefined;
+        updates.faculty_designation = (facultyDesignation as any) || undefined;
+        updates.section = undefined;
+        updates.roll_number = undefined;
+        updates.year_of_admission = undefined;
+        updates.year = undefined;
+        updates.semester = undefined;
+        updates.batch = undefined;
+        updates.academic_status = undefined;
+      }
+
+      if (isAlumni) {
+        updates.department = department || undefined;
+        updates.specialization = specialization || undefined;
+        updates.batch = profile?.batch || undefined;
+        updates.academic_status = profile?.academic_status || undefined;
+        updates.faculty_designation = undefined;
+        updates.section = undefined;
+        updates.roll_number = undefined;
+        updates.year_of_admission = undefined;
+        updates.year = undefined;
+        updates.semester = undefined;
+      }
+
+      await updateProfile(user.id, updates);
 
       await refreshProfile();
       setToast({ visible: true, message: 'Profile updated successfully', type: 'success' });
@@ -435,6 +488,9 @@ export default function EditProfileScreen() {
     if (openDropdown === 'section') {
       return { title: 'Select Section', options: [...SECTION_OPTIONS] as string[] };
     }
+    if (openDropdown === 'faculty_designation') {
+      return { title: 'Select Designation', options: [...FACULTY_DESIGNATIONS] as string[] };
+    }
     return { title: 'Select Specialization', options: specializationOptions };
   }, [openDropdown, admissionYearOptions, specializationOptions]);
 
@@ -452,6 +508,10 @@ export default function EditProfileScreen() {
     }
     if (openDropdown === 'section') {
       selectAndClose(() => setSection(value as 'A' | 'B' | 'C' | 'D'));
+      return;
+    }
+    if (openDropdown === 'faculty_designation') {
+      selectAndClose(() => setFacultyDesignation(value));
       return;
     }
     if (openDropdown === 'specialization') {
@@ -555,143 +615,175 @@ export default function EditProfileScreen() {
               )}
             </View>
 
-            <View style={styles.twoCol}>
-              <View style={styles.col}>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Year of Admission</Text>
-                  <View style={styles.dropdownContainer}>
-                    <TouchableOpacity
-                      style={[styles.dropdownField, isGraduated && styles.disabledInput]}
-                      disabled={isGraduated}
-                      onPress={() => setOpenDropdown(openDropdown === 'year_of_admission' ? null : 'year_of_admission')}
-                    >
-                      <MaterialIcons name="calendar-month" size={20} color={Colors.textSecondary} style={styles.dropdownLeftIcon} />
-                      <Text style={[styles.dropdownText, !yearOfAdmission && styles.dropdownPlaceholder]}>
-                        {yearOfAdmission ? String(yearOfAdmission) : 'Select'}
-                      </Text>
-                      <MaterialIcons name="keyboard-arrow-down" size={22} color={Colors.textSecondary} />
-                    </TouchableOpacity>
+            {isStudent && (
+              <View style={styles.twoCol}>
+                <View style={styles.col}>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.label}>Year of Admission</Text>
+                    <View style={styles.dropdownContainer}>
+                      <TouchableOpacity
+                        style={[styles.dropdownField, (isGraduated || isAlumniLocked) && styles.disabledInput]}
+                        disabled={isGraduated || isAlumniLocked}
+                        onPress={() => setOpenDropdown(openDropdown === 'year_of_admission' ? null : 'year_of_admission')}
+                      >
+                        <MaterialIcons name="calendar-month" size={20} color={Colors.textSecondary} style={styles.dropdownLeftIcon} />
+                        <Text style={[styles.dropdownText, !yearOfAdmission && styles.dropdownPlaceholder]}>
+                          {yearOfAdmission ? String(yearOfAdmission) : 'Select'}
+                        </Text>
+                        <MaterialIcons name="keyboard-arrow-down" size={22} color={Colors.textSecondary} />
+                      </TouchableOpacity>
+                    </View>
+                    {!!errors.year_of_admission && <Text style={styles.errorText}>{errors.year_of_admission}</Text>}
                   </View>
-                  {!!errors.year_of_admission && <Text style={styles.errorText}>{errors.year_of_admission}</Text>}
                 </View>
-              </View>
 
-              <View style={styles.col}>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Section</Text>
-                  <View style={styles.dropdownContainer}>
-                    <TouchableOpacity
-                      style={[styles.dropdownField, isGraduated && styles.disabledInput]}
-                      disabled={isGraduated}
-                      onPress={() => setOpenDropdown(openDropdown === 'section' ? null : 'section')}
-                    >
-                      <MaterialIcons name="groups" size={20} color={Colors.textSecondary} style={styles.dropdownLeftIcon} />
-                      <Text style={[styles.dropdownText, !section && styles.dropdownPlaceholder]}>
-                        {section || 'Select'}
-                      </Text>
-                      <MaterialIcons name="keyboard-arrow-down" size={22} color={Colors.textSecondary} />
-                    </TouchableOpacity>
+                <View style={styles.col}>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.label}>Section</Text>
+                    <View style={styles.dropdownContainer}>
+                      <TouchableOpacity
+                        style={[styles.dropdownField, (isGraduated || isAlumniLocked) && styles.disabledInput]}
+                        disabled={isGraduated || isAlumniLocked}
+                        onPress={() => setOpenDropdown(openDropdown === 'section' ? null : 'section')}
+                      >
+                        <MaterialIcons name="groups" size={20} color={Colors.textSecondary} style={styles.dropdownLeftIcon} />
+                        <Text style={[styles.dropdownText, !section && styles.dropdownPlaceholder]}>
+                          {section || 'Select'}
+                        </Text>
+                        <MaterialIcons name="keyboard-arrow-down" size={22} color={Colors.textSecondary} />
+                      </TouchableOpacity>
+                    </View>
+                    {!!errors.section && <Text style={styles.errorText}>{errors.section}</Text>}
                   </View>
-                  {!!errors.section && <Text style={styles.errorText}>{errors.section}</Text>}
                 </View>
               </View>
-            </View>
+            )}
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Department</Text>
-              <View style={styles.dropdownContainer}>
-                <TouchableOpacity
-                  style={[styles.dropdownField, isGraduated && styles.disabledInput]}
-                  disabled={isGraduated}
-                  onPress={() => setOpenDropdown(openDropdown === 'department' ? null : 'department')}
-                >
-                  <MaterialIcons name="apartment" size={20} color={Colors.textSecondary} style={styles.dropdownLeftIcon} />
-                  <Text style={[styles.dropdownText, !department && styles.dropdownPlaceholder]}>
-                    {department || 'Select department'}
-                  </Text>
-                  <MaterialIcons name="keyboard-arrow-down" size={22} color={Colors.textSecondary} />
-                </TouchableOpacity>
+            {(isStudent || isFacultyLike || isAlumni) && (
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Department</Text>
+                <View style={styles.dropdownContainer}>
+                  <TouchableOpacity
+                    style={[styles.dropdownField, (isGraduated || isAlumniLocked) && styles.disabledInput]}
+                    disabled={isGraduated || isAlumniLocked}
+                    onPress={() => setOpenDropdown(openDropdown === 'department' ? null : 'department')}
+                  >
+                    <MaterialIcons name="apartment" size={20} color={Colors.textSecondary} style={styles.dropdownLeftIcon} />
+                    <Text style={[styles.dropdownText, !department && styles.dropdownPlaceholder]}>
+                      {department || 'Select department'}
+                    </Text>
+                    <MaterialIcons name="keyboard-arrow-down" size={22} color={Colors.textSecondary} />
+                  </TouchableOpacity>
+                </View>
+                {!!errors.department && <Text style={styles.errorText}>{errors.department}</Text>}
               </View>
-              {!!errors.department && <Text style={styles.errorText}>{errors.department}</Text>}
-            </View>
+            )}
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Specialization</Text>
-              <View style={styles.dropdownContainer}>
-                <TouchableOpacity
-                  style={[styles.dropdownField, isGraduated && styles.disabledInput]}
-                  disabled={isGraduated || !department}
-                  onPress={() => setOpenDropdown(openDropdown === 'specialization' ? null : 'specialization')}
-                >
-                  <MaterialIcons name="psychology" size={20} color={Colors.textSecondary} style={styles.dropdownLeftIcon} />
-                  <Text style={[styles.dropdownText, !specialization && styles.dropdownPlaceholder]}>
-                    {specialization || (department ? 'Select specialization' : 'Select department first')}
-                  </Text>
-                  <MaterialIcons name="keyboard-arrow-down" size={22} color={Colors.textSecondary} />
-                </TouchableOpacity>
+            {(isStudent || isFacultyLike || isAlumni) && (
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Specialization</Text>
+                <View style={styles.dropdownContainer}>
+                  <TouchableOpacity
+                    style={[styles.dropdownField, (isGraduated || isAlumniLocked) && styles.disabledInput]}
+                    disabled={isGraduated || isAlumniLocked || !department}
+                    onPress={() => setOpenDropdown(openDropdown === 'specialization' ? null : 'specialization')}
+                  >
+                    <MaterialIcons name="psychology" size={20} color={Colors.textSecondary} style={styles.dropdownLeftIcon} />
+                    <Text style={[styles.dropdownText, !specialization && styles.dropdownPlaceholder]}>
+                      {specialization || (department ? 'Select specialization' : 'Select department first')}
+                    </Text>
+                    <MaterialIcons name="keyboard-arrow-down" size={22} color={Colors.textSecondary} />
+                  </TouchableOpacity>
+                </View>
+                {!!errors.specialization && <Text style={styles.errorText}>{errors.specialization}</Text>}
               </View>
-              {!!errors.specialization && <Text style={styles.errorText}>{errors.specialization}</Text>}
-            </View>
+            )}
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Roll Number</Text>
-              <TextInput
-                style={[styles.input, isGraduated && styles.disabledInput]}
-                value={rollNumber}
-                editable={!isGraduated}
-                onChangeText={setRollNumber}
-                placeholder="e.g. CSE/23/001"
-                placeholderTextColor={Colors.textSecondary}
-                autoCapitalize="characters"
-              />
-              {!!errors.roll_number && <Text style={styles.errorText}>{errors.roll_number}</Text>}
-            </View>
+            {isFacultyLike && (
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Designation</Text>
+                <View style={styles.dropdownContainer}>
+                  <TouchableOpacity
+                    style={[styles.dropdownField, isAlumniLocked && styles.disabledInput]}
+                    disabled={isAlumniLocked}
+                    onPress={() => setOpenDropdown(openDropdown === 'faculty_designation' ? null : 'faculty_designation')}
+                  >
+                    <MaterialIcons name="badge" size={20} color={Colors.textSecondary} style={styles.dropdownLeftIcon} />
+                    <Text style={[styles.dropdownText, !facultyDesignation && styles.dropdownPlaceholder]}>
+                      {facultyDesignation ? formatFacultyDesignation(facultyDesignation) : 'Select designation'}
+                    </Text>
+                    <MaterialIcons name="keyboard-arrow-down" size={22} color={Colors.textSecondary} />
+                  </TouchableOpacity>
+                </View>
+                {!!errors.faculty_designation && <Text style={styles.errorText}>{errors.faculty_designation}</Text>}
+              </View>
+            )}
 
-            <View style={styles.twoCol}>
-              <View style={styles.col}>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Year</Text>
-                  <TextInput
-                    style={[styles.input, styles.disabledInput]}
-                    value={computedAcademic.year ? String(computedAcademic.year) : '-'}
-                    editable={false}
-                  />
+            {isStudent && (
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Roll Number</Text>
+                <TextInput
+                  style={[styles.input, (isGraduated || isAlumniLocked) && styles.disabledInput]}
+                  value={rollNumber}
+                  editable={!isGraduated && !isAlumniLocked}
+                  onChangeText={setRollNumber}
+                  placeholder="e.g. CSE/23/001"
+                  placeholderTextColor={Colors.textSecondary}
+                  autoCapitalize="characters"
+                />
+                {!!errors.roll_number && <Text style={styles.errorText}>{errors.roll_number}</Text>}
+              </View>
+            )}
+
+            {isStudent && (
+              <View style={styles.twoCol}>
+                <View style={styles.col}>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.label}>Year</Text>
+                    <TextInput
+                      style={[styles.input, styles.disabledInput]}
+                      value={computedAcademic.year ? String(computedAcademic.year) : '-'}
+                      editable={false}
+                    />
+                  </View>
+                </View>
+                <View style={styles.col}>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.label}>Semester</Text>
+                    <TextInput
+                      style={[styles.input, styles.disabledInput]}
+                      value={computedAcademic.semester ? String(computedAcademic.semester) : '-'}
+                      editable={false}
+                    />
+                  </View>
                 </View>
               </View>
-              <View style={styles.col}>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Semester</Text>
-                  <TextInput
-                    style={[styles.input, styles.disabledInput]}
-                    value={computedAcademic.semester ? String(computedAcademic.semester) : '-'}
-                    editable={false}
-                  />
-                </View>
-              </View>
-            </View>
+            )}
 
-            <View style={styles.twoCol}>
-              <View style={styles.col}>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Batch</Text>
-                  <TextInput
-                    style={[styles.input, styles.disabledInput]}
-                    value={computedAcademic.batch || '-'}
-                    editable={false}
-                  />
+            {isAlumni && (
+              <View style={styles.twoCol}>
+                <View style={styles.col}>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.label}>Batch</Text>
+                    <TextInput
+                      style={[styles.input, styles.disabledInput]}
+                      value={profile?.batch || computedAcademic.batch || '-'}
+                      editable={false}
+                    />
+                  </View>
+                </View>
+                <View style={styles.col}>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.label}>Academic Status</Text>
+                    <TextInput
+                      style={[styles.input, styles.disabledInput]}
+                      value={profile?.academic_status || computedAcademic.academic_status}
+                      editable={false}
+                    />
+                  </View>
                 </View>
               </View>
-              <View style={styles.col}>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Academic Status</Text>
-                  <TextInput
-                    style={[styles.input, styles.disabledInput]}
-                    value={computedAcademic.academic_status}
-                    editable={false}
-                  />
-                </View>
-              </View>
-            </View>
+            )}
           </View>
         </View>
       </ScrollView>
@@ -703,7 +795,7 @@ export default function EditProfileScreen() {
         onHide={() => setToast((prev) => ({ ...prev, visible: false }))}
       />
       <DropdownSheet
-        visible={!!openDropdown && !isGraduated && !!activeDropdown}
+        visible={!!openDropdown && !isGraduated && !isAlumniLocked && !!activeDropdown}
         title={activeDropdown?.title || 'Select Option'}
         options={activeDropdown?.options || []}
         onSelect={handleSheetSelect}

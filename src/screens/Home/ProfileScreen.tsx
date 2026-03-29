@@ -20,7 +20,7 @@ import { RootStackParamList, MainTabParamList } from '../../navigation/types';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { isAdminRole, isFacultyOrAdminRole } from '../../utils/roles';
+import { formatFacultyDesignation, isAdminRole, isFacultyOrAdminRole } from '../../utils/roles';
 import { getUserStats } from '../../api/users';
 import { LinearGradient } from 'expo-linear-gradient';
 import { UserAvatar } from '../../components/UserAvatar';
@@ -79,6 +79,22 @@ export default function ProfileScreen() {
 
   const interests = Array.isArray(profile?.interests) ? profile.interests : [];
   const skills = Array.isArray(profile?.skills) ? profile.skills : [];
+  const role = profile?.role;
+  const isStudent = role === 'student';
+  const isFaculty = role === 'faculty';
+  const isAlumni = role === 'alumni';
+  const isAdmin = role === 'admin';
+  const isFacultyLike = isFaculty || isAdmin;
+
+  const academicStatusLabel = profile?.academic_status
+    ? profile.academic_status.charAt(0).toUpperCase() + profile.academic_status.slice(1)
+    : '';
+
+  const hasAcademicInfo = Boolean(
+    (isStudent && (profile?.year || profile?.semester || profile?.roll_number || profile?.section || profile?.year_of_admission || profile?.department || profile?.specialization)) ||
+    (isFacultyLike && (profile?.department || profile?.specialization || profile?.faculty_designation)) ||
+    (isAlumni && (profile?.department || profile?.specialization || profile?.batch || profile?.academic_status))
+  );
 
   const shareProfile = async () => {
     try {
@@ -179,6 +195,30 @@ export default function ProfileScreen() {
             {profile?.bio || 'No bio added yet. Go to Edit Profile to add one!'}
           </Text>
         </View>
+
+        {hasAcademicInfo && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Academic Info</Text>
+            {isStudent && profile?.year_of_admission ? <Text style={styles.aboutText}>Year of Admission: {profile.year_of_admission}</Text> : null}
+            {isStudent && profile?.section ? <Text style={styles.aboutText}>Section: {profile.section}</Text> : null}
+            {isStudent && profile?.department ? <Text style={styles.aboutText}>Department: {profile.department}</Text> : null}
+            {isStudent && profile?.specialization ? <Text style={styles.aboutText}>Specialization: {profile.specialization}</Text> : null}
+            {isStudent && profile?.roll_number ? <Text style={styles.aboutText}>Roll Number: {profile.roll_number}</Text> : null}
+            {isStudent && profile?.year ? <Text style={styles.aboutText}>Year: {profile.year}</Text> : null}
+            {isStudent && profile?.semester ? <Text style={styles.aboutText}>Semester: {profile.semester}</Text> : null}
+
+            {isFacultyLike && profile?.department ? <Text style={styles.aboutText}>Department: {profile.department}</Text> : null}
+            {isFacultyLike && profile?.specialization ? <Text style={styles.aboutText}>Specialization: {profile.specialization}</Text> : null}
+            {isFacultyLike && profile?.faculty_designation ? (
+              <Text style={styles.aboutText}>Designation: {formatFacultyDesignation(profile.faculty_designation)}</Text>
+            ) : null}
+
+            {isAlumni && profile?.department ? <Text style={styles.aboutText}>Department: {profile.department}</Text> : null}
+            {isAlumni && profile?.specialization ? <Text style={styles.aboutText}>Specialization: {profile.specialization}</Text> : null}
+            {isAlumni && profile?.batch ? <Text style={styles.aboutText}>Batch: {profile.batch}</Text> : null}
+            {isAlumni && academicStatusLabel ? <Text style={styles.aboutText}>Academic Status: {academicStatusLabel}</Text> : null}
+          </View>
+        )}
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Skills</Text>
