@@ -25,7 +25,7 @@ export type RootStackParamList = {
   Notifications: undefined;
   NotificationSettings: undefined;
   Privacy: undefined;
-  ChatConversation: { conversationId: string; name: string; isGroup: boolean };
+  ChatConversation: { conversationId: string; name: string; isGroup: boolean; partnerUserId?: string };
   DiscussionTopic: { topicId: string };
   CreateTopic: undefined;
   CreateProject: undefined;
@@ -63,6 +63,21 @@ export type RootStackParamList = {
   MentorshipChatList: undefined;
   MentorshipChat: { chatId: string };
   ProjectChat: { chatId: string; teamName: string };
+  AcademicFeed: undefined;
+  CreateFeed: undefined;
+  FeedDetails: { postId: string; focusComment?: boolean; focusAttachment?: boolean; attachmentIndex?: number };
+  CreateInterCampusEvent: undefined;
+  InterCampusEventDetails: { eventId: string };
+  EditInterCampusEvent: { eventId: string };
+  InterCampusHome: undefined;
+  InterCampusSubmitEvent: undefined;
+  InterCampusFestDetails: { festId: string };
+  InterCampusTeamUp: { eventId: string };
+  InterCampusDiscussion: { eventId: string };
+  MySubmittedEvents: undefined;
+  FacultyInterCampusDashboard: undefined;
+  AdminInterCampusManagement: undefined;
+  Banned: undefined;
 };
 
 declare global {

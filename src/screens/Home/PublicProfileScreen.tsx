@@ -31,7 +31,8 @@ import Animated, {
   withSpring,
 } from 'react-native-reanimated';
 import { supabase } from '../../api/supabase';
-import { Profile } from '../../types/database';
+import { Profile, ReportContentType } from '../../types/database';
+import ReportModal from '../../components/ReportModal';
 import {
   sendConnectionRequest,
   cancelConnectionRequest,
@@ -71,6 +72,11 @@ export default function PublicProfileScreen() {
   const [connectionsCount, setConnectionsCount] = useState(0);
   const [verificationBadges, setVerificationBadges] = useState<any[]>([]);
   const [mutualConnectionsCount, setMutualConnectionsCount] = useState(0);
+  const [reportModalState, setReportModalState] = useState({
+    visible: false,
+    contentType: 'user' as ReportContentType,
+    contentId: '',
+  });
 
   const buttonScale = useSharedValue(1);
 
@@ -454,7 +460,19 @@ export default function PublicProfileScreen() {
             <MaterialIcons name="arrow-back" size={22} color={Colors.text} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Profile</Text>
-          <View style={{ width: 40 }} />
+          {user?.id !== userId && (
+            <TouchableOpacity 
+              onPress={() => setReportModalState({
+                visible: true,
+                contentType: 'user',
+                contentId: userId
+              })}
+              style={styles.menuBtn}
+            >
+              <MaterialIcons name="more-vert" size={22} color={Colors.text} />
+            </TouchableOpacity>
+          )}
+          {user?.id === userId && <View style={{ width: 40 }} />}
         </View>
 
         <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 90 }}>
@@ -652,6 +670,13 @@ export default function PublicProfileScreen() {
 
         </ScrollView>
       </LinearGradient>
+
+      <ReportModal
+        isVisible={reportModalState.visible}
+        onClose={() => setReportModalState({ ...reportModalState, visible: false })}
+        contentType={reportModalState.contentType}
+        reportedUserId={reportModalState.contentId}
+      />
     </SafeAreaView>
   );
 }
@@ -675,6 +700,14 @@ const createStyles = (Colors: any, isDark: boolean) =>
       paddingVertical: 12,
     },
     backBtn: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: 'rgba(255,255,255,0.7)',
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    menuBtn: {
       width: 40,
       height: 40,
       borderRadius: 20,

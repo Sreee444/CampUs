@@ -157,6 +157,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [user?.id]);
 
+  // Fallback polling for ban/profile state in case realtime subscriptions are delayed or blocked.
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const interval = setInterval(() => {
+      loadProfile(user.id);
+    }, 15000);
+
+    return () => clearInterval(interval);
+  }, [user?.id]);
+
   const getActiveBanForUser = async (userId: string): Promise<{
     active: { reason: string; until: string | null; duration: string | null } | null;
     lookupFailed: boolean;

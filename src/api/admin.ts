@@ -11,6 +11,14 @@ const sinceDate = (range: TimeRange): string => {
 
 const BAN_APPEAL_REASON = 'Ban Appeal Request';
 
+const isMissingColumnError = (error: any, column: string) => {
+  const message = String(error?.message || '').toLowerCase();
+  return (
+    message.includes(`'${column.toLowerCase()}'`) &&
+    (message.includes('could not find') || message.includes('column'))
+  );
+};
+
 export type BanAppealStatus = {
   id: string;
   status: string;
@@ -214,18 +222,70 @@ export const submitBanAppeal = async (
   if (!trimmed) throw new Error('Appeal message is required');
   if (!trimmedContact) throw new Error('Contact details are required');
 
-  // Only one appeal request is allowed per user.
-  const { data: existingAppeal, error: existingAppealError } = await (supabase as any)
-    .from('reports')
-    .select('id')
-    .or(`reported_user_id.eq.${userId},reporter_id.eq.${userId},reported_by.eq.${userId}`)
-    .ilike('reason', '%appeal%')
-    .limit(1)
-    .maybeSingle();
+  // Allow only one OPEN appeal at a time. Support both schemas (`reason` and `title`).
+  let recentAppeals: any[] = [];
+  let existingAppealError: any = null;
 
-  if (existingAppealError) throw existingAppealError;
-  if ((existingAppeal as any)?.id) {
-    throw new Error('You have already submitted an appeal request. Multiple appeals are not allowed.');
+  const queryAppealsForUser = async (build: (orFilter: string) => any) => {
+    const withReportedBy = await build(`reported_user_id.eq.${userId},reporter_id.eq.${userId},reported_by.eq.${userId}`);
+    if (!withReportedBy.error || !isMissingColumnError(withReportedBy.error, 'reported_by')) {
+      return withReportedBy;
+    }
+    return build(`reported_user_id.eq.${userId},reporter_id.eq.${userId}`);
+  };
+
+  const byReason = await queryAppealsForUser((orFilter) =>
+    (supabase as any)
+      .from('reports')
+      .select('id, status, reason, title, created_at')
+      .or(orFilter)
+      .ilike('reason', '%appeal%')
+      .order('created_at', { ascending: false })
+      .limit(25)
+  );
+
+  if (!byReason.error) {
+    recentAppeals = (byReason.data as any[]) || [];
+  } else if (isMissingColumnError(byReason.error, 'reason')) {
+    const byTitle = await queryAppealsForUser((orFilter) =>
+      (supabase as any)
+        .from('reports')
+        .select('id, status, title, created_at')
+        .or(orFilter)
+        .ilike('title', '%appeal%')
+        .order('created_at', { ascending: false })
+        .limit(25)
+    );
+
+    if (!byTitle.error) {
+      recentAppeals = (byTitle.data as any[]) || [];
+    } else {
+      existingAppealError = byTitle.error;
+    }
+  } else {
+    existingAppealError = byReason.error;
+  }
+
+  if (!existingAppealError) {
+    const cooldownMs = 2 * 24 * 60 * 60 * 1000;
+    const nowMs = Date.now();
+
+    const recentCooldownAppeal = ((recentAppeals as any[]) || []).find((appeal: any) => {
+      const createdMs = new Date(appeal?.created_at || 0).getTime();
+      return !Number.isNaN(createdMs) && nowMs - createdMs < cooldownMs;
+    });
+
+    if (recentCooldownAppeal?.id) {
+      throw new Error('You can submit only 1 appeal within 2 days. Please try again later.');
+    }
+
+    const openAppeal = ((recentAppeals as any[]) || []).find((appeal: any) => {
+      const status = String(appeal?.status || '').toLowerCase();
+      return status && status !== 'resolved' && status !== 'dismissed';
+    });
+    if (openAppeal?.id) {
+      throw new Error('You already have an appeal under review. Please wait for admin response.');
+    }
   }
 
   const description = [
@@ -235,7 +295,7 @@ export const submitBanAppeal = async (
     .filter(Boolean)
     .join('\n\n');
 
-  // Primary schema shape (reporter_id).
+  // Primary schema shape with `reason`.
   let insertResult = await (supabase as any)
     .from('reports')
     .insert({
@@ -244,60 +304,170 @@ export const submitBanAppeal = async (
       reason: BAN_APPEAL_REASON,
       description,
       status: 'pending',
-    })
-    .select()
-    .single();
+    });
 
   // Backward compatibility for schemas using reported_by.
   if (insertResult.error) {
-    insertResult = await (supabase as any)
-      .from('reports')
-      .insert({
-        reported_by: userId,
-        reported_user_id: userId,
-        reason: BAN_APPEAL_REASON,
-        description,
-        status: 'pending',
-      })
-      .select()
-      .single();
+    const reasonMissing = isMissingColumnError(insertResult.error, 'reason');
+    if (reasonMissing) {
+      // Newer schema shape with title/category/content_type and no `reason` column.
+      insertResult = await (supabase as any)
+        .from('reports')
+        .insert({
+          reporter_id: userId,
+          reported_user_id: userId,
+          reported_content_type: 'user',
+          category: 'other',
+          title: BAN_APPEAL_REASON,
+          description,
+          priority: 'medium',
+          status: 'pending',
+        });
+    } else {
+      insertResult = await (supabase as any)
+        .from('reports')
+        .insert({
+          reported_by: userId,
+          reported_user_id: userId,
+          reason: BAN_APPEAL_REASON,
+          description,
+          status: 'pending',
+        });
+    }
   }
 
   if (insertResult.error) throw insertResult.error;
-  return insertResult.data as Report;
+
+  // Return a local object because select-after-insert can be blocked by RLS.
+  const now = new Date().toISOString();
+  return {
+    id: `appeal-${Date.now()}`,
+    reporter_id: userId,
+    reported_user_id: userId,
+    reported_content_type: 'user',
+    category: 'other',
+    title: BAN_APPEAL_REASON,
+    description,
+    priority: 'medium',
+    status: 'pending',
+    created_at: now,
+    updated_at: now,
+    is_deleted: false,
+  } as Report;
 };
 
 export const getPendingAppealsCount = async (): Promise<number> => {
-  const { count, error } = await supabase
-    .from('reports')
-    .select('id', { count: 'exact', head: true })
-    .eq('status', 'pending')
-    .ilike('reason', '%appeal%');
+  try {
+    // Preferred schema shape (legacy appeals stored via reason text).
+    const preferred = await supabase
+      .from('reports')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'pending')
+      .ilike('reason', '%appeal%');
 
-  if (error) throw error;
-  return count ?? 0;
+    if (!preferred.error) return preferred.count ?? 0;
+
+    if (isMissingColumnError(preferred.error, 'reason')) {
+      const titleFallback = await supabase
+        .from('reports')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'pending')
+        .ilike('title', '%appeal%');
+
+      if (!titleFallback.error) return titleFallback.count ?? 0;
+    }
+
+    // Fallback for schemas without `reason` or with restrictive RLS policies.
+    const fallback = await supabase
+      .from('reports')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'pending');
+
+    if (fallback.error) return 0;
+    return fallback.count ?? 0;
+  } catch {
+    return 0;
+  }
 };
 
 export const getLatestBanAppealStatus = async (userId: string): Promise<BanAppealStatus | null> => {
-  const { data, error } = await supabase
-    .from('reports')
-    .select('id, status, reason, description, action_taken, reviewed_at, created_at')
-    .or(`reported_user_id.eq.${userId},reporter_id.eq.${userId},reported_by.eq.${userId}`)
-    .ilike('reason', '%appeal%')
-    .order('created_at', { ascending: false })
-    .limit(25);
+  let rows: any[] = [];
 
-  if (error) throw error;
+  const queryAppealsForUser = async (build: (orFilter: string) => any) => {
+    const withReportedBy = await build(`reported_user_id.eq.${userId},reporter_id.eq.${userId},reported_by.eq.${userId}`);
+    if (!withReportedBy.error || !isMissingColumnError(withReportedBy.error, 'reported_by')) {
+      return withReportedBy;
+    }
+    return build(`reported_user_id.eq.${userId},reporter_id.eq.${userId}`);
+  };
 
-  const rows = (data as BanAppealStatus[]) || [];
+  const byReason = await queryAppealsForUser((orFilter) =>
+    supabase
+      .from('reports')
+      .select('id, status, reason, title, description, admin_notes, action_taken, updated_at, reviewed_at, created_at')
+      .or(orFilter)
+      .ilike('reason', '%appeal%')
+      .order('created_at', { ascending: false })
+      .limit(25)
+  );
+
+  if (!byReason.error) {
+    rows = (byReason.data as any[]) || [];
+  } else if (
+    isMissingColumnError(byReason.error, 'reason') ||
+    isMissingColumnError(byReason.error, 'action_taken') ||
+    isMissingColumnError(byReason.error, 'reviewed_at')
+  ) {
+    const byTitle = await queryAppealsForUser((orFilter) =>
+      supabase
+        .from('reports')
+        .select('id, status, title, description, admin_notes, action_taken, updated_at, reviewed_at, created_at')
+        .or(orFilter)
+        .ilike('title', '%appeal%')
+        .order('created_at', { ascending: false })
+        .limit(25)
+    );
+
+    if (!byTitle.error) {
+      rows = (byTitle.data as any[]) || [];
+    } else if (isMissingColumnError(byTitle.error, 'action_taken') || isMissingColumnError(byTitle.error, 'reviewed_at')) {
+      const minimalByTitle = await queryAppealsForUser((orFilter) =>
+        supabase
+          .from('reports')
+          .select('id, status, title, description, admin_notes, updated_at, created_at')
+          .or(orFilter)
+          .ilike('title', '%appeal%')
+          .order('created_at', { ascending: false })
+          .limit(25)
+      );
+
+      if (minimalByTitle.error) throw minimalByTitle.error;
+      rows = (minimalByTitle.data as any[]) || [];
+    } else {
+      throw byTitle.error;
+    }
+  } else {
+    throw byReason.error;
+  }
+
   if (!rows.length) return null;
 
-  const resolved = rows
+  const normalizedRows: BanAppealStatus[] = rows.map((r: any) => ({
+    id: r.id,
+    status: r.status,
+    reason: r.reason || r.title || BAN_APPEAL_REASON,
+    description: r.description,
+    action_taken: r.action_taken || r.admin_notes || null,
+    reviewed_at: r.reviewed_at || r.updated_at || null,
+    created_at: r.created_at,
+  }));
+
+  const resolved = normalizedRows
     .filter((r) => String(r.status || '').toLowerCase() === 'resolved')
     .sort((a, b) => new Date(b.reviewed_at || b.created_at).getTime() - new Date(a.reviewed_at || a.created_at).getTime());
 
   if (resolved.length) return resolved[0];
-  return rows[0];
+  return normalizedRows[0];
 };
 
 // ===== MODERATION =====
@@ -356,6 +526,113 @@ export const rejectPost = async (postId: string, moderatorId: string) => {
 // ===== REPORTS & BAN MANAGEMENT =====
 
 export const getReports = async (filters?: { status?: string }) => {
+  const enrichReportedEntities = async (rows: any[]) => {
+    if (!rows.length) return rows;
+
+    const eventIds = Array.from(
+      new Set(
+        rows
+          .filter((r) => r?.reported_content_type === 'event' && r?.reported_content_id)
+          .map((r) => r.reported_content_id)
+      )
+    );
+    const projectIds = Array.from(
+      new Set(
+        rows
+          .filter((r) => r?.reported_content_type === 'project' && r?.reported_content_id)
+          .map((r) => r.reported_content_id)
+      )
+    );
+    const groupChatIds = Array.from(
+      new Set(
+        rows
+          .filter((r) => r?.reported_content_type === 'group_chat' && r?.reported_content_id)
+          .map((r) => r.reported_content_id)
+      )
+    );
+
+    let events: any[] = [];
+    let projects: any[] = [];
+    let groups: any[] = [];
+
+    if (eventIds.length) {
+      const { data } = await (supabase as any)
+        .from('events')
+        .select('id, title, created_by')
+        .in('id', eventIds);
+      events = data || [];
+    }
+
+    if (projectIds.length) {
+      const { data } = await (supabase as any)
+        .from('project_teams')
+        .select('id, name, created_by')
+        .in('id', projectIds);
+      projects = data || [];
+    }
+
+    if (groupChatIds.length) {
+      const { data } = await (supabase as any)
+        .from('conversations')
+        .select('id, group_name, created_by, is_group')
+        .in('id', groupChatIds)
+        .eq('is_group', true);
+      groups = data || [];
+    }
+
+    const creatorIds = Array.from(
+      new Set(
+        [...events, ...projects, ...groups]
+          .map((item: any) => item?.created_by)
+          .filter((id: any): id is string => typeof id === 'string' && id.length > 0)
+      )
+    );
+
+    let creatorMap = new Map<string, string>();
+    if (creatorIds.length) {
+      const { data: creators } = await (supabase as any)
+        .from('profiles')
+        .select('id, full_name')
+        .in('id', creatorIds);
+      creatorMap = new Map(((creators as any[]) || []).map((c) => [c.id, c.full_name || 'Unknown']));
+    }
+
+    const eventMap = new Map(events.map((e: any) => [e.id, e]));
+    const projectMap = new Map(projects.map((p: any) => [p.id, p]));
+    const groupMap = new Map(groups.map((g: any) => [g.id, g]));
+
+    return rows.map((row) => {
+      if (row?.reported_content_type === 'event' && row?.reported_content_id) {
+        const event = eventMap.get(row.reported_content_id);
+        return {
+          ...row,
+          reported_entity_name: event?.title || null,
+          reported_entity_creator_name: creatorMap.get(event?.created_by) || null,
+        };
+      }
+
+      if (row?.reported_content_type === 'project' && row?.reported_content_id) {
+        const project = projectMap.get(row.reported_content_id);
+        return {
+          ...row,
+          reported_entity_name: project?.name || null,
+          reported_entity_creator_name: creatorMap.get(project?.created_by) || null,
+        };
+      }
+
+      if (row?.reported_content_type === 'group_chat' && row?.reported_content_id) {
+        const group = groupMap.get(row.reported_content_id);
+        return {
+          ...row,
+          reported_entity_name: group?.group_name || null,
+          reported_entity_creator_name: creatorMap.get(group?.created_by) || null,
+        };
+      }
+
+      return row;
+    });
+  };
+
   let query = supabase
     .from("reports")
     .select(
@@ -376,7 +653,9 @@ export const getReports = async (filters?: { status?: string }) => {
     const rows = (data as any[]) || [];
     const missingReporter = rows.some((r) => !r.reporter);
     const missingReportedUser = rows.some((r) => !r.reported_user);
-    if (!missingReporter && !missingReportedUser) return rows;
+    if (!missingReporter && !missingReportedUser) {
+      return enrichReportedEntities(rows);
+    }
 
     const profileIds = Array.from(
       new Set(
@@ -393,11 +672,12 @@ export const getReports = async (filters?: { status?: string }) => {
       .in('id', profileIds);
     const profileMap = new Map(((profiles as any[]) || []).map((p) => [p.id, p]));
 
-    return rows.map((row) => ({
+    const hydratedRows = rows.map((row) => ({
       ...row,
       reporter: row.reporter || profileMap.get(row.reporter_id) || profileMap.get(row.reported_by) || null,
       reported_user: row.reported_user || profileMap.get(row.reported_user_id) || null,
     }));
+    return enrichReportedEntities(hydratedRows);
   }
 
   // Fallback for schemas where FK aliases differ.
@@ -429,33 +709,61 @@ export const getReports = async (filters?: { status?: string }) => {
     .in('id', profileIds);
   const profileMap = new Map(((profiles as any[]) || []).map((p) => [p.id, p]));
 
-  return rows.map((row) => ({
+  const hydratedRows = rows.map((row) => ({
     ...row,
     reporter: profileMap.get(row.reporter_id) || profileMap.get(row.reported_by) || null,
     reported_user: profileMap.get(row.reported_user_id) || null,
   }));
+  return enrichReportedEntities(hydratedRows);
 };
 
 export const updateReportStatus = async (
   reportId: string,
   status: string,
   reviewedBy: string,
-  actionTaken?: string
+  adminNotes?: string
 ) => {
-  const { data, error } = await (supabase as any)
-    .from("reports")
-    .update({
-      status,
-      reviewed_by: reviewedBy,
-      reviewed_at: new Date().toISOString(),
-      action_taken: actionTaken || null,
-    })
-    .eq("id", reportId)
-    .select()
-    .single();
+  const normalizedStatus = status === 'on_hold' ? 'awaiting_info' : status;
 
-  if (error) throw error;
-  return data;
+  try {
+    const updateData: any = {
+      status: normalizedStatus,
+      assigned_admin_id: reviewedBy,
+      updated_at: new Date().toISOString(),
+    };
+    
+    if (adminNotes) {
+      updateData.admin_notes = adminNotes;
+    }
+
+    const { data, error } = await (supabase as any)
+      .from("reports")
+      .update(updateData)
+      .eq("id", reportId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('UpdateReportStatus error:', error);
+      throw error;
+    }
+    
+    return data;
+  } catch (error: any) {
+    console.error('UpdateReportStatus catch:', error);
+    // Return a local success object if SELECT after UPDATE fails due to RLS
+    if (error?.message?.includes('permission') || error?.code === 'PGRST116') {
+      console.warn('RLS prevented SELECT after UPDATE, continuing with local update');
+      return {
+        id: reportId,
+        status: normalizedStatus,
+        assigned_admin_id: reviewedBy,
+        admin_notes: adminNotes || null,
+        updated_at: new Date().toISOString(),
+      };
+    }
+    throw error;
+  }
 };
 
 export const deleteReport = async (reportId: string): Promise<{ success: boolean }> => {
@@ -578,44 +886,66 @@ export const getEngagementMetrics = async (
 ): Promise<EngagementMetrics> => {
   const since = sinceDate(timeRange);
 
+  const safeCount = async (queryFactory: () => any) => {
+    try {
+      const result = await queryFactory();
+      if (result?.error) {
+        const message = result.error?.message || '';
+        if (message) {
+          console.warn('getEngagementMetrics count query failed:', message);
+        }
+        return 0;
+      }
+      return result?.count ?? 0;
+    } catch (error: any) {
+      const message = error?.message || '';
+      if (message) {
+        console.warn('getEngagementMetrics count query threw:', message);
+      }
+      return 0;
+    }
+  };
+
   // All static counts (not time-filtered)
-  const [usersRes, postsRes, eventsRes, teamsRes] = await Promise.all([
-    supabase.from('profiles').select('id', { count: 'exact', head: true }),
-    supabase.from('feed_posts').select('id', { count: 'exact', head: true }).eq('is_approved', true),
-    supabase.from('events').select('id', { count: 'exact', head: true }),
-    supabase.from('project_teams').select('id', { count: 'exact', head: true }),
+  const [totalUsers, totalPosts, totalEvents, totalTeams] = await Promise.all([
+    safeCount(() => supabase.from('profiles').select('id', { count: 'exact', head: true })),
+    safeCount(() => supabase.from('feed_posts').select('id', { count: 'exact', head: true }).eq('is_approved', true)),
+    safeCount(() => supabase.from('events').select('id', { count: 'exact', head: true })),
+    safeCount(() => supabase.from('project_teams').select('id', { count: 'exact', head: true })),
   ]);
 
   // Time-filtered counts
-  const [messagesRes, recentPostsRes, registrationsRes, newUsersRes] = await Promise.all([
-    supabase.from('messages').select('id', { count: 'exact', head: true }).gte('created_at', since),
-    supabase.from('feed_posts').select('id', { count: 'exact', head: true }).gte('created_at', since),
-    supabase.from('event_registrations').select('id', { count: 'exact', head: true }).gte('created_at', since),
-    supabase.from('profiles').select('id', { count: 'exact', head: true }).gte('created_at', since),
+  const [recentMessages, recentPosts, recentRegistrations, newUsers] = await Promise.all([
+    safeCount(() => supabase.from('messages').select('id', { count: 'exact', head: true }).gte('created_at', since)),
+    safeCount(() => supabase.from('feed_posts').select('id', { count: 'exact', head: true }).gte('created_at', since)),
+    safeCount(() => supabase.from('event_registrations').select('id', { count: 'exact', head: true }).gte('created_at', since)),
+    safeCount(() => supabase.from('profiles').select('id', { count: 'exact', head: true }).gte('created_at', since)),
   ]);
 
   // Users by role
   const roles = ['student', 'faculty', 'alumni', 'admin', 'developer'];
   const roleResults = await Promise.all(
     roles.map((role) =>
-      supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('role', role)
+      safeCount(() => supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('role', role))
     )
   );
   const usersByRole: Record<string, number> = {};
-  roles.forEach((role, i) => { usersByRole[role] = roleResults[i].count ?? 0; });
+  roles.forEach((role, i) => {
+    usersByRole[role] = roleResults[i] ?? 0;
+  });
 
   return {
-    totalUsers: usersRes.count ?? 0,
+    totalUsers,
     usersByRole,
-    totalPosts: postsRes.count ?? 0,
-    totalEvents: eventsRes.count ?? 0,
+    totalPosts,
+    totalEvents,
     // Prefer project naming for dashboard cards while keeping teams for existing consumers.
-    totalProjects: teamsRes.count ?? 0,
-    totalTeams: teamsRes.count ?? 0,
-    recentMessages: messagesRes.count ?? 0,
-    recentPosts: recentPostsRes.count ?? 0,
-    recentRegistrations: registrationsRes.count ?? 0,
-    newUsers: newUsersRes.count ?? 0,
+    totalProjects: totalTeams,
+    totalTeams,
+    recentMessages,
+    recentPosts,
+    recentRegistrations,
+    newUsers,
     lastUpdated: new Date().toISOString(),
     timeRange,
   };

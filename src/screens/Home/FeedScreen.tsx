@@ -29,6 +29,8 @@ import { supabase } from '../../api/supabase';
 import { EventFeedItem } from '../../components/EventFeedItem';
 import { UserAvatar } from '../../components/UserAvatar';
 import ConfirmDialog from '../../components/ConfirmDialog';
+import ReportModal from '../../components/ReportModal';
+import { ReportContentType } from '../../types/database';
 import { LinearGradient } from 'expo-linear-gradient';
 import Toast from 'react-native-toast-message';
 import { canModerateAcademic, isAdminRole } from '../../utils/roles';
@@ -150,6 +152,11 @@ export default function FeedScreen() {
   const [menuPostId, setMenuPostId] = useState<string | null>(null);
   const [deletePostId, setDeletePostId] = useState<string | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [reportModalState, setReportModalState] = useState({
+    visible: false,
+    contentType: 'feed_post' as ReportContentType,
+    contentId: '',
+  });
 
   const menuPost = academicPosts.find((p) => p.id === menuPostId);
 
@@ -1140,7 +1147,11 @@ export default function FeedScreen() {
               style={styles.optionItem}
               onPress={() => {
                 setMenuPostId(null);
-                Toast.show({ type: 'info', text1: 'Report submitted' });
+                setReportModalState({
+                  visible: true,
+                  contentType: 'feed_post',
+                  contentId: menuPost?.id || '',
+                });
               }}
             >
               <View style={[styles.optionIcon, { backgroundColor: '#fef3c7' }]}>
@@ -1195,6 +1206,13 @@ export default function FeedScreen() {
           setShowDeleteDialog(false);
           setDeletePostId(null);
         }}
+      />
+
+      <ReportModal
+        isVisible={reportModalState.visible}
+        onClose={() => setReportModalState({ ...reportModalState, visible: false })}
+        contentType={reportModalState.contentType}
+        reportedContentId={reportModalState.contentId}
       />
     </SafeAreaView >
   );

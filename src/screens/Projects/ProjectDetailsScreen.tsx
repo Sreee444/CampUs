@@ -39,8 +39,9 @@ import {
 } from '../../api/projects';
 import { updateMentorshipRequestStatus } from '../../api/mentors';
 import { getProjectChatId, ensureProjectChat } from '../../api/projectChat';
-import { ProjectTeam } from '../../types/database';
+import { ProjectTeam, ReportContentType } from '../../types/database';
 import { UserAvatar } from '../../components/UserAvatar';
+import ReportModal from '../../components/ReportModal';
 import { ConfirmBottomSheet } from '../../components/ConfirmBottomSheet';
 import { getProjectStatusColor, getTeamFillColor, PROJECT_STATUS_OPTIONS } from '../../utils/semanticColors';
 import { createNotification } from '../../api/notifications';
@@ -111,6 +112,13 @@ export default function ProjectDetailsScreen() {
   const [showJoinRequestModal, setShowJoinRequestModal] = useState(false);
   const [joinMessage, setJoinMessage] = useState('');
   const [isSendingRequest, setIsSendingRequest] = useState(false);
+
+  // Report modal state
+  const [reportModalState, setReportModalState] = useState({
+    visible: false,
+    contentType: 'project' as ReportContentType,
+    contentId: '',
+  });
 
   // Remove member confirmation
   const [memberToRemove, setMemberToRemove] = useState<any>(null);
@@ -1149,13 +1157,9 @@ export default function ProjectDetailsScreen() {
         <Text style={styles.headerTitle} numberOfLines={1}>
           {team?.name || 'Project Details'}
         </Text>
-        {canManageTeam ? (
-          <TouchableOpacity style={styles.headerMenuBtn} onPress={() => setShowProjectMenu(true)}>
-            <MaterialIcons name="more-vert" size={24} color={Colors.text} />
-          </TouchableOpacity>
-        ) : (
-          <View style={{ width: 40 }} />
-        )}
+        <TouchableOpacity style={styles.headerMenuBtn} onPress={() => setShowProjectMenu(true)}>
+          <MaterialIcons name="more-vert" size={24} color={Colors.text} />
+        </TouchableOpacity>
       </View>
 
       {isLoading ? (
@@ -2044,15 +2048,38 @@ export default function ProjectDetailsScreen() {
               style={styles.projectMenuItem}
               onPress={() => {
                 setShowProjectMenu(false);
-                setShowDeleteProjectConfirmation(true);
+                setReportModalState({
+                  visible: true,
+                  contentType: 'project',
+                  contentId: teamId,
+                });
               }}
             >
               <View style={[styles.projectMenuIcon, { backgroundColor: '#fee2e2' }]}>
-                <MaterialIcons name="delete-outline" size={20} color="#dc2626" />
+                <MaterialIcons name="flag" size={20} color="#dc2626" />
               </View>
-              <Text style={[styles.projectMenuItemText, { color: '#dc2626', flex: 1 }]}>Delete Project</Text>
+              <Text style={[styles.projectMenuItemText, { color: '#dc2626', flex: 1 }]}>Report Project</Text>
               <MaterialIcons name="chevron-right" size={20} color="#9ca3af" />
             </TouchableOpacity>
+
+            {canManageTeam && (
+              <>
+                <View style={styles.projectMenuDivider} />
+                <TouchableOpacity
+                  style={styles.projectMenuItem}
+                  onPress={() => {
+                    setShowProjectMenu(false);
+                    setShowDeleteProjectConfirmation(true);
+                  }}
+                >
+                  <View style={[styles.projectMenuIcon, { backgroundColor: '#fee2e2' }]}>
+                    <MaterialIcons name="delete-outline" size={20} color="#dc2626" />
+                  </View>
+                  <Text style={[styles.projectMenuItemText, { color: '#dc2626', flex: 1 }]}>Delete Project</Text>
+                  <MaterialIcons name="chevron-right" size={20} color="#9ca3af" />
+                </TouchableOpacity>
+              </>
+            )}
           </View>
         </TouchableOpacity>
       </Modal>
@@ -2068,6 +2095,13 @@ export default function ProjectDetailsScreen() {
         cancelText="Cancel"
         confirmColor="#ef4444"
         icon="delete-outline"
+      />
+
+      <ReportModal
+        isVisible={reportModalState.visible}
+        onClose={() => setReportModalState({ ...reportModalState, visible: false })}
+        contentType={reportModalState.contentType}
+        reportedContentId={reportModalState.contentId}
       />
     </SafeAreaView>
   );

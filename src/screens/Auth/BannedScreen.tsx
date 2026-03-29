@@ -34,7 +34,10 @@ export default function BannedScreen() {
 
   const untilText = banUntil ? new Date(banUntil).toLocaleString() : 'Permanent suspension';
   const durationText = banDuration || (banUntil ? 'Temporary suspension' : 'Permanent');
-  const hasSubmittedAppeal = Boolean(appealStatus?.id);
+  const appealStatusKey = String(appealStatus?.status || '').toLowerCase();
+  const hasOpenAppeal = Boolean(
+    appealStatus?.id && appealStatusKey && appealStatusKey !== 'resolved' && appealStatusKey !== 'dismissed'
+  );
 
   const loadAppealStatus = React.useCallback(async () => {
     if (!user?.id) return;
@@ -77,7 +80,6 @@ export default function BannedScreen() {
     };
   }, [user?.id, loadAppealStatus]);
 
-  const appealStatusKey = String(appealStatus?.status || '').toLowerCase();
   const appealStatusText =
     appealStatusKey === 'resolved'
       ? 'Resolved'
@@ -85,7 +87,7 @@ export default function BannedScreen() {
       ? 'Under Review'
       : appealStatusKey === 'pending'
       ? 'Pending'
-      : 'Not Submitted';
+      : 'No Appeal Yet';
 
   const statusTone =
     appealStatusKey === 'resolved'
@@ -109,8 +111,8 @@ export default function BannedScreen() {
       Toast.show({ type: 'error', text1: 'Contact details required', text2: 'Please add your email or phone.' });
       return;
     }
-    if (hasSubmittedAppeal) {
-      Toast.show({ type: 'info', text1: 'Appeal already submitted', text2: 'You can submit only one appeal request.' });
+    if (hasOpenAppeal) {
+      Toast.show({ type: 'info', text1: 'Appeal already submitted', text2: 'You already have an open appeal under review.' });
       return;
     }
 
@@ -200,19 +202,20 @@ export default function BannedScreen() {
               )}
 
               <Text style={[styles.metaText, { color: Colors.textSecondary }]}>Only one appeal request is allowed per account.</Text>
+              <Text style={[styles.metaText, { color: Colors.textSecondary }]}>Appeal cooldown: 1 request every 2 days.</Text>
             </View>
 
             <View style={[styles.block, { borderColor: Colors.border, backgroundColor: Colors.background }]}> 
               <Text style={[styles.blockLabel, { color: Colors.textSecondary }]}>Contact Admin / Developer</Text>
 
-              {hasSubmittedAppeal ? (
+              {hasOpenAppeal ? (
                 <View style={[styles.lockedCard, { borderColor: Colors.border, backgroundColor: Colors.surface }]}> 
                   <MaterialIcons name="lock" size={18} color="#f59e0b" />
-                  <Text style={[styles.lockedText, { color: Colors.text }]}>You have already submitted one appeal request and cannot submit another one.</Text>
+                  <Text style={[styles.lockedText, { color: Colors.text }]}>You already have an appeal under review. Please wait for admin response.</Text>
                 </View>
               ) : (
                 <>
-                  <Text style={[styles.metaText, { color: Colors.textSecondary }]}>Submit one appeal with both details below.</Text>
+                  <Text style={[styles.metaText, { color: Colors.textSecondary }]}>Submit one appeal with both details below (maximum 1 appeal in 2 days).</Text>
                   <TextInput
                     style={[styles.input, { color: Colors.text, borderColor: Colors.border, backgroundColor: Colors.surface }]}
                     placeholder="Appeal message"
