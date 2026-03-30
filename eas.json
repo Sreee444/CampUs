@@ -1,0 +1,41 @@
+{
+  "cli": {
+    "version": ">= 18.4.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://wqkfofyymbptvixnznga.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Indxa2ZvZnl5bWJwdHZpeG56bmdhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNzYwNjQsImV4cCI6MjA4Nzc1MjA2NH0.esD-Y1ol78nGRLFKXdKDZXUhqoC2PXfibADmGGAgULE",
+        "EXPO_PUBLIC_AI_API_BASE_URL": "https://campus-ai-server.onrender.com",
+        "EXPO_PUBLIC_CHAT_SECRET": "campus-chat-secret-key",
+        "NEXT_PUBLIC_CHAT_SECRET": "campus-chat-secret-key"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://wqkfofyymbptvixnznga.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Indxa2ZvZnl5bWJwdHZpeG56bmdhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNzYwNjQsImV4cCI6MjA4Nzc1MjA2NH0.esD-Y1ol78nGRLFKXdKDZXUhqoC2PXfibADmGGAgULE",
+        "EXPO_PUBLIC_AI_API_BASE_URL": "https://campus-ai-server.onrender.com",
+        "EXPO_PUBLIC_CHAT_SECRET": "campus-chat-secret-key",
+        "NEXT_PUBLIC_CHAT_SECRET": "campus-chat-secret-key"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

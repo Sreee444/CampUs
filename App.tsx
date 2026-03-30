@@ -13,6 +13,8 @@ import { updateUserStatus } from './src/api/chat';
 import { BroadcastBanner } from './src/components/BroadcastBanner';
 
 function AppContent() {
+
+  console.log("API URL:", process.env.EXPO_PUBLIC_AI_API_BASE_URL);
   const { isDark } = useTheme();
   const { user } = useAuth();
   const [broadcastBanner, setBroadcastBanner] = useState<{

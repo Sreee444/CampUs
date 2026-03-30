@@ -5,35 +5,42 @@
     "scheme": "campusapp",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/image.png",
+
+    "icon": "./assets/icon.png",
+
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
+
     "splash": {
-      "image": "./assets/image.png",
+      "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
+
     "ios": {
       "supportsTablet": true
     },
+
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/image.png",
+        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.sree444.CampUs"
     },
+
     "web": {
       "favicon": "./assets/favicon.png"
     },
+
     "plugins": [
       "@react-native-community/datetimepicker",
       "expo-font"
     ],
+
     "extra": {
       "eas": {
-        "projectId": ""
+        "projectId": "efebfafd-051d-41f8-b5d6-cc34c292145a"
       }
     }
   }

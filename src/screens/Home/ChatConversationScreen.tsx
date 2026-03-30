@@ -15,6 +15,7 @@ import {
   ImageBackground,
   ScrollView,
   Animated,
+  GestureResponderEvent,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useAnimatedStyle, useSharedValue, withRepeat, withTiming, Easing } from 'react-native-reanimated';
@@ -765,7 +766,7 @@ export default function ChatConversationScreen() {
           table: 'messages',
           filter: `conversation_id=eq.${conversationId}`,
         },
-        async (payload) => {
+        async (payload: any) => {
           console.log("Realtime payload:", payload);
 
           // Get the sender profile for the new message
@@ -808,7 +809,7 @@ export default function ChatConversationScreen() {
           schema: 'public',
           table: 'message_reads',
         },
-        (payload) => {
+        (payload: any) => {
           // When someone else reads a message, update its seen status
           if (payload.new.user_id !== user.id) {
             const readMessageId = payload.new.message_id;
@@ -826,7 +827,7 @@ export default function ChatConversationScreen() {
           }
         }
       )
-      .subscribe((status) => {
+      .subscribe((status: string) => {
         console.log("Realtime status:", status);
       });
 
@@ -2021,9 +2022,9 @@ export default function ChatConversationScreen() {
           isImage={isImageMessage}
           attachmentUrl={message.attachment_url}
           imageCaption={imageCaption}
-          onImagePress={(url) => setImagePreviewUrl(url)}
+          onImagePress={(url: string) => setImagePreviewUrl(url)}
           reactions={!pollPayload ? groupedReactions : undefined}
-          onReactionPress={(emoji) => toggleReaction(message.id, emoji)}
+          onReactionPress={(emoji: string) => toggleReaction(message.id, emoji)}
           onLongPress={() => handleMessageLongPress(message)}
           aiOptions={message.aiOptions}
           onAiOptionPress={handleAiOptionPress}
@@ -2194,7 +2195,7 @@ export default function ChatConversationScreen() {
           <View style={styles.bannerActions}>
             {canManageGroup && (
               <TouchableOpacity
-                onPress={(e) => {
+                onPress={(e: GestureResponderEvent) => {
                   e.stopPropagation();
                   setShowPinnedActions(true);
                 }}
@@ -2205,7 +2206,7 @@ export default function ChatConversationScreen() {
             )}
             <TouchableOpacity
               style={styles.pinnedCloseBtn}
-              onPress={(e) => {
+              onPress={(e: GestureResponderEvent) => {
                 e.stopPropagation();
                 setShowPinnedBanner(false);
               }}
@@ -2243,7 +2244,7 @@ export default function ChatConversationScreen() {
           <View style={styles.bannerActions}>
             {canManageGroup && (
               <TouchableOpacity
-                onPress={(e) => {
+                onPress={(e: GestureResponderEvent) => {
                   e.stopPropagation();
                   setShowAnnouncementActions(true);
                 }}
@@ -2254,7 +2255,7 @@ export default function ChatConversationScreen() {
             )}
             <TouchableOpacity
               style={styles.announcementCloseBtn}
-              onPress={(e) => {
+              onPress={(e: GestureResponderEvent) => {
                 e.stopPropagation();
                 setShowAnnouncementBanner(false);
               }}
@@ -2301,7 +2302,7 @@ export default function ChatConversationScreen() {
           <FlatList
             ref={listRef}
             data={filteredMessages}
-            keyExtractor={(item) => item.id}
+            keyExtractor={(item: ChatMessage) => item.id}
             renderItem={renderMessage}
             style={styles.messagesListContainer}
             contentContainerStyle={styles.messagesContentContainer}
@@ -2380,7 +2381,7 @@ export default function ChatConversationScreen() {
                   ref={messageInputRef}
                   style={styles.input}
                   value={messageText}
-                  onChangeText={(text) => {
+                  onChangeText={(text: string) => {
                     setMessageText(text);
                     if (!text.trim()) {
                       stopTypingSignal().catch(() => {});
@@ -2679,7 +2680,7 @@ export default function ChatConversationScreen() {
                 <TextInput
                   key={`poll-option-${optionIndex}`}
                   value={option}
-                  onChangeText={(value) => updatePollOption(optionIndex, value)}
+                  onChangeText={(value: string) => updatePollOption(optionIndex, value)}
                   placeholder={`Option ${optionIndex + 1}`}
                   placeholderTextColor={Colors.textSecondary}
                   style={styles.pollInput}

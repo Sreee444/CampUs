@@ -34,5 +34,5 @@
     "App.tsx",
     "index.ts"
   ],
-  "extends": "expo/tsconfig.base.json"
+  "extends": "./node_modules/expo/tsconfig.base.json"
 }
