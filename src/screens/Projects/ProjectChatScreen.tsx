@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import {
     View,
     Text,
@@ -13,6 +13,7 @@ import {
     ActivityIndicator,
     Image,
     Modal,
+    ImageBackground,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -23,8 +24,17 @@ import { getColors, Spacing, BorderRadius, FontSizes, FontWeights } from '../../
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { UserAvatar } from '../../components/UserAvatar';
+import ChatMessageBubble from '../../components/ChatMessageBubble';
 import Toast from 'react-native-toast-message';
-import { uploadChatAttachment } from '../../api/chat';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+    uploadChatAttachment,
+    getChatPreference,
+    setChatBackgroundImage,
+    removeChatBackgroundImage,
+    uploadChatBackgroundToStorage,
+} from '../../api/chat';
+import { CHAT_THEME_KEY, CHAT_THEMES, ChatTheme, withHexAlpha } from '../../constants/chatThemes';
 import {
     getProjectChatMessages,
     sendProjectChatMessage,
@@ -58,7 +68,99 @@ export default function ProjectChatScreen() {
     const [selectedMessage, setSelectedMessage] = useState<ProjectChatMessage | null>(null);
     const [seenByOthersMap, setSeenByOthersMap] = useState<Map<string, number>>(new Map());
     const [imageLoadFailures, setImageLoadFailures] = useState<Record<string, boolean>>({});
+    const [showThemePicker, setShowThemePicker] = useState(false);
+    const [showChatOptions, setShowChatOptions] = useState(false);
+    const [backgroundImageUrl, setBackgroundImageUrl] = useState<string | null>(null);
+    const [showBackgroundPicker, setShowBackgroundPicker] = useState(false);
+    const [isLoadingBackground, setIsLoadingBackground] = useState(false);
     const listRef = useRef<FlatList>(null);
+    const prevMessageCountRef = useRef(0);
+
+    // Chat theme
+    const [chatTheme, setChatTheme] = useState<ChatTheme>(CHAT_THEMES[0]);
+    useEffect(() => {
+        AsyncStorage.getItem(CHAT_THEME_KEY).then((key) => {
+            if (key) {
+                const theme = CHAT_THEMES.find((t) => t.key === key);
+                if (theme) setChatTheme(theme);
+            }
+        });
+    }, []);
+
+    // Load chat background preference
+    useEffect(() => {
+        if (!chatId || !user?.id) return;
+
+        const loadBackground = async () => {
+            try {
+                const preference = (await getChatPreference(user.id, chatId)) as
+                    | { background_image_url?: string | null }
+                    | null;
+                if (preference?.background_image_url) {
+                    setBackgroundImageUrl(preference.background_image_url);
+                }
+            } catch (error) {
+                console.error('Failed to load background preference:', error);
+            }
+        };
+
+        loadBackground();
+    }, [chatId, user?.id]);
+
+    const selectChatTheme = async (theme: ChatTheme) => {
+        setChatTheme(theme);
+        await AsyncStorage.setItem(CHAT_THEME_KEY, theme.key);
+    };
+
+    const handlePickBackgroundImage = async () => {
+        const previousBackgroundImage = backgroundImageUrl;
+
+        try {
+            const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                allowsEditing: true,
+                aspect: [9, 16],
+                quality: 0.7,
+            });
+
+            if (!result.canceled && result.assets[0] && user?.id) {
+                const asset = result.assets[0];
+                const fileName = `bg-${Date.now()}.jpg`;
+
+                // Show the chosen image immediately for faster perceived response.
+                setBackgroundImageUrl(asset.uri);
+                setShowBackgroundPicker(false);
+                setIsLoadingBackground(true);
+
+                const imageUrl = await uploadChatBackgroundToStorage(user.id, chatId, asset.uri, fileName);
+                await setChatBackgroundImage(user.id, chatId, imageUrl, fileName);
+                setBackgroundImageUrl(imageUrl);
+                Toast.show({ type: 'success', text1: 'Background updated', text2: 'Custom background applied' });
+            }
+        } catch (error: any) {
+            console.error('Failed to set background:', error);
+            setBackgroundImageUrl(previousBackgroundImage);
+            Toast.show({ type: 'error', text1: 'Failed to set background', text2: error?.message || 'Try again' });
+        } finally {
+            setIsLoadingBackground(false);
+        }
+    };
+
+    const handleRemoveBackground = async () => {
+        if (!user?.id) return;
+
+        try {
+            setIsLoadingBackground(true);
+            await removeChatBackgroundImage(user.id, chatId);
+            setBackgroundImageUrl(null);
+            setShowBackgroundPicker(false);
+            Toast.show({ type: 'success', text1: 'Background removed' });
+        } catch (error: any) {
+            Toast.show({ type: 'error', text1: 'Failed to remove background', text2: error?.message || 'Try again' });
+        } finally {
+            setIsLoadingBackground(false);
+        }
+    };
 
     const loadMessages = useCallback(async () => {
         if (!chatId) return;
@@ -97,11 +199,12 @@ export default function ProjectChatScreen() {
         };
     }, [chatId, loadMessages]);
 
-    // Auto-scroll to bottom on new messages
+    // Auto-scroll to bottom on new messages only
     useEffect(() => {
-        if (messages.length > 0) {
+        if (messages.length > 0 && messages.length > prevMessageCountRef.current) {
             setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
         }
+        prevMessageCountRef.current = messages.length;
     }, [messages.length]);
 
     useEffect(() => {
@@ -209,7 +312,6 @@ export default function ProjectChatScreen() {
         const imageUri = item.attachment_url || contentAsUrl || '';
         const isImageMessage = !!imageUri && (normalizedType === 'image' || !normalizedType);
         const imageCaption = (item.content || '').trim();
-        const hasImageLoadFailure = !!imageLoadFailures[item.id];
         const prev = index > 0 ? messages[index - 1] : null;
         const showDate =
             index === 0 ||
@@ -220,8 +322,7 @@ export default function ProjectChatScreen() {
             minute: '2-digit',
         });
         const seenByCount = isMe ? (seenByOthersMap.get(item.id) || 0) : 0;
-        const tickName = seenByCount > 0 ? 'done-all' : 'done';
-        const tickColor = seenByCount > 0 ? '#60A5FA' : 'rgba(255,255,255,0.72)';
+        const seenStatus = seenByCount > 0 ? 'read' : 'sent';
 
         return (
             <View>
@@ -230,66 +331,28 @@ export default function ProjectChatScreen() {
                         <Text style={S.dateLabel}>{getDateLabel(item.created_at)}</Text>
                     </View>
                 )}
-                <View style={[S.msgRow, isMe ? S.myMsgRow : S.otherMsgRow]}>
-                    {!isMe && (
-                        <View style={S.avatarWrap}>
-                            {showAvatar ? (
-                                <UserAvatar
-                                    uri={item.sender?.avatar_url}
-                                    name={item.sender?.full_name || 'M'}
-                                    size={28}
-                                    showRing={false}
-                                />
-                            ) : (
-                                <View style={{ width: 28 }} />
-                            )}
-                        </View>
-                    )}
-                    <TouchableOpacity
-                        style={[S.bubble, isImageMessage && S.imageMessageBubble, isMe ? S.myBubble : S.otherBubble]}
-                        onLongPress={() => {
-                            if (!isMe) return;
-                            setSelectedMessage(item);
-                            setShowMessageOptions(true);
-                        }}
-                        delayLongPress={350}
-                        activeOpacity={0.85}
-                    >
-                        {showAvatar && !isMe && (
-                            <Text style={S.senderName}>{item.sender?.full_name || 'Member'}</Text>
-                        )}
-                        {isImageMessage ? (
-                            <View style={S.imageMessageWrap}>
-                                <TouchableOpacity activeOpacity={0.9} onPress={() => !hasImageLoadFailure && setImagePreviewUrl(imageUri)}>
-                                    {!hasImageLoadFailure ? (
-                                        <Image
-                                            source={{ uri: imageUri }}
-                                            style={S.imageMessage}
-                                            resizeMode="cover"
-                                            onError={() => setImageLoadFailures((prevState) => ({ ...prevState, [item.id]: true }))}
-                                        />
-                                    ) : (
-                                        <View style={S.imageLoadFallback}>
-                                            <MaterialIcons name="broken-image" size={22} color={isMe ? 'rgba(255,255,255,0.85)' : Colors.textSecondary} />
-                                            <Text style={[S.imageLoadFallbackText, isMe ? S.myMsgText : S.otherMsgText]}>Image unavailable</Text>
-                                        </View>
-                                    )}
-                                </TouchableOpacity>
-                                {!!imageCaption && (
-                                    <Text style={[S.msgText, isMe ? S.myMsgText : S.otherMsgText]}>{imageCaption}</Text>
-                                )}
-                            </View>
-                        ) : (
-                            <Text style={[S.msgText, isMe ? S.myMsgText : S.otherMsgText]}>
-                                {item.content}
-                            </Text>
-                        )}
-                        <View style={S.timeRow}>
-                            <Text style={[S.msgTime, isMe ? S.myMsgTime : S.otherMsgTime]}>{time}</Text>
-                            {isMe && <MaterialIcons name={tickName} size={14} color={tickColor} />}
-                        </View>
-                    </TouchableOpacity>
-                </View>
+                <ChatMessageBubble
+                    messageId={item.id}
+                    content={item.content}
+                    isMe={isMe}
+                    time={time}
+                    chatTheme={chatTheme}
+                    showSender={showAvatar && !isMe}
+                    senderName={item.sender?.full_name || 'Member'}
+                    senderAvatar={item.sender?.avatar_url}
+                    senderRole={item.sender?.role}
+                    seenStatus={seenStatus}
+                    showTicks={isMe}
+                    isImage={isImageMessage}
+                    attachmentUrl={imageUri}
+                    imageCaption={isImageMessage ? imageCaption : undefined}
+                    onImagePress={(url) => setImagePreviewUrl(url)}
+                    onLongPress={() => {
+                        if (!isMe) return;
+                        setSelectedMessage(item);
+                        setShowMessageOptions(true);
+                    }}
+                />
             </View>
         );
     };
@@ -319,17 +382,24 @@ export default function ProjectChatScreen() {
                     <MaterialIcons name="arrow-back" size={24} color={Colors.text} />
                 </TouchableOpacity>
                 <View style={S.headerCenter}>
-                    <View style={S.groupIcon}>
-                        <MaterialIcons name="group" size={20} color="#fff" />
+                    <View style={[S.groupIcon, { backgroundColor: chatTheme.bubbleColor }]}>
+                        <MaterialIcons name="group" size={18} color="#fff" />
                     </View>
                     <View>
                         <Text style={S.headerTitle} numberOfLines={1}>{teamName || 'Team Chat'}</Text>
                         <Text style={S.headerSub}>Project Team Chat</Text>
                     </View>
                 </View>
-                <View style={{ width: 40 }} />
+                <TouchableOpacity style={S.paletteBtn} onPress={() => setShowChatOptions(true)}>
+                    <MaterialIcons name="palette" size={22} color={Colors.textSecondary} />
+                </TouchableOpacity>
             </View>
 
+            <ImageBackground
+                source={backgroundImageUrl ? { uri: backgroundImageUrl } : undefined}
+                style={S.messagesContainer}
+                imageStyle={S.backgroundImage}
+            >
             <KeyboardAvoidingView
                 style={{ flex: 1 }}
                 behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -340,9 +410,9 @@ export default function ProjectChatScreen() {
                     data={messages}
                     keyExtractor={(item) => item.id}
                     renderItem={renderMessage}
+                    style={S.messagesListContainer}
                     contentContainerStyle={S.messagesList}
                     showsVerticalScrollIndicator={false}
-                    onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
                     ListEmptyComponent={
                         <View style={S.emptyChat}>
                             <MaterialIcons name="chat-bubble-outline" size={48} color={Colors.border} />
@@ -352,7 +422,7 @@ export default function ProjectChatScreen() {
                 />
 
                 {/* Input */}
-                <View style={S.inputContainer}>
+                <View style={[S.inputContainer, backgroundImageUrl && { backgroundColor: withHexAlpha(Colors.surface, 0.88) }]}>
                     {!!selectedAttachmentUri && (
                         <View style={S.attachmentPreviewRow}>
                             <Image source={{ uri: selectedAttachmentUri }} style={S.attachmentPreviewImage} />
@@ -362,39 +432,42 @@ export default function ProjectChatScreen() {
                         </View>
                     )}
                     <View style={S.inputRow}>
+                        <View style={[S.inputMain, backgroundImageUrl && { backgroundColor: withHexAlpha(Colors.card, 0.9) }]}>
+                            <TouchableOpacity
+                                style={[S.attachBtn, (isUploadingAttachment || isSending) && S.attachBtnDisabled]}
+                                onPress={handlePickAttachment}
+                                disabled={isUploadingAttachment || isSending}
+                            >
+                                {isUploadingAttachment
+                                    ? <ActivityIndicator size="small" color={Colors.textSecondary} />
+                                    : <MaterialIcons name="attach-file" size={20} color={Colors.textSecondary} />}
+                            </TouchableOpacity>
+                            <TextInput
+                                style={S.input}
+                                value={messageText}
+                                onChangeText={setMessageText}
+                                placeholder="Message your team…"
+                                placeholderTextColor={Colors.textSecondary}
+                                multiline
+                                maxLength={2000}
+                                returnKeyType="default"
+                            />
+                        </View>
                         <TouchableOpacity
-                            style={[S.attachBtn, (isUploadingAttachment || isSending) && S.attachBtnDisabled]}
-                            onPress={handlePickAttachment}
-                            disabled={isUploadingAttachment || isSending}
-                        >
-                            {isUploadingAttachment
-                                ? <ActivityIndicator size="small" color={Colors.textSecondary} />
-                                : <MaterialIcons name="attach-file" size={20} color={Colors.textSecondary} />}
-                        </TouchableOpacity>
-                        <TextInput
-                            style={S.input}
-                            value={messageText}
-                            onChangeText={setMessageText}
-                            placeholder="Message your team…"
-                            placeholderTextColor={Colors.textSecondary}
-                            multiline
-                            maxLength={2000}
-                            returnKeyType="default"
-                        />
-                        <TouchableOpacity
-                            style={[S.sendBtn, (!messageText.trim() && !selectedAttachmentUri || isSending || isUploadingAttachment) && S.sendBtnDisabled]}
+                            style={[S.sendBtn, { backgroundColor: chatTheme.bubbleColor }, (!messageText.trim() && !selectedAttachmentUri || isSending || isUploadingAttachment) && S.sendBtnDisabled]}
                             onPress={handleSend}
                             disabled={(!messageText.trim() && !selectedAttachmentUri) || isSending || isUploadingAttachment}
                         >
                             {(isSending || isUploadingAttachment) ? (
                                 <ActivityIndicator size="small" color="#fff" />
                             ) : (
-                                <MaterialIcons name="send" size={20} color="#fff" />
+                                <MaterialIcons name="send" size={20} color={Colors.primaryContent} />
                             )}
                         </TouchableOpacity>
                     </View>
                 </View>
             </KeyboardAvoidingView>
+            </ImageBackground>
 
             <Modal visible={!!imagePreviewUrl} transparent animationType="fade" onRequestClose={() => setImagePreviewUrl(null)}>
                 <View style={S.imagePreviewBackdrop}>
@@ -430,6 +503,90 @@ export default function ProjectChatScreen() {
                     </View>
                 </View>
             </Modal>
+
+            {/* Chat Options Modal */}
+            <Modal visible={showChatOptions} transparent animationType="slide" onRequestClose={() => setShowChatOptions(false)}>
+                <View style={S.modalOverlay}>
+                    <View style={S.optionsSheet}>
+                        <Text style={S.optionsTitle}>Chat options</Text>
+                        <TouchableOpacity style={S.optionRow} onPress={() => { setShowChatOptions(false); setShowThemePicker(true); }}>
+                            <MaterialIcons name="palette" size={20} color={Colors.text} />
+                            <Text style={S.optionText}>Change Chat Theme</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={S.optionRow} onPress={() => { setShowChatOptions(false); setShowBackgroundPicker(true); }}>
+                            <MaterialIcons name="image" size={20} color={Colors.text} />
+                            <Text style={S.optionText}>Chat Background</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={[S.optionRow, S.optionCancel]} onPress={() => setShowChatOptions(false)}>
+                            <MaterialIcons name="close" size={20} color={Colors.textSecondary} />
+                            <Text style={[S.optionText, { color: Colors.textSecondary }]}>Close</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* Theme Picker Modal */}
+            <Modal visible={showThemePicker} transparent animationType="slide" onRequestClose={() => setShowThemePicker(false)}>
+                <View style={S.modalOverlay}>
+                    <View style={S.optionsSheet}>
+                        <Text style={S.optionsTitle}>Chat Theme</Text>
+                        <Text style={S.themeSubtitle}>Choose a color for your chat bubbles</Text>
+                        <View style={S.themeGrid}>
+                            {CHAT_THEMES.map((theme) => (
+                                <TouchableOpacity key={theme.key} style={S.themeOption} onPress={() => selectChatTheme(theme)}>
+                                    <View style={[S.themeCircle, { backgroundColor: theme.bubbleColor }, chatTheme.key === theme.key && S.themeCircleSelected]}>
+                                        {chatTheme.key === theme.key && <MaterialIcons name="check" size={20} color={theme.textColor} />}
+                                    </View>
+                                    <Text style={[S.themeLabel, chatTheme.key === theme.key && S.themeLabelSelected]}>{theme.label}</Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                        <View style={S.themePreview}>
+                            <View style={[S.previewBubbleOther, { backgroundColor: chatTheme.incomingBubbleColor, borderColor: chatTheme.incomingBorderColor }]}>
+                                <Text style={{ color: chatTheme.incomingTextColor, fontSize: 13 }}>Hey there! 👋</Text>
+                            </View>
+                            <View style={[S.previewBubbleMine, { backgroundColor: chatTheme.bubbleColor }]}>
+                                <Text style={{ color: chatTheme.textColor, fontSize: 13 }}>Hello! How are you?</Text>
+                            </View>
+                        </View>
+                        <TouchableOpacity style={[S.optionRow, S.optionCancel]} onPress={() => setShowThemePicker(false)}>
+                            <MaterialIcons name="close" size={20} color={Colors.textSecondary} />
+                            <Text style={[S.optionText, { color: Colors.textSecondary }]}>Close</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* Chat Background Picker */}
+            <Modal visible={showBackgroundPicker} transparent animationType="slide" onRequestClose={() => setShowBackgroundPicker(false)}>
+                <View style={S.modalOverlay}>
+                    <View style={S.optionsSheet}>
+                        <Text style={S.optionsTitle}>Chat Background</Text>
+                        <Text style={S.themeSubtitle}>Customize your chat background</Text>
+                        {backgroundImageUrl && (
+                            <View style={S.backgroundPreview}>
+                                <Image source={{ uri: backgroundImageUrl }} style={S.backgroundPreviewImage} />
+                                <Text style={S.backgroundPreviewLabel}>Current Background</Text>
+                            </View>
+                        )}
+                        <TouchableOpacity style={S.optionRow} onPress={handlePickBackgroundImage} disabled={isLoadingBackground}>
+                            <MaterialIcons name="photo-library" size={20} color={Colors.text} />
+                            <Text style={S.optionText}>{backgroundImageUrl ? 'Change Background' : 'Choose from Gallery'}</Text>
+                            {isLoadingBackground && <ActivityIndicator size="small" color={Colors.primary} />}
+                        </TouchableOpacity>
+                        {backgroundImageUrl && (
+                            <TouchableOpacity style={S.optionRow} onPress={handleRemoveBackground} disabled={isLoadingBackground}>
+                                <MaterialIcons name="delete-outline" size={20} color={Colors.error} />
+                                <Text style={[S.optionText, { color: Colors.error }]}>Remove Background</Text>
+                            </TouchableOpacity>
+                        )}
+                        <TouchableOpacity style={[S.optionRow, S.optionCancel]} onPress={() => setShowBackgroundPicker(false)}>
+                            <MaterialIcons name="close" size={20} color={Colors.textSecondary} />
+                            <Text style={[S.optionText, { color: Colors.textSecondary }]}>Close</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
         </SafeAreaView>
     );
 }
@@ -442,8 +599,8 @@ const styles = (Colors: any) =>
             flexDirection: 'row',
             alignItems: 'center',
             justifyContent: 'space-between',
-            paddingHorizontal: Spacing.md,
-            paddingVertical: 10,
+            paddingHorizontal: 10,
+            paddingVertical: 8,
             backgroundColor: Colors.surface,
             borderBottomWidth: 1,
             borderBottomColor: Colors.border,
@@ -460,7 +617,7 @@ const styles = (Colors: any) =>
             width: 36,
             height: 36,
             borderRadius: 18,
-            backgroundColor: '#4F46E5',
+            backgroundColor: Colors.primary,
             alignItems: 'center',
             justifyContent: 'center',
         },
@@ -473,163 +630,101 @@ const styles = (Colors: any) =>
             fontSize: 11,
             color: Colors.textSecondary,
         },
+        messagesContainer: {
+            flex: 1,
+        },
+        messagesListContainer: {
+            flex: 1,
+            backgroundColor: 'transparent',
+        },
+        backgroundImage: {
+            opacity: 1,
+        },
         messagesList: {
-            paddingHorizontal: Spacing.md,
+            paddingHorizontal: 6,
             paddingVertical: Spacing.sm,
-            gap: 4,
+            gap: 3,
         },
         dateSeparator: {
             alignItems: 'center',
-            marginVertical: 12,
+            marginVertical: 8,
         },
         dateLabel: {
             fontSize: 11,
             color: Colors.textSecondary,
-            backgroundColor: Colors.surface,
-            paddingHorizontal: 12,
-            paddingVertical: 3,
-            borderRadius: 999,
-            borderWidth: 1,
-            borderColor: Colors.border,
-        },
-        msgRow: {
-            flexDirection: 'row',
-            marginBottom: 4,
-            alignItems: 'flex-end',
-        },
-        myMsgRow: { justifyContent: 'flex-end' },
-        otherMsgRow: { justifyContent: 'flex-start' },
-        avatarWrap: { marginRight: 6 },
-        bubble: {
-            maxWidth: '75%',
-            borderRadius: BorderRadius.lg,
-            paddingHorizontal: 12,
-            paddingVertical: 8,
-            gap: 2,
-        },
-        imageMessageBubble: {
-            paddingHorizontal: 4,
+            backgroundColor: Colors.card,
+            paddingHorizontal: 10,
             paddingVertical: 4,
-            borderRadius: 14,
-        },
-        imageMessageWrap: {
-            gap: 6,
-        },
-        imageMessage: {
-            width: 220,
-            height: 220,
-            borderRadius: 10,
-            backgroundColor: Colors.border,
-        },
-        imageLoadFallback: {
-            width: 220,
-            height: 220,
-            borderRadius: 10,
-            borderWidth: 1,
-            borderColor: Colors.border,
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 6,
-            backgroundColor: Colors.background,
-        },
-        imageLoadFallbackText: {
-            fontSize: 12,
-            fontWeight: '600',
-        },
-        myBubble: {
-            backgroundColor: '#4F46E5',
-            borderBottomRightRadius: 4,
-        },
-        otherBubble: {
-            backgroundColor: Colors.surface,
-            borderBottomLeftRadius: 4,
+            borderRadius: 12,
+            fontWeight: '500',
+            overflow: 'hidden',
             borderWidth: 1,
             borderColor: Colors.border,
         },
-        senderName: {
-            fontSize: 11,
-            fontWeight: '700',
-            color: '#4F46E5',
-            marginBottom: 2,
-        },
-        msgText: {
-            fontSize: FontSizes.sm,
-            lineHeight: 20,
-        },
-        myMsgText: { color: '#fff' },
-        otherMsgText: { color: Colors.text },
-        msgTime: {
-            fontSize: 10,
-            alignSelf: 'flex-end',
-        },
-        timeRow: {
-            alignSelf: 'flex-end',
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 3,
-        },
-        myMsgTime: { color: 'rgba(255,255,255,0.65)' },
-        otherMsgTime: { color: Colors.textSecondary },
         inputContainer: {
             flexDirection: 'column',
-            paddingHorizontal: Spacing.md,
-            paddingVertical: 10,
+            paddingHorizontal: 8,
+            paddingVertical: 6,
             backgroundColor: Colors.surface,
-            borderTopWidth: 1,
+            borderTopWidth: 0.5,
             borderTopColor: Colors.border,
-            gap: 8,
+            gap: 6,
         },
         inputRow: {
             flexDirection: 'row',
             alignItems: 'flex-end',
-            gap: 10,
+            gap: 6,
+        },
+        inputMain: {
+            flex: 1,
+            flexDirection: 'row',
+            alignItems: 'center',
+            borderRadius: 20,
+            paddingLeft: 4,
+            paddingRight: 6,
+            backgroundColor: Colors.card,
+            borderWidth: 1,
+            borderColor: Colors.border,
         },
         input: {
             flex: 1,
-            minHeight: 42,
-            maxHeight: 130,
-            backgroundColor: Colors.background,
-            borderRadius: BorderRadius.lg,
-            paddingHorizontal: 14,
-            paddingVertical: Platform.OS === 'ios' ? 11 : 8,
+            minHeight: 40,
+            maxHeight: 110,
+            backgroundColor: 'transparent',
+            borderRadius: 20,
+            paddingHorizontal: 10,
+            paddingVertical: Platform.OS === 'ios' ? 10 : 8,
             fontSize: FontSizes.sm,
             color: Colors.text,
-            borderWidth: 1,
-            borderColor: Colors.border,
+            borderWidth: 0,
         },
         attachBtn: {
-            width: 38,
-            height: 38,
-            borderRadius: 19,
-            borderWidth: 1,
-            borderColor: Colors.border,
-            backgroundColor: Colors.background,
+            width: 36,
+            height: 36,
+            borderRadius: 18,
             alignItems: 'center',
             justifyContent: 'center',
-            marginBottom: 2,
         },
         attachBtnDisabled: {
-            opacity: 0.6,
+            opacity: 0.5,
         },
         sendBtn: {
-            width: 42,
-            height: 42,
-            borderRadius: 21,
-            backgroundColor: '#4F46E5',
+            width: 44,
+            height: 44,
+            borderRadius: 22,
+            backgroundColor: Colors.primary,
             alignItems: 'center',
             justifyContent: 'center',
         },
         sendBtnDisabled: {
-            backgroundColor: Colors.border,
+            opacity: 0.4,
         },
         attachmentPreviewRow: {
-            width: 84,
-            height: 84,
+            width: 80,
+            height: 80,
             borderRadius: 10,
             overflow: 'hidden',
-            borderWidth: 1,
-            borderColor: Colors.border,
-            backgroundColor: Colors.background,
+            backgroundColor: Colors.card,
         },
         attachmentPreviewImage: {
             width: '100%',
@@ -648,13 +743,13 @@ const styles = (Colors: any) =>
         },
         imagePreviewBackdrop: {
             flex: 1,
-            backgroundColor: 'rgba(0,0,0,0.9)',
+            backgroundColor: 'rgba(0,0,0,0.95)',
             justifyContent: 'center',
             alignItems: 'center',
         },
         imagePreviewClose: {
             position: 'absolute',
-            top: 54,
+            top: 48,
             right: 18,
             zIndex: 10,
             padding: 6,
@@ -681,13 +776,13 @@ const styles = (Colors: any) =>
         },
         modalOverlay: {
             flex: 1,
-            backgroundColor: 'rgba(0,0,0,0.35)',
+            backgroundColor: 'rgba(0,0,0,0.5)',
             justifyContent: 'flex-end',
         },
         optionsSheet: {
-            backgroundColor: Colors.surface,
-            borderTopLeftRadius: BorderRadius.xl,
-            borderTopRightRadius: BorderRadius.xl,
+            backgroundColor: Colors.card,
+            borderTopLeftRadius: 16,
+            borderTopRightRadius: 16,
             paddingHorizontal: Spacing.md,
             paddingTop: Spacing.md,
             paddingBottom: Spacing.lg,
@@ -703,12 +798,10 @@ const styles = (Colors: any) =>
             flexDirection: 'row',
             alignItems: 'center',
             gap: Spacing.md,
-            borderRadius: BorderRadius.md,
-            borderWidth: 1,
-            borderColor: Colors.border,
+            borderRadius: 10,
             paddingHorizontal: Spacing.md,
-            paddingVertical: Spacing.md,
-            backgroundColor: Colors.card,
+            paddingVertical: 14,
+            backgroundColor: Colors.background,
         },
         optionText: {
             fontSize: FontSizes.md,
@@ -717,5 +810,85 @@ const styles = (Colors: any) =>
         },
         optionCancel: {
             marginTop: Spacing.xs,
+        },
+        paletteBtn: {
+            padding: 6,
+        },
+        themeSubtitle: {
+            fontSize: FontSizes.sm,
+            color: Colors.textSecondary,
+            marginBottom: Spacing.sm,
+        },
+        themeGrid: {
+            flexDirection: 'row',
+            flexWrap: 'wrap',
+            justifyContent: 'center',
+            gap: 16,
+            paddingVertical: Spacing.sm,
+        },
+        themeOption: {
+            alignItems: 'center',
+            gap: 6,
+        },
+        themeCircle: {
+            width: 46,
+            height: 46,
+            borderRadius: 23,
+            alignItems: 'center',
+            justifyContent: 'center',
+        },
+        themeCircleSelected: {
+            borderWidth: 3,
+            borderColor: Colors.text,
+        },
+        themeLabel: {
+            fontSize: 11,
+            color: Colors.textSecondary,
+            fontWeight: '500',
+        },
+        themeLabelSelected: {
+            color: Colors.text,
+            fontWeight: '700',
+        },
+        themePreview: {
+            backgroundColor: Colors.background,
+            borderWidth: 1,
+            borderColor: Colors.border,
+            borderRadius: 12,
+            padding: 14,
+            gap: 8,
+            marginTop: Spacing.xs,
+            marginBottom: Spacing.sm,
+        },
+        previewBubbleOther: {
+            alignSelf: 'flex-start',
+            maxWidth: '70%',
+            borderRadius: 8,
+            borderTopLeftRadius: 2,
+            padding: 8,
+        },
+        previewBubbleMine: {
+            alignSelf: 'flex-end',
+            maxWidth: '70%',
+            borderRadius: 8,
+            borderTopRightRadius: 2,
+            padding: 8,
+        },
+        backgroundPreview: {
+            alignItems: 'center',
+            marginVertical: Spacing.md,
+            borderRadius: BorderRadius.lg,
+            overflow: 'hidden',
+        },
+        backgroundPreviewImage: {
+            width: '100%',
+            height: 200,
+            borderRadius: BorderRadius.lg,
+        },
+        backgroundPreviewLabel: {
+            fontSize: FontSizes.sm,
+            color: Colors.textSecondary,
+            marginTop: Spacing.sm,
+            fontWeight: FontWeights.medium,
         },
     });

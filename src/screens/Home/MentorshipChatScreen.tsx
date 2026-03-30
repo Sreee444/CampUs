@@ -1,4 +1,4 @@
-﻿// @ts-nocheck
+// @ts-nocheck
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
     View,
@@ -13,21 +13,30 @@ import {
     ActivityIndicator,
     Modal,
     Image,
+    ImageBackground,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../../navigation/types';
-import { getColors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } from '../../theme';
+import { getColors, Spacing, BorderRadius, FontSizes, FontWeights } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { UserAvatar } from '../../components/UserAvatar';
+import ChatMessageBubble from '../../components/ChatMessageBubble';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import Toast from 'react-native-toast-message';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { updateUserStatus, getUserStatus } from '../../api/chat';
-import { uploadChatAttachment } from '../../api/chat';
+import {
+    updateUserStatus,
+    getUserStatus,
+    uploadChatAttachment,
+    getChatPreference,
+    setChatBackgroundImage,
+    removeChatBackgroundImage,
+    uploadChatBackgroundToStorage,
+} from '../../api/chat';
 import {
     getMentorshipMessages,
     sendMentorshipMessage,
@@ -45,33 +54,7 @@ import {
 } from '../../api/mentorshipChat';
 import * as mentorshipChatApi from '../../api/mentorshipChat';
 import { supabase } from '../../api/supabase';
-
-const CHAT_THEME_KEY = 'chat_color_theme';
-
-type ChatTheme = {
-    key: string; label: string; bubbleColor: string; textColor: string; timeColor: string;
-    incomingBubbleColor: string; incomingTextColor: string; incomingTimeColor: string; incomingBorderColor: string;
-};
-
-const CHAT_THEMES: ChatTheme[] = [
-    { key: 'default', label: 'Teal', bubbleColor: '#13ecec', textColor: '#0e3a3a', timeColor: '#0e3a3a', incomingBubbleColor: '#d8fafa', incomingTextColor: '#0f3d3d', incomingTimeColor: '#2b5f5f', incomingBorderColor: '#aeecec' },
-    { key: 'blue', label: 'Blue', bubbleColor: '#3B82F6', textColor: '#ffffff', timeColor: '#dbeafe', incomingBubbleColor: '#dbeafe', incomingTextColor: '#1e3a8a', incomingTimeColor: '#1d4ed8', incomingBorderColor: '#bfdbfe' },
-    { key: 'purple', label: 'Purple', bubbleColor: '#8B5CF6', textColor: '#ffffff', timeColor: '#ede9fe', incomingBubbleColor: '#ede9fe', incomingTextColor: '#5b21b6', incomingTimeColor: '#6d28d9', incomingBorderColor: '#ddd6fe' },
-    { key: 'green', label: 'Green', bubbleColor: '#10B981', textColor: '#ffffff', timeColor: '#d1fae5', incomingBubbleColor: '#d1fae5', incomingTextColor: '#065f46', incomingTimeColor: '#047857', incomingBorderColor: '#a7f3d0' },
-    { key: 'rose', label: 'Rose', bubbleColor: '#F43F5E', textColor: '#ffffff', timeColor: '#ffe4e6', incomingBubbleColor: '#ffe4e6', incomingTextColor: '#9f1239', incomingTimeColor: '#be123c', incomingBorderColor: '#fecdd3' },
-    { key: 'orange', label: 'Orange', bubbleColor: '#F97316', textColor: '#ffffff', timeColor: '#ffedd5', incomingBubbleColor: '#ffedd5', incomingTextColor: '#9a3412', incomingTimeColor: '#c2410c', incomingBorderColor: '#fed7aa' },
-    { key: 'indigo', label: 'Indigo', bubbleColor: '#6366F1', textColor: '#ffffff', timeColor: '#e0e7ff', incomingBubbleColor: '#e0e7ff', incomingTextColor: '#3730a3', incomingTimeColor: '#4338ca', incomingBorderColor: '#c7d2fe' },
-    { key: 'pink', label: 'Pink', bubbleColor: '#EC4899', textColor: '#ffffff', timeColor: '#fce7f3', incomingBubbleColor: '#fce7f3', incomingTextColor: '#9d174d', incomingTimeColor: '#be185d', incomingBorderColor: '#fbcfe8' },
-];
-
-const withHexAlpha = (hexColor: string, alpha: number): string => {
-    const normalized = hexColor.replace('#', '');
-    const expanded = normalized.length === 3 ? normalized.split('').map((ch) => ch + ch).join('') : normalized;
-    if (!/^[0-9a-fA-F]{6}$/.test(expanded)) return hexColor;
-    const clampedAlpha = Math.min(1, Math.max(0, alpha));
-    const alphaHex = Math.round(clampedAlpha * 255).toString(16).padStart(2, '0');
-    return `#${expanded}${alphaHex}`;
-};
+import { CHAT_THEME_KEY, CHAT_THEMES, ChatTheme, withHexAlpha } from '../../constants/chatThemes';
 
 type Nav = StackNavigationProp<RootStackParamList, 'MentorshipChat'>;
 type Route = RouteProp<RootStackParamList, 'MentorshipChat'>;
@@ -102,6 +85,9 @@ export default function MentorshipChatScreen() {
     const [messageSearchQuery, setMessageSearchQuery] = useState('');
     const [chatTheme, setChatTheme] = useState<ChatTheme>(CHAT_THEMES[0]);
     const [showThemePicker, setShowThemePicker] = useState(false);
+    const [backgroundImageUrl, setBackgroundImageUrl] = useState<string | null>(null);
+    const [showBackgroundPicker, setShowBackgroundPicker] = useState(false);
+    const [isLoadingBackground, setIsLoadingBackground] = useState(false);
     const [reactionPickerVisible, setReactionPickerVisible] = useState(false);
     const [reactionTargetMessageId, setReactionTargetMessageId] = useState<string | null>(null);
     const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
@@ -129,6 +115,26 @@ export default function MentorshipChatScreen() {
         });
     }, []);
 
+    // Load chat background preference
+    useEffect(() => {
+        if (!chatId || !user?.id) return;
+
+        const loadBackground = async () => {
+            try {
+                const preference = (await getChatPreference(user.id, chatId)) as
+                    | { background_image_url?: string | null }
+                    | null;
+                if (preference?.background_image_url) {
+                    setBackgroundImageUrl(preference.background_image_url);
+                }
+            } catch (error) {
+                console.error('Failed to load background preference:', error);
+            }
+        };
+
+        loadBackground();
+    }, [chatId, user?.id]);
+
     const selectChatTheme = (theme: ChatTheme) => {
         setChatTheme(theme);
         AsyncStorage.setItem(CHAT_THEME_KEY, theme.key);
@@ -136,7 +142,60 @@ export default function MentorshipChatScreen() {
         Toast.show({ type: 'success', text1: `${theme.label} theme applied` });
     };
 
-    const headerChromeColor = useMemo(() => withHexAlpha(chatTheme.bubbleColor, 0.16), [chatTheme.bubbleColor]);
+    const handlePickBackgroundImage = async () => {
+        const previousBackgroundImage = backgroundImageUrl;
+
+        try {
+            const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                allowsEditing: true,
+                aspect: [9, 16],
+                quality: 0.7,
+            });
+
+            if (!result.canceled && result.assets[0] && user?.id) {
+                const asset = result.assets[0];
+                const fileName = `bg-${Date.now()}.jpg`;
+
+                // Show the chosen image immediately for faster perceived response.
+                setBackgroundImageUrl(asset.uri);
+                setShowBackgroundPicker(false);
+                setIsLoadingBackground(true);
+
+                const imageUrl = await uploadChatBackgroundToStorage(user.id, chatId, asset.uri, fileName);
+                await setChatBackgroundImage(user.id, chatId, imageUrl, fileName);
+                setBackgroundImageUrl(imageUrl);
+                Toast.show({ type: 'success', text1: 'Background updated', text2: 'Custom background applied' });
+            }
+        } catch (error: any) {
+            console.error('Failed to set background:', error);
+            setBackgroundImageUrl(previousBackgroundImage);
+            Toast.show({ type: 'error', text1: 'Failed to set background', text2: error?.message || 'Try again' });
+        } finally {
+            setIsLoadingBackground(false);
+        }
+    };
+
+    const handleRemoveBackground = async () => {
+        if (!user?.id) return;
+
+        try {
+            setIsLoadingBackground(true);
+            await removeChatBackgroundImage(user.id, chatId);
+            setBackgroundImageUrl(null);
+            setShowBackgroundPicker(false);
+            Toast.show({ type: 'success', text1: 'Background removed' });
+        } catch (error: any) {
+            Toast.show({ type: 'error', text1: 'Failed to remove background', text2: error?.message || 'Try again' });
+        } finally {
+            setIsLoadingBackground(false);
+        }
+    };
+
+    const headerChromeColor = useMemo(
+        () => withHexAlpha(chatTheme.bubbleColor, backgroundImageUrl ? 0.28 : 0.16),
+        [chatTheme.bubbleColor, backgroundImageUrl]
+    );
     const headerChromeBorder = useMemo(() => withHexAlpha(chatTheme.bubbleColor, 0.35), [chatTheme.bubbleColor]);
     const composerBorderColor = useMemo(() => withHexAlpha(chatTheme.bubbleColor, 0.3), [chatTheme.bubbleColor]);
 
@@ -475,70 +534,32 @@ export default function MentorshipChatScreen() {
         const senderRole = isMe ? profile?.role || message.sender?.role : message.sender?.role;
         const time = new Date(message.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
         const groupedReactions = getGroupedReactions(message.id);
-        const groupedReactionEntries = Object.entries(groupedReactions);
         const seenByCount = isMe ? (seenByOthersMap.get(message.id) || 0) : 0;
-        const tickName = seenByCount > 0 ? 'done-all' : 'done';
-        const tickColor = seenByCount > 0 ? '#60A5FA' : chatTheme.timeColor;
-        const msgLen = (message.content || '').trim().length;
-        const bubbleWidthStyle = isImageMessage
-            ? styles.bubbleImage
-            : msgLen <= 12
-                ? styles.bubbleShort
-                : msgLen <= 40
-                    ? styles.bubbleMedium
-                    : styles.bubbleLong;
+        const seenStatus = seenByCount > 0 ? 'read' : 'sent';
 
         return (
             <View>
                 {showDate && (<View style={styles.dateSeparatorContainer}><Text style={styles.dateSeparatorLabel}>{getDateLabel(message.created_at)}</Text></View>)}
-                <View style={[styles.messageWrapper, isMe ? styles.myMessageWrapper : styles.otherMessageWrapper]}>
-                    {!isMe && (<View style={styles.avatarLaneStart}><UserAvatar uri={senderAvatarUri} name={senderDisplayName} size={30} role={senderRole} showRing={false} /></View>)}
-                    <View style={[styles.messageBubbleWrap, bubbleWidthStyle]}>
-                        <TouchableOpacity
-                            style={[styles.messageBubble,
-                            isImageMessage && styles.imageMessageBubble,
-                            isMe ? [styles.myMessage, { backgroundColor: chatTheme.bubbleColor }]
-                                : [styles.otherMessage, { backgroundColor: chatTheme.incomingBubbleColor, borderColor: chatTheme.incomingBorderColor }]]}
-                            onLongPress={() => handleMessageLongPress(message)} delayLongPress={400} activeOpacity={0.8}>
-                            {!isMe && (<Text style={[styles.senderName, { color: chatTheme.incomingTextColor }]} numberOfLines={1}>{senderDisplayName}</Text>)}
-                            <View style={styles.messageContentWrap}>
-                                {isImageMessage ? (
-                                    <View style={styles.imageMessageWrap}>
-                                        <TouchableOpacity activeOpacity={0.9} onPress={() => setImagePreviewUrl(message.attachment_url || null)}>
-                                            <Image source={{ uri: message.attachment_url as string }} style={styles.imageMessage} resizeMode="cover" />
-                                        </TouchableOpacity>
-                                        {!!imageCaption && (
-                                            <Text style={[styles.messageText, isMe ? [styles.myMessageText, { color: chatTheme.textColor }] : [styles.otherMessageText, { color: chatTheme.incomingTextColor }]]}>
-                                                {imageCaption}
-                                            </Text>
-                                        )}
-                                    </View>
-                                ) : (
-                                    <Text style={[styles.messageText, isMe ? [styles.myMessageText, { color: chatTheme.textColor }] : [styles.otherMessageText, { color: chatTheme.incomingTextColor }]]}>
-                                        {message.content}
-                                    </Text>
-                                )}
-                            </View>
-                            <View style={[styles.messageFooter, isMe ? styles.myMessageFooter : styles.otherMessageFooter]}>
-                                <Text style={[styles.messageTime, isMe ? [styles.myMessageTime, { color: chatTheme.timeColor, opacity: 0.85 }] : [styles.otherMessageTime, { color: chatTheme.incomingTimeColor, opacity: 0.9 }]]}>
-                                    {time}
-                                </Text>
-                                {isMe && <MaterialIcons name={tickName} size={14} color={tickColor} style={styles.statusTick} />}
-                            </View>
-                        </TouchableOpacity>
-                        {groupedReactionEntries.length > 0 && (
-                            <View style={[styles.reactionRow, isMe ? styles.myReactionRow : styles.otherReactionRow]}>
-                                {groupedReactionEntries.map(([emoji, info]) => (
-                                    <TouchableOpacity key={`${message.id}-${emoji}`} style={[styles.reactionPill, info.hasCurrentUser && styles.reactionPillActive]} onPress={() => toggleReaction(message.id, emoji)}>
-                                        <Text style={styles.reactionPillEmoji}>{emoji}</Text>
-                                        <Text style={[styles.reactionPillCount, info.hasCurrentUser && styles.reactionPillCountActive]}>{info.count}</Text>
-                                    </TouchableOpacity>
-                                ))}
-                            </View>
-                        )}
-                    </View>
-                    {isMe && (<View style={styles.avatarLaneEnd}><UserAvatar uri={senderAvatarUri} name={senderDisplayName} size={30} role={senderRole} showRing={false} /></View>)}
-                </View>
+                <ChatMessageBubble
+                    messageId={message.id}
+                    content={message.content}
+                    isMe={isMe}
+                    time={time}
+                    chatTheme={chatTheme}
+                    showSender={!isMe}
+                    senderName={senderDisplayName}
+                    senderAvatar={senderAvatarUri}
+                    senderRole={senderRole}
+                    seenStatus={seenStatus}
+                    showTicks={isMe}
+                    isImage={isImageMessage}
+                    attachmentUrl={message.attachment_url}
+                    imageCaption={imageCaption}
+                    onImagePress={(url) => setImagePreviewUrl(url)}
+                    reactions={groupedReactions}
+                    onReactionPress={(emoji) => toggleReaction(message.id, emoji)}
+                    onLongPress={() => handleMessageLongPress(message)}
+                />
             </View>
         );
     };
@@ -550,13 +571,13 @@ export default function MentorshipChatScreen() {
     return (
         <SafeAreaView style={styles.container}>
             {/* Header */}
-            <View style={[styles.header, { backgroundColor: headerChromeColor, borderBottomColor: headerChromeBorder }]}>
+            <View style={[styles.header, { backgroundColor: headerChromeColor }]}>
                 <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
                     <MaterialIcons name="arrow-back" size={24} color={Colors.text} />
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.headerMainInfo} activeOpacity={0.8}
                     onPress={() => { if (partnerId) navigation.navigate('PublicProfile', { userId: partnerId }); }}>
-                    <UserAvatar uri={getChatAvatar()} name={getChatTitle()} size={40} role={getChatRole()} showRing={false} />
+                    <UserAvatar uri={getChatAvatar()} name={getChatTitle()} size={38} role={getChatRole()} showRing={false} />
                     <View style={styles.headerInfo}>
                         <Text style={styles.headerName} numberOfLines={1}>{getChatTitle()}</Text>
                         <View style={styles.directStatusRow}>
@@ -587,7 +608,11 @@ export default function MentorshipChatScreen() {
             )}
 
             {/* Messages */}
-            <View style={styles.messagesContainer}>
+            <ImageBackground
+                source={backgroundImageUrl ? { uri: backgroundImageUrl } : undefined}
+                style={styles.messagesContainer}
+                imageStyle={styles.backgroundImage}
+            >
                 <FlatList ref={listRef} data={filteredMessages} keyExtractor={(item) => item.id} renderItem={renderMessage}
                     style={styles.messagesListContainer} contentContainerStyle={styles.messagesContentContainer}
                     onContentSizeChange={() => { if (!showMessageSearch) listRef.current?.scrollToEnd({ animated: false }); }}
@@ -610,7 +635,7 @@ export default function MentorshipChatScreen() {
                                 </TouchableOpacity>
                             </View>
                         )}
-                        <View style={[styles.inputMain, { backgroundColor: Colors.surface, borderColor: composerBorderColor }]}>
+                        <View style={[styles.inputMain, { backgroundColor: backgroundImageUrl ? withHexAlpha(Colors.surface, 0.88) : Colors.surface, borderColor: composerBorderColor }]}>
                             <TouchableOpacity
                                 style={[styles.attachBtn, (isUploadingAttachment || isSending) && styles.attachBtnDisabled]}
                                 onPress={handlePickAttachment}
@@ -637,7 +662,7 @@ export default function MentorshipChatScreen() {
                         </TouchableOpacity>
                     </View>
                 </KeyboardAvoidingView>
-            </View>
+            </ImageBackground>
             {/* Chat Options Modal */}
             <Modal visible={showChatOptions} animationType="slide" transparent onRequestClose={() => setShowChatOptions(false)}>
                 <View style={styles.modalOverlay}><View style={styles.optionsSheet}>
@@ -653,6 +678,9 @@ export default function MentorshipChatScreen() {
                     </TouchableOpacity>
                     <TouchableOpacity style={styles.optionRow} onPress={() => { setShowChatOptions(false); setShowThemePicker(true); }}>
                         <MaterialIcons name="palette" size={20} color={Colors.text} /><Text style={styles.optionText}>Change Chat Theme</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.optionRow} onPress={() => { setShowChatOptions(false); setShowBackgroundPicker(true); }}>
+                        <MaterialIcons name="image" size={20} color={Colors.text} /><Text style={styles.optionText}>Chat Background</Text>
                     </TouchableOpacity>
                     <TouchableOpacity style={[styles.optionRow, styles.optionCancel]} onPress={() => setShowChatOptions(false)}>
                         <MaterialIcons name="close" size={20} color={Colors.textSecondary} /><Text style={[styles.optionText, { color: Colors.textSecondary }]}>Close</Text>
@@ -720,6 +748,35 @@ export default function MentorshipChatScreen() {
                 </View></View>
             </Modal>
 
+            {/* Chat Background Picker */}
+            <Modal visible={showBackgroundPicker} transparent animationType="slide" onRequestClose={() => setShowBackgroundPicker(false)}>
+                <View style={styles.modalOverlay}><View style={styles.optionsSheet}>
+                    <Text style={styles.optionsTitle}>Chat Background</Text>
+                    <Text style={styles.themeSubtitle}>Customize your chat background</Text>
+                    {backgroundImageUrl && (
+                        <View style={styles.backgroundPreview}>
+                            <Image source={{ uri: backgroundImageUrl }} style={styles.backgroundPreviewImage} />
+                            <Text style={styles.backgroundPreviewLabel}>Current Background</Text>
+                        </View>
+                    )}
+                    <TouchableOpacity style={styles.optionRow} onPress={handlePickBackgroundImage} disabled={isLoadingBackground}>
+                        <MaterialIcons name="photo-library" size={20} color={Colors.text} />
+                        <Text style={styles.optionText}>{backgroundImageUrl ? 'Change Background' : 'Choose from Gallery'}</Text>
+                        {isLoadingBackground && <ActivityIndicator size="small" color={Colors.primary} />}
+                    </TouchableOpacity>
+                    {backgroundImageUrl && (
+                        <TouchableOpacity style={styles.optionRow} onPress={handleRemoveBackground} disabled={isLoadingBackground}>
+                            <MaterialIcons name="delete-outline" size={20} color={Colors.error} />
+                            <Text style={[styles.optionText, { color: Colors.error }]}>Remove Background</Text>
+                        </TouchableOpacity>
+                    )}
+                    <TouchableOpacity style={[styles.optionRow, styles.optionCancel]} onPress={() => setShowBackgroundPicker(false)}>
+                        <MaterialIcons name="close" size={20} color={Colors.textSecondary} />
+                        <Text style={[styles.optionText, { color: Colors.textSecondary }]}>Close</Text>
+                    </TouchableOpacity>
+                </View></View>
+            </Modal>
+
             <ConfirmDialog visible={confirmDialog.visible} title={confirmDialog.title} message={confirmDialog.message}
                 onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog({ ...confirmDialog, visible: false }); }}
                 onCancel={() => setConfirmDialog({ ...confirmDialog, visible: false })} />
@@ -745,75 +802,38 @@ const createStyles = (Colors: any) =>
         container: { flex: 1, backgroundColor: Colors.background },
         loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
         loadingText: { fontSize: FontSizes.md, color: Colors.textSecondary },
-        header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: Spacing.md, paddingVertical: 10, backgroundColor: Colors.surface, borderBottomWidth: 1, borderBottomColor: Colors.border },
-        backButton: { padding: 6 },
+        header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 8, backgroundColor: Colors.surface, borderBottomWidth: 1, borderBottomColor: Colors.border },
+        backButton: { padding: 4 },
         headerMainInfo: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
         headerInfo: { flex: 1 },
         headerName: { fontSize: FontSizes.md, fontWeight: FontWeights.bold, color: Colors.text },
         directStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 1 },
         onlineDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#22c55e' },
         headerStatus: { fontSize: FontSizes.xs, color: Colors.textSecondary, textTransform: 'capitalize' },
-        moreButton: { padding: 6 },
-        messageSearchBar: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: Spacing.md, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: Colors.border },
+        moreButton: { padding: 4 },
+        messageSearchBar: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: Spacing.md, paddingVertical: 8, backgroundColor: Colors.surface, borderBottomWidth: 1, borderBottomColor: Colors.border },
         messageSearchInput: { flex: 1, color: Colors.text, fontSize: FontSizes.sm },
-        messagesContainer: { flex: 1 },
+        messagesContainer: { flex: 1, backgroundColor: Colors.background },
+        backgroundImage: { opacity: 1 },
         messagesListContainer: { flex: 1, backgroundColor: 'transparent' },
-        messagesContentContainer: { paddingHorizontal: Spacing.md, paddingTop: Spacing.md, paddingBottom: 120 },
+        messagesContentContainer: { paddingHorizontal: 6, paddingTop: Spacing.sm, paddingBottom: 90 },
         composerOverlay: { position: 'absolute', left: 0, right: 0, bottom: 0 },
-        messageWrapper: { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 12, width: '100%' },
-        myMessageWrapper: { justifyContent: 'flex-end' },
-        otherMessageWrapper: { justifyContent: 'flex-start' },
-        avatarLaneStart: { width: 34, marginRight: 8, alignItems: 'flex-end', justifyContent: 'flex-end' },
-        avatarLaneEnd: { width: 34, marginLeft: 8, alignItems: 'flex-start', justifyContent: 'flex-end' },
-        dateSeparatorContainer: { alignItems: 'center', marginBottom: Spacing.sm, marginTop: Spacing.sm },
-        dateSeparatorLabel: { fontSize: FontSizes.xs, color: Colors.textSecondary, backgroundColor: Colors.card, borderWidth: 1, borderColor: Colors.border, borderRadius: BorderRadius.full, paddingHorizontal: Spacing.sm, paddingVertical: 2, overflow: 'hidden', fontWeight: FontWeights.medium },
-        messageBubbleWrap: { width: 'auto', maxWidth: '84%' },
-        bubbleImage: { maxWidth: '76%' },
-        bubbleShort: { maxWidth: '42%' },
-        bubbleMedium: { maxWidth: '64%' },
-        bubbleLong: { maxWidth: '82%' },
-        messageBubble: { maxWidth: '100%', borderRadius: 18, paddingHorizontal: 12, paddingVertical: 9, ...Shadows.sm },
-        imageMessageBubble: { paddingHorizontal: 4, paddingVertical: 4, borderRadius: 14 },
-        myMessage: { backgroundColor: Colors.primary, borderBottomRightRadius: 8 },
-        otherMessage: { backgroundColor: Colors.card, borderWidth: 1, borderColor: Colors.border, borderBottomLeftRadius: 8 },
-        senderName: { fontSize: FontSizes.xs, marginBottom: 3, fontWeight: FontWeights.semibold },
-        messageContentWrap: { paddingRight: 2 },
-        imageMessageWrap: { gap: 6 },
-        imageMessage: { width: '100%', minWidth: 160, maxWidth: 260, aspectRatio: 3 / 4, borderRadius: 12, backgroundColor: Colors.surface },
-        messageText: { fontSize: FontSizes.md, lineHeight: 21, letterSpacing: 0.1 },
-        myMessageText: { color: Colors.primaryContent, textAlign: 'right' },
-        otherMessageText: { color: Colors.text },
-        messageFooter: { flexDirection: 'row', marginTop: 6, alignItems: 'center', gap: 6, minHeight: 20, width: '100%' },
-        myMessageFooter: { justifyContent: 'flex-end', alignItems: 'center', alignSelf: 'flex-end' },
-        otherMessageFooter: { justifyContent: 'flex-end', alignItems: 'center', alignSelf: 'flex-end' },
-        messageTime: { fontSize: 10, fontWeight: FontWeights.medium, lineHeight: 14 },
-        myMessageTime: { color: Colors.primaryContent, opacity: 0.8 },
-        otherMessageTime: { color: Colors.textSecondary },
-        statusTick: { marginLeft: -2 },
-        reactionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 5 },
-        myReactionRow: { justifyContent: 'flex-end' },
-        otherReactionRow: { justifyContent: 'flex-start' },
-        reactionPill: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12, borderWidth: 1, borderColor: Colors.border, backgroundColor: Colors.surface },
-        reactionPillActive: { borderColor: Colors.primary, backgroundColor: `${Colors.primary}20` },
-        reactionPillEmoji: { fontSize: 13 },
-        reactionPillCount: { fontSize: 11, color: Colors.textSecondary, fontWeight: FontWeights.semibold },
-        reactionPillCountActive: { color: Colors.primary },
-        reactionPickerSheet: { width: '88%', maxWidth: 340, backgroundColor: Colors.card, borderRadius: BorderRadius.lg, padding: Spacing.md, ...Shadows.md },
+        dateSeparatorContainer: { alignItems: 'center', marginBottom: 6, marginTop: 8 },
+        dateSeparatorLabel: { fontSize: 11, color: Colors.textSecondary, backgroundColor: Colors.card, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4, overflow: 'hidden', fontWeight: '500', borderWidth: 1, borderColor: Colors.border },
+        reactionPickerSheet: { width: '88%', maxWidth: 340, backgroundColor: Colors.card, borderRadius: BorderRadius.lg, padding: Spacing.md },
         reactionChoiceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: Spacing.sm },
-        reactionChoiceButton: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border },
+        reactionChoiceButton: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.background },
         reactionChoiceText: { fontSize: 21 },
-        inputContainer: { paddingHorizontal: Spacing.md, paddingTop: 6, paddingBottom: Platform.OS === 'ios' ? 10 : 8, gap: 8 },
+        inputContainer: { flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: 8, paddingTop: 4, paddingBottom: Platform.OS === 'ios' ? 10 : 6, gap: 6, backgroundColor: Colors.surface, borderTopWidth: 0.5, borderTopColor: Colors.border },
         attachmentPreviewRow: {
             alignSelf: 'flex-start',
             marginBottom: 4,
             position: 'relative',
         },
         attachmentPreviewImage: {
-            width: 88,
-            height: 88,
-            borderRadius: 12,
-            borderWidth: 1,
-            borderColor: Colors.border,
+            width: 80,
+            height: 80,
+            borderRadius: 10,
             backgroundColor: Colors.card,
         },
         attachmentRemoveBtn: {
@@ -827,7 +847,7 @@ const createStyles = (Colors: any) =>
             alignItems: 'center',
             justifyContent: 'center',
         },
-        inputMain: { flex: 1, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderRadius: 24, paddingLeft: 4, paddingRight: 4, paddingVertical: 3, ...Shadows.sm },
+        inputMain: { flex: 1, flexDirection: 'row', alignItems: 'center', borderRadius: 20, paddingLeft: 6, paddingRight: 6, paddingVertical: 2, backgroundColor: Colors.card, borderWidth: 1, borderColor: Colors.border },
         attachBtn: {
             width: 36,
             height: 36,
@@ -837,30 +857,33 @@ const createStyles = (Colors: any) =>
             marginLeft: 2,
         },
         attachBtnDisabled: { opacity: 0.55 },
-        input: { flex: 1, backgroundColor: 'transparent', borderWidth: 0, paddingHorizontal: 6, paddingVertical: 10, fontSize: FontSizes.md, color: Colors.text, maxHeight: 110 },
-        sendButton: { width: 46, height: 46, borderRadius: 23, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center', ...Shadows.sm },
-        sendButtonDisabled: { opacity: 0.5 },
+        input: { flex: 1, backgroundColor: 'transparent', borderWidth: 0, paddingHorizontal: 8, paddingVertical: 10, fontSize: FontSizes.md, color: Colors.text, maxHeight: 110 },
+        sendButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center' },
+        sendButtonDisabled: { opacity: 0.4 },
         emptyContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 80, gap: 12 },
         emptyText: { fontSize: FontSizes.lg, fontWeight: FontWeights.semibold, color: Colors.text },
         emptySubtext: { fontSize: FontSizes.md, color: Colors.textSecondary },
-        modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end' },
-        centeredModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'center', alignItems: 'center' },
-        optionsSheet: { backgroundColor: Colors.surface, borderTopLeftRadius: BorderRadius.xl, borderTopRightRadius: BorderRadius.xl, paddingHorizontal: Spacing.md, paddingTop: Spacing.md, paddingBottom: Spacing.lg, gap: Spacing.xs },
+        modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+        centeredModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
+        optionsSheet: { backgroundColor: Colors.card, borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingHorizontal: Spacing.md, paddingTop: Spacing.md, paddingBottom: Spacing.lg, gap: Spacing.xs },
         optionsTitle: { fontSize: FontSizes.lg, fontWeight: FontWeights.semibold, color: Colors.text, marginBottom: Spacing.xs },
-        optionRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, borderRadius: BorderRadius.md, borderWidth: 1, borderColor: Colors.border, paddingHorizontal: Spacing.md, paddingVertical: Spacing.md, backgroundColor: Colors.card },
+        optionRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, borderRadius: 10, paddingHorizontal: Spacing.md, paddingVertical: 14, backgroundColor: Colors.background },
         optionText: { fontSize: FontSizes.md, color: Colors.text, fontWeight: FontWeights.medium },
         optionCancel: { marginTop: Spacing.xs },
         themeSubtitle: { fontSize: FontSizes.sm, color: Colors.textSecondary, marginBottom: Spacing.md, marginTop: -4 },
         themeGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 16, paddingVertical: Spacing.sm },
         themeOption: { alignItems: 'center', gap: 6, width: 64 },
-        themeCircle: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', ...Shadows.sm },
+        themeCircle: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
         themeCircleSelected: { borderWidth: 3, borderColor: Colors.text },
         themeLabel: { fontSize: 11, color: Colors.textSecondary, fontWeight: FontWeights.medium },
         themeLabelSelected: { color: Colors.text, fontWeight: FontWeights.bold },
-        themePreview: { marginTop: Spacing.md, marginBottom: Spacing.sm, paddingHorizontal: Spacing.md, paddingVertical: Spacing.md, backgroundColor: Colors.background, borderRadius: BorderRadius.lg, gap: 8 },
-        previewBubbleOther: { alignSelf: 'flex-start', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 16, borderBottomLeftRadius: 6, borderWidth: 1, maxWidth: '70%' },
-        previewBubbleMine: { alignSelf: 'flex-end', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 16, borderBottomRightRadius: 6, maxWidth: '70%' },
-        imagePreviewBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center' },
+        themePreview: { marginTop: Spacing.md, marginBottom: Spacing.sm, paddingHorizontal: Spacing.md, paddingVertical: Spacing.md, backgroundColor: Colors.background, borderRadius: 10, gap: 8, borderWidth: 1, borderColor: Colors.border },
+        previewBubbleOther: { alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderTopLeftRadius: 2, maxWidth: '70%' },
+        previewBubbleMine: { alignSelf: 'flex-end', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderTopRightRadius: 2, maxWidth: '70%' },
+        backgroundPreview: { alignItems: 'center', marginVertical: Spacing.md, borderRadius: BorderRadius.lg, overflow: 'hidden' },
+        backgroundPreviewImage: { width: '100%', height: 200, borderRadius: BorderRadius.lg },
+        backgroundPreviewLabel: { fontSize: FontSizes.sm, color: Colors.textSecondary, marginTop: Spacing.sm, fontWeight: FontWeights.medium },
+        imagePreviewBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center', alignItems: 'center' },
         imagePreviewClose: { position: 'absolute', top: 48, right: 20, padding: 8, zIndex: 2 },
         imagePreviewContainer: { width: '100%', height: '100%', paddingHorizontal: 16, paddingVertical: 72, justifyContent: 'center', alignItems: 'center' },
         imagePreviewImage: { width: '100%', height: '100%' },

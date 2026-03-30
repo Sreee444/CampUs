@@ -25,6 +25,11 @@ import { RootStackParamList } from '../../navigation/types';
 import { BorderRadius, FontSizes, FontWeights, getColors, Shadows, Spacing } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
+import ConfirmDialog from '../../components/ConfirmDialog';
+import { UserAvatar } from '../../components/UserAvatar';
+import ChatMessageBubble from '../../components/ChatMessageBubble';
+import PinnedMessagesModal from '../../components/PinnedMessagesModal';
+import { supabase } from '../../api/supabase';
 import {
   addMessageReaction,
   addParticipantsToGroup,
@@ -72,138 +77,8 @@ import { getEvents } from '../../api/events';
 import { getProjectTeams } from '../../api/projects';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
-import ConfirmDialog from '../../components/ConfirmDialog';
-import { UserAvatar } from '../../components/UserAvatar';
-import PinnedMessagesModal from '../../components/PinnedMessagesModal';
-import { supabase } from '../../api/supabase';
 import { decryptMessage } from '../../../utils/encryption';
-
-const CHAT_THEME_KEY = 'chat_color_theme';
-
-type ChatTheme = {
-  key: string;
-  label: string;
-  bubbleColor: string;
-  textColor: string;
-  timeColor: string;
-  incomingBubbleColor: string;
-  incomingTextColor: string;
-  incomingTimeColor: string;
-  incomingBorderColor: string;
-};
-
-const CHAT_THEMES: ChatTheme[] = [
-  {
-    key: 'default',
-    label: 'Teal',
-    bubbleColor: '#13ecec',
-    textColor: '#0e3a3a',
-    timeColor: '#0e3a3a',
-    incomingBubbleColor: '#d8fafa',
-    incomingTextColor: '#0f3d3d',
-    incomingTimeColor: '#2b5f5f',
-    incomingBorderColor: '#aeecec',
-  },
-  {
-    key: 'blue',
-    label: 'Blue',
-    bubbleColor: '#3B82F6',
-    textColor: '#ffffff',
-    timeColor: '#dbeafe',
-    incomingBubbleColor: '#dbeafe',
-    incomingTextColor: '#1e3a8a',
-    incomingTimeColor: '#1d4ed8',
-    incomingBorderColor: '#bfdbfe',
-  },
-  {
-    key: 'purple',
-    label: 'Purple',
-    bubbleColor: '#8B5CF6',
-    textColor: '#ffffff',
-    timeColor: '#ede9fe',
-    incomingBubbleColor: '#ede9fe',
-    incomingTextColor: '#5b21b6',
-    incomingTimeColor: '#6d28d9',
-    incomingBorderColor: '#ddd6fe',
-  },
-  {
-    key: 'green',
-    label: 'Green',
-    bubbleColor: '#10B981',
-    textColor: '#ffffff',
-    timeColor: '#d1fae5',
-    incomingBubbleColor: '#d1fae5',
-    incomingTextColor: '#065f46',
-    incomingTimeColor: '#047857',
-    incomingBorderColor: '#a7f3d0',
-  },
-  {
-    key: 'rose',
-    label: 'Rose',
-    bubbleColor: '#F43F5E',
-    textColor: '#ffffff',
-    timeColor: '#ffe4e6',
-    incomingBubbleColor: '#ffe4e6',
-    incomingTextColor: '#9f1239',
-    incomingTimeColor: '#be123c',
-    incomingBorderColor: '#fecdd3',
-  },
-  {
-    key: 'orange',
-    label: 'Orange',
-    bubbleColor: '#F97316',
-    textColor: '#ffffff',
-    timeColor: '#ffedd5',
-    incomingBubbleColor: '#ffedd5',
-    incomingTextColor: '#9a3412',
-    incomingTimeColor: '#c2410c',
-    incomingBorderColor: '#fed7aa',
-  },
-  {
-    key: 'indigo',
-    label: 'Indigo',
-    bubbleColor: '#6366F1',
-    textColor: '#ffffff',
-    timeColor: '#e0e7ff',
-    incomingBubbleColor: '#e0e7ff',
-    incomingTextColor: '#3730a3',
-    incomingTimeColor: '#4338ca',
-    incomingBorderColor: '#c7d2fe',
-  },
-  {
-    key: 'pink',
-    label: 'Pink',
-    bubbleColor: '#EC4899',
-    textColor: '#ffffff',
-    timeColor: '#fce7f3',
-    incomingBubbleColor: '#fce7f3',
-    incomingTextColor: '#9d174d',
-    incomingTimeColor: '#be185d',
-    incomingBorderColor: '#fbcfe8',
-  },
-];
-
-const withHexAlpha = (hexColor: string, alpha: number): string => {
-  const normalized = hexColor.replace('#', '');
-  const expanded =
-    normalized.length === 3
-      ? normalized
-          .split('')
-          .map((ch) => ch + ch)
-          .join('')
-      : normalized;
-
-  if (!/^[0-9a-fA-F]{6}$/.test(expanded)) {
-    return hexColor;
-  }
-
-  const clampedAlpha = Math.min(1, Math.max(0, alpha));
-  const alphaHex = Math.round(clampedAlpha * 255)
-    .toString(16)
-    .padStart(2, '0');
-
-  return `#${expanded}${alphaHex}`;
-};
+import { CHAT_THEME_KEY, CHAT_THEMES, ChatTheme, withHexAlpha } from '../../constants/chatThemes';
 
 type ChatConversationScreenNavigationProp = StackNavigationProp<RootStackParamList, 'ChatConversation'>;
 type ChatConversationScreenRouteProp = RouteProp<RootStackParamList, 'ChatConversation'>;
@@ -372,6 +247,7 @@ export default function ChatConversationScreen() {
   const announcementScale = useSharedValue(0.95);
   const announcementIconRotate = useSharedValue(0);
   const listRef = useRef<FlatList>(null);
+  const prevMessageCountRef = useRef(0);
   const messageInputRef = useRef<TextInput | null>(null);
   const typingStopTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingSignalAtRef = useRef(0);
@@ -490,6 +366,8 @@ export default function ChatConversationScreen() {
     () => withHexAlpha(chatTheme.bubbleColor, 0.3),
     [chatTheme.bubbleColor]
   );
+  const pollComposerBg = chatTheme.bubbleColor;
+  const pollComposerIconColor = pollComposerBg === chatTheme.bubbleColor ? '#fff' : chatTheme.bubbleColor;
 
   const upsertMessage = (nextMessage: ChatMessage) => {
     setMessages((prev) => {
@@ -964,8 +842,12 @@ export default function ChatConversationScreen() {
 
   useEffect(() => {
     if (!messages.length || showMessageSearch) return;
-    const timeout = setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
-    return () => clearTimeout(timeout);
+    if (messages.length > prevMessageCountRef.current) {
+      const timeout = setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
+      prevMessageCountRef.current = messages.length;
+      return () => clearTimeout(timeout);
+    }
+    prevMessageCountRef.current = messages.length;
   }, [messages.length, showMessageSearch]);
 
   useEffect(() => {
@@ -1947,7 +1829,6 @@ export default function ChatConversationScreen() {
       ? activeGroupSize > 0 && seenByOthersCount >= requiredSeenByOthers
       : !!message.seen_by_others || seenByOthersCount >= 1;
     const groupedReactions = getGroupedReactions(message.id);
-    const groupedReactionEntries = Object.entries(groupedReactions);
     const isImageMessage = message.message_type === 'image' && !!message.attachment_url;
     const imageCaptionRaw = (message.content || '').trim();
     const imageCaption = imageCaptionRaw === 'Unable to decrypt message' ? '' : imageCaptionRaw;
@@ -1968,15 +1849,147 @@ export default function ChatConversationScreen() {
           return pollReactions.some((reaction) => reaction.user_id === user?.id && reaction.emoji === key);
         })
       : -1;
-    const messageLength = (message.content || '').trim().length;
-    const bubbleWidthStyle =
-      isImageMessage
-        ? styles.bubbleImage
-        : messageLength <= 12
-        ? styles.bubbleShort
-        : messageLength <= 40
-          ? styles.bubbleMedium
-          : styles.bubbleLong;
+    const seenStatus = showDoubleTick ? 'read' : 'sent';
+
+    /* ── Poll content (passed as ReactNode to ChatMessageBubble) ── */
+    const pollContentNode = pollPayload ? (
+      <View style={styles.waPollCard}>
+        <Text
+          style={[
+            styles.waPollQuestion,
+            { color: Colors.text },
+          ]}
+        >
+          {pollPayload.question}
+        </Text>
+        <View style={styles.waPollSubtitleRow}>
+          <MaterialIcons
+            name="how-to-vote"
+            size={14}
+            color={Colors.textSecondary}
+          />
+          <Text
+            style={[
+              styles.waPollSubtitle,
+              { color: Colors.textSecondary },
+            ]}
+          >
+            Tap an option to vote
+          </Text>
+        </View>
+        <View style={styles.waPollOptionsWrap}>
+          {pollPayload.options.map((option, optionIndex) => {
+            const votes = pollVoteCounts[optionIndex] || 0;
+            const votePercent = totalPollVotes > 0 ? Math.round((votes / totalPollVotes) * 100) : 0;
+            const isMyVote = myPollVoteIndex === optionIndex;
+            const optionVoters = (pollReactions || []).filter(
+              (r) => r.emoji === getPollReactionKey(optionIndex)
+            ).slice(0, 3);
+
+            return (
+              <TouchableOpacity
+                key={`${message.id}-poll-option-${optionIndex}`}
+                onPress={() => handlePollVote(message.id, pollPayload, optionIndex)}
+                activeOpacity={0.8}
+                style={[
+                  styles.waPollOptionWrap,
+                  isMyVote && { backgroundColor: chatTheme.bubbleColor + '15', borderColor: chatTheme.bubbleColor },
+                  isMyVote && styles.waPollOptionWrapActive,
+                ]}
+              >
+                <View style={styles.waPollOptionRow}>
+                  <View
+                    style={[
+                      styles.waPollCheckCircle,
+                      { borderColor: Colors.border },
+                      isMyVote && styles.waPollCheckCircleActive,
+                    ]}
+                  >
+                    {isMyVote && <MaterialIcons name="check" size={15} color="#ffffff" />}
+                  </View>
+                  <Text
+                    style={[
+                      styles.waPollOptionLabel,
+                      { color: isMyVote ? chatTheme.textColor : Colors.text },
+                    ]}
+                    numberOfLines={2}
+                  >
+                    {option}
+                  </Text>
+                  <View style={styles.waPollOptionRight}>
+                    {optionVoters.length > 0 && (
+                      <View style={styles.waPollAvatarStack}>
+                        {optionVoters.map((voter, voterIndex) => (
+                          <View
+                            key={`${message.id}-${optionIndex}-${voter.user_id || voterIndex}`}
+                            style={[
+                              styles.waPollAvatarWrap,
+                              {
+                                marginLeft: voterIndex === 0 ? 0 : -8,
+                                borderColor: Colors.border,
+                              },
+                            ]}
+                          >
+                            {voter.user?.avatar_url ? (
+                              <Image source={{ uri: voter.user.avatar_url }} style={styles.waPollAvatar} />
+                            ) : (
+                              <View style={[styles.waPollAvatar, styles.waPollAvatarFallback]}>
+                                <Text style={styles.waPollAvatarInitial}>
+                                  {(voter.user?.full_name || '?')[0].toUpperCase()}
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                    <Text
+                      style={[
+                        styles.waPollVoteCount,
+                        { color: Colors.textSecondary },
+                      ]}
+                    >
+                      {votes} ({votePercent}%)
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.waPollProgressBg}>
+                  <View
+                    style={[
+                      styles.waPollProgressFill,
+                      {
+                        width: `${votePercent}%`,
+                        backgroundColor: chatTheme.bubbleColor,
+                      },
+                    ]}
+                  />
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+        <TouchableOpacity
+          style={styles.waPollViewVotesBtn}
+          onPress={() => {
+            const votersByOption = pollPayload.options.map((_, oi) =>
+              (pollReactions || [])
+                .filter((r) => r.emoji === getPollReactionKey(oi))
+                .map((r) => ({ id: r.user_id, name: r.user?.full_name || 'User', avatar: r.user?.avatar_url || undefined }))
+            );
+            setChatPollVotesSheet({
+              question: pollPayload.question,
+              options: pollPayload.options,
+              counts: pollVoteCounts,
+              votersByOption,
+            });
+          }}
+        >
+          <Text style={[styles.waPollViewVotesText, { color: chatTheme.bubbleColor }]}>
+            View votes
+          </Text>
+        </TouchableOpacity>
+      </View>
+    ) : null;
 
     return (
       <View>
@@ -1986,374 +1999,36 @@ export default function ChatConversationScreen() {
           </View>
         )}
 
-        <View
-          style={[
-            styles.messageWrapper,
-            isMyMessage ? styles.myMessageWrapper : styles.otherMessageWrapper,
-          ]}
-        >
-          {showGroupIdentity && !isMyMessage && (
-            <View style={styles.avatarLaneStart}>
-              <UserAvatar
-                uri={senderAvatarUri}
-                name={senderDisplayName}
-                size={30}
-                role={senderRole}
-                showRing={false}
-              />
-            </View>
-          )}
-
-          <View style={[styles.messageBubbleWrap, bubbleWidthStyle]}>
-            <TouchableOpacity
-              style={[
-                styles.messageBubble,
-                isImageMessage && styles.imageMessageBubble,
-                isMyMessage
-                  ? [styles.myMessage, { backgroundColor: chatTheme.bubbleColor }]
-                  : [
-                      styles.otherMessage,
-                      {
-                        backgroundColor: chatTheme.incomingBubbleColor,
-                        borderColor: chatTheme.incomingBorderColor,
-                      },
-                    ],
-              ]}
-              onLongPress={() => handleMessageLongPress(message)}
-              delayLongPress={400}
-              activeOpacity={0.8}
-            >
-              {showGroupIdentity && (
-                <Text
-                  style={[
-                    styles.senderName,
-                    isMyMessage && styles.senderNameMine,
-                    {
-                      color: isMyMessage
-                        ? chatTheme.textColor
-                        : chatTheme.incomingTextColor,
-                    },
-                  ]}
-                  numberOfLines={1}
-                >
-                  {senderDisplayName}
-                </Text>
-              )}
-              <View style={styles.messageContentWrap}>
-                {pollPayload ? (
-                  <View
-                    style={[
-                      styles.waPollCard,
-                      {
-                        backgroundColor: 'transparent',
-                        borderColor: isMyMessage
-                          ? 'rgba(255,255,255,0.28)'
-                          : chatTheme.incomingBorderColor,
-                      },
-                    ]}
-                  >
-                    {/* Question */}
-                    <Text
-                      style={[
-                        styles.waPollQuestion,
-                        { color: isMyMessage ? chatTheme.textColor : chatTheme.incomingTextColor },
-                      ]}
-                    >
-                      {pollPayload.question}
-                    </Text>
-                    {/* Subtitle row */}
-                    <View style={styles.waPollSubtitleRow}>
-                      <MaterialIcons
-                        name="how-to-vote"
-                        size={14}
-                        color={isMyMessage ? 'rgba(255,255,255,0.86)' : styles.waPollSubtitle.color as any}
-                      />
-                      <Text
-                        style={[
-                          styles.waPollSubtitle,
-                          isMyMessage && { color: 'rgba(255,255,255,0.86)' },
-                        ]}
-                      >
-                        Tap an option to vote
-                      </Text>
-                    </View>
-                    {/* Divider */}
-                    <View
-                      style={[
-                        styles.waPollDivider,
-                        {
-                          backgroundColor: isMyMessage
-                            ? 'rgba(255,255,255,0.24)'
-                            : styles.waPollDivider.backgroundColor,
-                        },
-                      ]}
-                    />
-                    {/* Options */}
-                    <View style={styles.waPollOptionsWrap}>
-                      {pollPayload.options.map((option, optionIndex) => {
-                        const votes = pollVoteCounts[optionIndex] || 0;
-                        const votePercent = totalPollVotes > 0 ? Math.round((votes / totalPollVotes) * 100) : 0;
-                        const isMyVote = myPollVoteIndex === optionIndex;
-                        const optionVoters = (pollReactions || []).filter(
-                          (r) => r.emoji === getPollReactionKey(optionIndex)
-                        ).slice(0, 3);
-
-                        return (
-                          <TouchableOpacity
-                            key={`${message.id}-poll-option-${optionIndex}`}
-                            onPress={() => handlePollVote(message.id, pollPayload, optionIndex)}
-                            activeOpacity={0.8}
-                            style={[
-                              styles.waPollOptionWrap,
-                              {
-                                backgroundColor: isMyVote
-                                  ? 'rgba(34,197,94,0.24)'
-                                  : isMyMessage
-                                    ? 'rgba(255,255,255,0.08)'
-                                    : 'rgba(15,23,42,0.04)',
-                                borderColor: isMyVote
-                                  ? '#22C55E'
-                                  : isMyMessage
-                                    ? 'rgba(255,255,255,0.24)'
-                                    : chatTheme.incomingBorderColor,
-                              },
-                              isMyVote && styles.waPollOptionWrapActive,
-                            ]}
-                          >
-                            {/* Row: checkbox + label + voter avatars + count */}
-                            <View style={styles.waPollOptionRow}>
-                              <View
-                                style={[
-                                  styles.waPollCheckCircle,
-                                  {
-                                    borderColor: isMyMessage
-                                      ? 'rgba(255,255,255,0.5)'
-                                      : 'rgba(15,23,42,0.22)',
-                                  },
-                                  isMyVote && styles.waPollCheckCircleActive,
-                                ]}
-                              >
-                                {isMyVote && <MaterialIcons name="check" size={15} color="#ffffff" />}
-                              </View>
-                              <Text
-                                style={[
-                                  styles.waPollOptionLabel,
-                                  { color: isMyMessage ? chatTheme.textColor : chatTheme.incomingTextColor },
-                                ]}
-                                numberOfLines={2}
-                              >
-                                {option}
-                              </Text>
-                              <View style={styles.waPollOptionRight}>
-                                {optionVoters.length > 0 && (
-                                  <View style={styles.waPollAvatarStack}>
-                                    {optionVoters.map((voter, voterIndex) => (
-                                      <View
-                                        key={`${message.id}-${optionIndex}-${voter.user_id || voterIndex}`}
-                                        style={[
-                                          styles.waPollAvatarWrap,
-                                          {
-                                            marginLeft: voterIndex === 0 ? 0 : -8,
-                                            borderColor: isMyMessage
-                                              ? 'rgba(255,255,255,0.42)'
-                                              : 'rgba(15,23,42,0.14)',
-                                          },
-                                        ]}
-                                      >
-                                        {voter.user?.avatar_url ? (
-                                          <Image source={{ uri: voter.user.avatar_url }} style={styles.waPollAvatar} />
-                                        ) : (
-                                          <View style={[styles.waPollAvatar, styles.waPollAvatarFallback]}>
-                                            <Text style={styles.waPollAvatarInitial}>
-                                              {(voter.user?.full_name || '?')[0].toUpperCase()}
-                                            </Text>
-                                          </View>
-                                        )}
-                                      </View>
-                                    ))}
-                                  </View>
-                                )}
-                                <Text
-                                  style={[
-                                    styles.waPollVoteCount,
-                                    { color: isMyMessage ? 'rgba(255,255,255,0.9)' : Colors.textSecondary },
-                                  ]}
-                                >
-                                  {votes}
-                                </Text>
-                              </View>
-                            </View>
-                            {/* Progress bar */}
-                            <View
-                              style={[
-                                styles.waPollProgressBg,
-                                {
-                                  backgroundColor: isMyMessage
-                                    ? 'rgba(255,255,255,0.2)'
-                                    : 'rgba(15,23,42,0.1)',
-                                },
-                              ]}
-                            >
-                              <View
-                                style={[
-                                  styles.waPollProgressFill,
-                                  {
-                                    width: `${votePercent}%`,
-                                    backgroundColor: isMyVote
-                                      ? '#22C55E'
-                                      : isMyMessage
-                                        ? 'rgba(255,255,255,0.38)'
-                                        : 'rgba(100,116,139,0.35)',
-                                  },
-                                ]}
-                              />
-                            </View>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-                    {/* Divider */}
-                    <View
-                      style={[
-                        styles.waPollDivider,
-                        {
-                          backgroundColor: isMyMessage
-                            ? 'rgba(255,255,255,0.24)'
-                            : styles.waPollDivider.backgroundColor,
-                        },
-                      ]}
-                    />
-                    {/* View votes button */}
-                    <TouchableOpacity
-                      style={styles.waPollViewVotesBtn}
-                      onPress={() => {
-                        const votersByOption = pollPayload.options.map((_, oi) =>
-                          (pollReactions || [])
-                            .filter((r) => r.emoji === getPollReactionKey(oi))
-                            .map((r) => ({ id: r.user_id, name: r.user?.full_name || 'User', avatar: r.user?.avatar_url || undefined }))
-                        );
-                        setChatPollVotesSheet({
-                          question: pollPayload.question,
-                          options: pollPayload.options,
-                          counts: pollVoteCounts,
-                          votersByOption,
-                        });
-                      }}
-                    >
-                      <Text style={styles.waPollViewVotesText}>
-                        View votes
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                ) : (
-                  isImageMessage ? (
-                    <View style={styles.imageMessageWrap}>
-                      <TouchableOpacity
-                        activeOpacity={0.9}
-                        onPress={() => setImagePreviewUrl(message.attachment_url || null)}
-                      >
-                        <Image
-                          source={{ uri: message.attachment_url as string }}
-                          style={styles.imageMessage}
-                          resizeMode="cover"
-                        />
-                      </TouchableOpacity>
-                      {!!imageCaption && (
-                        <Text
-                          style={[
-                            styles.messageText,
-                            isMyMessage
-                              ? [styles.myMessageText, { color: chatTheme.textColor }]
-                              : [styles.otherMessageText, { color: chatTheme.incomingTextColor }],
-                          ]}
-                        >
-                          {imageCaption}
-                        </Text>
-                      )}
-                    </View>
-                  ) : (
-                    <Text
-                      style={[
-                        styles.messageText,
-                        isMyMessage
-                          ? [styles.myMessageText, { color: chatTheme.textColor }]
-                          : [styles.otherMessageText, { color: chatTheme.incomingTextColor }],
-                      ]}
-                    >
-                      {message.content}
-                    </Text>
-                  )
-                )}
-              </View>
-              {!!message.aiOptions?.length && !isMyMessage && !pollPayload && (
-                <View style={styles.aiOptionsWrap}>
-                  {message.aiOptions.map((option) => (
-                    <TouchableOpacity
-                      key={option.id}
-                      style={styles.aiOptionChip}
-                      onPress={() => handleAiOptionPress(option)}
-                      disabled={isSending}
-                    >
-                      <Text style={styles.aiOptionChipText}>{option.label}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
-              <View style={[styles.messageFooter, isMyMessage ? styles.myMessageFooter : styles.otherMessageFooter]}>
-                <Text
-                  style={[
-                    styles.messageTime,
-                    isMyMessage
-                      ? [styles.myMessageTime, { color: chatTheme.timeColor, opacity: 0.85 }]
-                      : [styles.otherMessageTime, { color: chatTheme.incomingTimeColor, opacity: 0.9 }],
-                  ]}
-                >
-                  {messageTime}
-                </Text>
-                {isMyMessage && !isAIChat && (
-                  <MaterialIcons
-                    name={showDoubleTick ? 'done-all' : 'done'}
-                    size={14}
-                    color={showDoubleTick ? '#4FC3F7' : chatTheme.timeColor}
-                    style={styles.seenIndicator}
-                  />
-                )}
-              </View>
-            </TouchableOpacity>
-
-            {!pollPayload && groupedReactionEntries.length > 0 && (
-              <View style={[styles.reactionRow, isMyMessage ? styles.myReactionRow : styles.otherReactionRow]}>
-                {groupedReactionEntries.map(([emoji, info]) => (
-                  <TouchableOpacity
-                    key={`${message.id}-${emoji}`}
-                    style={[styles.reactionPill, info.hasCurrentUser && styles.reactionPillActive]}
-                    onPress={() => toggleReaction(message.id, emoji)}
-                  >
-                    <Text style={styles.reactionPillEmoji}>{emoji}</Text>
-                    <Text style={[styles.reactionPillCount, info.hasCurrentUser && styles.reactionPillCountActive]}>{info.count}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-          </View>
-
-          {showGroupIdentity && isMyMessage && (
-            <View style={styles.avatarLaneEnd}>
-              <UserAvatar
-                uri={senderAvatarUri}
-                name={senderDisplayName}
-                size={30}
-                role={senderRole}
-                showRing={false}
-              />
-            </View>
-          )}
-        </View>
+        <ChatMessageBubble
+          messageId={message.id}
+          content={message.content}
+          isMe={isMyMessage}
+          time={messageTime}
+          chatTheme={chatTheme}
+          showSender={showGroupIdentity}
+          senderName={senderDisplayName}
+          senderAvatar={senderAvatarUri}
+          senderRole={senderRole}
+          seenStatus={seenStatus}
+          showTicks={isMyMessage && !isAIChat}
+          isImage={isImageMessage}
+          attachmentUrl={message.attachment_url}
+          imageCaption={imageCaption}
+          onImagePress={(url) => setImagePreviewUrl(url)}
+          reactions={!pollPayload ? groupedReactions : undefined}
+          onReactionPress={(emoji) => toggleReaction(message.id, emoji)}
+          onLongPress={() => handleMessageLongPress(message)}
+          aiOptions={message.aiOptions}
+          onAiOptionPress={handleAiOptionPress}
+          isSending={isSending}
+          pollContent={pollContentNode}
+        />
       </View>
     );
   };
 
   return (
+    <View style={styles.screenRoot}>
     <SafeAreaView style={styles.container}>
       <View style={[styles.header, { backgroundColor: headerChromeColor, borderBottomColor: headerChromeBorder }]}>
         <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
@@ -2623,11 +2298,7 @@ export default function ChatConversationScreen() {
             renderItem={renderMessage}
             style={styles.messagesListContainer}
             contentContainerStyle={styles.messagesContentContainer}
-            onContentSizeChange={() => {
-              if (!showMessageSearch) {
-                listRef.current?.scrollToEnd({ animated: false });
-              }
-            }}
+            showsVerticalScrollIndicator={false}
             ListEmptyComponent={
               <View style={styles.emptyContainer}>
                 <MaterialIcons name="chat-bubble-outline" size={64} color={Colors.textSecondary} />
@@ -2692,7 +2363,10 @@ export default function ChatConversationScreen() {
               <View
                 style={[
                   styles.inputMain,
-                  { backgroundColor: Colors.surface, borderColor: composerBorderColor },
+                  {
+                    backgroundColor: backgroundImageUrl ? withHexAlpha(Colors.surface, 0.88) : Colors.surface,
+                    borderColor: composerBorderColor,
+                  },
                 ]}
               >
                 <TextInput
@@ -2716,10 +2390,10 @@ export default function ChatConversationScreen() {
 
                 {isGroup && !isAIChat && (
                   <TouchableOpacity
-                    style={styles.pollComposerButton}
+                    style={[styles.pollComposerButton, { backgroundColor: pollComposerBg }]}
                     onPress={() => setShowCreatePoll(true)}
                   >
-                    <MaterialIcons name="poll" size={22} color={Colors.primary} />
+                    <MaterialIcons name="poll" size={20} color={pollComposerIconColor} />
                   </TouchableOpacity>
                 )}
 
@@ -2937,7 +2611,7 @@ export default function ChatConversationScreen() {
                   setShowCreatePoll(true);
                 }}
               >
-                <MaterialIcons name="poll" size={20} color={Colors.primary} />
+                <MaterialIcons name="poll" size={20} color={chatTheme.bubbleColor} />
                 <Text style={styles.optionText}>Create Poll</Text>
               </TouchableOpacity>
             )}
@@ -3987,25 +3661,30 @@ export default function ChatConversationScreen() {
         type="danger"
       />
     </SafeAreaView>
+    </View>
   );
 }
 
 const createStyles = (Colors: ReturnType<typeof getColors>) =>
   StyleSheet.create({
-    container: {
+    screenRoot: {
       flex: 1,
       backgroundColor: Colors.background,
+    },
+    container: {
+      flex: 1,
+      backgroundColor: 'transparent',
       ...(Platform.OS === 'web' && ({ height: '100vh', width: '100vw' } as any)),
     },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingHorizontal: Spacing.md,
-      paddingVertical: 12,
+      paddingHorizontal: 10,
+      paddingVertical: 8,
       backgroundColor: Colors.surface,
       borderBottomWidth: 1,
       borderBottomColor: Colors.border,
-      gap: 12,
+      gap: 10,
     },
     backButton: {
       padding: 4,
@@ -4287,9 +3966,9 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       fontWeight: FontWeights.medium,
     },
     messagesContentContainer: {
-      paddingHorizontal: Spacing.md,
-      paddingTop: Spacing.md,
-      paddingBottom: 120,
+      paddingHorizontal: 6,
+      paddingVertical: 6,
+      paddingBottom: 90,
     },
     composerOverlay: {
       position: 'absolute',
@@ -4305,20 +3984,20 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     },
     dateSeparatorContainer: {
       alignItems: 'center',
-      marginBottom: Spacing.sm,
-      marginTop: Spacing.sm,
+      marginBottom: 6,
+      marginTop: 8,
     },
     dateSeparatorLabel: {
-      fontSize: FontSizes.xs,
+      fontSize: 11,
       color: Colors.textSecondary,
       backgroundColor: Colors.card,
+      borderRadius: 12,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      overflow: 'hidden',
+      fontWeight: '500',
       borderWidth: 1,
       borderColor: Colors.border,
-      borderRadius: BorderRadius.full,
-      paddingHorizontal: Spacing.sm,
-      paddingVertical: 2,
-      overflow: 'hidden',
-      fontWeight: FontWeights.medium,
     },
     myMessageWrapper: {
       justifyContent: 'flex-end',
@@ -4504,53 +4183,46 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     // ── WhatsApp-style poll card ───────────────────────────────────────────
     waPollCard: {
       width: '100%',
-      borderRadius: 18,
-      overflow: 'hidden',
-      backgroundColor: 'transparent',
-      borderWidth: 1,
-      borderColor: Colors.border,
-      paddingTop: 14,
-      paddingBottom: 0,
-      paddingHorizontal: 14,
+      backgroundColor: Colors.card,
+      padding: 0,
     },
     waPollQuestion: {
-      fontSize: 17,
-      fontWeight: '700' as any,
+      fontSize: 15,
+      fontWeight: '600' as any,
       color: Colors.text,
-      marginBottom: 6,
+      marginBottom: 2,
     },
     waPollSubtitleRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 6,
-      marginBottom: 12,
+      gap: 5,
+      marginBottom: 10,
     },
     waPollSubtitle: {
       fontSize: 12,
       color: Colors.textSecondary,
     },
     waPollDivider: {
-      height: 0.5,
-      backgroundColor: Colors.border,
-      marginHorizontal: -14,
-      marginBottom: 12,
+      height: 0,
+      backgroundColor: 'transparent',
+      marginHorizontal: 0,
+      marginBottom: 0,
     },
     waPollOptionsWrap: {
-      gap: 12,
-      marginBottom: 12,
+      gap: 6,
+      marginBottom: 8,
     },
     waPollOptionWrap: {
-      gap: 8,
+      gap: 6,
       borderWidth: 1,
       borderColor: Colors.border,
-      borderRadius: 16,
+      borderRadius: 10,
       paddingHorizontal: 10,
-      paddingVertical: 10,
-      backgroundColor: 'transparent',
+      paddingVertical: 9,
+      backgroundColor: Colors.background,
     },
     waPollOptionWrapActive: {
-      borderColor: '#22C55E',
-      backgroundColor: 'transparent',
+      borderWidth: 1,
     },
     waPollOptionRow: {
       flexDirection: 'row',
@@ -4558,18 +4230,18 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       gap: 10,
     },
     waPollCheckCircle: {
-      width: 22,
-      height: 22,
-      borderRadius: 11,
+      width: 20,
+      height: 20,
+      borderRadius: 10,
       borderWidth: 2,
       borderColor: Colors.border,
       alignItems: 'center',
       justifyContent: 'center',
     },
     waPollCheckCircleActive: {
-      borderColor: '#22C55E',
+      borderColor: Colors.primary,
       borderWidth: 0,
-      backgroundColor: '#22C55E',
+      backgroundColor: Colors.primary,
     },
     waPollOptionLabel: {
       flex: 1,
@@ -4587,17 +4259,17 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       alignItems: 'center',
     },
     waPollAvatarWrap: {
-      width: 20,
-      height: 20,
+      width: 18,
+      height: 18,
       borderWidth: 1.5,
       borderColor: Colors.border,
-      borderRadius: 10,
+      borderRadius: 9,
       overflow: 'hidden',
     },
     waPollAvatar: {
-      width: 20,
-      height: 20,
-      borderRadius: 10,
+      width: 18,
+      height: 18,
+      borderRadius: 9,
     },
     waPollAvatarFallback: {
       backgroundColor: Colors.primary,
@@ -4605,42 +4277,38 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       justifyContent: 'center',
     },
     waPollAvatarInitial: {
-      fontSize: 9,
+      fontSize: 8,
       fontWeight: '700' as any,
       color: '#fff',
     },
     waPollVoteCount: {
-      fontSize: 13,
+      fontSize: 12,
       fontWeight: '600' as any,
       color: Colors.textSecondary,
-      minWidth: 16,
+      minWidth: 32,
       textAlign: 'right',
     },
     waPollProgressBg: {
-      height: 9,
-      borderRadius: 999,
+      height: 4,
+      borderRadius: 4,
       backgroundColor: Colors.border,
       overflow: 'hidden',
-      marginTop: 2,
+      marginTop: 4,
     },
     waPollProgressFill: {
-      height: 8,
-      borderRadius: 999,
+      height: 4,
+      borderRadius: 4,
     },
     waPollViewVotesBtn: {
-      marginHorizontal: -14,
-      marginBottom: 0,
-      paddingVertical: 14,
+      marginTop: 6,
+      paddingVertical: 6,
       alignItems: 'center',
-      borderTopWidth: 0.5,
-      borderTopColor: Colors.border,
       backgroundColor: 'transparent',
     },
     waPollViewVotesText: {
-      fontSize: 17,
-      fontWeight: '700' as any,
-      letterSpacing: 0,
-      color: '#22C55E',
+      fontSize: 14,
+      fontWeight: '600' as any,
+      color: Colors.primary,
     },
     // ── Poll Votes Sheet ──────────────────────────────────────────────────────
     waPollVotesSheet: {
@@ -4918,54 +4586,59 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     inputContainer: {
       flexDirection: 'row',
       alignItems: 'flex-end',
-      paddingHorizontal: Spacing.md,
-      paddingTop: 6,
-      paddingBottom: Platform.OS === 'ios' ? 10 : 8,
-      gap: 8,
+      paddingHorizontal: 8,
+      paddingTop: 4,
+      paddingBottom: Platform.OS === 'ios' ? 10 : 6,
+      gap: 6,
+      backgroundColor: 'transparent',
+      borderTopWidth: 0,
     },
     inputMain: {
       flex: 1,
       flexDirection: 'row',
       alignItems: 'center',
+      borderRadius: 20,
+      paddingLeft: 6,
+      paddingRight: 6,
+      paddingVertical: 2,
+      backgroundColor: Colors.card,
       borderWidth: 1,
-      borderRadius: 24,
-      paddingLeft: 10,
-      paddingRight: 4,
-      paddingVertical: 3,
-      ...Shadows.sm,
+      borderColor: Colors.border,
     },
     attachButton: {
       padding: 8,
       marginBottom: 1,
     },
     attachButtonDisabled: {
-      opacity: 0.6,
+      opacity: 0.55,
     },
     pollComposerButton: {
-      padding: 8,
-      marginBottom: 1,
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     input: {
       flex: 1,
       backgroundColor: 'transparent',
       borderWidth: 0,
-      paddingHorizontal: 6,
+      paddingHorizontal: 8,
       paddingVertical: 10,
       fontSize: FontSizes.md,
       color: Colors.text,
       maxHeight: 110,
     },
     sendButton: {
-      width: 46,
-      height: 46,
-      borderRadius: 23,
+      width: 44,
+      height: 44,
+      borderRadius: 22,
       backgroundColor: Colors.primary,
       alignItems: 'center',
       justifyContent: 'center',
-      ...Shadows.sm,
     },
     sendButtonDisabled: {
-      opacity: 0.5,
+      opacity: 0.4,
     },
     imagePreviewBackdrop: {
       flex: 1,
