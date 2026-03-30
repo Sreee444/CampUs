@@ -18,6 +18,7 @@ import { getColors, Spacing, BorderRadius, FontSizes, FontWeights } from '../../
 import { useTheme } from '../../contexts/ThemeContext';
 import { Toast } from '../../components/Toast';
 import { updatePassword } from '../../api/auth';
+import { useAuth } from '../../contexts/AuthContext';
 
 type ChangePasswordScreenNavigationProp = StackNavigationProp<RootStackParamList, 'ChangePassword'>;
 type ChangePasswordScreenRouteProp = RouteProp<RootStackParamList, 'ChangePassword'>;
@@ -25,6 +26,7 @@ type ChangePasswordScreenRouteProp = RouteProp<RootStackParamList, 'ChangePasswo
 export default function ChangePasswordScreen() {
   const navigation = useNavigation<ChangePasswordScreenNavigationProp>();
   const route = useRoute<ChangePasswordScreenRouteProp>();
+  const { signOut } = useAuth();
   const { isDark } = useTheme();
   const Colors = getColors(isDark);
   const styles = createStyles(Colors);
@@ -63,9 +65,13 @@ export default function ChangePasswordScreen() {
       setNewPassword('');
       setConfirmPassword('');
 
-      setTimeout(() => {
+      setTimeout(async () => {
         if (isForcedChange) {
-          navigation.replace('MainTabs', { screen: 'Home' });
+          await signOut();
+          navigation.reset({
+            index: 0,
+            routes: [{ name: 'Login' }],
+          });
         } else {
           navigation.goBack();
         }

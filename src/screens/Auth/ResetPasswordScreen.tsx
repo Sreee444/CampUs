@@ -55,7 +55,10 @@ export default function ResetPasswordScreen() {
       await resetPassword(email.trim());
       Toast.show({ type: 'success', text1: 'Reset link sent' });
       setCooldown(60);
-      navigation.navigate('Login');
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Login' }],
+      });
     } catch (error: any) {
       if (String(error?.message || '').toLowerCase().includes('wait 60 seconds')) {
         setCooldown(60);
