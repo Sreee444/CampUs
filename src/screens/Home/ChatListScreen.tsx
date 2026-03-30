@@ -45,6 +45,24 @@ type ChatScreenNavigationProp = CompositeNavigationProp<
 >;
 
 const MIN_REALTIME_SEARCH_LENGTH = 2;
+const POLL_MESSAGE_PREFIX = '__poll__:';
+
+const formatPreviewMessageContent = (content?: string) => {
+  if (!content) return 'No messages yet';
+
+  if (content.startsWith(POLL_MESSAGE_PREFIX)) {
+    try {
+      const raw = content.slice(POLL_MESSAGE_PREFIX.length);
+      const parsed = JSON.parse(raw) as { question?: string };
+      const question = (parsed?.question || '').trim();
+      return question ? `Poll: ${question}` : 'Poll';
+    } catch {
+      return 'Poll';
+    }
+  }
+
+  return content;
+};
 
 export default function ChatScreen() {
   const navigation = useNavigation<ChatScreenNavigationProp>();
@@ -607,7 +625,7 @@ export default function ChatScreen() {
     const showDoubleTick = conversation.is_group
       ? activeGroupSize > 0 && seenByOthersCount >= requiredSeenByOthers
       : !!conversation.last_message?.seen_by_others || seenByOthersCount >= 1;
-    const lastMessageContent = conversation.last_message?.content || 'No messages yet';
+    const lastMessageContent = formatPreviewMessageContent(conversation.last_message?.content);
     const isImageLastMessage = conversation.last_message?.message_type === 'image';
     const groupSenderName = conversation.last_message
       ? (conversation.last_message.sender_id === currentUserId
