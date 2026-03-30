@@ -77,6 +77,7 @@ const Stack = createStackNavigator<RootStackParamList>();
 export default function RootNavigator() {
   const { isAuthenticated, isLoading, profile, isBanned } = useAuth();
   const navigationRef = useRef<any>(null);
+  const hasCompletedName = Boolean(profile?.full_name?.trim());
 
   // Navigate based on auth and profile state changes
   useEffect(() => {
@@ -89,7 +90,7 @@ export default function RootNavigator() {
       // Profile completion gate
       if (isBanned) {
         targetRoute = 'Banned';
-      } else if (!profile || !profile.full_name) {
+      } else if (!profile || !hasCompletedName) {
         targetRoute = 'CompleteProfile';
       } else {
         targetRoute = 'MainTabs';
@@ -114,7 +115,7 @@ export default function RootNavigator() {
         });
       }
     }
-  }, [isAuthenticated, isLoading, profile?.full_name, isBanned]);
+  }, [isAuthenticated, isLoading, profile, hasCompletedName, isBanned]);
 
   // Show splash screen while checking auth
   if (isLoading) {
@@ -126,7 +127,7 @@ export default function RootNavigator() {
     if (!isAuthenticated) return 'Login';
     if (isBanned) return 'Banned';
     // Go to CompleteProfile if name is missing
-    if (!profile || !profile.full_name) return 'CompleteProfile';
+    if (!profile || !hasCompletedName) return 'CompleteProfile';
     return 'MainTabs';
   };
 
