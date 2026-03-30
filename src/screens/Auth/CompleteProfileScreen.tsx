@@ -10,10 +10,11 @@ import {
   Image,
   Platform,
   ActivityIndicator,
+  BackHandler,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import Toast from 'react-native-toast-message';
 import * as ImagePicker from 'expo-image-picker';
@@ -51,6 +52,9 @@ const INTEREST_OPTIONS: InterestItem[] = [
 export default function CompleteProfileScreen() {
   const navigation = useNavigation<CompleteProfileScreenNavigationProp>();
   const { user, profile, refreshProfile } = useAuth();
+  const canLeaveOnboardingRef = React.useRef(false);
+  const hasHydratedFormRef = React.useRef(false);
+  const requiresCompletion = !profile?.full_name?.trim();
 
   const currentYear = new Date().getFullYear();
   const admissionYearOptions = useMemo(
@@ -98,9 +102,15 @@ export default function CompleteProfileScreen() {
     if (!specializationOptions.includes(specialization)) setSpecialization(null);
   }, [specialization, specializationOptions]);
 
-  // Pre-fill from existing profile (Google auto-fills name/avatar)
+  // Reset hydration gate when auth user changes.
   useEffect(() => {
-    if (!profile) return;
+    hasHydratedFormRef.current = false;
+  }, [user?.id]);
+
+  // Pre-fill once from existing profile (Google auto-fills name/avatar).
+  // This avoids wiping in-progress typing when background profile refreshes run.
+  useEffect(() => {
+    if (!profile || hasHydratedFormRef.current) return;
     setFullName(profile.full_name || '');
     setPhone(profile.phone || '');
     setBio(profile.bio || '');
@@ -113,7 +123,25 @@ export default function CompleteProfileScreen() {
     setSkillsInput((profile.skills || []).join(', '));
     const saved = new Set(profile.interests || []);
     setInterests(INTEREST_OPTIONS.map((i) => ({ ...i, selected: saved.has(i.label) })));
+    hasHydratedFormRef.current = true;
   }, [profile]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (!requiresCompletion) return undefined;
+
+      const backSubscription = BackHandler.addEventListener('hardwareBackPress', () => true);
+      const beforeRemoveSubscription = navigation.addListener('beforeRemove', (event) => {
+        if (canLeaveOnboardingRef.current) return;
+        event.preventDefault();
+      });
+
+      return () => {
+        backSubscription.remove();
+        beforeRemoveSubscription();
+      };
+    }, [navigation, requiresCompletion])
+  );
 
   // ─── Dropdown sheet config ────────────────────────────────────────────────────
   const activeDropdown = useMemo(() => {
@@ -214,6 +242,7 @@ export default function CompleteProfileScreen() {
         interests: selectedInterests.length ? selectedInterests : undefined,
       });
       await refreshProfile();
+      canLeaveOnboardingRef.current = true;
       Toast.show({ type: 'success', text1: 'Profile completed!' });
       navigation.replace('MainTabs');
     } catch (err: any) {
@@ -224,6 +253,7 @@ export default function CompleteProfileScreen() {
   };
 
   const handleSkip = () => {
+    if (requiresCompletion) return;
     Toast.show({ type: 'info', text1: 'Complete your profile later in Settings' });
     navigation.replace('MainTabs');
   };
@@ -272,13 +302,21 @@ export default function CompleteProfileScreen() {
       <LinearGradient colors={['#fff8f0', '#fff5eb', '#ffe8e0']} style={styles.gradient}>
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity style={styles.headerBtn} onPress={() => navigation.goBack()}>
-            <MaterialIcons name="arrow-back" size={24} color="#334155" />
-          </TouchableOpacity>
+          {requiresCompletion ? (
+            <View style={styles.headerBtn} />
+          ) : (
+            <TouchableOpacity style={styles.headerBtn} onPress={() => navigation.goBack()}>
+              <MaterialIcons name="arrow-back" size={24} color="#334155" />
+            </TouchableOpacity>
+          )}
           <Text style={styles.headerTitle}>Complete Profile</Text>
-          <TouchableOpacity style={styles.headerBtn} onPress={handleSkip}>
-            <Text style={styles.skipText}>Skip</Text>
-          </TouchableOpacity>
+          {requiresCompletion ? (
+            <View style={styles.headerBtn} />
+          ) : (
+            <TouchableOpacity style={styles.headerBtn} onPress={handleSkip}>
+              <Text style={styles.skipText}>Skip</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>

@@ -338,7 +338,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
         }
       }
-      await supabase.auth.signOut();
+      await supabase.auth.signOut({ scope: 'local' });
       setUser(null);
       setProfile(null);
       setIsBanned(false);
