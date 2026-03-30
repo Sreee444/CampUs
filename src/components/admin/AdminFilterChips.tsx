@@ -1,5 +1,5 @@
 import React from 'react';
-import { ScrollView, Text, TouchableOpacity, View, StyleSheet } from 'react-native';
+import { FlatList, Text, TouchableOpacity, View, StyleSheet } from 'react-native';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 
@@ -22,12 +22,18 @@ export default function AdminFilterChips<T extends string>({ options, selected, 
 
   return (
     <View style={styles.wrap}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
-        {options.map((option) => {
+      <FlatList
+        data={options}
+        keyExtractor={(item) => item.value}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        nestedScrollEnabled
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={styles.row}
+        renderItem={({ item: option }) => {
           const active = option.value === selected;
           return (
             <TouchableOpacity
-              key={option.value}
               style={[
                 styles.chip,
                 { borderColor: Colors.border, backgroundColor: Colors.surface },
@@ -48,8 +54,8 @@ export default function AdminFilterChips<T extends string>({ options, selected, 
               ) : null}
             </TouchableOpacity>
           );
-        })}
-      </ScrollView>
+        }}
+      />
     </View>
   );
 }
@@ -59,19 +65,23 @@ const createStyles = (Colors: any) =>
     wrap: {
       paddingTop: Spacing.sm,
       paddingBottom: Spacing.sm,
+      width: '100%',
     },
     row: {
+      flexDirection: 'row',
       paddingHorizontal: Spacing.md,
-      gap: Spacing.sm,
+      paddingRight: Spacing.lg,
     },
     chip: {
       flexDirection: 'row',
       alignItems: 'center',
+      flexShrink: 0,
       gap: 8,
       borderWidth: 1,
       borderRadius: BorderRadius.md,
       paddingVertical: 9,
       paddingHorizontal: 11,
+      marginRight: Spacing.sm,
     },
     label: {
       fontSize: FontSizes.xs,

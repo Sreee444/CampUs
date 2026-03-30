@@ -20,9 +20,8 @@ import { banUser, deleteReport, getReports, insertAdminLog, resolveAppealWithFee
 import { useAuth } from '../../contexts/AuthContext';
 import Toast from 'react-native-toast-message';
 import AdminHeader from '../../components/admin/AdminHeader';
-import AdminFilterChips from '../../components/admin/AdminFilterChips';
 
-type ReportFilter = 'all' | 'pending' | 'reviewing' | 'resolved';
+type ReportFilter = 'all' | 'pending' | 'reviewing' | 'in_progress' | 'on_hold' | 'awaiting_info' | 'resolved' | 'dismissed' | 'appeals';
 
 export default function AdminReportsScreen() {
   const navigation = useNavigation();
@@ -35,11 +34,30 @@ export default function AdminReportsScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedReport, setSelectedReport] = useState<any>(null);
   const [modalVisible, setModalVisible] = useState(false);
+  const [showCountsDropdown, setShowCountsDropdown] = useState(false);
+  const [showFiltersDropdown, setShowFiltersDropdown] = useState(false);
   const [statusFilter, setStatusFilter] = useState<ReportFilter>('all');
   const [appealFeedback, setAppealFeedback] = useState('');
+  const [adminAction, setAdminAction] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const ON_HOLD_TAG = '[ON_HOLD]';
 
-  const isAppealReport = (report: any) => String(report?.reason || '').toLowerCase().includes('appeal');
+  const normalizeStatusForDb = (status: string) => (status === 'on_hold' ? 'awaiting_info' : status);
+  const hasOnHoldTag = (notes?: string | null) => String(notes || '').includes(ON_HOLD_TAG);
+  const sanitizeAdminNotes = (notes?: string | null) => String(notes || '').replace(ON_HOLD_TAG, '').trim();
+  const encodeAdminNotesForStatus = (status: string, notes: string) => {
+    const clean = sanitizeAdminNotes(notes);
+    return status === 'on_hold' ? `${ON_HOLD_TAG} ${clean}`.trim() : clean;
+  };
+  const mapDbStatusToUi = (status?: string, notes?: string | null) => {
+    if (status === 'awaiting_info' && hasOnHoldTag(notes)) return 'on_hold';
+    return status || 'pending';
+  };
+
+  const isAppealReport = (report: any) => {
+    const text = `${report?.reason || ''} ${report?.title || ''}`.toLowerCase();
+    return text.includes('appeal');
+  };
 
   const parseAppealDescription = (description?: string | null) => {
     const raw = String(description || '').trim();
@@ -63,8 +81,17 @@ export default function AdminReportsScreen() {
 
   const loadReports = async () => {
     try {
-      const data = await getReports(statusFilter === 'all' ? undefined : { status: statusFilter });
-      setReports(data);
+      const normalizedFilterStatus = normalizeStatusForDb(statusFilter);
+      const data = await getReports(
+        statusFilter === 'all' || statusFilter === 'appeals'
+          ? undefined
+          : { status: normalizedFilterStatus }
+      );
+      const normalizedData = (data || []).map((r: any) => ({
+        ...r,
+        status: mapDbStatusToUi(r?.status, r?.admin_notes),
+      }));
+      setReports(statusFilter === 'appeals' ? normalizedData.filter((r: any) => isAppealReport(r)) : normalizedData);
     } catch (error) {
       console.error('Error loading reports:', error);
       Toast.show({ type: 'error', text1: 'Failed to load reports' });
@@ -73,7 +100,7 @@ export default function AdminReportsScreen() {
     }
   };
 
-  const handleBanUser = async (reportId: string, reportedUserId?: string | null, reason?: string) => {
+  const handleBanUser = async (reportId: string, reportedUserId?: string | null, reason?: string, adminAction?: string) => {
     if (!user?.id) return;
     if (isProcessing) return;
     if (!reportedUserId) {
@@ -83,22 +110,32 @@ export default function AdminReportsScreen() {
 
     try {
       setIsProcessing(true);
-      await Promise.all([
-        banUser(reportedUserId, user.id, reason || 'User reported and banned by moderation'),
-        updateReportStatus(reportId, 'resolved', user.id, 'User banned'),
-      ]);
+      const actionNote = adminAction || 'User banned';
+      await banUser(reportedUserId, user.id, reason || 'User reported and banned by moderation');
+
+      try {
+        await updateReportStatus(reportId, 'resolved', user.id, actionNote);
+      } catch (statusError: any) {
+        // Ban already succeeded; do not fail the whole flow for report-status metadata issues.
+        console.warn('Ban succeeded but report status update failed:', statusError?.message || statusError);
+      }
+
       await insertAdminLog(user.id, 'ban_user', reportedUserId, { source: 'report', report_id: reportId });
-      setReports((prev) => prev.filter((r) => r.id !== reportId));
+      setReports((prev) => prev.map((r) => r.id === reportId ? { ...r, status: 'resolved', admin_notes: actionNote } : r));
+      setAdminAction('');
       setModalVisible(false);
       Toast.show({ type: 'success', text1: 'User banned successfully' });
     } catch (error: any) {
       if (String(error?.message || '').toLowerCase().includes('already has an active ban')) {
-        await updateReportStatus(reportId, 'resolved', user.id, 'User already banned');
-        setReports((prev) => prev.filter((r) => r.id !== reportId));
+        const actionNote = adminAction || 'User already banned';
+        await updateReportStatus(reportId, 'resolved', user.id, actionNote);
+        setReports((prev) => prev.map((r) => r.id === reportId ? { ...r, status: 'resolved', admin_notes: actionNote } : r));
+        setAdminAction('');
         setModalVisible(false);
         Toast.show({ type: 'success', text1: 'User already banned, report resolved' });
         return;
       }
+      console.error('Ban user error:', error);
       Toast.show({ type: 'error', text1: 'Failed to ban user', text2: error?.message });
     } finally {
       setIsProcessing(false);
@@ -107,7 +144,7 @@ export default function AdminReportsScreen() {
 
   const handleResolveAppealWithDecision = async (report: any, decision: 'approved' | 'denied') => {
     if (!user?.id) return;
-    const reportedUserId = report?.reported_user?.id || report?.reported_user_id;
+    const reportedUserId = report?.reported_user?.id || report?.reported_user_id || report?.reporter_id || report?.reported_by;
     if (!reportedUserId) {
       Toast.show({ type: 'error', text1: 'Could not identify user for appeal' });
       return;
@@ -129,6 +166,7 @@ export default function AdminReportsScreen() {
       }
       setReports((prev) => prev.filter((r) => r.id !== report.id));
       setAppealFeedback('');
+      setAdminAction('');
       setModalVisible(false);
       Toast.show({
         type: 'success',
@@ -146,6 +184,7 @@ export default function AdminReportsScreen() {
       setIsProcessing(true);
       await deleteReport(reportId);
       setReports((prev) => prev.filter((r) => r.id !== reportId));
+      setAdminAction('');
       setModalVisible(false);
       Toast.show({ type: 'success', text1: 'Report deleted' });
     } catch (error: any) {
@@ -155,24 +194,28 @@ export default function AdminReportsScreen() {
     }
   };
 
-  const handleResolveReport = async (reportId: string, action: string) => {
+  const handleResolveReport = async (reportId: string, status: string, action: string) => {
     if (!user?.id) return;
     if (isProcessing) return;
     try {
       setIsProcessing(true);
-      await updateReportStatus(reportId, 'resolved', user.id, action);
-      setReports((prev) => prev.filter((r) => r.id !== reportId));
-      setModalVisible(false);
-      Toast.show({ type: 'success', text1: 'Report resolved' });
-    } catch (error) {
-      Toast.show({ type: 'error', text1: 'Failed to resolve report' });
+      const dbStatus = normalizeStatusForDb(status);
+      const encodedNotes = encodeAdminNotesForStatus(status, action);
+      await updateReportStatus(reportId, dbStatus, user.id, encodedNotes);
+      setReports((prev) => prev.map((r) => r.id === reportId ? { ...r, status, admin_notes: encodedNotes } : r));
+      setSelectedReport((prev: any) => (prev?.id === reportId ? { ...prev, status, admin_notes: encodedNotes } : prev));
+      setAdminAction('');
+      Toast.show({ type: 'success', text1: `Report status changed to ${status}` });
+    } catch (error: any) {
+      console.error('Status update error:', error);
+      Toast.show({ type: 'error', text1: 'Failed to update report', text2: error?.message || 'Unknown error' });
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const getReasonColor = (reason: string) => {
-    const reasonLower = reason.toLowerCase();
+  const getReasonColor = (reason?: string) => {
+    const reasonLower = (reason || '').toLowerCase();
     if (reasonLower.includes('spam')) return '#3b82f6';
     if (reasonLower.includes('abuse')) return '#ef4444';
     if (reasonLower.includes('harassment')) return '#f59e0b';
@@ -183,7 +226,11 @@ export default function AdminReportsScreen() {
     const s = String(status || '').toLowerCase();
     if (s === 'pending') return { bg: '#f59e0b20', text: '#f59e0b' };
     if (s === 'reviewing') return { bg: '#3b82f620', text: '#3b82f6' };
+    if (s === 'in_progress') return { bg: '#06b6d420', text: '#06b6d4' };
+    if (s === 'on_hold') return { bg: '#a78bfa20', text: '#a78bfa' };
     if (s === 'resolved') return { bg: '#10b98120', text: '#10b981' };
+    if (s === 'dismissed') return { bg: '#6b7280220', text: '#6b7280' };
+    if (s === 'awaiting_info') return { bg: '#ec407a20', text: '#ec407a' };
     return { bg: Colors.border, text: Colors.textSecondary };
   };
 
@@ -191,11 +238,71 @@ export default function AdminReportsScreen() {
     all: reports.length,
     pending: reports.filter((r) => r.status === 'pending').length,
     reviewing: reports.filter((r) => r.status === 'reviewing').length,
+    in_progress: reports.filter((r) => r.status === 'in_progress').length,
+    on_hold: reports.filter((r) => r.status === 'on_hold').length,
+    awaiting_info: reports.filter((r) => r.status === 'awaiting_info').length,
     resolved: reports.filter((r) => r.status === 'resolved').length,
+    dismissed: reports.filter((r) => r.status === 'dismissed').length,
     appeals: reports.filter((r) => isAppealReport(r)).length,
+    event: reports.filter((r) => r.reported_content_type === 'event').length,
+    project: reports.filter((r) => r.reported_content_type === 'project').length,
+    group_chat: reports.filter((r) => r.reported_content_type === 'group_chat').length,
   };
 
+  const filterOptions: { label: string; value: ReportFilter; count: number }[] = [
+    { label: 'All', value: 'all', count: summary.all },
+    { label: 'Pending', value: 'pending', count: summary.pending },
+    { label: 'Reviewing', value: 'reviewing', count: summary.reviewing },
+    { label: 'In Progress', value: 'in_progress', count: summary.in_progress },
+    { label: 'On Hold', value: 'on_hold', count: summary.on_hold },
+    { label: 'Awaiting Info', value: 'awaiting_info', count: summary.awaiting_info },
+    { label: 'Resolved', value: 'resolved', count: summary.resolved },
+    { label: 'Dismissed', value: 'dismissed', count: summary.dismissed },
+    { label: 'Appeals', value: 'appeals', count: summary.appeals },
+  ];
+
   const isResolvedReport = (report: any) => String(report?.status || '').toLowerCase() === 'resolved';
+
+  const getReportHeadline = (report: any) => {
+    return report?.title || report?.reason || report?.category || 'Report';
+  };
+
+  const getReportSnippet = (report: any) => {
+    return report?.description || sanitizeAdminNotes(report?.admin_notes) || 'No description available';
+  };
+
+  const getReportedSubject = (report: any) => {
+    const type = String(report?.reported_content_type || 'other');
+    const entityName =
+      report?.reported_entity_name ||
+      report?.title ||
+      report?.reason ||
+      report?.reported_content_id ||
+      report?.category ||
+      'Not specified';
+
+    if (type === 'user') {
+      return `User: ${report?.reported_user?.full_name || report?.reported_user?.email || report?.reported_user_id || 'Not specified'}`;
+    }
+
+    if (type === 'group_chat') {
+      return `Group Chat: ${entityName}`;
+    }
+
+    if (type === 'project') {
+      return `Project: ${entityName}`;
+    }
+
+    if (type === 'event') {
+      return `Event: ${entityName}`;
+    }
+
+    if (report?.reported_entity_name) {
+      return `${String(type).replace('_', ' ')}: ${report.reported_entity_name}`;
+    }
+
+    return `${String(type).replace('_', ' ')}: ${report?.reported_content_id || entityName}`;
+  };
 
   const renderReportItem = ({ item }: { item: any }) => (
     <TouchableOpacity
@@ -203,6 +310,7 @@ export default function AdminReportsScreen() {
       onPress={() => {
         setSelectedReport(item);
         setAppealFeedback('');
+        setAdminAction('');
         setModalVisible(true);
       }}
       activeOpacity={0.7}
@@ -227,10 +335,11 @@ export default function AdminReportsScreen() {
       </View>
 
       <View style={styles.reportContent}>
-        <Text style={styles.reason}>{item.reason}</Text>
+        <Text style={styles.reason}>{getReportHeadline(item)}</Text>
+        <Text style={styles.reportSnippet} numberOfLines={2}>{getReportSnippet(item)}</Text>
         <View style={[styles.reasonBadge, { backgroundColor: getReasonColor(item.reason) + '20' }]}>
           <Text style={[styles.reasonBadgeText, { color: getReasonColor(item.reason) }]}>
-            {item.reason.split(' ')[0]}
+            {String(item?.reported_content_type || 'other').replace('_', ' ').toUpperCase()}
           </Text>
         </View>
         {isAppealReport(item) && (
@@ -243,12 +352,15 @@ export default function AdminReportsScreen() {
 
       <View style={styles.reportMeta}>
         <Text style={styles.reportedUser}>
-          Reported: {item.reported_user?.full_name || 'Unknown'}
+          Reported: {getReportedSubject(item)}
         </Text>
         <Text style={styles.reportDate}>
           {new Date(item.created_at).toLocaleDateString()}
         </Text>
       </View>
+      {!!item?.reported_entity_creator_name && (
+        <Text style={styles.reportCreatorMeta}>Creator: {item.reported_entity_creator_name}</Text>
+      )}
     </TouchableOpacity>
   );
 
@@ -270,35 +382,129 @@ export default function AdminReportsScreen() {
         onRefresh={loadReports}
       />
 
-      <View style={styles.summaryRow}>
-        <View style={[styles.summaryCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}>
-          <Text style={[styles.summaryLabel, { color: Colors.textSecondary }]}>Pending</Text>
-          <Text style={[styles.summaryValue, { color: '#f59e0b' }]}>{summary.pending}</Text>
-        </View>
-        <View style={[styles.summaryCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}>
-          <Text style={[styles.summaryLabel, { color: Colors.textSecondary }]}>Reviewing</Text>
-          <Text style={[styles.summaryValue, { color: '#3b82f6' }]}>{summary.reviewing}</Text>
-        </View>
-        <View style={[styles.summaryCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}>
-          <Text style={[styles.summaryLabel, { color: Colors.textSecondary }]}>Resolved</Text>
-          <Text style={[styles.summaryValue, { color: '#10b981' }]}>{summary.resolved}</Text>
-        </View>
-        <View style={[styles.summaryCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}>
-          <Text style={[styles.summaryLabel, { color: Colors.textSecondary }]}>Appeals</Text>
-          <Text style={[styles.summaryValue, { color: '#2563eb' }]}>{summary.appeals}</Text>
-        </View>
+      <View style={styles.countsDropdownWrap}>
+        <TouchableOpacity
+          style={[styles.countsDropdownTrigger, { backgroundColor: Colors.surface, borderColor: Colors.border }]}
+          onPress={() => setShowCountsDropdown((prev) => !prev)}
+          activeOpacity={0.8}
+        >
+          <Text style={[styles.countsDropdownTitle, { color: Colors.text }]}>Report Counts</Text>
+          <View style={styles.countsDropdownRight}>
+            <Text style={[styles.countsDropdownHint, { color: Colors.textSecondary }]}>Tap to {showCountsDropdown ? 'hide' : 'view'}</Text>
+            <MaterialIcons
+              name={showCountsDropdown ? 'keyboard-arrow-up' : 'keyboard-arrow-down'}
+              size={20}
+              color={Colors.textSecondary}
+            />
+          </View>
+        </TouchableOpacity>
+
+        {showCountsDropdown && (
+          <View style={[styles.countsDropdownPanel, { backgroundColor: Colors.surface, borderColor: Colors.border }]}>
+            <View style={styles.summaryRow}>
+              <View style={[styles.summaryCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}> 
+                <Text style={[styles.summaryLabel, { color: Colors.textSecondary }]}>All</Text>
+                <Text style={[styles.summaryValue, { color: Colors.text }]}>{summary.all}</Text>
+              </View>
+              <View style={[styles.summaryCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}> 
+                <Text style={[styles.summaryLabel, { color: Colors.textSecondary }]}>Pending</Text>
+                <Text style={[styles.summaryValue, { color: '#f59e0b' }]}>{summary.pending}</Text>
+              </View>
+              <View style={[styles.summaryCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}> 
+                <Text style={[styles.summaryLabel, { color: Colors.textSecondary }]}>Reviewing</Text>
+                <Text style={[styles.summaryValue, { color: '#3b82f6' }]}>{summary.reviewing}</Text>
+              </View>
+              <View style={[styles.summaryCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}> 
+                <Text style={[styles.summaryLabel, { color: Colors.textSecondary }]}>In Progress</Text>
+                <Text style={[styles.summaryValue, { color: '#06b6d4' }]}>{summary.in_progress}</Text>
+              </View>
+              <View style={[styles.summaryCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}> 
+                <Text style={[styles.summaryLabel, { color: Colors.textSecondary }]}>On Hold</Text>
+                <Text style={[styles.summaryValue, { color: '#a78bfa' }]}>{summary.on_hold}</Text>
+              </View>
+              <View style={[styles.summaryCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}> 
+                <Text style={[styles.summaryLabel, { color: Colors.textSecondary }]}>Awaiting Info</Text>
+                <Text style={[styles.summaryValue, { color: '#ec407a' }]}>{summary.awaiting_info}</Text>
+              </View>
+              <View style={[styles.summaryCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}> 
+                <Text style={[styles.summaryLabel, { color: Colors.textSecondary }]}>Resolved</Text>
+                <Text style={[styles.summaryValue, { color: '#10b981' }]}>{summary.resolved}</Text>
+              </View>
+              <View style={[styles.summaryCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}> 
+                <Text style={[styles.summaryLabel, { color: Colors.textSecondary }]}>Dismissed</Text>
+                <Text style={[styles.summaryValue, { color: '#6b7280' }]}>{summary.dismissed}</Text>
+              </View>
+              <View style={[styles.summaryCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}> 
+                <Text style={[styles.summaryLabel, { color: Colors.textSecondary }]}>Appeals</Text>
+                <Text style={[styles.summaryValue, { color: '#2563eb' }]}>{summary.appeals}</Text>
+              </View>
+            </View>
+
+            <View style={styles.summaryRow}>
+              <View style={[styles.summaryCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}> 
+                <Text style={[styles.summaryLabel, { color: Colors.textSecondary }]}>Events</Text>
+                <Text style={[styles.summaryValue, { color: '#22c55e' }]}>{summary.event}</Text>
+              </View>
+              <View style={[styles.summaryCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}> 
+                <Text style={[styles.summaryLabel, { color: Colors.textSecondary }]}>Projects</Text>
+                <Text style={[styles.summaryValue, { color: '#f97316' }]}>{summary.project}</Text>
+              </View>
+              <View style={[styles.summaryCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}> 
+                <Text style={[styles.summaryLabel, { color: Colors.textSecondary }]}>Group Chats</Text>
+                <Text style={[styles.summaryValue, { color: '#0ea5e9' }]}>{summary.group_chat}</Text>
+              </View>
+            </View>
+          </View>
+        )}
       </View>
 
-      <AdminFilterChips<ReportFilter>
-        selected={statusFilter}
-        onSelect={setStatusFilter}
-        options={[
-          { label: 'All', value: 'all', count: summary.all },
-          { label: 'Pending', value: 'pending', count: summary.pending },
-          { label: 'Reviewing', value: 'reviewing', count: summary.reviewing },
-          { label: 'Resolved', value: 'resolved', count: summary.resolved },
-        ]}
-      />
+      <View style={styles.filtersDropdownWrap}>
+        <TouchableOpacity
+          style={[styles.filtersDropdownTrigger, { backgroundColor: Colors.surface, borderColor: Colors.border }]}
+          onPress={() => setShowFiltersDropdown((prev) => !prev)}
+          activeOpacity={0.8}
+        >
+          <View style={styles.filtersDropdownTitleWrap}>
+            <Text style={[styles.filtersDropdownTitle, { color: Colors.text }]}>Filters</Text>
+            <Text style={[styles.filtersDropdownActive, { color: Colors.textSecondary }]}>Active: {filterOptions.find((opt) => opt.value === statusFilter)?.label || 'All'}</Text>
+          </View>
+          <MaterialIcons
+            name={showFiltersDropdown ? 'keyboard-arrow-up' : 'keyboard-arrow-down'}
+            size={20}
+            color={Colors.textSecondary}
+          />
+        </TouchableOpacity>
+
+        {showFiltersDropdown && (
+          <View style={[styles.filtersDropdownPanel, { backgroundColor: Colors.surface, borderColor: Colors.border }]}>
+            <View style={styles.filtersGrid}>
+              {filterOptions.map((option) => {
+                const active = option.value === statusFilter;
+                return (
+                  <TouchableOpacity
+                    key={option.value}
+                    style={[
+                      styles.filterOptionButton,
+                      { borderColor: Colors.border, backgroundColor: Colors.background },
+                      active && { borderColor: Colors.primary, backgroundColor: Colors.primary + '14' },
+                    ]}
+                    onPress={() => {
+                      setStatusFilter(option.value);
+                      setShowFiltersDropdown(false);
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.filterOptionLabel, { color: active ? Colors.primary : Colors.text }]}>{option.label}</Text>
+                    <View style={[styles.filterOptionCountBadge, { backgroundColor: active ? Colors.primary : Colors.surface, borderColor: active ? Colors.primary : Colors.border }]}>
+                      <Text style={[styles.filterOptionCountText, { color: active ? '#fff' : Colors.textSecondary }]}>{option.count}</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        )}
+      </View>
 
       <FlatList
         data={reports}
@@ -339,42 +545,91 @@ export default function AdminReportsScreen() {
                       </Text>
                     </View>
 
-                    <Text style={[styles.heroReasonText, { color: Colors.text }]}>{selectedReport.reason}</Text>
+                    <Text style={[styles.heroReasonText, { color: Colors.text }]}>{getReportHeadline(selectedReport)}</Text>
 
                     <View style={[styles.heroReasonTag, { backgroundColor: getReasonColor(selectedReport.reason) + '20' }]}> 
                       <Text style={[styles.heroReasonTagText, { color: getReasonColor(selectedReport.reason) }]}>
-                        {selectedReport.reason.split(' ')[0]}
+                        {String(selectedReport?.reported_content_type || 'other').replace('_', ' ').toUpperCase()}
                       </Text>
                     </View>
+
+                    {selectedReport.title && (
+                      <View style={{ marginTop: 12 }}>
+                        <Text style={[styles.modalLabel, { color: Colors.textSecondary }]}>Title</Text>
+                        <Text style={[styles.heroReasonText, { color: Colors.text, fontSize: 14 }]}>{selectedReport.title}</Text>
+                      </View>
+                    )}
+
+                    {selectedReport.description && (
+                      <View style={{ marginTop: 12 }}>
+                        <Text style={[styles.modalLabel, { color: Colors.textSecondary }]}>Description</Text>
+                        <Text style={[styles.detailDescription, { color: Colors.text }]}>{selectedReport.description}</Text>
+                      </View>
+                    )}
+
+                    {selectedReport.reported_content_type && (
+                      <View style={{ marginTop: 12 }}>
+                        <Text style={[styles.modalLabel, { color: Colors.textSecondary }]}>Reported Content Type</Text>
+                        <Text style={[{ color: Colors.text, fontWeight: '600' }]}>{selectedReport.reported_content_type.replace('_', ' ').toUpperCase()}</Text>
+                      </View>
+                    )}
                   </View>
 
                   <View style={[styles.detailCard, { backgroundColor: Colors.background, borderColor: Colors.border }]}> 
-                    <Text style={[styles.detailCardTitle, { color: Colors.textSecondary }]}>Participants</Text>
-                    <View style={styles.participantRow}>
-                      <MaterialIcons name="person" size={16} color={Colors.textSecondary} />
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.participantLabel, { color: Colors.textSecondary }]}>
-                          {isAppealReport(selectedReport) ? 'Account Holder' : 'Reported User'}
-                        </Text>
-                        <Text style={[styles.participantValue, { color: Colors.text }]}>
-                          {selectedReport.reported_user?.full_name || 'Unknown'}
-                        </Text>
-                        {!!selectedReport.reported_user?.email && (
-                          <Text style={[styles.participantMeta, { color: Colors.textSecondary }]}>{selectedReport.reported_user.email}</Text>
-                        )}
-                      </View>
-                    </View>
+                    <Text style={[styles.detailCardTitle, { color: Colors.textSecondary }]}>Participants & Details</Text>
+                    
+                    {selectedReport.reported_content_type === 'user' && (
+                      <>
+                        <View style={styles.participantRow}>
+                          <MaterialIcons name="person" size={16} color={Colors.textSecondary} />
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.participantLabel, { color: Colors.textSecondary }]}>
+                              {isAppealReport(selectedReport) ? 'Account Holder' : 'Reported User'}
+                            </Text>
+                            <Text style={[styles.participantValue, { color: Colors.text }]}>
+                              {selectedReport.reported_user?.full_name || selectedReport.reported_user?.email || selectedReport.reported_user_id || 'Unknown user'}
+                            </Text>
+                            {!!selectedReport.reported_user?.email && (
+                              <Text style={[styles.participantMeta, { color: Colors.textSecondary }]}>{selectedReport.reported_user.email}</Text>
+                            )}
+                          </View>
+                        </View>
 
-                    <View style={[styles.divider, { backgroundColor: Colors.border }]} />
+                        <View style={[styles.divider, { backgroundColor: Colors.border }]} />
+                      </>
+                    )}
+
+                    {selectedReport.reported_content_type !== 'user' && selectedReport.reported_content_id && (
+                      <>
+                        <View style={styles.participantRow}>
+                          <MaterialIcons name="description" size={16} color={Colors.textSecondary} />
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.participantLabel, { color: Colors.textSecondary }]}>Reported Content</Text>
+                            <Text style={[styles.participantValue, { color: Colors.text }]}> 
+                              {getReportedSubject(selectedReport)}
+                            </Text>
+                            {!!selectedReport.reported_entity_creator_name && (
+                              <Text style={[styles.participantMeta, { color: Colors.textSecondary }]}>Creator: {selectedReport.reported_entity_creator_name}</Text>
+                            )}
+                            <Text style={[styles.participantLabel, { color: Colors.textSecondary, marginTop: 6 }]}>Content ID</Text>
+                            <Text style={[styles.participantValue, { color: Colors.text }]} numberOfLines={2}>
+                              {selectedReport.reported_content_id}
+                            </Text>
+                          </View>
+                        </View>
+
+                        <View style={[styles.divider, { backgroundColor: Colors.border }]} />
+                      </>
+                    )}
 
                     <View style={styles.participantRow}>
                       <MaterialIcons name="how-to-reg" size={16} color={Colors.textSecondary} />
                       <View style={{ flex: 1 }}>
                         <Text style={[styles.participantLabel, { color: Colors.textSecondary }]}>
-                          {isAppealReport(selectedReport) ? 'Appeal Submitted By' : 'Reporter'}
+                          {isAppealReport(selectedReport) ? 'Appeal Submitted By' : 'Reported By'}
                         </Text>
                         <Text style={[styles.participantValue, { color: Colors.text }]}>
-                          {selectedReport.reporter?.full_name || 'Anonymous'}
+                          {selectedReport.reporter?.full_name || selectedReport.reporter?.email || selectedReport.reporter_id || 'Anonymous'}
                         </Text>
                         {isAppealReport(selectedReport) && selectedReport.reporter?.id === selectedReport.reported_user?.id && (
                           <Text style={[styles.participantMeta, { color: Colors.textSecondary }]}>Same as account holder</Text>
@@ -399,15 +654,67 @@ export default function AdminReportsScreen() {
                     </View>
                   )}
 
-                  {(String(selectedReport?.status || '').toLowerCase() === 'resolved' || !!selectedReport?.action_taken) && (
+                  {(String(selectedReport?.status || '').toLowerCase() === 'resolved' || !!selectedReport?.admin_notes) && (
                     <View style={[styles.detailCard, { backgroundColor: Colors.background, borderColor: Colors.border }]}> 
                       <Text style={[styles.detailCardTitle, { color: Colors.textSecondary }]}>Resolution Feedback</Text>
-                      <Text style={styles.modalValue}>{selectedReport?.action_taken || 'No feedback provided.'}</Text>
-                      {!!selectedReport?.reviewed_at && (
-                        <Text style={styles.modalMeta}>Resolved on {new Date(selectedReport.reviewed_at).toLocaleString()}</Text>
+                      <Text style={styles.modalValue}>{sanitizeAdminNotes(selectedReport?.admin_notes) || 'No feedback provided.'}</Text>
+                      {!!selectedReport?.updated_at && (
+                        <Text style={styles.modalMeta}>Updated on {new Date(selectedReport.updated_at).toLocaleString()}</Text>
                       )}
                     </View>
                   )}
+
+                  <View style={[styles.actionDock, { borderColor: Colors.border, backgroundColor: Colors.background }]}> 
+                    <Text style={[styles.detailCardTitle, { color: Colors.textSecondary }]}>Admin Response</Text>
+                    <Text style={[styles.modalLabel, { marginTop: 12 }]}>Action Notes *</Text>
+                    <TextInput
+                      style={[styles.feedbackInput, { color: Colors.text, borderColor: Colors.border, backgroundColor: Colors.background }]}
+                      placeholder="Describe the action taken or decision made on this report..."
+                      placeholderTextColor={Colors.textSecondary}
+                      value={adminAction}
+                      onChangeText={setAdminAction}
+                      multiline
+                      numberOfLines={4}
+                      editable
+                    />
+                    <Text style={[styles.modalMeta, { marginTop: 8 }]}>
+                      This message will be visible to the reporter and reported user.
+                    </Text>
+                  </View>
+
+                  <View style={[styles.actionDock, { borderColor: Colors.border, backgroundColor: Colors.background }]}> 
+                    <Text style={[styles.detailCardTitle, { color: Colors.textSecondary }]}>Status</Text>
+                    <View style={styles.statusGrid}>
+                      {(['pending', 'reviewing', 'in_progress', 'on_hold', 'resolved', 'dismissed', 'awaiting_info'] as const).map((status) => (
+                        <TouchableOpacity
+                          key={status}
+                          style={[
+                            styles.statusButton,
+                            {
+                              backgroundColor: selectedReport.status === status ? getStatusTone(status).text : Colors.background,
+                              borderColor: getStatusTone(status).text,
+                              borderWidth: 1.5,
+                            },
+                          ]}
+                          onPress={() => {
+                            if (!adminAction.trim()) {
+                              Toast.show({ type: 'error', text1: 'Action notes required', text2: 'Please add admin response before changing status.' });
+                              return;
+                            }
+                            handleResolveReport(selectedReport.id, status, adminAction.trim());
+                          }}
+                          disabled={isProcessing}
+                        >
+                          <Text style={[
+                            styles.statusButtonText,
+                            { color: selectedReport.status === status ? '#FFF' : getStatusTone(status).text },
+                          ]}>
+                            {(status === 'in_progress' ? 'In Progress' : status === 'on_hold' ? 'On Hold' : status === 'awaiting_info' ? 'Awaiting Info' : status).toUpperCase()}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
 
                   <View style={[styles.actionDock, { borderColor: Colors.border, backgroundColor: Colors.background }]}> 
                     <Text style={[styles.detailCardTitle, { color: Colors.textSecondary }]}>Actions</Text>
@@ -455,9 +762,13 @@ export default function AdminReportsScreen() {
                       <>
                         <TouchableOpacity
                           style={[styles.deleteButton, isResolvedReport(selectedReport) && styles.disabledActionButton]}
-                          onPress={() =>
-                            handleResolveReport(selectedReport.id, 'Content removed')
-                          }
+                          onPress={() => {
+                            if (!adminAction.trim()) {
+                              Toast.show({ type: 'error', text1: 'Action notes required', text2: 'Please add admin response before resolving.' });
+                              return;
+                            }
+                            handleResolveReport(selectedReport.id, 'resolved', adminAction.trim());
+                          }}
                           disabled={isProcessing || isResolvedReport(selectedReport)}
                         >
                           <MaterialIcons name="delete" size={18} color="#fff" />
@@ -465,13 +776,18 @@ export default function AdminReportsScreen() {
                         </TouchableOpacity>
                         <TouchableOpacity
                           style={[styles.banButton, isResolvedReport(selectedReport) && styles.disabledActionButton]}
-                          onPress={() =>
+                          onPress={() => {
+                            if (!adminAction.trim()) {
+                              Toast.show({ type: 'error', text1: 'Action notes required', text2: 'Please add admin response before banning user.' });
+                              return;
+                            }
                             handleBanUser(
                               selectedReport.id,
                               selectedReport.reported_user?.id || selectedReport.reported_user_id,
-                              `User banned from report: ${selectedReport.reason}`
-                            )
-                          }
+                              `User banned from report: ${getReportHeadline(selectedReport)}`,
+                              adminAction.trim()
+                            );
+                          }}
                           disabled={isProcessing || isResolvedReport(selectedReport)}
                         >
                           <MaterialIcons name="block" size={18} color="#fff" />
@@ -506,15 +822,116 @@ const createStyles = (Colors: any, isDark: boolean) =>
       backgroundColor: Colors.background,
       ...(Platform.OS === 'web' && { height: '100vh', width: '100vw' } as any),
     },
+    countsDropdownWrap: {
+      paddingHorizontal: Spacing.md,
+      paddingTop: Spacing.sm,
+      paddingBottom: Spacing.xs,
+    },
+    countsDropdownTrigger: {
+      borderWidth: 1,
+      borderRadius: BorderRadius.lg,
+      paddingHorizontal: 12,
+      paddingVertical: 11,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    countsDropdownTitle: {
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.bold,
+    },
+    countsDropdownRight: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+    },
+    countsDropdownHint: {
+      fontSize: FontSizes.xs,
+      fontWeight: FontWeights.medium,
+    },
+    countsDropdownPanel: {
+      marginTop: Spacing.sm,
+      borderWidth: 1,
+      borderRadius: BorderRadius.lg,
+      paddingBottom: Spacing.sm,
+    },
+    filtersDropdownWrap: {
+      paddingHorizontal: Spacing.md,
+      paddingTop: Spacing.xs,
+      paddingBottom: Spacing.sm,
+    },
+    filtersDropdownTrigger: {
+      borderWidth: 1,
+      borderRadius: BorderRadius.lg,
+      paddingHorizontal: 12,
+      paddingVertical: 11,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    filtersDropdownTitleWrap: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    filtersDropdownTitle: {
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.bold,
+    },
+    filtersDropdownActive: {
+      fontSize: FontSizes.xs,
+      fontWeight: FontWeights.medium,
+    },
+    filtersDropdownPanel: {
+      marginTop: Spacing.sm,
+      borderWidth: 1,
+      borderRadius: BorderRadius.lg,
+      padding: Spacing.sm,
+    },
+    filtersGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      justifyContent: 'space-between',
+      gap: Spacing.sm,
+    },
+    filterOptionButton: {
+      width: '48%',
+      borderWidth: 1,
+      borderRadius: BorderRadius.md,
+      paddingVertical: 10,
+      paddingHorizontal: 10,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    filterOptionLabel: {
+      fontSize: FontSizes.xs,
+      fontWeight: FontWeights.semibold,
+    },
+    filterOptionCountBadge: {
+      minWidth: 22,
+      height: 22,
+      borderRadius: BorderRadius.sm,
+      borderWidth: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 5,
+    },
+    filterOptionCountText: {
+      fontSize: FontSizes.xs,
+      fontWeight: FontWeights.bold,
+    },
     summaryRow: {
       flexDirection: 'row',
+      flexWrap: 'wrap',
+      justifyContent: 'space-between',
       gap: Spacing.sm,
-      paddingHorizontal: Spacing.md,
+      paddingHorizontal: Spacing.sm,
       paddingTop: Spacing.sm,
       paddingBottom: 2,
     },
     summaryCard: {
-      flex: 1,
+      width: '31%',
       borderWidth: 1,
       borderRadius: BorderRadius.lg,
       paddingVertical: 10,
@@ -570,6 +987,11 @@ const createStyles = (Colors: any, isDark: boolean) =>
       color: Colors.text,
       marginBottom: Spacing.sm,
     },
+    reportSnippet: {
+      fontSize: FontSizes.sm,
+      color: Colors.textSecondary,
+      marginBottom: Spacing.sm,
+    },
     reasonBadge: {
       alignSelf: 'flex-start',
       paddingHorizontal: Spacing.sm,
@@ -600,14 +1022,22 @@ const createStyles = (Colors: any, isDark: boolean) =>
     reportMeta: {
       flexDirection: 'row',
       justifyContent: 'space-between',
-      alignItems: 'center',
+      alignItems: 'flex-start',
+      gap: 8,
     },
     reportedUser: {
+      flex: 1,
       fontSize: FontSizes.sm,
       color: Colors.text,
       fontWeight: FontWeights.semibold,
     },
     reportDate: {
+      textAlign: 'right',
+      fontSize: FontSizes.xs,
+      color: Colors.textSecondary,
+    },
+    reportCreatorMeta: {
+      marginTop: 6,
       fontSize: FontSizes.xs,
       color: Colors.textSecondary,
     },
@@ -753,6 +1183,11 @@ const createStyles = (Colors: any, isDark: boolean) =>
       color: Colors.textSecondary,
       marginTop: 4,
     },
+    detailDescription: {
+      fontSize: FontSizes.md,
+      lineHeight: 20,
+      marginTop: 4,
+    },
     feedbackInput: {
       borderWidth: 1,
       borderRadius: BorderRadius.md,
@@ -814,6 +1249,25 @@ const createStyles = (Colors: any, isDark: boolean) =>
     buttonText: {
       color: '#fff',
       fontSize: FontSizes.sm,
+      fontWeight: FontWeights.semibold,
+    },
+    statusGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      justifyContent: 'space-between',
+      gap: 8,
+      marginTop: 12,
+    },
+    statusButton: {
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: 6,
+      width: '31%',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    statusButtonText: {
+      fontSize: FontSizes.xs,
       fontWeight: FontWeights.semibold,
     },
   });

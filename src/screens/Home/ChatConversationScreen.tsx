@@ -77,8 +77,10 @@ import { getEvents } from '../../api/events';
 import { getProjectTeams } from '../../api/projects';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
+import ReportModal from '../../components/ReportModal';
 import { decryptMessage } from '../../../utils/encryption';
 import { CHAT_THEME_KEY, CHAT_THEMES, ChatTheme, withHexAlpha } from '../../constants/chatThemes';
+import { ReportContentType } from '../../types/database';
 
 type ChatConversationScreenNavigationProp = StackNavigationProp<RootStackParamList, 'ChatConversation'>;
 type ChatConversationScreenRouteProp = RouteProp<RootStackParamList, 'ChatConversation'>;
@@ -203,6 +205,11 @@ export default function ChatConversationScreen() {
   const [memberSearchQuery, setMemberSearchQuery] = useState('');
   const [loadingConnections, setLoadingConnections] = useState(false);
   const [isAddingMembers, setIsAddingMembers] = useState(false);
+  const [reportModalState, setReportModalState] = useState({
+    visible: false,
+    contentType: 'message' as ReportContentType,
+    contentId: '',
+  });
   const [isSavingGroup, setIsSavingGroup] = useState(false);
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
   const [selectedAttachments, setSelectedAttachments] = useState<Array<{ id: string; uri: string }>>([]);
@@ -2616,6 +2623,23 @@ export default function ChatConversationScreen() {
               </TouchableOpacity>
             )}
 
+            {!isAIChat && (
+              <TouchableOpacity
+                style={styles.optionRow}
+                onPress={() => {
+                  setShowChatOptions(false);
+                  setReportModalState({
+                    visible: true,
+                    contentType: isGroup ? 'group_chat' : 'chat',
+                    contentId: conversationId,
+                  });
+                }}
+              >
+                <MaterialIcons name="flag" size={20} color={Colors.error} />
+                <Text style={[styles.optionText, { color: Colors.error }]}>Report {isGroup ? 'Group' : 'Chat'}</Text>
+              </TouchableOpacity>
+            )}
+
             <TouchableOpacity
               style={[styles.optionRow, styles.optionCancel]}
               onPress={() => setShowChatOptions(false)}
@@ -2810,6 +2834,23 @@ export default function ChatConversationScreen() {
                 <Text style={styles.optionText}>Pin Message</Text>
               </TouchableOpacity>
             )}
+
+            <TouchableOpacity
+              style={styles.optionRow}
+              onPress={() => {
+                setShowMessageOptions(false);
+                if (selectedMessage) {
+                  setReportModalState({
+                    visible: true,
+                    contentType: 'message',
+                    contentId: selectedMessage.id,
+                  });
+                }
+              }}
+            >
+              <MaterialIcons name="flag" size={20} color={Colors.error} />
+              <Text style={[styles.optionText, { color: Colors.error }]}>Report Message</Text>
+            </TouchableOpacity>
 
             {selectedMessage?.sender_id === user?.id && !isAIChat && (
               <TouchableOpacity
@@ -3659,6 +3700,13 @@ export default function ChatConversationScreen() {
         }}
         onCancel={() => setConfirmDialog((prev) => ({ ...prev, visible: false }))}
         type="danger"
+      />
+
+      <ReportModal
+        isVisible={reportModalState.visible}
+        onClose={() => setReportModalState({ ...reportModalState, visible: false })}
+        contentType={reportModalState.contentType}
+        reportedContentId={reportModalState.contentId}
       />
     </SafeAreaView>
     </View>

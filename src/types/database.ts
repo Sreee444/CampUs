@@ -494,20 +494,8 @@ export type Notification = {
   created_at: string;
 };
 
-export type Report = {
-  id: string;
-  reported_by: string;
-  reported_user_id?: string;
-  reported_post_id?: string;
-  reported_message_id?: string;
-  reason: string;
-  description?: string;
-  status: 'pending' | 'reviewing' | 'resolved' | 'dismissed';
-  reviewed_by?: string;
-  reviewed_at?: string;
-  action_taken?: string;
-  created_at: string;
-};
+// Comprehensive Report types have been moved to the end of this file
+// See ReportContentType, ReportCategory, Report, ReportResolution, ReportAuditLog
 
 export type UserBan = {
   id: string;
@@ -726,4 +714,217 @@ export type ChatPreference = {
   background_image_name?: string;
   created_at: string;
   updated_at: string;
+};
+
+// ============================================================================
+// COMPREHENSIVE REPORTING SYSTEM TYPES
+// ============================================================================
+
+export type ReportContentType = 
+  | 'user'
+  | 'feed_post'
+  | 'message'
+  | 'chat'
+  | 'group_chat'
+  | 'event'
+  | 'project'
+  | 'discussion'
+  | 'comment'
+  | 'other';
+
+export type ReportCategory = 
+  | 'harassment'
+  | 'offensive_content'
+  | 'misinformation'
+  | 'spam'
+  | 'scam_fraud'
+  | 'violence_threats'
+  | 'hate_speech'
+  | 'sexual_content'
+  | 'copyright'
+  | 'other';
+
+export type ReportPriority = 'low' | 'medium' | 'high' | 'critical';
+
+export type ReportStatus = 
+  | 'pending'
+  | 'reviewing'
+  | 'in_progress'
+  | 'resolved'
+  | 'dismissed'
+  | 'awaiting_info'
+  | 'on_hold';
+
+export type AdminActionType = 
+  | 'warning'
+  | 'remove_content'
+  | 'ban_user'
+  | 'temporary_ban'
+  | 'escalate'
+  | 'dismiss'
+  | 'no_action'
+  | 'user_appealed'
+  | 'other';
+
+/**
+ * Main Report object
+ * Stores user-reported content violations
+ */
+export type Report = {
+  id: string;
+  
+  // Reporter info
+  reporter_id: string;
+  reporter_email?: string;
+  reporter_phone?: string;
+  
+  // What is being reported
+  reported_content_type: ReportContentType;
+  reported_user_id?: string;
+  reported_content_id?: string;
+  
+  // Report details
+  category: ReportCategory;
+  title: string;
+  description: string;
+  priority: ReportPriority;
+  
+  // Evidence
+  image_urls?: string[];
+  
+  // Additional flexible data (JSON)
+  additional_info?: Record<string, any>;
+  
+  // Status tracking
+  status: ReportStatus;
+  assigned_admin_id?: string;
+  admin_notes?: string;
+  
+  // Timestamps
+  created_at: string;
+  updated_at: string;
+  resolved_at?: string;
+  
+  // Soft delete
+  is_deleted: boolean;
+  deleted_at?: string;
+  
+  // Joined data
+  reporter?: Profile;
+  reported_user?: Profile;
+  assigned_admin?: Profile;
+};
+
+/**
+ * Report Resolution
+ * Tracks actions taken on reports by admins
+ */
+export type ReportResolution = {
+  id: string;
+  report_id: string;
+  
+  // Action taken
+  action_type: AdminActionType;
+  action_duration_hours?: number;
+  
+  // Admin info
+  admin_id: string;
+  
+  // Resolution details
+  resolution_description: string;
+  resolution_notes?: string;
+  
+  // Feedback to reporter
+  feedback_to_reporter?: string;
+  reporter_notified: boolean;
+  notified_at?: string;
+  
+  // Timestamps
+  created_at: string;
+  updated_at: string;
+  
+  // Joined data
+  admin?: Profile;
+  report?: Report;
+};
+
+/**
+ * Report Audit Log
+ * Immutable audit trail of all report activities
+ */
+export type ReportAuditLog = {
+  id: string;
+  report_id: string;
+  
+  // What happened
+  action: string;
+  description?: string;
+  
+  // Who did it
+  user_id?: string;
+  user_role?: string;
+  
+  // Change details (for UPDATE operations)
+  old_values?: Record<string, any>;
+  new_values?: Record<string, any>;
+  
+  // Additional context
+  ip_address?: string;
+  user_agent?: string;
+  metadata?: Record<string, any>;
+  
+  // Immutable timestamp
+  created_at: string;
+  
+  // Joined data
+  user?: Profile;
+};
+
+/**
+ * Report Statistics View
+ * Aggregated reporting metrics
+ */
+export type ReportStatistics = {
+  total_reports: number;
+  pending_reports: number;
+  reviewing_reports: number;
+  in_progress_reports: number;
+  resolved_reports: number;
+  dismissed_reports: number;
+  critical_reports: number;
+  high_reports: number;
+  resolution_rate: number; // Percentage
+  avg_resolution_hours: number;
+};
+
+/**
+ * Report Category Breakdown
+ * Statistics by category
+ */
+export type ReportCategoryBreakdown = {
+  category: ReportCategory;
+  report_count: number;
+  resolved_count: number;
+  resolution_percentage: number;
+  pending_count: number;
+};
+
+/**
+ * Pending Report View data
+ * For admin dashboard list
+ */
+export type PendingReportView = {
+  id: string;
+  title: string;
+  description: string;
+  category: ReportCategory;
+  priority: ReportPriority;
+  status: ReportStatus;
+  created_at: string;
+  reported_content_type: ReportContentType;
+  reported_user_id?: string;
+  reporter_email?: string;
+  reporter_name?: string;
+  reported_user_email?: string;
+  reported_user_name?: string;
 };

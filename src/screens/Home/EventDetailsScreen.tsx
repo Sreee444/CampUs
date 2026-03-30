@@ -24,6 +24,8 @@ import { RootStackParamList } from '../../navigation/types';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../api/supabase';
 import { EventStatus } from '../../components/CountdownTimer';
+import ReportModal from '../../components/ReportModal';
+import { ReportContentType } from '../../types/database';
 import { scheduleEventReminder, createEventReminder } from '../../api/eventReminders';
 import Toast from 'react-native-toast-message';
 import { isAdminRole } from '../../utils/roles';
@@ -76,6 +78,13 @@ export default function EventDetailsScreen() {
   const [isLookingForTeam, setIsLookingForTeam] = useState(false);
   const [isTogglingLooking, setIsTogglingLooking] = useState(false);
   const [isHandlingInvite, setIsHandlingInvite] = useState(false);
+
+  // Report modal state
+  const [reportModalState, setReportModalState] = useState({
+    visible: false,
+    contentType: 'event' as ReportContentType,
+    contentId: '',
+  });
 
   // Scroll animation for collapsing header
   const scrollY = useRef(new Animated.Value(0)).current;
@@ -391,6 +400,7 @@ export default function EventDetailsScreen() {
       { icon: 'edit' as const, label: 'Edit Event', onPress: () => { setMenuVisible(false); navigation.navigate('EditEvent', { eventId }); } },
       { icon: 'delete-outline' as const, label: 'Delete Event', onPress: () => { setMenuVisible(false); setShowDeleteConfirm(true); }, danger: true },
     ] : []),
+    { icon: 'flag' as const, label: 'Report Event', onPress: () => { setMenuVisible(false); setReportModalState({ visible: true, contentType: 'event', contentId: eventId }); }, danger: true },
   ];
 
   return (
@@ -895,6 +905,13 @@ export default function EventDetailsScreen() {
         cancelText="Cancel"
         confirmColor="#ef4444"
         icon="delete-forever"
+      />
+
+      <ReportModal
+        isVisible={reportModalState.visible}
+        onClose={() => setReportModalState({ ...reportModalState, visible: false })}
+        contentType={reportModalState.contentType}
+        reportedContentId={reportModalState.contentId}
       />
     </View>
   );

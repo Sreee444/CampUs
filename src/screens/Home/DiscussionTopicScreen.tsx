@@ -36,6 +36,8 @@ import {
   getDiscussionReplyReactions,
 } from '../../api/discussions';
 import { DiscussionTopic, DiscussionReply } from '../../types/database';
+import ReportModal from '../../components/ReportModal';
+import { ReportContentType } from '../../types/database';
 import { getCleanDiscussionTitle, getEventIdFromTitle, isPreEventDiscussion } from '../../utils/discussionHelpers';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -95,6 +97,13 @@ export default function DiscussionTopicScreen() {
     counts: number[];
     votersByOption: Array<Array<{ id: string; name: string }>>;
   }>(null);
+
+  // Report modal state
+  const [reportModalState, setReportModalState] = useState({
+    visible: false,
+    contentType: 'discussion' as ReportContentType,
+    contentId: '',
+  });
 
   const POLL_MESSAGE_PREFIX = '__poll__:';
   const POLL_REACTION_PREFIX = 'poll:';
@@ -461,6 +470,18 @@ export default function DiscussionTopicScreen() {
             <MaterialIcons name="delete-outline" size={22} color="#ef4444" />
           </TouchableOpacity>
         )}
+        <TouchableOpacity 
+          onPress={() => setReportModalState({
+            visible: true,
+            contentType: 'discussion',
+            contentId: topicId
+          })}
+          style={styles.headerAction}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          activeOpacity={0.6}
+        >
+          <MaterialIcons name="flag" size={22} color="#ef4444" />
+        </TouchableOpacity>
       </View>
 
       <KeyboardAvoidingView
@@ -823,6 +844,13 @@ export default function DiscussionTopicScreen() {
         }}
         onCancel={() => setConfirmDialog({ ...confirmDialog, visible: false })}
         type="danger"
+      />
+
+      <ReportModal
+        isVisible={reportModalState.visible}
+        onClose={() => setReportModalState({ ...reportModalState, visible: false })}
+        contentType={reportModalState.contentType}
+        reportedContentId={reportModalState.contentId}
       />
     </SafeAreaView>
   );
