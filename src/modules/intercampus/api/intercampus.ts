@@ -1,8 +1,6 @@
 // @ts-nocheck
 import { supabase } from '../../../api/supabase';
-import { ENV } from '../../../config/env';
-import Constants from 'expo-constants';
-import { Platform } from 'react-native';
+import { BASE_URL } from '../../../config/api';
 import {
   InterCampusApprovePayload,
   InterCampusDiscussion,
@@ -1383,89 +1381,41 @@ export const createInterCampusEventDirect = async (
 
 const normalizeBaseUrl = (value: string) => value.trim().replace(/\/+$/, '');
 
-const getExpoHostBasedAiUrl = () => {
-  const hostUri =
-    (Constants as any)?.expoConfig?.hostUri ||
-    (Constants as any)?.manifest2?.extra?.expoClient?.hostUri ||
-    (Constants as any)?.manifest?.debuggerHost ||
-    '';
-  const host = String(hostUri || '').split(':')[0].trim();
-  if (!host) return '';
-
-  if (host === 'localhost' || host === '127.0.0.1') {
-    if (Platform.OS === 'android') return 'http://10.0.2.2:5000';
-    return 'http://127.0.0.1:5000';
-  }
-
-  return `http://${host}:5000`;
-};
-
-const getAIBaseUrls = () => {
-  const raw = String(ENV.aiApiBaseUrl || '').trim();
-  const fromEnv = raw
-    ? raw
-        .split(/[\n,;]+/)
-        .map((part) => normalizeBaseUrl(part))
-        .filter(Boolean)
-    : [];
-
-  const hostFallback = normalizeBaseUrl(getExpoHostBasedAiUrl());
-  const defaults = ['http://127.0.0.1:5000'];
-  if (Platform.OS === 'android') defaults.unshift('http://10.0.2.2:5000');
-
-  const combined = [...fromEnv, hostFallback, ...defaults].filter(Boolean);
-  const deduped = combined.filter((value, index) => combined.indexOf(value) === index);
-  if (!deduped.length) throw new Error('Missing EXPO_PUBLIC_AI_API_BASE_URL in environment');
-  return deduped;
-};
+const getAIBaseUrl = () => normalizeBaseUrl(BASE_URL);
 
 const requestAiJson = async (path: string, body: Record<string, any>) => {
-  const baseUrls = getAIBaseUrls();
-  const errors: string[] = [];
-
-  for (const baseUrl of baseUrls) {
-    const endpoint = `${baseUrl}${path}`;
-    try {
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      return { response, endpoint };
-    } catch (error: any) {
-      const message = String(error?.message || 'Network request failed');
-      errors.push(`${endpoint} -> ${message}`);
-      console.warn('[InterCampus AI] endpoint request failed', { endpoint, message });
-    }
+  const endpoint = `${getAIBaseUrl()}${path}`;
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return { response, endpoint };
+  } catch (error: any) {
+    const message = String(error?.message || 'Network request failed');
+    console.warn('[InterCampus AI] endpoint request failed', { endpoint, message });
+    throw new Error(`Network request failed. Could not reach AI server at ${endpoint}. ${message}`);
   }
-
-  throw new Error(`Network request failed. Could not reach AI server. Tried: ${errors.join(' | ')}`);
 };
 
 const requestAiForm = async (path: string, form: FormData) => {
-  const baseUrls = getAIBaseUrls();
-  const errors: string[] = [];
-
-  for (const baseUrl of baseUrls) {
-    const endpoint = `${baseUrl}${path}`;
-    try {
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        body: form,
-      });
-      return { response, endpoint };
-    } catch (error: any) {
-      const message = String(error?.message || 'Network request failed');
-      errors.push(`${endpoint} -> ${message}`);
-      console.warn('[InterCampus AI] endpoint request failed', { endpoint, message });
-    }
+  const endpoint = `${getAIBaseUrl()}${path}`;
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      body: form,
+    });
+    return { response, endpoint };
+  } catch (error: any) {
+    const message = String(error?.message || 'Network request failed');
+    console.warn('[InterCampus AI] endpoint request failed', { endpoint, message });
+    throw new Error(`Network request failed. Could not reach AI server at ${endpoint}. ${message}`);
   }
-
-  throw new Error(`Network request failed. Could not reach AI server. Tried: ${errors.join(' | ')}`);
 };
 
 export const extractInterCampusEventFromLink = async (sourceUrl: string) => {
-  const { response, endpoint } = await requestAiJson('/ai/extract-event', { url: sourceUrl });
+  const { response, endpoint } = await requestAiJson('/extractEvent', { url: sourceUrl });
   console.log('[InterCampus AI] extract-event start', { endpoint, sourceUrl });
 
   if (!response.ok) {
@@ -1484,7 +1434,7 @@ export const extractInterCampusEventFromLink = async (sourceUrl: string) => {
 };
 
 export const extractInterCampusFestFromLink = async (sourceUrl: string) => {
-  const { response, endpoint } = await requestAiJson('/ai/extract-event', { url: sourceUrl });
+  const { response, endpoint } = await requestAiJson('/extractEvent', { url: sourceUrl });
   console.log('[InterCampus AI] extract-fest start', { endpoint, sourceUrl });
 
   if (!response.ok) {
@@ -1510,7 +1460,7 @@ export const extractInterCampusEventFromPoster = async (imageUri: string) => {
     type: 'image/jpeg',
   } as any);
 
-  const { response, endpoint } = await requestAiForm('/ai/extract-poster', form);
+  const { response, endpoint } = await requestAiForm('/extractPoster', form);
   console.log('[InterCampus AI] extract-poster start', { endpoint, imageUri });
 
   if (!response.ok) {
@@ -1540,7 +1490,7 @@ export const extractInterCampusFestFromPoster = async (imageUri: string) => {
     type: 'image/jpeg',
   } as any);
 
-  const { response, endpoint } = await requestAiForm('/ai/extract-poster', form);
+  const { response, endpoint } = await requestAiForm('/extractPoster', form);
   console.log('[InterCampus AI] extract-fest-poster start', { endpoint, imageUri });
 
   if (!response.ok) {

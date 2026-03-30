@@ -25,7 +25,7 @@ import {
 import { moderateText } from "./ai";
 import { isAdminRole } from '../utils/roles';
 import { encryptMessage, decryptMessage } from "../../utils/encryption";
-import { ENV } from '../config/env';
+import { BASE_URL } from '../config/api';
 
 const decryptContentField = (value: any) => {
   if (value == null) return value;
@@ -2034,11 +2034,8 @@ const buildLocalGeneralFallback = (prompt: string) => {
 };
 
 const fetchGeneralAiReply = async (prompt: string) => {
-  const baseUrl = (ENV.aiApiBaseUrl || '').trim().replace(/\/+$/, '');
-  if (!baseUrl) return null;
-
   try {
-    const response = await fetch(`${baseUrl}/ai/chat`, {
+    const response = await fetch(`${BASE_URL}/chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
