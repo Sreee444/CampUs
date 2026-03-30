@@ -383,14 +383,14 @@ export default function EditEventScreen() {
                 {/* Capacity */}
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>Capacity</Text>
-                    <Text style={styles.label}>Max Participants</Text>
+                    <Text style={styles.label}>Max Participants <Text style={{ color: '#9ca3af', fontWeight: '400' }}>(max 1000)</Text></Text>
                     <View style={styles.counterRow}>
-                        <TouchableOpacity style={styles.counterBtn} onPress={() => setFormData(p => ({ ...p, max_participants: Math.max(1, p.max_participants - 1) }))}>
-                            <MaterialIcons name="remove" size={18} color="#374151" />
+                        <TouchableOpacity style={styles.counterBtn} onPress={() => setFormData(p => ({ ...p, max_participants: Math.max(1, p.max_participants - 1) }))} disabled={formData.max_participants <= 1}>
+                            <MaterialIcons name="remove" size={18} color={formData.max_participants <= 1 ? '#d1d5db' : '#374151'} />
                         </TouchableOpacity>
                         <Text style={styles.counterVal}>{formData.max_participants}</Text>
-                        <TouchableOpacity style={styles.counterBtn} onPress={() => setFormData(p => ({ ...p, max_participants: p.max_participants + 1 }))}>
-                            <MaterialIcons name="add" size={18} color="#374151" />
+                        <TouchableOpacity style={styles.counterBtn} onPress={() => setFormData(p => ({ ...p, max_participants: Math.min(1000, p.max_participants + 1) }))} disabled={formData.max_participants >= 1000}>
+                            <MaterialIcons name="add" size={18} color={formData.max_participants >= 1000 ? '#d1d5db' : '#374151'} />
                         </TouchableOpacity>
                     </View>
                 </View>

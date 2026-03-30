@@ -66,7 +66,7 @@ export default function CompleteProfileScreen() {
 
   const [department, setDepartment] = useState<string | null>(null);
   const [specialization, setSpecialization] = useState<string | null>(null);
-  const [section, setSection] = useState<'A' | 'B' | 'C' | 'D' | null>(null);
+  const [section, setSection] = useState<'A' | 'B' | 'C' | null>(null);
   const [rollNumber, setRollNumber] = useState('');
   const [yearOfAdmission, setYearOfAdmission] = useState<number | null>(null);
 
@@ -136,7 +136,7 @@ export default function CompleteProfileScreen() {
       setYearOfAdmission(Number(value));
       setErrors((e) => ({ ...e, yearOfAdmission: undefined }));
     } else if (openDropdown === 'section') {
-      setSection(value as 'A' | 'B' | 'C' | 'D');
+      setSection(value as 'A' | 'B' | 'C');
       setErrors((e) => ({ ...e, section: undefined }));
     } else if (openDropdown === 'specialization') {
       setSpecialization(value);

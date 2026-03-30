@@ -21,6 +21,66 @@ const isTransientNetworkError = (error: any) => {
   );
 };
 
+const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
+
+const base64ToArrayBuffer = (base64: string) => {
+  const cleaned = base64.replace(/[\r\n\s]/g, '').replace(/-/g, '+').replace(/_/g, '/');
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+  let bufferLength = Math.floor((cleaned.length * 3) / 4);
+  if (cleaned.endsWith('==')) bufferLength -= 2;
+  else if (cleaned.endsWith('=')) bufferLength -= 1;
+
+  const arrayBuffer = new ArrayBuffer(bufferLength);
+  const bytes = new Uint8Array(arrayBuffer);
+  let p = 0;
+
+  for (let i = 0; i < cleaned.length; i += 4) {
+    const encoded1 = chars.indexOf(cleaned.charAt(i));
+    const encoded2 = chars.indexOf(cleaned.charAt(i + 1));
+    const encoded3 = chars.indexOf(cleaned.charAt(i + 2));
+    const encoded4 = chars.indexOf(cleaned.charAt(i + 3));
+
+    const byte1 = (encoded1 << 2) | (encoded2 >> 4);
+    const byte2 = ((encoded2 & 15) << 4) | (encoded3 >> 2);
+    const byte3 = ((encoded3 & 3) << 6) | encoded4;
+
+    if (p < bufferLength) bytes[p++] = byte1;
+    if (encoded3 !== 64 && p < bufferLength) bytes[p++] = byte2;
+    if (encoded4 !== 64 && p < bufferLength) bytes[p++] = byte3;
+  }
+
+  return arrayBuffer;
+};
+
+const readImageAsArrayBuffer = async (fileUri: string) => {
+  if (Platform.OS === 'web') {
+    const response = await fetch(fileUri);
+    if (!response.ok) {
+      throw new Error('Failed to read image. Please try selecting another image.');
+    }
+    const blob = await response.blob();
+    if (blob.size > MAX_AVATAR_BYTES) {
+      throw new Error('Image size must be less than 5MB. Please select a smaller image.');
+    }
+    return await blob.arrayBuffer();
+  }
+
+  const info = await FileSystem.getInfoAsync(fileUri, { size: true } as any) as any;
+  if (info?.size && info.size > MAX_AVATAR_BYTES) {
+    throw new Error('Image size must be less than 5MB. Please select a smaller image.');
+  }
+
+  let base64: string;
+  try {
+    base64 = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.Base64 });
+  } catch (readError: any) {
+    console.error('FileSystem read error:', readError);
+    throw new Error('Failed to read image. Please try selecting another image.');
+  }
+
+  return base64ToArrayBuffer(base64);
+};
+
 // Sign in with Google
 export const signInWithGoogle = async () => {
   try {
@@ -146,9 +206,14 @@ export const updateProfile = async (
   );
 };
 
-// Reset password
+// Reset password – sends an email with a deep-link back into the app.
 export const resetPassword = async (email: string) => {
-  const { error } = await supabase.auth.resetPasswordForEmail(email);
+  const redirectTo =
+    Platform.OS === 'web'
+      ? `${typeof window !== 'undefined' ? window.location.origin : ''}/change-password`
+      : 'campusapp://change-password';
+
+  const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
   if (error) {
     const msg = String(error.message || '').toLowerCase();
     if (msg.includes('rate limit') || msg.includes('email rate limit exceeded')) {
@@ -176,6 +241,7 @@ export const updatePassword = async (newPassword: string) => {
   if (error) throw error;
 };
 
+
 // Upload avatar
 export const uploadAvatar = async (userId: string, fileUri: string) => {
   try {
@@ -188,29 +254,11 @@ export const uploadAvatar = async (userId: string, fileUri: string) => {
     else if (fileExt === 'webp') mimeType = 'image/webp';
     else if (fileExt === 'gif') mimeType = 'image/gif';
 
-    // Use expo-file-system — response.arrayBuffer() is NOT supported in Hermes/React Native
-    let base64: string;
-    try {
-      base64 = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.Base64 });
-    } catch (readError: any) {
-      console.error('FileSystem read error:', readError);
-      throw new Error('❌ Failed to read image. Please try selecting another image.');
-    }
-
-    // Validate file size (base64.length * 0.75 ≈ raw bytes)
-    if (Math.ceil(base64.length * 0.75) > 5 * 1024 * 1024) {
-      throw new Error('📦 Image size must be less than 5MB. Please select a smaller image.');
-    }
-
-    const byteCharacters = atob(base64);
-    const uint8Array = new Uint8Array(byteCharacters.length);
-    for (let i = 0; i < byteCharacters.length; i++) {
-      uint8Array[i] = byteCharacters.charCodeAt(i);
-    }
+    const arrayBuffer = await readImageAsArrayBuffer(fileUri);
 
     const { error: uploadError } = await supabase.storage
       .from('avatars')
-      .upload(filePath, uint8Array, {
+      .upload(filePath, arrayBuffer, {
         upsert: true,
         contentType: mimeType,
         cacheControl: '3600',
@@ -219,15 +267,15 @@ export const uploadAvatar = async (userId: string, fileUri: string) => {
     if (uploadError) {
       console.error('Storage upload error:', uploadError);
       if (uploadError.message?.includes('Bucket not found') || uploadError.message?.includes('not found')) {
-        throw new Error('🔧 Storage not configured!\n\nPlease run the setup:\n1. Open Supabase SQL Editor\n2. Run supabase_storage_setup.sql\n3. Try uploading again');
+        throw new Error('Storage not configured. Run supabase_storage_setup.sql and try again.');
       }
       if (uploadError.message?.includes('policy')) {
-        throw new Error('🔒 Permission denied. Please check storage policies in Supabase.');
+        throw new Error('Permission denied. Please check storage policies in Supabase.');
       }
       if (uploadError.message?.includes('size')) {
-        throw new Error('📦 File too large. Maximum size is 5MB.');
+        throw new Error('File too large. Maximum size is 5MB.');
       }
-      throw new Error(`❌ Upload failed: ${uploadError.message}`);
+      throw new Error(`Upload failed: ${uploadError.message}`);
     }
 
     const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(filePath);
@@ -235,15 +283,14 @@ export const uploadAvatar = async (userId: string, fileUri: string) => {
 
   } catch (error: any) {
     console.error('Upload avatar error:', error);
-    let errorMessage = error.message || '❌ Failed to upload avatar';
+    let errorMessage = error.message || 'Failed to upload avatar';
     if (errorMessage.includes('aborted') || errorMessage.includes('signal')) {
-      errorMessage = '⚠️ Upload interrupted. Check storage bucket setup and try again.';
+      errorMessage = 'Upload interrupted. Check storage bucket setup and try again.';
     } else if (errorMessage.includes('network') || errorMessage.includes('fetch')) {
-      errorMessage = '📡 Network error. Please check your internet connection.';
+      errorMessage = 'Network error. Please check your internet connection.';
     } else if (errorMessage.includes('timeout')) {
-      errorMessage = '⏱️ Upload timeout. Please try again.';
+      errorMessage = 'Upload timeout. Please try again.';
     }
     throw new Error(errorMessage);
   }
 };
-

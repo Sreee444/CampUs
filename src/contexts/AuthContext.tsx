@@ -1,10 +1,11 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../api/supabase';
 import { Profile } from '../types/database';
 import { getCurrentUser, getProfile, updateProfile } from '../api/auth';
 import { updateLastActive } from '../api/users';
 import { updateUserStatus } from '../api/chat';
 import { calculateAcademicFields } from '../utils/academic';
+import { registerForPushNotifications, savePushToken } from '../api/notifications';
 
 export type AuthUser = {
   id: string;
@@ -22,6 +23,7 @@ type AuthContextValue = {
   setProfile: (profile: Profile | null) => void;
   isAuthenticated: boolean;
   isLoading: boolean;
+  isPasswordRecovery: boolean;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 };
@@ -53,7 +55,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [banUntil, setBanUntil] = useState<string | null>(null);
   const [banDuration, setBanDuration] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const startTimeRef = React.useRef<number>(Date.now());
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
+  const startTimeRef = useRef<number>(Date.now());
 
   const formatDuration = (ms: number) => {
     const totalHours = Math.max(1, Math.round(ms / (60 * 60 * 1000)));
@@ -70,11 +73,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
+      async (event, session) => {
+        // When user clicks the password reset email link, Supabase fires PASSWORD_RECOVERY.
+        // Flag this so the RootNavigator can route to ChangePassword instead of MainTabs.
+        if (event === 'PASSWORD_RECOVERY') {
+          setIsPasswordRecovery(true);
+          if (session?.user) {
+            setUser({ id: session.user.id, email: session.user.email });
+          }
+          const elapsedTime = Date.now() - startTimeRef.current;
+          const remainingTime = Math.max(0, MINIMUM_SPLASH_TIME - elapsedTime);
+          setTimeout(() => setIsLoading(false), remainingTime);
+          return;
+        }
+
         if (session?.user) {
+          setIsPasswordRecovery(false);
           setUser({ id: session.user.id, email: session.user.email });
           await loadProfile(session.user.id);
         } else {
+          setIsPasswordRecovery(false);
           setUser(null);
           setProfile(null);
           setIsBanned(false);
@@ -94,10 +112,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // Update last active periodically
+  // Update last active periodically + register push token
   useEffect(() => {
     if (user?.id) {
       updateLastActive(user.id);
+
+      // Register and save push notification token so server can send notifications
+      registerForPushNotifications().then((token: string | null) => {
+        if (token && user?.id) savePushToken(user.id, token);
+      }).catch(() => { /* notifications not granted */ });
 
       const interval = setInterval(() => {
         updateLastActive(user.id);
@@ -343,10 +366,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setProfile,
       isAuthenticated: Boolean(user),
       isLoading,
+      isPasswordRecovery,
       signOut: handleSignOut,
       refreshProfile,
     }),
-    [user, profile, isBanned, banReason, banUntil, banDuration, isLoading]
+    [user, profile, isBanned, banReason, banUntil, banDuration, isLoading, isPasswordRecovery]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -16,13 +16,17 @@ import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import Toast from 'react-native-toast-message';
 import { RootStackParamList } from '../../navigation/types';
-import { Colors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } from '../../theme';
+import { getColors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } from '../../theme';
+import { useTheme } from '../../contexts/ThemeContext';
 import { resetPassword } from '../../api/auth';
 
 type ResetPasswordScreenNavigationProp = StackNavigationProp<RootStackParamList, 'ResetPassword'>;
 
 export default function ResetPasswordScreen() {
   const navigation = useNavigation<ResetPasswordScreenNavigationProp>();
+  const { isDark } = useTheme();
+  const Colors = getColors(isDark);
+  const styles = createStyles(Colors);
   const [email, setEmail] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [cooldown, setCooldown] = useState(0);
@@ -81,7 +85,8 @@ export default function ResetPasswordScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <LinearGradient
-        colors={['#e0f2f1', '#f3e5f5', Colors.light.background]}
+        colors={['#F5E6D8', '#EDEBFF', '#DFF3EE']}
+        locations={[0, 0.5, 1]}
         style={styles.gradient}
       >
         {/* Decorative Background Blurs */}
@@ -109,7 +114,7 @@ export default function ResetPasswordScreen() {
             <View style={styles.mainContent}>
               {/* Icon */}
               <View style={styles.iconContainer}>
-                <MaterialIcons name="lock-reset" size={32} color={Colors.primaryContent} />
+                <MaterialIcons name="lock-reset" size={32} color="#ffffff" />
               </View>
 
               {/* Title & Description */}
@@ -184,10 +189,10 @@ export default function ResetPasswordScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.light.background,
+    backgroundColor: '#F5E6D8',
     ...(Platform.OS === 'web' && ({ height: '100vh', width: '100vw' } as any)),
   },
   gradient: {
@@ -200,7 +205,7 @@ const styles = StyleSheet.create({
     left: -80,
     width: 384,
     height: 384,
-    backgroundColor: Colors.mintSoft,
+    backgroundColor: '#ccfbf1',
     opacity: 0.6,
     borderRadius: 192,
   },
@@ -210,7 +215,7 @@ const styles = StyleSheet.create({
     right: -80,
     width: 500,
     height: 500,
-    backgroundColor: Colors.lilacSoft,
+    backgroundColor: '#ede9fe',
     opacity: 0.6,
     borderRadius: 250,
   },
@@ -251,7 +256,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: BorderRadius.lg,
-    backgroundColor: `${Colors.primary}33`,
+    backgroundColor: Colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: Spacing.lg,
@@ -319,7 +324,7 @@ const styles = StyleSheet.create({
   resetButtonText: {
     fontSize: FontSizes.md,
     fontWeight: FontWeights.bold,
-    color: Colors.primaryContent,
+    color: '#ffffff',
     letterSpacing: 0.5,
   },
   rateLimitNote: {
@@ -341,7 +346,7 @@ const styles = StyleSheet.create({
   },
   footerLink: {
     fontWeight: FontWeights.semibold,
-    color: Colors.primaryContent,
+    color: Colors.primary,
     textDecorationLine: 'underline',
   },
   footerLinks: {

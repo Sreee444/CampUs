@@ -9,24 +9,24 @@ export type UserStatus = 'online' | 'away' | 'offline';
 export type Profile = {
   id: string;
   email: string;
-  full_name?: string;
-  avatar_url?: string;
-  bio?: string;
+  full_name?: string | null;
+  avatar_url?: string | null;
+  bio?: string | null;
   role: UserRole;
-  phone?: string;
+  phone?: string | null;
 
   // Academic Info
-  department?: string;
-  faculty_designation?: FacultyDesignation;
-  specialization?: string;
-  section?: 'A' | 'B' | 'C' | 'D';
-  year_of_admission?: number;
-  year?: number;
-  semester?: number;
-  batch?: string;
-  roll_number?: string;
-  academic_status?: 'active' | 'graduated';
-  enrollment_number?: string;
+  department?: string | null;
+  faculty_designation?: FacultyDesignation | null;
+  specialization?: string | null;
+  section?: 'A' | 'B' | 'C' | 'D' | null;
+  year_of_admission?: number | null;
+  year?: number | null;
+  semester?: number | null;
+  batch?: string | null;
+  roll_number?: string | null;
+  academic_status?: 'active' | 'graduated' | null;
+  enrollment_number?: string | null;
 
   // Student specific
   is_club_coordinator?: boolean;

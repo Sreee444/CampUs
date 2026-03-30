@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   View,
   Text,
-  TouchableOpacity,
+  Pressable,
   StyleSheet,
   SafeAreaView,
   ScrollView,
@@ -40,7 +40,6 @@ export default function AdminDashboardScreen() {
   const [pendingAppeals, setPendingAppeals] = useState(0);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isNavigating, setIsNavigating] = useState(false);
   const loadInProgressRef = useRef(false);
   const queuedReloadRef = useRef(false);
   const mountedRef = useRef(true);
@@ -203,12 +202,7 @@ export default function AdminDashboardScreen() {
   ];
 
   const handleNavigate = (screen: string) => {
-    if (isNavigating) return;
-    setIsNavigating(true);
     navigation.navigate(screen as any);
-    setTimeout(() => {
-      if (mountedRef.current) setIsNavigating(false);
-    }, 350);
   };
 
   const roleBreakdown = useMemo(() => {
@@ -287,16 +281,22 @@ export default function AdminDashboardScreen() {
           </View>
           <View style={styles.quickGrid}>
             {quickActions.map((action) => (
-              <TouchableOpacity
+              <Pressable
                 key={action.label}
-                style={[styles.quickActionCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}
-                onPress={() => handleNavigate(action.screen)}
-                activeOpacity={0.85}
-                disabled={isNavigating}
+                style={({ pressed }) => [
+                  styles.quickActionCard,
+                  {
+                    backgroundColor: Colors.surface,
+                    borderColor: Colors.border,
+                    opacity: pressed ? 0.85 : 1,
+                  },
+                ]}
+                onPress={() => navigation.navigate(action.screen as any)}
+                hitSlop={6}
               >
                 <MaterialIcons name={action.icon as any} size={18} color={Colors.primary} />
                 <Text style={[styles.quickLabel, { color: Colors.text }]}>{action.label}</Text>
-              </TouchableOpacity>
+              </Pressable>
             ))}
           </View>
         </View>
@@ -330,12 +330,18 @@ export default function AdminDashboardScreen() {
           </View>
           <View style={styles.menuGrid}>
             {coreModules.map((item) => (
-              <TouchableOpacity
+              <Pressable
                 key={item.title}
-                style={[styles.menuCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}
+                style={({ pressed }) => [
+                  styles.menuCard,
+                  {
+                    backgroundColor: Colors.surface,
+                    borderColor: Colors.border,
+                    opacity: pressed ? 0.85 : 1,
+                  },
+                ]}
                 onPress={() => handleNavigate(item.screen)}
-                activeOpacity={0.85}
-                disabled={isNavigating}
+                hitSlop={6}
               >
                 <View style={[styles.iconContainer, { backgroundColor: item.color + '18' }]}>
                   <MaterialIcons name={item.icon as any} size={24} color={item.color} />
@@ -345,7 +351,7 @@ export default function AdminDashboardScreen() {
                   <Text style={[styles.menuDescription, { color: Colors.textSecondary }]}>{item.description}</Text>
                 </View>
                 <MaterialIcons name="arrow-forward" size={18} color={Colors.textSecondary} />
-              </TouchableOpacity>
+              </Pressable>
             ))}
           </View>
         </View>
@@ -357,12 +363,18 @@ export default function AdminDashboardScreen() {
           </View>
           <View style={styles.menuGrid}>
             {intelligenceModules.map((item) => (
-              <TouchableOpacity
+              <Pressable
                 key={item.title}
-                style={[styles.menuCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}
+                style={({ pressed }) => [
+                  styles.menuCard,
+                  {
+                    backgroundColor: Colors.surface,
+                    borderColor: Colors.border,
+                    opacity: pressed ? 0.85 : 1,
+                  },
+                ]}
                 onPress={() => handleNavigate(item.screen)}
-                activeOpacity={0.85}
-                disabled={isNavigating}
+                hitSlop={6}
               >
                 <View style={[styles.iconContainer, { backgroundColor: item.color + '18' }]}>
                   <MaterialIcons name={item.icon as any} size={24} color={item.color} />
@@ -372,7 +384,7 @@ export default function AdminDashboardScreen() {
                   <Text style={[styles.menuDescription, { color: Colors.textSecondary }]}>{item.description}</Text>
                 </View>
                 <MaterialIcons name="arrow-forward" size={18} color={Colors.textSecondary} />
-              </TouchableOpacity>
+              </Pressable>
             ))}
           </View>
         </View>

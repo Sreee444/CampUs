@@ -14,7 +14,7 @@ export const DEPARTMENT_OPTIONS = [
   'Computer Science with AI',
 ] as const;
 
-export const SECTION_OPTIONS = ['A', 'B', 'C', 'D'] as const;
+export const SECTION_OPTIONS = ['A', 'B', 'C'] as const;
 
 export const SPECIALIZATION_BY_DEPARTMENT: Record<string, string[]> = {
   'Computer Science and Engineering': [

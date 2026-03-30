@@ -192,7 +192,7 @@ export default function CreateEventScreen() {
     if (text === '') {
       setFormData(prev => ({ ...prev, max_participants: 1 }));
     } else if (!isNaN(num)) {
-      setFormData(prev => ({ ...prev, max_participants: Math.max(1, Math.min(9999, num)) }));
+      setFormData(prev => ({ ...prev, max_participants: Math.max(1, Math.min(1000, num)) }));
     }
   };
 
@@ -715,12 +715,12 @@ export default function CreateEventScreen() {
           />
           <TouchableOpacity
             style={st.counterBtnLarge}
-            onPress={() => setFormData(prev => ({ ...prev, max_participants: Math.min(9999, prev.max_participants + 5) }))}
+            onPress={() => setFormData(prev => ({ ...prev, max_participants: Math.min(1000, prev.max_participants + 5) }))}
           >
             <MaterialIcons name="add" size={22} color="#374151" />
           </TouchableOpacity>
         </View>
-        <Text style={st.fieldHint}>Use +/- for increments of 5, or type directly</Text>
+        <Text style={st.fieldHint}>Max 1,000 · Use +/- for increments of 5, or type directly</Text>
       </View>
 
       <View style={st.fieldGroup}>

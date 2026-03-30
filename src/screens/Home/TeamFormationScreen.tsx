@@ -68,7 +68,7 @@ export default function TeamFormationScreen() {
         name: teamName,
         description: teamDescription,
         created_by: user.id,
-        max_members: parseInt(maxMembers) || 5,
+        max_members: Math.min(10, parseInt(maxMembers) || 5),
         is_recruiting: true,
         is_ai_generated: false,
       });
@@ -280,7 +280,7 @@ export default function TeamFormationScreen() {
               <View style={styles.formGroup}>
                 <Text style={styles.label}>Max Team Members</Text>
                 <View style={styles.memberSelector}>
-                  {[3, 4, 5, 6, 8].map((num) => (
+                  {[3, 4, 5, 6, 8, 10].map((num) => (
                     <TouchableOpacity
                       key={num}
                       style={[

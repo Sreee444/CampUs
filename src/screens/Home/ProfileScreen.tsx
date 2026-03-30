@@ -191,32 +191,178 @@ export default function ProfileScreen() {
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>About Me</Text>
-          <Text style={styles.aboutText}>
-            {profile?.bio || 'No bio added yet. Go to Edit Profile to add one!'}
-          </Text>
+          <View style={styles.bioCard}>
+            <MaterialIcons name="format-quote" size={20} color="#6366F1" style={{ marginBottom: 4 }} />
+            <Text style={profile?.bio ? styles.bioText : styles.bioPlaceholder}>
+              {profile?.bio || 'No bio added yet. Tap Edit Profile to introduce yourself!'}
+            </Text>
+          </View>
         </View>
 
         {hasAcademicInfo && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Academic Info</Text>
-            {isStudent && profile?.year_of_admission ? <Text style={styles.aboutText}>Year of Admission: {profile.year_of_admission}</Text> : null}
-            {isStudent && profile?.section ? <Text style={styles.aboutText}>Section: {profile.section}</Text> : null}
-            {isStudent && profile?.department ? <Text style={styles.aboutText}>Department: {profile.department}</Text> : null}
-            {isStudent && profile?.specialization ? <Text style={styles.aboutText}>Specialization: {profile.specialization}</Text> : null}
-            {isStudent && profile?.roll_number ? <Text style={styles.aboutText}>Roll Number: {profile.roll_number}</Text> : null}
-            {isStudent && profile?.year ? <Text style={styles.aboutText}>Year: {profile.year}</Text> : null}
-            {isStudent && profile?.semester ? <Text style={styles.aboutText}>Semester: {profile.semester}</Text> : null}
+            <View style={styles.infoCard}>
+              {isStudent && (
+                <>
+                  {profile?.department ? (
+                    <View style={styles.infoRow}>
+                      <View style={[styles.infoIconBox, { backgroundColor: '#e0f2fe' }]}>
+                        <MaterialIcons name="business" size={15} color="#0284c7" />
+                      </View>
+                      <View style={styles.infoTextBlock}>
+                        <Text style={styles.infoLabel}>Department</Text>
+                        <Text style={styles.infoValue}>{profile.department}</Text>
+                      </View>
+                    </View>
+                  ) : null}
+                  {profile?.specialization ? (
+                    <View style={styles.infoRow}>
+                      <View style={[styles.infoIconBox, { backgroundColor: '#f0fdf4' }]}>
+                        <MaterialIcons name="auto-awesome" size={15} color="#16a34a" />
+                      </View>
+                      <View style={styles.infoTextBlock}>
+                        <Text style={styles.infoLabel}>Specialization</Text>
+                        <Text style={styles.infoValue}>{profile.specialization}</Text>
+                      </View>
+                    </View>
+                  ) : null}
+                  {profile?.year_of_admission ? (
+                    <View style={styles.infoRow}>
+                      <View style={[styles.infoIconBox, { backgroundColor: '#fef9c3' }]}>
+                        <MaterialIcons name="event" size={15} color="#ca8a04" />
+                      </View>
+                      <View style={styles.infoTextBlock}>
+                        <Text style={styles.infoLabel}>Year of Admission</Text>
+                        <Text style={styles.infoValue}>{profile.year_of_admission}</Text>
+                      </View>
+                    </View>
+                  ) : null}
+                  {profile?.roll_number ? (
+                    <View style={styles.infoRow}>
+                      <View style={[styles.infoIconBox, { backgroundColor: '#ede9fe' }]}>
+                        <MaterialIcons name="badge" size={15} color="#7c3aed" />
+                      </View>
+                      <View style={styles.infoTextBlock}>
+                        <Text style={styles.infoLabel}>Roll Number</Text>
+                        <Text style={styles.infoValue}>{profile.roll_number}</Text>
+                      </View>
+                    </View>
+                  ) : null}
+                  {(profile?.year || profile?.semester) ? (
+                    <View style={styles.infoRow}>
+                      <View style={[styles.infoIconBox, { backgroundColor: '#fff1f2' }]}>
+                        <MaterialIcons name="layers" size={15} color="#e11d48" />
+                      </View>
+                      <View style={styles.infoTextBlock}>
+                        <Text style={styles.infoLabel}>Year / Semester</Text>
+                        <Text style={styles.infoValue}>
+                          {[profile.year ? `Year ${profile.year}` : null, profile.semester ? `Sem ${profile.semester}` : null].filter(Boolean).join('  ·  ')}
+                        </Text>
+                      </View>
+                    </View>
+                  ) : null}
+                  {profile?.section ? (
+                    <View style={[styles.infoRow, styles.infoRowLast]}>
+                      <View style={[styles.infoIconBox, { backgroundColor: '#ecfdf5' }]}>
+                        <MaterialIcons name="groups" size={15} color="#059669" />
+                      </View>
+                      <View style={styles.infoTextBlock}>
+                        <Text style={styles.infoLabel}>Section</Text>
+                        <Text style={styles.infoValue}>{profile.section}</Text>
+                      </View>
+                    </View>
+                  ) : null}
+                </>
+              )}
 
-            {isFacultyLike && profile?.department ? <Text style={styles.aboutText}>Department: {profile.department}</Text> : null}
-            {isFacultyLike && profile?.specialization ? <Text style={styles.aboutText}>Specialization: {profile.specialization}</Text> : null}
-            {isFacultyLike && profile?.faculty_designation ? (
-              <Text style={styles.aboutText}>Designation: {formatFacultyDesignation(profile.faculty_designation)}</Text>
-            ) : null}
+              {isFacultyLike && (
+                <>
+                  {profile?.faculty_designation ? (
+                    <View style={styles.infoRow}>
+                      <View style={[styles.infoIconBox, { backgroundColor: '#ede9fe' }]}>
+                        <MaterialIcons name="military-tech" size={15} color="#7c3aed" />
+                      </View>
+                      <View style={styles.infoTextBlock}>
+                        <Text style={styles.infoLabel}>Designation</Text>
+                        <Text style={styles.infoValue}>{formatFacultyDesignation(profile.faculty_designation)}</Text>
+                      </View>
+                    </View>
+                  ) : null}
+                  {profile?.department ? (
+                    <View style={styles.infoRow}>
+                      <View style={[styles.infoIconBox, { backgroundColor: '#e0f2fe' }]}>
+                        <MaterialIcons name="business" size={15} color="#0284c7" />
+                      </View>
+                      <View style={styles.infoTextBlock}>
+                        <Text style={styles.infoLabel}>Department</Text>
+                        <Text style={styles.infoValue}>{profile.department}</Text>
+                      </View>
+                    </View>
+                  ) : null}
+                  {profile?.specialization ? (
+                    <View style={[styles.infoRow, styles.infoRowLast]}>
+                      <View style={[styles.infoIconBox, { backgroundColor: '#f0fdf4' }]}>
+                        <MaterialIcons name="auto-awesome" size={15} color="#16a34a" />
+                      </View>
+                      <View style={styles.infoTextBlock}>
+                        <Text style={styles.infoLabel}>Specialization</Text>
+                        <Text style={styles.infoValue}>{profile.specialization}</Text>
+                      </View>
+                    </View>
+                  ) : null}
+                </>
+              )}
 
-            {isAlumni && profile?.department ? <Text style={styles.aboutText}>Department: {profile.department}</Text> : null}
-            {isAlumni && profile?.specialization ? <Text style={styles.aboutText}>Specialization: {profile.specialization}</Text> : null}
-            {isAlumni && profile?.batch ? <Text style={styles.aboutText}>Batch: {profile.batch}</Text> : null}
-            {isAlumni && academicStatusLabel ? <Text style={styles.aboutText}>Academic Status: {academicStatusLabel}</Text> : null}
+              {isAlumni && (
+                <>
+                  {profile?.department ? (
+                    <View style={styles.infoRow}>
+                      <View style={[styles.infoIconBox, { backgroundColor: '#e0f2fe' }]}>
+                        <MaterialIcons name="business" size={15} color="#0284c7" />
+                      </View>
+                      <View style={styles.infoTextBlock}>
+                        <Text style={styles.infoLabel}>Department</Text>
+                        <Text style={styles.infoValue}>{profile.department}</Text>
+                      </View>
+                    </View>
+                  ) : null}
+                  {profile?.specialization ? (
+                    <View style={styles.infoRow}>
+                      <View style={[styles.infoIconBox, { backgroundColor: '#f0fdf4' }]}>
+                        <MaterialIcons name="auto-awesome" size={15} color="#16a34a" />
+                      </View>
+                      <View style={styles.infoTextBlock}>
+                        <Text style={styles.infoLabel}>Specialization</Text>
+                        <Text style={styles.infoValue}>{profile.specialization}</Text>
+                      </View>
+                    </View>
+                  ) : null}
+                  {profile?.batch ? (
+                    <View style={styles.infoRow}>
+                      <View style={[styles.infoIconBox, { backgroundColor: '#fef9c3' }]}>
+                        <MaterialIcons name="event" size={15} color="#ca8a04" />
+                      </View>
+                      <View style={styles.infoTextBlock}>
+                        <Text style={styles.infoLabel}>Batch</Text>
+                        <Text style={styles.infoValue}>{profile.batch}</Text>
+                      </View>
+                    </View>
+                  ) : null}
+                  {academicStatusLabel ? (
+                    <View style={[styles.infoRow, styles.infoRowLast]}>
+                      <View style={[styles.infoIconBox, { backgroundColor: '#fff1f2' }]}>
+                        <MaterialIcons name="verified" size={15} color="#e11d48" />
+                      </View>
+                      <View style={styles.infoTextBlock}>
+                        <Text style={styles.infoLabel}>Academic Status</Text>
+                        <Text style={styles.infoValue}>{academicStatusLabel}</Text>
+                      </View>
+                    </View>
+                  ) : null}
+                </>
+              )}
+            </View>
           </View>
         )}
 
@@ -492,20 +638,82 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   section: {
     paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingVertical: 14,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(0,0,0,0.05)',
   },
   sectionTitle: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '700',
-    color: '#111818',
+    color: '#111827',
     marginBottom: 10,
+    letterSpacing: 0.1,
   },
   aboutText: {
     fontSize: 14,
     color: '#6B7280',
     lineHeight: 22,
+  },
+  bioCard: {
+    backgroundColor: 'rgba(255,255,255,0.72)',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(99,102,241,0.12)',
+  },
+  bioText: {
+    fontSize: 14,
+    color: '#374151',
+    lineHeight: 22,
+  },
+  bioPlaceholder: {
+    fontSize: 14,
+    color: '#9CA3AF',
+    lineHeight: 22,
+    fontStyle: 'italic',
+  },
+  infoCard: {
+    backgroundColor: 'rgba(255,255,255,0.72)',
+    borderRadius: 16,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.06)',
+    overflow: 'hidden',
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.05)',
+  },
+  infoRowLast: {
+    borderBottomWidth: 0,
+  },
+  infoIconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  infoTextBlock: {
+    flex: 1,
+  },
+  infoLabel: {
+    fontSize: 11,
+    color: '#9CA3AF',
+    fontWeight: '500',
+    marginBottom: 1,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  infoValue: {
+    fontSize: 14,
+    color: '#111827',
+    fontWeight: '600',
   },
   interestsContainer: {
     flexDirection: 'row',

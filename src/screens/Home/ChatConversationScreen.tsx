@@ -271,6 +271,27 @@ export default function ChatConversationScreen() {
     onConfirm: () => void;
   }>({ visible: false, title: '', message: '', onConfirm: () => { } });
 
+  // ── Hidden messages ("Delete for me") ────────────────────────────────────
+  const [hiddenMessageIds, setHiddenMessageIds] = useState<Set<string>>(new Set());
+
+  const hideMessageForMe = React.useCallback(async (messageId: string) => {
+    try {
+      const cid = (route.params as any)?.conversationId ?? '';
+      const uid = user?.id ?? 'x';
+      const key = `hidden_msgs_${uid}_${cid}`;
+      const raw = await AsyncStorage.getItem(key);
+      const existing: string[] = raw ? JSON.parse(raw) : [];
+      const updated = Array.from(new Set([...existing, messageId]));
+      await AsyncStorage.setItem(key, JSON.stringify(updated));
+      setHiddenMessageIds(new Set(updated));
+      setMessages(prev => prev.filter(m => m.id !== messageId));
+      Toast.show({ type: 'success', text1: 'Message removed for you' });
+    } catch {
+      Toast.show({ type: 'error', text1: 'Could not remove message' });
+    }
+  }, [user?.id, route.params]);
+
+
   // Animated styles for announcement banner
   const announcementAnimatedStyle = useAnimatedStyle(() => {
     return {
@@ -788,6 +809,8 @@ export default function ChatConversationScreen() {
           setMessages((prev) => {
             const exists = prev.find(m => m.id === payload.new.id);
             if (exists) return prev;
+            // Skip if this user has hidden the message locally
+            if (hiddenMessageIds.has(payload.new.id)) return prev;
 
             // Append and sort
             return [...prev, newMessage].sort(
@@ -916,10 +939,15 @@ export default function ChatConversationScreen() {
 
     try {
       setIsLoading(true);
+      // Load locally hidden message IDs first
+      const hiddenRaw = await AsyncStorage.getItem(`hidden_msgs_${user.id}_${conversationId}`);
+      const hiddenIds: Set<string> = hiddenRaw ? new Set(JSON.parse(hiddenRaw)) : new Set();
+      setHiddenMessageIds(hiddenIds);
+
       const data = await getMessages(conversationId, user.id);
-      const sorted = [...(data as any[])].sort(
-        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-      );
+      const sorted = [...(data as any[])]
+        .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+        .filter((m) => !hiddenIds.has(m.id));
       setMessages(sorted);
       const ids = sorted.map((m) => m.id).filter(Boolean);
       const reactions = await getMessageReactions(ids);
@@ -1075,16 +1103,8 @@ export default function ChatConversationScreen() {
   };
 
   const handleMessageLongPress = (message: ChatMessage) => {
-    if (!user?.id) return;
-    const isMyMessage = message.sender_id === user.id;
-
-    // For received messages, long-press should open quick reactions.
-    if (!isMyMessage && !isAIChat) {
-      openReactionPicker(message.id);
-      return;
-    }
-
-    // Keep existing options for own messages.
+    if (!user?.id || isAIChat) return;
+    // Both own and received messages open the options sheet on long-press
     setSelectedMessage(message);
     setShowMessageOptions(true);
   };
@@ -1747,8 +1767,8 @@ export default function ChatConversationScreen() {
           created_at: new Date().toISOString(),
           user: {
             id: user?.id || '',
-            full_name: profile?.full_name,
-            avatar_url: profile?.avatar_url,
+            full_name: profile?.full_name ?? undefined,
+            avatar_url: profile?.avatar_url ?? undefined,
           },
         });
         next.set(messageId, list);
@@ -2779,6 +2799,20 @@ export default function ChatConversationScreen() {
           <View style={styles.optionsSheet}>
             <Text style={styles.optionsTitle}>Message options</Text>
 
+            {/* React with emoji */}
+            {!isAIChat && (
+              <TouchableOpacity
+                style={styles.optionRow}
+                onPress={() => {
+                  setShowMessageOptions(false);
+                  if (selectedMessage?.id) openReactionPicker(selectedMessage.id);
+                }}
+              >
+                <Text style={{ fontSize: 20, marginRight: 2 }}>😊</Text>
+                <Text style={styles.optionText}>React</Text>
+              </TouchableOpacity>
+            )}
+
             <TouchableOpacity
               style={styles.optionRow}
               onPress={() => {
@@ -2853,18 +2887,31 @@ export default function ChatConversationScreen() {
               <Text style={[styles.optionText, { color: Colors.error }]}>Report Message</Text>
             </TouchableOpacity>
 
+            {/* Sender: Delete for Everyone */}
             {selectedMessage?.sender_id === user?.id && !isAIChat && (
               <TouchableOpacity
                 style={styles.optionRow}
                 onPress={() => {
                   setShowMessageOptions(false);
-                  if (selectedMessage?.id) {
-                    handleDeleteMessage(selectedMessage.id);
-                  }
+                  if (selectedMessage?.id) handleDeleteMessage(selectedMessage.id);
+                }}
+              >
+                <MaterialIcons name="delete-forever" size={20} color={Colors.error} />
+                <Text style={[styles.optionText, { color: Colors.error }]}>Delete for Everyone</Text>
+              </TouchableOpacity>
+            )}
+
+            {/* Receiver: Delete for Me only */}
+            {selectedMessage?.sender_id !== user?.id && !isAIChat && (
+              <TouchableOpacity
+                style={styles.optionRow}
+                onPress={() => {
+                  setShowMessageOptions(false);
+                  if (selectedMessage?.id) hideMessageForMe(selectedMessage.id);
                 }}
               >
                 <MaterialIcons name="delete-outline" size={20} color={Colors.error} />
-                <Text style={[styles.optionText, { color: Colors.error }]}>Delete for Everyone</Text>
+                <Text style={[styles.optionText, { color: Colors.error }]}>Delete for Me</Text>
               </TouchableOpacity>
             )}
 

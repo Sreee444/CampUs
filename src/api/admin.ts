@@ -79,9 +79,29 @@ export const changeUserRole = async (
   userId: string,
   newRole: "student" | "faculty" | "alumni" | "admin" | "developer"
 ) => {
+  const updates: Partial<Profile> = { role: newRole };
+  // DB constraint: faculty_designation must be null for non-faculty roles
+  if (newRole !== 'faculty') {
+    updates.faculty_designation = null;
+  }
   const { data, error } = await (supabase as any)
     .from("profiles")
-    .update({ role: newRole })
+    .update(updates)
+    .eq("id", userId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as Profile;
+};
+
+export const updateUserProfileAdmin = async (
+  userId: string,
+  updates: Partial<Profile>
+) => {
+  const { data, error } = await (supabase as any)
+    .from("profiles")
+    .update(updates)
     .eq("id", userId)
     .select()
     .single();

@@ -75,13 +75,24 @@ import { MainTabNavigator } from './MainTabNavigator';
 const Stack = createStackNavigator<RootStackParamList>();
 
 export default function RootNavigator() {
-  const { isAuthenticated, isLoading, profile, isBanned } = useAuth();
+  const { isAuthenticated, isLoading, profile, isBanned, isPasswordRecovery } = useAuth();
   const navigationRef = useRef<any>(null);
 
   // Navigate based on auth and profile state changes
   useEffect(() => {
     if (!isLoading && navigationRef.current && isAuthenticated) {
       const currentRoute = navigationRef.current.getCurrentRoute()?.name;
+
+      // Password recovery: always route to ChangePassword first
+      if (isPasswordRecovery) {
+        if (currentRoute !== 'ChangePassword') {
+          navigationRef.current.reset({
+            index: 0,
+            routes: [{ name: 'ChangePassword', params: { forceChange: true } }],
+          });
+        }
+        return;
+      }
 
       // Determine where user should be
       let targetRoute: keyof RootStackParamList | null = null;
@@ -114,7 +125,7 @@ export default function RootNavigator() {
         });
       }
     }
-  }, [isAuthenticated, isLoading, profile?.full_name, isBanned]);
+  }, [isAuthenticated, isLoading, profile?.full_name, isBanned, isPasswordRecovery]);
 
   // Show splash screen while checking auth
   if (isLoading) {
@@ -124,6 +135,7 @@ export default function RootNavigator() {
   // Determine initial route based on auth and profile state
   const getInitialRoute = (): keyof RootStackParamList => {
     if (!isAuthenticated) return 'Login';
+    if (isPasswordRecovery) return 'ChangePassword';
     if (isBanned) return 'Banned';
     // Go to CompleteProfile if name is missing
     if (!profile || !profile.full_name) return 'CompleteProfile';
@@ -154,6 +166,12 @@ export default function RootNavigator() {
               name="ResetPassword"
               component={ResetPasswordScreen}
               options={{ animationEnabled: true }}
+            />
+            {/* ChangePassword is also needed here for password recovery flow */}
+            <Stack.Screen
+              name="ChangePassword"
+              component={ChangePasswordScreen}
+              options={{ animationEnabled: true, gestureEnabled: false }}
             />
           </>
         ) : isBanned ? (

@@ -110,10 +110,40 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       justifyContent: 'center',
       marginBottom: 12,
     },
+    avatarImage: {
+      width: 92,
+      height: 92,
+      borderRadius: 46,
+    },
     avatarText: {
       fontSize: 30,
       fontWeight: FontWeights.bold,
       color: '#ffffff',
+    },
+    avatarWrap: {
+      position: 'relative',
+      alignItems: 'center',
+      justifyContent: 'center',
+      width: 92,
+      height: 92,
+      marginBottom: 12,
+    },
+    avatarLoadingOverlay: {
+      position: 'absolute',
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
+      borderRadius: 46,
+      backgroundColor: 'rgba(0,0,0,0.35)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    avatarLoadingText: {
+      marginTop: 6,
+      fontSize: FontSizes.xs,
+      color: '#ffffff',
+      fontWeight: FontWeights.semibold,
     },
     photoRow: {
       flexDirection: 'row',
@@ -147,6 +177,34 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       fontSize: FontSizes.md,
       color: Colors.text,
       ...Shadows.sm,
+    },
+    phoneRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      height: 52,
+      backgroundColor: Colors.card,
+      borderRadius: 16,
+      paddingHorizontal: 12,
+      gap: 8,
+      ...Shadows.sm,
+    },
+    countryCodeBox: {
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 12,
+      backgroundColor: Colors.surface,
+    },
+    countryCodeText: {
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.semibold,
+      color: Colors.text,
+    },
+    phoneInput: {
+      flex: 1,
+      height: 52,
+      fontSize: FontSizes.md,
+      color: Colors.text,
+      paddingHorizontal: 8,
     },
     textArea: {
       minHeight: 96,
@@ -232,6 +290,7 @@ export default function EditProfileScreen() {
   const { user, profile, refreshProfile } = useAuth();
   const Colors = getColors(isDark);
   const styles = createStyles(Colors);
+  const BIO_MAX = 200;
 
   const currentYear = new Date().getFullYear();
   const admissionYearOptions = useMemo(
@@ -242,18 +301,21 @@ export default function EditProfileScreen() {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
+  const [phoneError, setPhoneError] = useState('');
   const [bio, setBio] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
+  const [avatarVersion, setAvatarVersion] = useState(0);
 
   const [department, setDepartment] = useState<string | null>(null);
   const [specialization, setSpecialization] = useState<string | null>(null);
-  const [section, setSection] = useState<'A' | 'B' | 'C' | 'D' | null>(null);
+  const [section, setSection] = useState<'A' | 'B' | 'C' | null>(null);
   const [facultyDesignation, setFacultyDesignation] = useState<string | null>(null);
   const [rollNumber, setRollNumber] = useState('');
   const [yearOfAdmission, setYearOfAdmission] = useState<number | null>(null);
 
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<
     'department' | 'year_of_admission' | 'specialization' | 'section' | 'faculty_designation' | null
   >(null);
@@ -297,18 +359,25 @@ export default function EditProfileScreen() {
 
   useEffect(() => {
     if (!profile) return;
+    if (isDirty) return;
     setFullName(profile.full_name || '');
     setEmail(profile.email || '');
     setPhone(profile.phone || '');
+    setPhoneError('');
     setBio(profile.bio || '');
     setAvatarUrl(profile.avatar_url || '');
+    setAvatarVersion(0);
     setDepartment(profile.department || null);
     setSpecialization(profile.specialization || null);
-    setSection(profile.section || null);
+    setSection(profile.section === 'D' ? null : profile.section || null);
     setFacultyDesignation(profile.faculty_designation || null);
     setRollNumber(profile.roll_number || '');
     setYearOfAdmission(profile.year_of_admission ?? null);
-  }, [profile]);
+  }, [profile, isDirty]);
+
+  useEffect(() => {
+    setIsDirty(false);
+  }, [profile?.id]);
 
   const getInitials = () => {
     if (!fullName) return 'U';
@@ -355,13 +424,19 @@ export default function EditProfileScreen() {
   };
 
   const handleUploadAvatar = async (uri: string) => {
-    if (!user) return;
+    const userId = user?.id ?? profile?.id;
+    if (!userId) return;
     try {
       setIsUploading(true);
-      const publicUrl = await uploadAvatar(user.id, uri);
+      const publicUrl = await uploadAvatar(userId, uri);
+      await updateProfile(userId, { avatar_url: publicUrl });
       setAvatarUrl(publicUrl);
+      setAvatarVersion(Date.now());
+      setIsDirty(true);
+      await refreshProfile();
       setToast({ visible: true, message: 'Avatar uploaded successfully', type: 'success' });
     } catch (error: any) {
+      console.error('EditProfile avatar upload failed:', error);
       setToast({ visible: true, message: error.message || 'Failed to upload avatar', type: 'error' });
     } finally {
       setIsUploading(false);
@@ -369,7 +444,8 @@ export default function EditProfileScreen() {
   };
 
   const handleSave = async () => {
-    if (!user) return;
+    const userId = user?.id ?? profile?.id;
+    if (!userId) return;
 
     if (!fullName.trim()) {
       setToast({ visible: true, message: 'Name is required', type: 'error' });
@@ -406,11 +482,15 @@ export default function EditProfileScreen() {
     if (isFacultyLike) {
       if (!department) nextErrors.department = 'Select department';
       if (!specialization) nextErrors.specialization = 'Select specialization';
-      if (!facultyDesignation) nextErrors.faculty_designation = 'Select designation';
+      if (isFaculty && !facultyDesignation) nextErrors.faculty_designation = 'Select designation';
     }
 
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
+    if (phoneError) {
+      setToast({ visible: true, message: phoneError, type: 'error' });
+      return;
+    }
 
     try {
       setIsLoading(true);
@@ -431,20 +511,22 @@ export default function EditProfileScreen() {
         updates.semester = computedAcademic.semester || undefined;
         updates.batch = computedAcademic.batch || undefined;
         updates.academic_status = computedAcademic.academic_status;
-        updates.faculty_designation = undefined;
+        // Explicitly clear faculty fields to satisfy DB check constraints
+        updates.faculty_designation = null;
       }
 
       if (isFacultyLike) {
         updates.department = department || undefined;
         updates.specialization = specialization || undefined;
-        updates.faculty_designation = (facultyDesignation as any) || undefined;
-        updates.section = undefined;
-        updates.roll_number = undefined;
-        updates.year_of_admission = undefined;
-        updates.year = undefined;
-        updates.semester = undefined;
-        updates.batch = undefined;
-        updates.academic_status = undefined;
+        updates.faculty_designation = isFaculty ? ((facultyDesignation as any) || undefined) : null;
+        // Clear student/alumni-only fields
+        updates.section = null;
+        updates.roll_number = null;
+        updates.year_of_admission = null;
+        updates.year = null;
+        updates.semester = null;
+        updates.batch = null;
+        updates.academic_status = null;
       }
 
       if (isAlumni) {
@@ -452,20 +534,27 @@ export default function EditProfileScreen() {
         updates.specialization = specialization || undefined;
         updates.batch = profile?.batch || undefined;
         updates.academic_status = profile?.academic_status || undefined;
-        updates.faculty_designation = undefined;
-        updates.section = undefined;
-        updates.roll_number = undefined;
-        updates.year_of_admission = undefined;
-        updates.year = undefined;
-        updates.semester = undefined;
+        // Clear faculty/student-only fields
+        updates.faculty_designation = null;
+        updates.section = null;
+        updates.roll_number = null;
+        updates.year_of_admission = null;
+        updates.year = null;
+        updates.semester = null;
       }
 
-      await updateProfile(user.id, updates);
+      if (!isFaculty) {
+        updates.faculty_designation = null;
+      }
 
+      await updateProfile(userId, updates);
+
+      setIsDirty(false);
       await refreshProfile();
       setToast({ visible: true, message: 'Profile updated successfully', type: 'success' });
       setTimeout(() => navigation.goBack(), 1000);
     } catch (error: any) {
+      console.error('EditProfile update failed:', error);
       setToast({ visible: true, message: error.message || 'Failed to update profile', type: 'error' });
     } finally {
       setIsLoading(false);
@@ -473,6 +562,7 @@ export default function EditProfileScreen() {
   };
 
   const selectAndClose = (action: () => void) => {
+    setIsDirty(true);
     action();
     setOpenDropdown(null);
   };
@@ -507,7 +597,7 @@ export default function EditProfileScreen() {
       return;
     }
     if (openDropdown === 'section') {
-      selectAndClose(() => setSection(value as 'A' | 'B' | 'C' | 'D'));
+      selectAndClose(() => setSection(value as 'A' | 'B' | 'C'));
       return;
     }
     if (openDropdown === 'faculty_designation') {
@@ -539,13 +629,24 @@ export default function EditProfileScreen() {
             </View>
 
             <View style={styles.avatarSection}>
-              {avatarUrl ? (
-                <Image source={{ uri: avatarUrl }} style={styles.avatar} />
-              ) : (
-                <View style={styles.avatar}>
-                  <Text style={styles.avatarText}>{getInitials()}</Text>
-                </View>
-              )}
+              <View style={styles.avatarWrap}>
+                {avatarUrl ? (
+                  <Image
+                    source={{ uri: avatarVersion ? `${avatarUrl}${avatarUrl.includes('?') ? '&' : '?'}v=${avatarVersion}` : avatarUrl }}
+                    style={styles.avatarImage}
+                  />
+                ) : (
+                  <View style={styles.avatar}>
+                    <Text style={styles.avatarText}>{getInitials()}</Text>
+                  </View>
+                )}
+                {isUploading && (
+                  <View style={styles.avatarLoadingOverlay}>
+                    <ActivityIndicator size="small" color="#ffffff" />
+                    <Text style={styles.avatarLoadingText}>Uploading</Text>
+                  </View>
+                )}
+              </View>
               <View style={styles.photoRow}>
                 <TouchableOpacity style={styles.changePhotoButton} onPress={handlePickImage} disabled={isUploading}>
                   <MaterialIcons name="photo-library" size={18} color={Colors.primary} />
@@ -563,7 +664,10 @@ export default function EditProfileScreen() {
               <TextInput
                 style={styles.input}
                 value={fullName}
-                onChangeText={setFullName}
+                onChangeText={(value) => {
+                  setIsDirty(true);
+                  setFullName(value);
+                }}
                 placeholder="Enter your name"
                 placeholderTextColor={Colors.textSecondary}
               />
@@ -582,14 +686,34 @@ export default function EditProfileScreen() {
 
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Phone</Text>
-              <TextInput
-                style={styles.input}
-                value={phone}
-                onChangeText={setPhone}
-                placeholder="Enter phone number"
-                placeholderTextColor={Colors.textSecondary}
-                keyboardType="phone-pad"
-              />
+              <View style={styles.phoneRow}>
+                <View style={styles.countryCodeBox}>
+                  <Text style={styles.countryCodeText}>+91</Text>
+                </View>
+                <TextInput
+                  style={styles.phoneInput}
+                  value={phone}
+                  onChangeText={(value) => {
+                    const rawDigits = value.replace(/\D/g, '');
+                    const digitsOnly = rawDigits.slice(0, 10);
+                    setIsDirty(true);
+                    setPhone(digitsOnly);
+                    if (rawDigits.length > 10) {
+                      setPhoneError('Phone number must be 10 digits.');
+                    } else if (digitsOnly.length > 0 && digitsOnly.length < 10) {
+                      setPhoneError('Enter a 10-digit mobile number.');
+                    } else {
+                      setPhoneError('');
+                    }
+                  }}
+                  placeholder="10-digit mobile number"
+                  placeholderTextColor={Colors.textSecondary}
+                  keyboardType="phone-pad"
+                  maxLength={10}
+                />
+              </View>
+              {!!phoneError && <Text style={styles.errorText}>{phoneError}</Text>}
+              {!phoneError && <Text style={styles.helperText}>10-digit mobile number</Text>}
             </View>
 
             <View style={styles.inputGroup}>
@@ -597,11 +721,17 @@ export default function EditProfileScreen() {
               <TextInput
                 style={[styles.input, styles.textArea]}
                 value={bio}
-                onChangeText={setBio}
+                onChangeText={(value) => {
+                  const trimmed = value.slice(0, BIO_MAX);
+                  setIsDirty(true);
+                  setBio(trimmed);
+                }}
                 placeholder="Tell us about yourself"
                 placeholderTextColor={Colors.textSecondary}
                 multiline
+                maxLength={BIO_MAX}
               />
+              <Text style={styles.helperText}>{bio.length}/{BIO_MAX} characters</Text>
             </View>
           </View>
 
@@ -699,7 +829,7 @@ export default function EditProfileScreen() {
               </View>
             )}
 
-            {isFacultyLike && (
+            {isFaculty && (
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>Designation</Text>
                 <View style={styles.dropdownContainer}>
@@ -722,15 +852,18 @@ export default function EditProfileScreen() {
             {isStudent && (
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>Roll Number</Text>
-                <TextInput
-                  style={[styles.input, (isGraduated || isAlumniLocked) && styles.disabledInput]}
-                  value={rollNumber}
-                  editable={!isGraduated && !isAlumniLocked}
-                  onChangeText={setRollNumber}
-                  placeholder="e.g. CSE/23/001"
-                  placeholderTextColor={Colors.textSecondary}
-                  autoCapitalize="characters"
-                />
+                  <TextInput
+                    style={[styles.input, (isGraduated || isAlumniLocked) && styles.disabledInput]}
+                    value={rollNumber}
+                    editable={!isGraduated && !isAlumniLocked}
+                    onChangeText={(value) => {
+                      setIsDirty(true);
+                      setRollNumber(value);
+                    }}
+                    placeholder="e.g. CSE/23/001"
+                    placeholderTextColor={Colors.textSecondary}
+                    autoCapitalize="characters"
+                  />
                 {!!errors.roll_number && <Text style={styles.errorText}>{errors.roll_number}</Text>}
               </View>
             )}

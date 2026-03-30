@@ -69,7 +69,7 @@ export default function ChangePasswordScreen() {
         } else {
           navigation.goBack();
         }
-      }, 1200);
+      }, 300);
     } catch (error: any) {
       console.error('Change password error:', error);
       setToast({ 

@@ -241,25 +241,103 @@ export const subscribeToNotifications = (
     .subscribe();
 };
 
-// Send push notification (local for now; use backend in production)
-const sendPushNotification = async (
-  userId: string,
-  title: string,
-  body: string
-) => {
+// ─── Save this device's push token to the user's profile ─────────────────
+export const savePushToken = async (userId: string, token: string) => {
   try {
-    await ExpoNotifications.scheduleNotificationAsync({
-      content: {
-        title,
-        body,
-        sound: true,
-      },
-      trigger: null, // Send immediately
-    });
+    await supabase
+      .from('profiles')
+      .update({ expo_push_token: token } as any)
+      .eq('id', userId);
   } catch (error) {
-    console.error("Push notification error:", error);
+    console.error('savePushToken error:', error);
   }
 };
+
+// ─── Internal: POST to Expo Push API ─────────────────────────────────────
+const postToExpoPushApi = async (
+  messages: Array<{ to: string; title: string; body: string; data?: any }>
+) => {
+  try {
+    await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Accept-encoding': 'gzip, deflate',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(messages),
+    });
+  } catch (error) {
+    console.error('Expo Push API error:', error);
+  }
+};
+
+// ─── Send a chat message notification to all participants except sender ────
+export const sendChatPushNotification = async (opts: {
+  conversationId: string;
+  senderId: string;
+  senderName: string;
+  messagePreview: string;
+  isGroup: boolean;
+  groupName?: string;
+}) => {
+  try {
+    // Fetch all conversation participants
+    const { data: participants } = await supabase
+      .from('conversation_participants')
+      .select('user_id, profiles!inner(expo_push_token, full_name)')
+      .eq('conversation_id', opts.conversationId)
+      .neq('user_id', opts.senderId) as any;
+
+    if (!participants?.length) return;
+
+    const messages = (participants as any[])
+      .map((p: any) => {
+        const token = p.profiles?.expo_push_token;
+        if (!token || !token.startsWith('ExponentPushToken')) return null;
+        return {
+          to: token,
+          title: opts.isGroup ? `${opts.senderName} in ${opts.groupName || 'Group'}` : opts.senderName,
+          body: opts.messagePreview || 'New message',
+          data: { conversationId: opts.conversationId },
+        };
+      })
+      .filter(Boolean);
+
+    if (messages.length > 0) await postToExpoPushApi(messages as any);
+  } catch (error) {
+    console.error('sendChatPushNotification error:', error);
+  }
+};
+
+// ─── Send a broadcast push notification to a specific user ────────────────
+export const sendBroadcastPushNotification = async (opts: {
+  targetUserId: string;
+  title: string;
+  body: string;
+  data?: any;
+}) => {
+  try {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('expo_push_token')
+      .eq('id', opts.targetUserId)
+      .single() as any;
+
+    const token = profile?.expo_push_token;
+    if (!token || !token.startsWith('ExponentPushToken')) return;
+
+    await postToExpoPushApi([{
+      to: token,
+      title: opts.title,
+      body: opts.body,
+      data: opts.data,
+    }]);
+  } catch (error) {
+    console.error('sendBroadcastPushNotification error:', error);
+  }
+};
+
 
 // ── Notification helpers ────────────────────────────────────────────────────
 // Canonical type values:

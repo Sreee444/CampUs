@@ -426,6 +426,15 @@ export default function ProjectDetailsScreen() {
       return;
     }
 
+    if (parsedMaxMembers > 10) {
+      Toast.show({
+        type: 'error',
+        text1: 'Validation Error',
+        text2: 'Maximum members cannot exceed 10',
+      });
+      return;
+    }
+
     try {
       setIsSavingProject(true);
       await updateProjectTeam(teamId, {
@@ -469,10 +478,17 @@ export default function ProjectDetailsScreen() {
       navigation.goBack();
     } catch (err: any) {
       console.error('Failed to delete project', err);
+      const isMentorshipConstraintError =
+        err?.code === '23514' &&
+        typeof err?.message === 'string' &&
+        err.message.includes('chk_project_purpose');
+
       Toast.show({
         type: 'error',
         text1: 'Delete Failed',
-        text2: err?.message || 'Unable to delete project',
+        text2: isMentorshipConstraintError
+          ? 'Close or reject active project mentorship requests before deleting this project.'
+          : err?.message || 'Unable to delete project',
       });
     }
   };

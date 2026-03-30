@@ -1,14 +1,16 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, SafeAreaView,
-  TextInput, Platform, FlatList, ActivityIndicator, Modal, ScrollView,
+  TextInput, Platform, FlatList, ActivityIndicator, Modal, ScrollView, Image,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
-import { banUser, changeUserRole, getActiveBans, getAllUsers, getUserActiveBan, insertAdminLog, unbanUser } from '../../api/admin';
+import { banUser, changeUserRole, getActiveBans, getAllUsers, getUserActiveBan, insertAdminLog, unbanUser, updateUserProfileAdmin } from '../../api/admin';
+import { uploadAvatar } from '../../api/auth';
 import { Profile, UserBan } from '../../types/database';
 import { UserAvatar } from '../../components/UserAvatar';
 import { useAuth } from '../../contexts/AuthContext';
@@ -53,11 +55,17 @@ export default function AdminUsersScreen() {
   // User action modal
   const [selectedUser, setSelectedUser] = useState<Profile | null>(null);
   const [showUserModal, setShowUserModal] = useState(false);
-
-  // Ban config modal
   const [showBanModal, setShowBanModal] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [banReason, setBanReason] = useState('');
   const [banDays, setBanDays] = useState<number | null>(7);
+  const [editName, setEditName] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editBio, setEditBio] = useState('');
+  const [editDept, setEditDept] = useState('');
+  const [editYear, setEditYear] = useState('');
+  const [editSemester, setEditSemester] = useState('');
+  const [editSection, setEditSection] = useState('');
 
   const isAdmin = isAdminRole(adminProfile?.role);
 
@@ -90,6 +98,16 @@ export default function AdminUsersScreen() {
   }, [selectedRole]);
 
   useEffect(() => { loadUsers(0, true); }, [selectedRole]);
+  useEffect(() => {
+    if (!selectedUser) return;
+    setEditName(selectedUser.full_name ?? '');
+    setEditPhone(selectedUser.phone ?? '');
+    setEditBio(selectedUser.bio ?? '');
+    setEditDept(selectedUser.department ?? '');
+    setEditYear(selectedUser.year ? String(selectedUser.year) : '');
+    setEditSemester(selectedUser.semester ? String(selectedUser.semester) : '');
+    setEditSection(selectedUser.section ?? '');
+  }, [selectedUser]);
 
   const summaryCards = [
     { label: 'Loaded', value: users.length, color: Colors.text },
@@ -117,9 +135,88 @@ export default function AdminUsersScreen() {
       await changeUserRole(u.id, newRole as any);
       await insertAdminLog(user.id, 'role_change', u.id, { from: u.role, to: newRole });
       setUsers(prev => prev.map(x => x.id === u.id ? { ...x, role: newRole as any } : x));
+      setFilteredUsers(prev => prev.map(x => x.id === u.id ? { ...x, role: newRole as any } : x));
+      setSelectedUser(prev => (prev?.id === u.id ? { ...prev, role: newRole as any } : prev));
       Toast.show({ type: 'success', text1: 'Role updated', text2: `${u.full_name} is now ${newRole}` });
-    } catch {
+    } catch (error: any) {
+      console.error('Admin role change failed:', {
+        targetUserId: u.id,
+        from: u.role,
+        to: newRole,
+        error,
+      });
       Toast.show({ type: 'error', text1: 'Failed to update role' });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleAdminAvatarUpload = async () => {
+    if (!selectedUser || !user?.id) return;
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Toast.show({ type: 'error', text1: 'Permission required to access photos' });
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+    if (result.canceled || !result.assets[0]) return;
+    try {
+      setIsUploading(true);
+      const publicUrl = await uploadAvatar(selectedUser.id, result.assets[0].uri);
+      const updated = await updateUserProfileAdmin(selectedUser.id, { avatar_url: publicUrl } as any);
+      await insertAdminLog(user.id, 'profile_edit' as any, selectedUser.id, { avatar_updated: true });
+      setUsers(prev => prev.map(x => x.id === selectedUser.id ? { ...x, ...updated } : x));
+      setFilteredUsers(prev => prev.map(x => x.id === selectedUser.id ? { ...x, ...updated } : x));
+      setSelectedUser(prev => (prev?.id === selectedUser.id ? { ...prev, ...updated } : prev));
+      Toast.show({ type: 'success', text1: 'Avatar updated' });
+    } catch (error: any) {
+      Toast.show({ type: 'error', text1: 'Failed to upload avatar', text2: error?.message });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleSaveProfileEdits = async () => {
+    if (!selectedUser || !user?.id) return;
+    try {
+      setIsProcessing(true);
+
+      const trimmedSection = editSection.trim().toUpperCase();
+      const sectionValue = ['A', 'B', 'C', 'D'].includes(trimmedSection) ? trimmedSection : null;
+
+      const parsedYear = Number.parseInt(editYear.trim(), 10);
+      const yearValue = Number.isFinite(parsedYear) ? parsedYear : null;
+
+      const parsedSemester = Number.parseInt(editSemester.trim(), 10);
+      const semesterValue = Number.isFinite(parsedSemester) ? parsedSemester : null;
+
+      const updates = {
+        full_name: editName.trim() || null,
+        phone: editPhone.trim() || null,
+        bio: editBio.trim() || null,
+        department: editDept.trim() || null,
+        year: yearValue,
+        semester: semesterValue,
+        section: sectionValue,
+      } as any;
+
+      const updated = await updateUserProfileAdmin(selectedUser.id, updates);
+      await insertAdminLog(user.id, 'role_change' as any, selectedUser.id, {
+        action_type: 'profile_edit',
+        fields: ['full_name', 'phone', 'bio', 'department'],
+      });
+      setUsers(prev => prev.map(x => x.id === selectedUser.id ? { ...x, ...updated } : x));
+      setFilteredUsers(prev => prev.map(x => x.id === selectedUser.id ? { ...x, ...updated } : x));
+      setSelectedUser(prev => (prev?.id === selectedUser.id ? { ...prev, ...updated } : prev));
+      Toast.show({ type: 'success', text1: 'Profile updated' });
+    } catch (error: any) {
+      console.error('Admin profile edit failed:', error);
+      Toast.show({ type: 'error', text1: 'Failed to update profile', text2: error?.message });
     } finally {
       setIsProcessing(false);
     }
@@ -303,6 +400,88 @@ export default function AdminUsersScreen() {
                     </View>
                   ) : (
                     <>
+                      {/* Avatar Upload */}
+                      <View style={styles.avatarEditSection}>
+                        <TouchableOpacity
+                          style={styles.avatarUploadWrap}
+                          onPress={handleAdminAvatarUpload}
+                          disabled={isUploading}
+                          activeOpacity={0.8}
+                        >
+                          {selectedUser.avatar_url ? (
+                            <Image source={{ uri: selectedUser.avatar_url }} style={styles.avatarUploadImg} />
+                          ) : (
+                            <View style={[styles.avatarUploadImg, styles.avatarUploadPlaceholder]}>
+                              <Text style={styles.avatarUploadInitials}>
+                                {(selectedUser.full_name || 'U').split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
+                              </Text>
+                            </View>
+                          )}
+                          <View style={styles.avatarCameraBadge}>
+                            {isUploading
+                              ? <ActivityIndicator size={12} color="#fff" />
+                              : <MaterialIcons name="camera-alt" size={13} color="#fff" />}
+                          </View>
+                        </TouchableOpacity>
+                        <Text style={{ fontSize: 12, color: Colors.textSecondary, marginTop: 6 }}>
+                          {isUploading ? 'Uploading...' : 'Tap to change photo'}
+                        </Text>
+                      </View>
+
+                      {/* Edit Profile */}
+                      <Text style={[styles.sheetSectionLabel, { color: Colors.textSecondary }]}>Edit Profile</Text>
+                      <View style={styles.editGrid}>
+                        <View style={styles.editField}>
+                          <Text style={[styles.editLabel, { color: Colors.text }]}>Full Name</Text>
+                          <TextInput
+                            style={[styles.editInput, { backgroundColor: Colors.background, color: Colors.text, borderColor: Colors.border }]}
+                            value={editName}
+                            onChangeText={setEditName}
+                            placeholder="Full name"
+                            placeholderTextColor={Colors.textSecondary}
+                          />
+                        </View>
+                        <View style={styles.editField}>
+                          <Text style={[styles.editLabel, { color: Colors.text }]}>Phone</Text>
+                          <TextInput
+                            style={[styles.editInput, { backgroundColor: Colors.background, color: Colors.text, borderColor: Colors.border }]}
+                            value={editPhone}
+                            onChangeText={setEditPhone}
+                            placeholder="Phone number"
+                            placeholderTextColor={Colors.textSecondary}
+                            keyboardType="phone-pad"
+                          />
+                        </View>
+                        <View style={styles.editField}>
+                          <Text style={[styles.editLabel, { color: Colors.text }]}>Department</Text>
+                          <TextInput
+                            style={[styles.editInput, { backgroundColor: Colors.background, color: Colors.text, borderColor: Colors.border }]}
+                            value={editDept}
+                            onChangeText={setEditDept}
+                            placeholder="Department"
+                            placeholderTextColor={Colors.textSecondary}
+                          />
+                        </View>
+                        <View style={styles.editField}>
+                          <Text style={[styles.editLabel, { color: Colors.text }]}>Bio</Text>
+                          <TextInput
+                            style={[styles.editInput, styles.editTextArea, { backgroundColor: Colors.background, color: Colors.text, borderColor: Colors.border }]}
+                            value={editBio}
+                            onChangeText={setEditBio}
+                            placeholder="Short bio"
+                            placeholderTextColor={Colors.textSecondary}
+                            multiline
+                          />
+                        </View>
+                        <TouchableOpacity
+                          style={[styles.editSaveBtn, { backgroundColor: Colors.primary }]}
+                          onPress={handleSaveProfileEdits}
+                          disabled={isProcessing}
+                        >
+                          <Text style={styles.editSaveText}>Save Changes</Text>
+                        </TouchableOpacity>
+                      </View>
+
                       {/* Change Role */}
                       <Text style={[styles.sheetSectionLabel, { color: Colors.textSecondary }]}>Change Role</Text>
                       <View style={styles.roleGrid}>
@@ -461,6 +640,13 @@ const createStyles = (Colors: any) => StyleSheet.create({
   sheetTitle: { fontSize: FontSizes.lg, fontWeight: FontWeights.bold },
   sheetSub: { fontSize: FontSizes.xs, marginTop: 2 },
   sheetSectionLabel: { fontSize: 12, fontWeight: '600', marginBottom: 8, marginTop: 12 },
+  editGrid: { gap: 10, marginBottom: 8 },
+  editField: { gap: 6 },
+  editLabel: { fontSize: FontSizes.xs, fontWeight: FontWeights.semibold },
+  editInput: { borderWidth: 1, borderRadius: BorderRadius.lg, paddingHorizontal: 12, paddingVertical: 10, fontSize: FontSizes.sm },
+  editTextArea: { minHeight: 80, textAlignVertical: 'top' },
+  editSaveBtn: { alignItems: 'center', paddingVertical: 12, borderRadius: BorderRadius.lg, marginTop: 4 },
+  editSaveText: { color: '#fff', fontSize: FontSizes.sm, fontWeight: FontWeights.semibold },
   roleGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
   roleButton: { paddingVertical: 10, paddingHorizontal: 14, borderRadius: BorderRadius.lg, borderWidth: 1, minWidth: '45%', alignItems: 'center' },
   roleButtonText: { fontSize: FontSizes.sm, fontWeight: FontWeights.semibold },
@@ -485,4 +671,12 @@ const createStyles = (Colors: any) => StyleSheet.create({
   banActionText: { fontSize: FontSizes.sm, fontWeight: FontWeights.bold },
   selfNotice: { flexDirection: 'row', alignItems: 'center', gap: 10, margin: 16, padding: 14, borderRadius: BorderRadius.lg, borderWidth: 1 },
   selfNoticeText: { flex: 1, fontSize: FontSizes.sm, fontWeight: FontWeights.medium, lineHeight: 20 },
+  // Avatar upload
+  avatarEditSection: { alignItems: 'center', paddingVertical: 12, marginBottom: 4 },
+  avatarUploadRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, paddingHorizontal: 4, marginBottom: 8, borderRadius: BorderRadius.lg },
+  avatarUploadWrap: { position: 'relative', width: 68, height: 68 },
+  avatarUploadImg: { width: 68, height: 68, borderRadius: 34 },
+  avatarUploadPlaceholder: { backgroundColor: '#6366f1', alignItems: 'center' as const, justifyContent: 'center' as const },
+  avatarUploadInitials: { color: '#fff', fontSize: 22, fontWeight: '700' as const },
+  avatarCameraBadge: { position: 'absolute' as const, bottom: 0, right: 0, width: 22, height: 22, borderRadius: 11, backgroundColor: '#6366f1', alignItems: 'center' as const, justifyContent: 'center' as const, borderWidth: 2, borderColor: '#fff' },
 });
