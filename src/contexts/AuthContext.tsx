@@ -291,7 +291,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (userProfile.year_of_admission) {
-        const computed = calculateAcademicFields(userProfile.year_of_admission);
+        const computed = calculateAcademicFields(userProfile.year_of_admission, userProfile.department);
         const needsAcademicRefresh =
           userProfile.semester !== computed.semester ||
           userProfile.year !== computed.year ||

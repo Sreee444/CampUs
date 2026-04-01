@@ -26,6 +26,7 @@ import { moderateText } from "./ai";
 import { isAdminRole } from '../utils/roles';
 import { encryptMessage, decryptMessage } from "../../utils/encryption";
 import { BASE_URL } from '../config/api';
+import { sendChatPushNotification } from './notifications';
 
 const decryptContentField = (value: any) => {
   if (value == null) return value;
@@ -1420,6 +1421,69 @@ export const sendMessage = async (
     .from("conversations")
     .update({ updated_at: new Date().toISOString() } as any)
     .eq("id", conversationId);
+
+  // Deliver notification only to other active participants (never sender).
+  try {
+    const preview = (() => {
+      const trimmed = normalizedContent.trim();
+      if (trimmed.length > 0) return trimmed.slice(0, 140);
+      if (messageType === 'image') return 'Sent an image';
+      if (messageType === 'file') return 'Sent a file';
+      return 'New message';
+    })();
+
+    const { data: conversation } = await supabase
+      .from('conversations')
+      .select('is_group, group_name')
+      .eq('id', conversationId)
+      .maybeSingle();
+
+    const { data: participants } = await supabase
+      .from('conversation_participants')
+      .select('user_id')
+      .eq('conversation_id', conversationId)
+      .is('left_at', null)
+      .neq('user_id', currentUserId);
+
+    const recipientIds = Array.from(
+      new Set(((participants || []).map((p: any) => p.user_id).filter(Boolean) as string[]))
+    );
+
+    if (recipientIds.length > 0) {
+      const senderName =
+        (data as any)?.sender?.full_name ||
+        (data as any)?.sender?.name ||
+        'Someone';
+
+      await supabase.from('notifications').insert(
+        recipientIds.map((recipientId) => ({
+          user_id: recipientId,
+          type: 'message',
+          title: `New message from ${senderName}`,
+          body: preview,
+          related_id: conversationId,
+          related_type: 'conversation',
+          metadata: {
+            conversation_id: conversationId,
+            sender_id: currentUserId,
+            message_id: (data as any)?.id,
+          },
+          is_read: false,
+        })) as any
+      );
+
+      await sendChatPushNotification({
+        conversationId,
+        senderId: currentUserId,
+        senderName,
+        messagePreview: preview,
+        isGroup: Boolean((conversation as any)?.is_group),
+        groupName: (conversation as any)?.group_name || undefined,
+      });
+    }
+  } catch (notificationError) {
+    console.error('sendMessage notification error:', notificationError);
+  }
 
   // Decrypt only when returning to UI.
   return decryptMessageObject(data) as Message;

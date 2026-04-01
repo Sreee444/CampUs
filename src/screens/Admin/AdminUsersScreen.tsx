@@ -10,7 +10,7 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { banUser, changeUserRole, getActiveBans, getAllUsers, getUserActiveBan, insertAdminLog, unbanUser, updateUserProfileAdmin } from '../../api/admin';
-import { uploadAvatar } from '../../api/auth';
+import { removeAvatar, uploadAvatar } from '../../api/auth';
 import { Profile, UserBan } from '../../types/database';
 import { UserAvatar } from '../../components/UserAvatar';
 import { useAuth } from '../../contexts/AuthContext';
@@ -18,7 +18,9 @@ import { RootStackParamList } from '../../navigation/types';
 import Toast from 'react-native-toast-message';
 import { isAdminRole } from '../../utils/roles';
 import AdminHeader from '../../components/admin/AdminHeader';
-import AdminFilterChips from '../../components/admin/AdminFilterChips';
+import ConfirmDialog from '../../components/ConfirmDialog';
+import DropdownSheet from '../../components/DropdownSheet';
+import { DEPARTMENT_OPTIONS, getDepartmentAcademicLimits, getSectionOptions } from '../../constants/academic';
 
 type NavProp = StackNavigationProp<RootStackParamList>;
 
@@ -31,6 +33,23 @@ const BAN_DURATIONS = [
 
 const Page_SIZE = 20;
 type RoleFilter = 'all' | 'student' | 'faculty' | 'alumni' | 'admin' | 'developer';
+type UserModalTab = 'profile' | 'role' | 'safety';
+
+type UserListFilters = {
+  role: RoleFilter;
+  department: string;
+  year: string;
+  semester: string;
+  section: string;
+};
+
+const DEFAULT_USER_FILTERS: UserListFilters = {
+  role: 'all',
+  department: '',
+  year: '',
+  semester: '',
+  section: '',
+};
 
 export default function AdminUsersScreen() {
   const navigation = useNavigation<NavProp>();
@@ -39,13 +58,19 @@ export default function AdminUsersScreen() {
   const Colors = getColors(isDark);
   const styles = createStyles(Colors);
 
+  const [allUsers, setAllUsers] = useState<Profile[]>([]);
   const [users, setUsers] = useState<Profile[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<Profile[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedRole, setSelectedRole] = useState<string | null>(null);
-  const [roleFilter, setRoleFilter] = useState<RoleFilter>('all');
+  const [activeFilters, setActiveFilters] = useState<UserListFilters>(DEFAULT_USER_FILTERS);
+  const [draftFilters, setDraftFilters] = useState<UserListFilters>(DEFAULT_USER_FILTERS);
+  const [showFiltersModal, setShowFiltersModal] = useState(false);
+  const [showFilterDepartmentPicker, setShowFilterDepartmentPicker] = useState(false);
+  const [showFilterYearPicker, setShowFilterYearPicker] = useState(false);
+  const [showFilterSemesterPicker, setShowFilterSemesterPicker] = useState(false);
+  const [showFilterSectionPicker, setShowFilterSectionPicker] = useState(false);
   const [bannedIds, setBannedIds] = useState<string[]>([]);
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
@@ -66,38 +91,98 @@ export default function AdminUsersScreen() {
   const [editYear, setEditYear] = useState('');
   const [editSemester, setEditSemester] = useState('');
   const [editSection, setEditSection] = useState('');
+  const [showRemoveAvatarConfirm, setShowRemoveAvatarConfirm] = useState(false);
+  const [showDepartmentPicker, setShowDepartmentPicker] = useState(false);
+  const [activeModalTab, setActiveModalTab] = useState<UserModalTab>('profile');
+
+  const showToastAboveModal = (payload: { type: 'success' | 'error' | 'info'; text1: string; text2?: string }) => {
+    setShowUserModal(false);
+    setShowBanModal(false);
+    setTimeout(() => Toast.show(payload), 120);
+  };
 
   const isAdmin = isAdminRole(adminProfile?.role);
 
-  const loadUsers = useCallback(async (p = 0, reset = false) => {
+  const normalize = (value: any) => String(value ?? '').trim().toLowerCase();
+
+  const activeFilterCount = [
+    activeFilters.role !== 'all',
+    !!activeFilters.department,
+    !!activeFilters.year,
+    !!activeFilters.semester,
+    !!activeFilters.section,
+  ].filter(Boolean).length;
+
+  const filterLimits = React.useMemo(
+    () => getDepartmentAcademicLimits(draftFilters.department || activeFilters.department),
+    [draftFilters.department, activeFilters.department]
+  );
+
+  const filterYearOptions = React.useMemo(
+    () => Array.from({ length: filterLimits.maxYears }, (_, i) => String(i + 1)),
+    [filterLimits.maxYears]
+  );
+
+  const filterSemesterOptions = React.useMemo(
+    () => Array.from({ length: filterLimits.maxSemesters }, (_, i) => String(i + 1)),
+    [filterLimits.maxSemesters]
+  );
+
+  const filterSectionOptions = React.useMemo(
+    () => getSectionOptions(draftFilters.department || activeFilters.department),
+    [draftFilters.department, activeFilters.department]
+  );
+
+  const filteredDataset = React.useMemo(() => {
+    const q = normalize(searchQuery);
+    return allUsers.filter((u) => {
+      if (activeFilters.role !== 'all' && u.role !== activeFilters.role) return false;
+      if (activeFilters.department && normalize(u.department) !== normalize(activeFilters.department)) return false;
+      if (activeFilters.year && String(u.year ?? '') !== activeFilters.year) return false;
+      if (activeFilters.semester && String(u.semester ?? '') !== activeFilters.semester) return false;
+      if (activeFilters.section && normalize(u.section) !== normalize(activeFilters.section)) return false;
+
+      if (!q) return true;
+      const haystack = [u.full_name, u.email, u.department, u.specialization, u.batch]
+        .map((value) => normalize(value))
+        .join(' ');
+      return haystack.includes(q);
+    });
+  }, [allUsers, activeFilters, searchQuery]);
+
+  const loadUsers = useCallback(async () => {
     try {
-      if (p === 0) setIsLoading(true); else setIsLoadingMore(true);
+      setIsLoading(true);
 
       const [usersData, bans] = await Promise.all([
-        getAllUsers({ role: selectedRole ?? undefined }),
+        getAllUsers(),
         getActiveBans(),
       ]);
 
-      const paginated = usersData.slice(0, (p + 1) * Page_SIZE);
-      if (reset) {
-        setUsers(paginated);
-        setFilteredUsers(paginated);
-      } else {
-        setUsers(paginated);
-        setFilteredUsers(paginated);
-      }
-      setHasMore(usersData.length > (p + 1) * Page_SIZE);
+      setAllUsers(usersData);
       setBannedIds(bans.map((b: UserBan) => b.user_id));
-      setPage(p);
+      setPage(0);
     } catch (error) {
       Toast.show({ type: 'error', text1: 'Failed to load users' });
     } finally {
       setIsLoading(false);
       setIsLoadingMore(false);
     }
-  }, [selectedRole]);
+  }, []);
 
-  useEffect(() => { loadUsers(0, true); }, [selectedRole]);
+  useEffect(() => { loadUsers(); }, []);
+
+  useEffect(() => {
+    setPage(0);
+  }, [searchQuery, activeFilters, allUsers]);
+
+  useEffect(() => {
+    const paginated = filteredDataset.slice(0, (page + 1) * Page_SIZE);
+    setUsers(paginated);
+    setFilteredUsers(paginated);
+    setHasMore(filteredDataset.length > (page + 1) * Page_SIZE);
+    setIsLoadingMore(false);
+  }, [filteredDataset, page]);
   useEffect(() => {
     if (!selectedUser) return;
     setEditName(selectedUser.full_name ?? '');
@@ -107,6 +192,7 @@ export default function AdminUsersScreen() {
     setEditYear(selectedUser.year ? String(selectedUser.year) : '');
     setEditSemester(selectedUser.semester ? String(selectedUser.semester) : '');
     setEditSection(selectedUser.section ?? '');
+    setActiveModalTab('profile');
   }, [selectedUser]);
 
   const summaryCards = [
@@ -119,14 +205,19 @@ export default function AdminUsersScreen() {
     { label: 'Developer', value: users.filter((u) => u.role === 'developer').length, color: '#0f766e' },
   ];
 
-  // Client-side search filter
-  useEffect(() => {
-    if (!searchQuery) { setFilteredUsers(users); return; }
-    const q = searchQuery.toLowerCase();
-    setFilteredUsers(users.filter(u =>
-      u.full_name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q)
-    ));
-  }, [searchQuery, users]);
+  const applyDraftFilters = () => {
+    setActiveFilters(draftFilters);
+    setShowFiltersModal(false);
+  };
+
+  const resetAllFilters = () => {
+    setActiveFilters(DEFAULT_USER_FILTERS);
+    setDraftFilters(DEFAULT_USER_FILTERS);
+  };
+
+  const resetDraftFilters = () => {
+    setDraftFilters(DEFAULT_USER_FILTERS);
+  };
 
   const handleChangeRole = async (u: Profile, newRole: string) => {
     if (!user?.id) return;
@@ -137,7 +228,7 @@ export default function AdminUsersScreen() {
       setUsers(prev => prev.map(x => x.id === u.id ? { ...x, role: newRole as any } : x));
       setFilteredUsers(prev => prev.map(x => x.id === u.id ? { ...x, role: newRole as any } : x));
       setSelectedUser(prev => (prev?.id === u.id ? { ...prev, role: newRole as any } : prev));
-      Toast.show({ type: 'success', text1: 'Role updated', text2: `${u.full_name} is now ${newRole}` });
+      showToastAboveModal({ type: 'success', text1: 'Role updated', text2: `${u.full_name} is now ${newRole}` });
     } catch (error: any) {
       console.error('Admin role change failed:', {
         targetUserId: u.id,
@@ -145,7 +236,7 @@ export default function AdminUsersScreen() {
         to: newRole,
         error,
       });
-      Toast.show({ type: 'error', text1: 'Failed to update role' });
+      showToastAboveModal({ type: 'error', text1: 'Failed to update role' });
     } finally {
       setIsProcessing(false);
     }
@@ -173,9 +264,44 @@ export default function AdminUsersScreen() {
       setUsers(prev => prev.map(x => x.id === selectedUser.id ? { ...x, ...updated } : x));
       setFilteredUsers(prev => prev.map(x => x.id === selectedUser.id ? { ...x, ...updated } : x));
       setSelectedUser(prev => (prev?.id === selectedUser.id ? { ...prev, ...updated } : prev));
-      Toast.show({ type: 'success', text1: 'Avatar updated' });
+      showToastAboveModal({ type: 'success', text1: 'Avatar updated' });
     } catch (error: any) {
-      Toast.show({ type: 'error', text1: 'Failed to upload avatar', text2: error?.message });
+      showToastAboveModal({ type: 'error', text1: 'Failed to upload avatar', text2: error?.message });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleAdminAvatarRemove = async () => {
+    if (!selectedUser || !user?.id) return;
+
+    if (!selectedUser.avatar_url) {
+      Toast.show({ type: 'info', text1: 'User has no avatar to remove' });
+      return;
+    }
+
+    setShowRemoveAvatarConfirm(true);
+  };
+
+  const confirmAdminAvatarRemove = async () => {
+    if (!selectedUser || !user?.id) return;
+
+    try {
+      setIsUploading(true);
+      const removal = await removeAvatar(selectedUser.id, selectedUser.avatar_url);
+      const updated = await updateUserProfileAdmin(selectedUser.id, { avatar_url: null } as any);
+      await insertAdminLog(user.id, 'profile_edit' as any, selectedUser.id, { avatar_removed: true });
+      setUsers(prev => prev.map(x => x.id === selectedUser.id ? { ...x, ...updated } : x));
+      setFilteredUsers(prev => prev.map(x => x.id === selectedUser.id ? { ...x, ...updated } : x));
+      setSelectedUser(prev => (prev?.id === selectedUser.id ? { ...prev, ...updated } : prev));
+      setShowRemoveAvatarConfirm(false);
+      showToastAboveModal({
+        type: removal.warning ? 'info' : 'success',
+        text1: removal.warning ? 'Avatar removed from profile' : 'Avatar removed',
+        text2: removal.warning,
+      });
+    } catch (error: any) {
+      showToastAboveModal({ type: 'error', text1: 'Failed to remove avatar', text2: error?.message });
     } finally {
       setIsUploading(false);
     }
@@ -187,7 +313,7 @@ export default function AdminUsersScreen() {
       setIsProcessing(true);
 
       const trimmedSection = editSection.trim().toUpperCase();
-      const sectionValue = ['A', 'B', 'C', 'D'].includes(trimmedSection) ? trimmedSection : null;
+      const sectionValue = ['A', 'B', 'C'].includes(trimmedSection) ? trimmedSection : null;
 
       const parsedYear = Number.parseInt(editYear.trim(), 10);
       const yearValue = Number.isFinite(parsedYear) ? parsedYear : null;
@@ -213,10 +339,10 @@ export default function AdminUsersScreen() {
       setUsers(prev => prev.map(x => x.id === selectedUser.id ? { ...x, ...updated } : x));
       setFilteredUsers(prev => prev.map(x => x.id === selectedUser.id ? { ...x, ...updated } : x));
       setSelectedUser(prev => (prev?.id === selectedUser.id ? { ...prev, ...updated } : prev));
-      Toast.show({ type: 'success', text1: 'Profile updated' });
+      showToastAboveModal({ type: 'success', text1: 'Profile updated' });
     } catch (error: any) {
       console.error('Admin profile edit failed:', error);
-      Toast.show({ type: 'error', text1: 'Failed to update profile', text2: error?.message });
+      showToastAboveModal({ type: 'error', text1: 'Failed to update profile', text2: error?.message });
     } finally {
       setIsProcessing(false);
     }
@@ -256,17 +382,17 @@ export default function AdminUsersScreen() {
           duration: banDays === null ? 'permanent' : `${banDays}d`,
           ban_until: banUntil,
         });
-        Toast.show({ type: 'success', text1: 'User banned', text2: `${selectedUser.full_name}` });
+        showToastAboveModal({ type: 'success', text1: 'User banned', text2: `${selectedUser.full_name}` });
       } else {
         await unbanUser(selectedUser.id);
         setBannedIds(prev => prev.filter(id => id !== selectedUser.id));
         await insertAdminLog(user.id, 'unban_user', selectedUser.id, {});
-        Toast.show({ type: 'success', text1: 'User unbanned', text2: `${selectedUser.full_name}` });
+        showToastAboveModal({ type: 'success', text1: 'User unbanned', text2: `${selectedUser.full_name}` });
       }
 
       setShowBanModal(false);
     } catch (err: any) {
-      Toast.show({ type: 'error', text1: 'Ban action failed', text2: err?.message });
+      showToastAboveModal({ type: 'error', text1: 'Ban action failed', text2: err?.message });
     } finally {
       setIsProcessing(false);
     }
@@ -300,7 +426,7 @@ export default function AdminUsersScreen() {
         subtitle="Role assignment, profile access and ban controls"
         count={filteredUsers.length}
         onBack={() => navigation.goBack()}
-        onRefresh={() => loadUsers(0, true)}
+        onRefresh={loadUsers}
       />
 
       <View style={styles.summaryRow}>
@@ -334,21 +460,29 @@ export default function AdminUsersScreen() {
         )}
       </View>
 
-      <AdminFilterChips<RoleFilter>
-        selected={roleFilter}
-        onSelect={(value) => {
-          setRoleFilter(value);
-          setSelectedRole(value === 'all' ? null : value);
-        }}
-        options={[
-          { label: 'All', value: 'all' },
-          { label: 'Student', value: 'student' },
-          { label: 'Faculty', value: 'faculty' },
-          { label: 'Alumni', value: 'alumni' },
-          { label: 'Admin', value: 'admin' },
-          { label: 'Developer', value: 'developer' },
-        ]}
-      />
+      <View style={styles.filterActionRow}>
+        <TouchableOpacity
+          style={[styles.filterButton, { borderColor: Colors.border, backgroundColor: Colors.surface }]}
+          onPress={() => {
+            setDraftFilters(activeFilters);
+            setShowFiltersModal(true);
+          }}
+        >
+          <MaterialIcons name="filter-list" size={18} color={Colors.primary} />
+          <Text style={[styles.filterButtonText, { color: Colors.text }]}>Filters</Text>
+          {activeFilterCount > 0 && (
+            <View style={[styles.filterCountBadge, { backgroundColor: Colors.primary }]}>
+              <Text style={styles.filterCountText}>{activeFilterCount}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+
+        {activeFilterCount > 0 && (
+          <TouchableOpacity style={styles.clearFilterBtn} onPress={resetAllFilters}>
+            <Text style={[styles.clearFilterText, { color: Colors.textSecondary }]}>Clear filters</Text>
+          </TouchableOpacity>
+        )}
+      </View>
 
       {isLoading ? (
         <View style={styles.center}>
@@ -360,7 +494,12 @@ export default function AdminUsersScreen() {
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => <UserRow item={item} />}
           contentContainerStyle={styles.listContent}
-          onEndReached={() => { if (hasMore && !isLoadingMore) loadUsers(page + 1); }}
+          onEndReached={() => {
+            if (hasMore && !isLoadingMore) {
+              setIsLoadingMore(true);
+              setPage((prev) => prev + 1);
+            }
+          }}
           onEndReachedThreshold={0.3}
           ListFooterComponent={isLoadingMore ? <ActivityIndicator size="small" color={Colors.primary} style={{ margin: 16 }} /> : null}
           ListEmptyComponent={
@@ -424,97 +563,155 @@ export default function AdminUsersScreen() {
                           </View>
                         </TouchableOpacity>
                         <Text style={{ fontSize: 12, color: Colors.textSecondary, marginTop: 6 }}>
-                          {isUploading ? 'Uploading...' : 'Tap to change photo'}
+                          {isUploading ? 'Processing avatar...' : 'Tap photo to change'}
                         </Text>
-                      </View>
-
-                      {/* Edit Profile */}
-                      <Text style={[styles.sheetSectionLabel, { color: Colors.textSecondary }]}>Edit Profile</Text>
-                      <View style={styles.editGrid}>
-                        <View style={styles.editField}>
-                          <Text style={[styles.editLabel, { color: Colors.text }]}>Full Name</Text>
-                          <TextInput
-                            style={[styles.editInput, { backgroundColor: Colors.background, color: Colors.text, borderColor: Colors.border }]}
-                            value={editName}
-                            onChangeText={setEditName}
-                            placeholder="Full name"
-                            placeholderTextColor={Colors.textSecondary}
-                          />
-                        </View>
-                        <View style={styles.editField}>
-                          <Text style={[styles.editLabel, { color: Colors.text }]}>Phone</Text>
-                          <TextInput
-                            style={[styles.editInput, { backgroundColor: Colors.background, color: Colors.text, borderColor: Colors.border }]}
-                            value={editPhone}
-                            onChangeText={setEditPhone}
-                            placeholder="Phone number"
-                            placeholderTextColor={Colors.textSecondary}
-                            keyboardType="phone-pad"
-                          />
-                        </View>
-                        <View style={styles.editField}>
-                          <Text style={[styles.editLabel, { color: Colors.text }]}>Department</Text>
-                          <TextInput
-                            style={[styles.editInput, { backgroundColor: Colors.background, color: Colors.text, borderColor: Colors.border }]}
-                            value={editDept}
-                            onChangeText={setEditDept}
-                            placeholder="Department"
-                            placeholderTextColor={Colors.textSecondary}
-                          />
-                        </View>
-                        <View style={styles.editField}>
-                          <Text style={[styles.editLabel, { color: Colors.text }]}>Bio</Text>
-                          <TextInput
-                            style={[styles.editInput, styles.editTextArea, { backgroundColor: Colors.background, color: Colors.text, borderColor: Colors.border }]}
-                            value={editBio}
-                            onChangeText={setEditBio}
-                            placeholder="Short bio"
-                            placeholderTextColor={Colors.textSecondary}
-                            multiline
-                          />
-                        </View>
                         <TouchableOpacity
-                          style={[styles.editSaveBtn, { backgroundColor: Colors.primary }]}
-                          onPress={handleSaveProfileEdits}
-                          disabled={isProcessing}
+                          style={styles.removeAvatarBtn}
+                          onPress={handleAdminAvatarRemove}
+                          disabled={isUploading || !selectedUser.avatar_url}
                         >
-                          <Text style={styles.editSaveText}>Save Changes</Text>
+                          <MaterialIcons
+                            name="delete-outline"
+                            size={16}
+                            color={selectedUser.avatar_url ? '#ef4444' : Colors.textSecondary}
+                          />
+                          <Text
+                            style={[
+                              styles.removeAvatarText,
+                              { color: selectedUser.avatar_url ? '#ef4444' : Colors.textSecondary },
+                            ]}
+                          >
+                            Remove photo
+                          </Text>
                         </TouchableOpacity>
                       </View>
 
-                      {/* Change Role */}
-                      <Text style={[styles.sheetSectionLabel, { color: Colors.textSecondary }]}>Change Role</Text>
-                      <View style={styles.roleGrid}>
-                        {['student', 'faculty', 'alumni', 'admin', 'developer'].map((role) => (
-                          <TouchableOpacity
-                            key={role}
-                            style={[
-                              styles.roleButton,
-                              { borderColor: Colors.border, backgroundColor: Colors.background },
-                              selectedUser.role === role && { backgroundColor: Colors.primary, borderColor: Colors.primary },
-                            ]}
-                            onPress={() => handleChangeRole(selectedUser, role)}
-                            disabled={isProcessing}
-                          >
-                            <Text style={[styles.roleButtonText, { color: selectedUser.role === role ? '#fff' : Colors.text }]}>
-                              {role.charAt(0).toUpperCase() + role.slice(1)}
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
+                      <View style={styles.modalTabs}>
+                        <TouchableOpacity
+                          style={[
+                            styles.modalTab,
+                            { borderColor: Colors.border, backgroundColor: Colors.background },
+                            activeModalTab === 'profile' && { backgroundColor: Colors.primary, borderColor: Colors.primary },
+                          ]}
+                          onPress={() => setActiveModalTab('profile')}
+                        >
+                          <Text style={[styles.modalTabText, { color: activeModalTab === 'profile' ? '#fff' : Colors.text }]}>Profile</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[
+                            styles.modalTab,
+                            { borderColor: Colors.border, backgroundColor: Colors.background },
+                            activeModalTab === 'role' && { backgroundColor: Colors.primary, borderColor: Colors.primary },
+                          ]}
+                          onPress={() => setActiveModalTab('role')}
+                        >
+                          <Text style={[styles.modalTabText, { color: activeModalTab === 'role' ? '#fff' : Colors.text }]}>Role</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[
+                            styles.modalTab,
+                            { borderColor: Colors.border, backgroundColor: Colors.background },
+                            activeModalTab === 'safety' && { backgroundColor: Colors.primary, borderColor: Colors.primary },
+                          ]}
+                          onPress={() => setActiveModalTab('safety')}
+                        >
+                          <Text style={[styles.modalTabText, { color: activeModalTab === 'safety' ? '#fff' : Colors.text }]}>Safety</Text>
+                        </TouchableOpacity>
                       </View>
 
-                      {/* View Profile */}
-                      <TouchableOpacity
-                        style={[styles.actionRow, { backgroundColor: Colors.background }]}
-                        onPress={() => { setShowUserModal(false); navigation.navigate('PublicProfile', { userId: selectedUser.id }); }}
-                      >
-                        <MaterialIcons name="person" size={20} color={Colors.primary} />
-                        <Text style={[styles.actionRowText, { color: Colors.text }]}>View Profile</Text>
-                        <MaterialIcons name="chevron-right" size={18} color={Colors.textSecondary} />
-                      </TouchableOpacity>
+                      {activeModalTab === 'profile' && (
+                        <>
+                          <Text style={[styles.sheetSectionLabel, { color: Colors.textSecondary }]}>Edit Profile</Text>
+                          <View style={styles.editGrid}>
+                            <View style={styles.editField}>
+                              <Text style={[styles.editLabel, { color: Colors.text }]}>Full Name</Text>
+                              <TextInput
+                                style={[styles.editInput, { backgroundColor: Colors.background, color: Colors.text, borderColor: Colors.border }]}
+                                value={editName}
+                                onChangeText={setEditName}
+                                placeholder="Full name"
+                                placeholderTextColor={Colors.textSecondary}
+                              />
+                            </View>
+                            <View style={styles.editField}>
+                              <Text style={[styles.editLabel, { color: Colors.text }]}>Phone</Text>
+                              <TextInput
+                                style={[styles.editInput, { backgroundColor: Colors.background, color: Colors.text, borderColor: Colors.border }]}
+                                value={editPhone}
+                                onChangeText={setEditPhone}
+                                placeholder="Phone number"
+                                placeholderTextColor={Colors.textSecondary}
+                                keyboardType="phone-pad"
+                              />
+                            </View>
+                            <View style={styles.editField}>
+                              <Text style={[styles.editLabel, { color: Colors.text }]}>Department</Text>
+                              <TouchableOpacity
+                                style={[styles.dropdownInput, { backgroundColor: Colors.background, borderColor: Colors.border }]}
+                                onPress={() => setShowDepartmentPicker(true)}
+                              >
+                                <Text style={[styles.dropdownInputText, { color: editDept ? Colors.text : Colors.textSecondary }]} numberOfLines={1}>
+                                  {editDept || 'Select department'}
+                                </Text>
+                                <MaterialIcons name="keyboard-arrow-down" size={20} color={Colors.textSecondary} />
+                              </TouchableOpacity>
+                            </View>
+                            <View style={styles.editField}>
+                              <Text style={[styles.editLabel, { color: Colors.text }]}>Bio</Text>
+                              <TextInput
+                                style={[styles.editInput, styles.editTextArea, { backgroundColor: Colors.background, color: Colors.text, borderColor: Colors.border }]}
+                                value={editBio}
+                                onChangeText={setEditBio}
+                                placeholder="Short bio"
+                                placeholderTextColor={Colors.textSecondary}
+                                multiline
+                              />
+                            </View>
+                            <TouchableOpacity
+                              style={[styles.editSaveBtn, { backgroundColor: Colors.primary }]}
+                              onPress={handleSaveProfileEdits}
+                              disabled={isProcessing}
+                            >
+                              <Text style={styles.editSaveText}>Save Changes</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </>
+                      )}
 
-                      {/* Ban / Unban — admin only, NOT self */}
-                      {isAdmin && selectedUser.id !== user?.id && (
+                      {activeModalTab === 'role' && (
+                        <>
+                          <Text style={[styles.sheetSectionLabel, { color: Colors.textSecondary }]}>Change Role</Text>
+                          <View style={styles.roleGrid}>
+                            {['student', 'faculty', 'alumni', 'admin', 'developer'].map((role) => (
+                              <TouchableOpacity
+                                key={role}
+                                style={[
+                                  styles.roleButton,
+                                  { borderColor: Colors.border, backgroundColor: Colors.background },
+                                  selectedUser.role === role && { backgroundColor: Colors.primary, borderColor: Colors.primary },
+                                ]}
+                                onPress={() => handleChangeRole(selectedUser, role)}
+                                disabled={isProcessing}
+                              >
+                                <Text style={[styles.roleButtonText, { color: selectedUser.role === role ? '#fff' : Colors.text }]}>
+                                  {role.charAt(0).toUpperCase() + role.slice(1)}
+                                </Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+
+                          <TouchableOpacity
+                            style={[styles.actionRow, { backgroundColor: Colors.background }]}
+                            onPress={() => { setShowUserModal(false); navigation.navigate('PublicProfile', { userId: selectedUser.id }); }}
+                          >
+                            <MaterialIcons name="person" size={20} color={Colors.primary} />
+                            <Text style={[styles.actionRowText, { color: Colors.text }]}>View Profile</Text>
+                            <MaterialIcons name="chevron-right" size={18} color={Colors.textSecondary} />
+                          </TouchableOpacity>
+                        </>
+                      )}
+
+                      {activeModalTab === 'safety' && isAdmin && selectedUser.id !== user?.id && (
                         bannedIds.includes(selectedUser.id) ? (
                           <TouchableOpacity
                             style={[styles.banBtn, styles.unbanBtn]}
@@ -543,6 +740,188 @@ export default function AdminUsersScreen() {
           </View>
         </View>
       </Modal>
+
+      <Modal visible={showFiltersModal} transparent animationType="slide" onRequestClose={() => setShowFiltersModal(false)}>
+        <View style={styles.sheet}>
+          <View style={[styles.sheetContent, { backgroundColor: Colors.surface }]}> 
+            <View style={styles.sheetHeader}>
+              <Text style={[styles.sheetTitle, { color: Colors.text }]}>Filter Users</Text>
+              <TouchableOpacity onPress={() => setShowFiltersModal(false)}>
+                <MaterialIcons name="close" size={22} color={Colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView>
+              <Text style={[styles.sheetSectionLabel, { color: Colors.textSecondary }]}>Role</Text>
+              <View style={styles.roleGrid}>
+                {(['all', 'student', 'faculty', 'alumni', 'admin', 'developer'] as RoleFilter[]).map((role) => (
+                  <TouchableOpacity
+                    key={role}
+                    style={[
+                      styles.roleButton,
+                      { borderColor: Colors.border, backgroundColor: Colors.background },
+                      draftFilters.role === role && { backgroundColor: Colors.primary, borderColor: Colors.primary },
+                    ]}
+                    onPress={() => setDraftFilters((prev) => ({ ...prev, role }))}
+                  >
+                    <Text style={[styles.roleButtonText, { color: draftFilters.role === role ? '#fff' : Colors.text }]}>
+                      {role.charAt(0).toUpperCase() + role.slice(1)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <View style={styles.editField}>
+                <Text style={[styles.editLabel, { color: Colors.text }]}>Department</Text>
+                <TouchableOpacity
+                  style={[styles.dropdownInput, { backgroundColor: Colors.background, borderColor: Colors.border }]}
+                  onPress={() => setShowFilterDepartmentPicker(true)}
+                >
+                  <Text style={[styles.dropdownInputText, { color: draftFilters.department ? Colors.text : Colors.textSecondary }]} numberOfLines={1}>
+                    {draftFilters.department || 'All departments'}
+                  </Text>
+                  <MaterialIcons name="keyboard-arrow-down" size={20} color={Colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.editField}>
+                <Text style={[styles.editLabel, { color: Colors.text }]}>Year</Text>
+                <TouchableOpacity
+                  style={[styles.dropdownInput, { backgroundColor: Colors.background, borderColor: Colors.border }]}
+                  onPress={() => setShowFilterYearPicker(true)}
+                >
+                  <Text style={[styles.dropdownInputText, { color: draftFilters.year ? Colors.text : Colors.textSecondary }]}>
+                    {draftFilters.year || 'All years'}
+                  </Text>
+                  <MaterialIcons name="keyboard-arrow-down" size={20} color={Colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.editField}>
+                <Text style={[styles.editLabel, { color: Colors.text }]}>Semester</Text>
+                <TouchableOpacity
+                  style={[styles.dropdownInput, { backgroundColor: Colors.background, borderColor: Colors.border }]}
+                  onPress={() => setShowFilterSemesterPicker(true)}
+                >
+                  <Text style={[styles.dropdownInputText, { color: draftFilters.semester ? Colors.text : Colors.textSecondary }]}>
+                    {draftFilters.semester || 'All semesters'}
+                  </Text>
+                  <MaterialIcons name="keyboard-arrow-down" size={20} color={Colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.editField}>
+                <Text style={[styles.editLabel, { color: Colors.text }]}>Section</Text>
+                <TouchableOpacity
+                  style={[styles.dropdownInput, { backgroundColor: Colors.background, borderColor: Colors.border }]}
+                  onPress={() => setShowFilterSectionPicker(true)}
+                >
+                  <Text style={[styles.dropdownInputText, { color: draftFilters.section ? Colors.text : Colors.textSecondary }]}>
+                    {draftFilters.section || 'All sections'}
+                  </Text>
+                  <MaterialIcons name="keyboard-arrow-down" size={20} color={Colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.filterModalActions}>
+                <TouchableOpacity
+                  style={[styles.filterModalButton, { borderColor: Colors.border, borderWidth: 1 }]}
+                  onPress={resetDraftFilters}
+                >
+                  <Text style={[styles.filterModalButtonText, { color: Colors.text }]}>Reset</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.filterModalButton, { backgroundColor: Colors.primary }]}
+                  onPress={applyDraftFilters}
+                >
+                  <Text style={[styles.filterModalButtonText, { color: '#fff' }]}>Apply Filters</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      <ConfirmDialog
+        visible={showRemoveAvatarConfirm}
+        title="Remove Profile Photo"
+        message={`Are you sure you want to remove ${selectedUser?.full_name || 'this user'}'s avatar?`}
+        confirmText="Remove"
+        cancelText="Cancel"
+        type="danger"
+        onCancel={() => setShowRemoveAvatarConfirm(false)}
+        onConfirm={confirmAdminAvatarRemove}
+      />
+
+      <DropdownSheet
+        visible={showDepartmentPicker}
+        title="Select Department"
+        options={[...DEPARTMENT_OPTIONS] as string[]}
+        onClose={() => setShowDepartmentPicker(false)}
+        onSelect={(value) => {
+          setEditDept(value);
+          setShowDepartmentPicker(false);
+        }}
+      />
+
+      <DropdownSheet
+        visible={showFilterDepartmentPicker}
+        title="Department"
+        options={['All departments', ...([...(DEPARTMENT_OPTIONS as unknown as string[])] as string[])]}
+        onClose={() => setShowFilterDepartmentPicker(false)}
+        onSelect={(value) => {
+          const nextDepartment = value === 'All departments' ? '' : value;
+          setDraftFilters((prev) => {
+            const nextSectionOptions = getSectionOptions(nextDepartment);
+            const normalizedSection = String(prev.section || '').toUpperCase();
+            const keepSection = !normalizedSection || nextSectionOptions.includes(normalizedSection);
+            return {
+              ...prev,
+              department: nextDepartment,
+              section: keepSection ? prev.section : '',
+              year: prev.year && Number(prev.year) > getDepartmentAcademicLimits(nextDepartment).maxYears ? '' : prev.year,
+              semester:
+                prev.semester && Number(prev.semester) > getDepartmentAcademicLimits(nextDepartment).maxSemesters
+                  ? ''
+                  : prev.semester,
+            };
+          });
+          setShowFilterDepartmentPicker(false);
+        }}
+      />
+
+      <DropdownSheet
+        visible={showFilterYearPicker}
+        title="Year"
+        options={['All years', ...filterYearOptions]}
+        onClose={() => setShowFilterYearPicker(false)}
+        onSelect={(value) => {
+          setDraftFilters((prev) => ({ ...prev, year: value === 'All years' ? '' : value }));
+          setShowFilterYearPicker(false);
+        }}
+      />
+
+      <DropdownSheet
+        visible={showFilterSemesterPicker}
+        title="Semester"
+        options={['All semesters', ...filterSemesterOptions]}
+        onClose={() => setShowFilterSemesterPicker(false)}
+        onSelect={(value) => {
+          setDraftFilters((prev) => ({ ...prev, semester: value === 'All semesters' ? '' : value }));
+          setShowFilterSemesterPicker(false);
+        }}
+      />
+
+      <DropdownSheet
+        visible={showFilterSectionPicker}
+        title="Section"
+        options={['All sections', ...filterSectionOptions]}
+        onClose={() => setShowFilterSectionPicker(false)}
+        onSelect={(value) => {
+          setDraftFilters((prev) => ({ ...prev, section: value === 'All sections' ? '' : value }));
+          setShowFilterSectionPicker(false);
+        }}
+      />
 
       {/* Ban Configuration Modal */}
       <Modal visible={showBanModal} transparent animationType="fade" onRequestClose={() => setShowBanModal(false)}>
@@ -625,6 +1004,13 @@ const createStyles = (Colors: any) => StyleSheet.create({
   summaryValue: { fontSize: FontSizes.md, fontWeight: FontWeights.bold },
   searchBar: { flexDirection: 'row', alignItems: 'center', marginHorizontal: Spacing.md, marginVertical: 10, paddingHorizontal: 12, borderRadius: BorderRadius.lg, borderWidth: 1, gap: 8 },
   searchInput: { flex: 1, paddingVertical: 11, fontSize: FontSizes.sm },
+  filterActionRow: { paddingHorizontal: Spacing.md, paddingBottom: Spacing.sm, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  filterButton: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderRadius: BorderRadius.lg, paddingHorizontal: 12, paddingVertical: 10, gap: 8 },
+  filterButtonText: { fontSize: FontSizes.sm, fontWeight: FontWeights.semibold },
+  filterCountBadge: { minWidth: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 5 },
+  filterCountText: { color: '#fff', fontSize: FontSizes.xs, fontWeight: FontWeights.bold },
+  clearFilterBtn: { paddingVertical: 6, paddingHorizontal: 8 },
+  clearFilterText: { fontSize: FontSizes.sm, fontWeight: FontWeights.medium },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 10 },
   emptyText: { fontSize: FontSizes.md },
   listContent: { paddingHorizontal: Spacing.md, paddingBottom: 24 },
@@ -640,10 +1026,15 @@ const createStyles = (Colors: any) => StyleSheet.create({
   sheetTitle: { fontSize: FontSizes.lg, fontWeight: FontWeights.bold },
   sheetSub: { fontSize: FontSizes.xs, marginTop: 2 },
   sheetSectionLabel: { fontSize: 12, fontWeight: '600', marginBottom: 8, marginTop: 12 },
+  modalTabs: { flexDirection: 'row', gap: 8, marginBottom: 6 },
+  modalTab: { flex: 1, borderWidth: 1, borderRadius: BorderRadius.full, paddingVertical: 8, alignItems: 'center' },
+  modalTabText: { fontSize: FontSizes.xs, fontWeight: FontWeights.semibold },
   editGrid: { gap: 10, marginBottom: 8 },
   editField: { gap: 6 },
   editLabel: { fontSize: FontSizes.xs, fontWeight: FontWeights.semibold },
   editInput: { borderWidth: 1, borderRadius: BorderRadius.lg, paddingHorizontal: 12, paddingVertical: 10, fontSize: FontSizes.sm },
+  dropdownInput: { borderWidth: 1, borderRadius: BorderRadius.lg, paddingHorizontal: 12, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  dropdownInputText: { flex: 1, fontSize: FontSizes.sm, marginRight: 8 },
   editTextArea: { minHeight: 80, textAlignVertical: 'top' },
   editSaveBtn: { alignItems: 'center', paddingVertical: 12, borderRadius: BorderRadius.lg, marginTop: 4 },
   editSaveText: { color: '#fff', fontSize: FontSizes.sm, fontWeight: FontWeights.semibold },
@@ -669,6 +1060,9 @@ const createStyles = (Colors: any) => StyleSheet.create({
   banActions: { flexDirection: 'row', gap: 10, marginTop: 8 },
   banActionBtn: { flex: 1, paddingVertical: 14, borderRadius: BorderRadius.lg, alignItems: 'center' },
   banActionText: { fontSize: FontSizes.sm, fontWeight: FontWeights.bold },
+  filterModalActions: { flexDirection: 'row', gap: 10, marginTop: 16, marginBottom: 12 },
+  filterModalButton: { flex: 1, paddingVertical: 12, borderRadius: BorderRadius.lg, alignItems: 'center', justifyContent: 'center' },
+  filterModalButtonText: { fontSize: FontSizes.sm, fontWeight: FontWeights.semibold },
   selfNotice: { flexDirection: 'row', alignItems: 'center', gap: 10, margin: 16, padding: 14, borderRadius: BorderRadius.lg, borderWidth: 1 },
   selfNoticeText: { flex: 1, fontSize: FontSizes.sm, fontWeight: FontWeights.medium, lineHeight: 20 },
   // Avatar upload
@@ -679,4 +1073,6 @@ const createStyles = (Colors: any) => StyleSheet.create({
   avatarUploadPlaceholder: { backgroundColor: '#6366f1', alignItems: 'center' as const, justifyContent: 'center' as const },
   avatarUploadInitials: { color: '#fff', fontSize: 22, fontWeight: '700' as const },
   avatarCameraBadge: { position: 'absolute' as const, bottom: 0, right: 0, width: 22, height: 22, borderRadius: 11, backgroundColor: '#6366f1', alignItems: 'center' as const, justifyContent: 'center' as const, borderWidth: 2, borderColor: '#fff' },
+  removeAvatarBtn: { marginTop: 10, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 4 },
+  removeAvatarText: { fontSize: 12, fontWeight: FontWeights.semibold },
 });

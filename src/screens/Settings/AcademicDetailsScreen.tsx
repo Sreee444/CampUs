@@ -23,7 +23,8 @@ import { updateProfile } from '../../api/auth';
 import { Profile } from '../../types/database';
 import {
   DEPARTMENT_OPTIONS,
-  SECTION_OPTIONS,
+  getDepartmentAcademicLimits,
+  getSectionOptions,
   getSpecializationOptions,
 } from '../../constants/academic';
 import { calculateAcademicFields, ROLL_NUMBER_REGEX } from '../../utils/academic';
@@ -198,7 +199,7 @@ export default function AcademicDetailsScreen() {
 
   const [department, setDepartment] = useState<string | null>(null);
   const [specialization, setSpecialization] = useState<string | null>(null);
-  const [section, setSection] = useState<'A' | 'B' | 'C' | 'D' | null>(null);
+  const [section, setSection] = useState<'A' | 'B' | 'C' | null>(null);
   const [facultyDesignation, setFacultyDesignation] = useState<string | null>(null);
   const [rollNumber, setRollNumber] = useState('');
   const [yearOfAdmission, setYearOfAdmission] = useState<number | null>(null);
@@ -221,8 +222,8 @@ export default function AcademicDetailsScreen() {
   });
 
   const computedAcademic = useMemo(
-    () => calculateAcademicFields(yearOfAdmission),
-    [yearOfAdmission]
+    () => calculateAcademicFields(yearOfAdmission, department),
+    [yearOfAdmission, department]
   );
   const role = profile?.role;
   const isStudent = role === 'student';
@@ -236,6 +237,8 @@ export default function AcademicDetailsScreen() {
     () => getSpecializationOptions(department),
     [department]
   );
+  const sectionOptions = useMemo(() => getSectionOptions(department), [department]);
+  const programLimits = useMemo(() => getDepartmentAcademicLimits(department), [department]);
 
   useEffect(() => {
     if (!profile) return;
@@ -254,6 +257,12 @@ export default function AcademicDetailsScreen() {
     }
   }, [specialization, specializationOptions]);
 
+  useEffect(() => {
+    if (!sectionOptions.includes(section || '')) {
+      setSection((sectionOptions[0] || 'A') as 'A' | 'B' | 'C');
+    }
+  }, [section, sectionOptions]);
+
   const selectAndClose = (action: () => void) => {
     action();
     setOpenDropdown(null);
@@ -268,19 +277,20 @@ export default function AcademicDetailsScreen() {
       return { title: 'Select Admission Year', options: admissionYearOptions.map(String) };
     }
     if (openDropdown === 'section') {
-      return { title: 'Select Section', options: [...SECTION_OPTIONS] as string[] };
+      return { title: 'Select Section', options: sectionOptions };
     }
     if (openDropdown === 'faculty_designation') {
       return { title: 'Select Designation', options: [...FACULTY_DESIGNATIONS] as string[] };
     }
     return { title: 'Select Specialization', options: specializationOptions };
-  }, [openDropdown, admissionYearOptions, specializationOptions]);
+  }, [openDropdown, admissionYearOptions, specializationOptions, sectionOptions]);
 
   const handleSheetSelect = (value: string) => {
     if (openDropdown === 'department') {
       selectAndClose(() => {
         setDepartment(value);
         setSpecialization(null);
+        setSection((getSectionOptions(value)[0] || 'A') as 'A' | 'B' | 'C');
       });
       return;
     }
@@ -289,7 +299,7 @@ export default function AcademicDetailsScreen() {
       return;
     }
     if (openDropdown === 'section') {
-      selectAndClose(() => setSection(value as 'A' | 'B' | 'C' | 'D'));
+      selectAndClose(() => setSection(value as 'A' | 'B' | 'C'));
       return;
     }
     if (openDropdown === 'faculty_designation') {
@@ -310,7 +320,7 @@ export default function AcademicDetailsScreen() {
       if (!yearOfAdmission) nextErrors.year_of_admission = 'Select year of admission';
       if (!department) nextErrors.department = 'Select department';
       if (!specialization) nextErrors.specialization = 'Select specialization';
-      if (!section) nextErrors.section = 'Select section';
+      if (sectionOptions.length > 1 && !section) nextErrors.section = 'Select section';
 
       if (!rollNumber.trim()) {
         nextErrors.roll_number = 'Roll number is required';
@@ -433,17 +443,24 @@ export default function AcademicDetailsScreen() {
                   <View style={styles.inputGroup}>
                     <Text style={styles.label}>Section</Text>
                     <View style={styles.dropdownContainer}>
-                      <TouchableOpacity
-                        style={[styles.dropdownField, (isGraduated || isAlumniLocked) && styles.disabledInput]}
-                        disabled={isGraduated || isAlumniLocked}
-                        onPress={() => setOpenDropdown(openDropdown === 'section' ? null : 'section')}
-                      >
-                        <MaterialIcons name="groups" size={20} color={Colors.textSecondary} style={styles.dropdownLeftIcon} />
-                        <Text style={[styles.dropdownText, !section && styles.dropdownPlaceholder]}>
-                          {section || 'Select'}
-                        </Text>
-                        <MaterialIcons name="keyboard-arrow-down" size={22} color={Colors.textSecondary} />
-                      </TouchableOpacity>
+                      {sectionOptions.length > 1 ? (
+                        <TouchableOpacity
+                          style={[styles.dropdownField, (isGraduated || isAlumniLocked) && styles.disabledInput]}
+                          disabled={isGraduated || isAlumniLocked}
+                          onPress={() => setOpenDropdown(openDropdown === 'section' ? null : 'section')}
+                        >
+                          <MaterialIcons name="groups" size={20} color={Colors.textSecondary} style={styles.dropdownLeftIcon} />
+                          <Text style={[styles.dropdownText, !section && styles.dropdownPlaceholder]}>
+                            {section || sectionOptions[0] || 'A'}
+                          </Text>
+                          <MaterialIcons name="keyboard-arrow-down" size={22} color={Colors.textSecondary} />
+                        </TouchableOpacity>
+                      ) : (
+                        <View style={[styles.dropdownField, styles.disabledInput]}>
+                          <MaterialIcons name="groups" size={20} color={Colors.textSecondary} style={styles.dropdownLeftIcon} />
+                          <Text style={styles.dropdownText}>{sectionOptions[0] || 'A'}</Text>
+                        </View>
+                      )}
                     </View>
                     {!!errors.section && <Text style={styles.errorText}>{errors.section}</Text>}
                   </View>
@@ -533,7 +550,7 @@ export default function AcademicDetailsScreen() {
                 <View style={styles.col}>
                   <View style={styles.inputGroup}>
                     <Text style={styles.label}>Year</Text>
-                    <TextInput style={[styles.input, styles.disabledInput]} value={computedAcademic.year ? String(computedAcademic.year) : '-'} editable={false} />
+                    <TextInput style={[styles.input, styles.disabledInput]} value={computedAcademic.year ? `${computedAcademic.year}/${programLimits.maxYears}` : '-'} editable={false} />
                   </View>
                 </View>
                 <View style={styles.col}>
@@ -541,7 +558,7 @@ export default function AcademicDetailsScreen() {
                     <Text style={styles.label}>Semester</Text>
                     <TextInput
                       style={[styles.input, styles.disabledInput]}
-                      value={computedAcademic.semester ? String(computedAcademic.semester) : '-'}
+                      value={computedAcademic.semester ? `${computedAcademic.semester}/${programLimits.maxSemesters}` : '-'}
                       editable={false}
                     />
                   </View>

@@ -53,6 +53,7 @@ export type RootStackParamList = {
   AdminAnalytics: undefined;
   AdminDiscussions: undefined;
   AIInsights: undefined;
+  QuickRecommendations: undefined;
   AISuggestions: undefined;
   TeamInvitations: undefined;
   NotificationDetails: { notificationId: string };

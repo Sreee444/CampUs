@@ -24,7 +24,8 @@ import { updateProfile, uploadAvatar } from '../../api/auth';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   DEPARTMENT_OPTIONS,
-  SECTION_OPTIONS,
+  getDepartmentAcademicLimits,
+  getSectionOptions,
   getSpecializationOptions,
 } from '../../constants/academic';
 import { calculateAcademicFields, ROLL_NUMBER_REGEX } from '../../utils/academic';
@@ -92,15 +93,26 @@ export default function CompleteProfileScreen() {
   }>({});
 
   // ─── Derived ─────────────────────────────────────────────────────────────────
-  const computedAcademic = useMemo(() => calculateAcademicFields(yearOfAdmission), [yearOfAdmission]);
+  const computedAcademic = useMemo(
+    () => calculateAcademicFields(yearOfAdmission, department),
+    [yearOfAdmission, department]
+  );
   const isGraduated = computedAcademic.academic_status === 'graduated';
   const specializationOptions = useMemo(() => getSpecializationOptions(department), [department]);
+  const sectionOptions = useMemo(() => getSectionOptions(department), [department]);
+  const programLimits = useMemo(() => getDepartmentAcademicLimits(department), [department]);
 
   // Reset specialization when department changes
   useEffect(() => {
     if (!specialization) return;
     if (!specializationOptions.includes(specialization)) setSpecialization(null);
   }, [specialization, specializationOptions]);
+
+  useEffect(() => {
+    if (!sectionOptions.includes(section || '')) {
+      setSection((sectionOptions[0] || 'A') as 'A' | 'B' | 'C');
+    }
+  }, [section, sectionOptions]);
 
   // Reset hydration gate when auth user changes.
   useEffect(() => {
@@ -151,14 +163,15 @@ export default function CompleteProfileScreen() {
     if (openDropdown === 'year_of_admission')
       return { title: 'Select Admission Year', options: admissionYearOptions.map(String) };
     if (openDropdown === 'section')
-      return { title: 'Select Section', options: [...SECTION_OPTIONS] as string[] };
+      return { title: 'Select Section', options: sectionOptions };
     return { title: 'Select Specialization', options: specializationOptions };
-  }, [openDropdown, admissionYearOptions, specializationOptions]);
+  }, [openDropdown, admissionYearOptions, specializationOptions, sectionOptions]);
 
   const handleSheetSelect = (value: string) => {
     if (openDropdown === 'department') {
       setDepartment(value);
       setSpecialization(null);
+      setSection((getSectionOptions(value)[0] || 'A') as 'A' | 'B' | 'C');
       setErrors((e) => ({ ...e, department: undefined }));
     } else if (openDropdown === 'year_of_admission') {
       setYearOfAdmission(Number(value));
@@ -206,7 +219,7 @@ export default function CompleteProfileScreen() {
     if (!fullName.trim()) nextErrors.fullName = 'Full name is required';
     if (!department) nextErrors.department = 'Select your department';
     if (!specialization) nextErrors.specialization = 'Select specialization';
-    if (!section) nextErrors.section = 'Select your section';
+    if (sectionOptions.length > 1 && !section) nextErrors.section = 'Select your section';
     if (!yearOfAdmission) nextErrors.yearOfAdmission = 'Select year of admission';
     if (!rollNumber.trim()) {
       nextErrors.rollNumber = 'Roll number is required';
@@ -432,17 +445,24 @@ export default function CompleteProfileScreen() {
             <View style={styles.twoCol}>
               <View style={[styles.col, { marginRight: 6 }]}>
                 <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Section *</Text>
-                  <TouchableOpacity
-                    style={styles.dropdownField}
-                    onPress={() => setOpenDropdown(openDropdown === 'section' ? null : 'section')}
-                  >
-                    <MaterialIcons name="groups" size={20} color="#94a3b8" style={styles.inputIcon} />
-                    <Text style={[styles.dropdownText, !section && styles.dropdownPlaceholder]}>
-                      {section || 'A / B / C / D'}
-                    </Text>
-                    <MaterialIcons name="keyboard-arrow-down" size={20} color="#64748b" />
-                  </TouchableOpacity>
+                  <Text style={styles.label}>{sectionOptions.length > 1 ? 'Section *' : 'Section'}</Text>
+                  {sectionOptions.length > 1 ? (
+                    <TouchableOpacity
+                      style={styles.dropdownField}
+                      onPress={() => setOpenDropdown(openDropdown === 'section' ? null : 'section')}
+                    >
+                      <MaterialIcons name="groups" size={20} color="#94a3b8" style={styles.inputIcon} />
+                      <Text style={[styles.dropdownText, !section && styles.dropdownPlaceholder]}>
+                        {section || sectionOptions[0] || 'A'}
+                      </Text>
+                      <MaterialIcons name="keyboard-arrow-down" size={20} color="#64748b" />
+                    </TouchableOpacity>
+                  ) : (
+                    <View style={[styles.dropdownField, styles.disabledInput]}>
+                      <MaterialIcons name="groups" size={20} color="#94a3b8" style={styles.inputIcon} />
+                      <Text style={styles.dropdownText}>{sectionOptions[0] || 'A'}</Text>
+                    </View>
+                  )}
                   {!!errors.section && <Text style={styles.helperError}>{errors.section}</Text>}
                 </View>
               </View>
@@ -475,7 +495,7 @@ export default function CompleteProfileScreen() {
                     <MaterialIcons name="school" size={20} color="#94a3b8" style={styles.inputIcon} />
                     <TextInput
                       style={styles.input}
-                      value={computedAcademic.year ? String(computedAcademic.year) : '–'}
+                      value={computedAcademic.year ? `${computedAcademic.year}/${programLimits.maxYears}` : '–'}
                       editable={false}
                     />
                   </View>
@@ -488,7 +508,7 @@ export default function CompleteProfileScreen() {
                     <MaterialIcons name="menu-book" size={20} color="#94a3b8" style={styles.inputIcon} />
                     <TextInput
                       style={styles.input}
-                      value={computedAcademic.semester ? String(computedAcademic.semester) : '–'}
+                      value={computedAcademic.semester ? `${computedAcademic.semester}/${programLimits.maxSemesters}` : '–'}
                       editable={false}
                     />
                   </View>

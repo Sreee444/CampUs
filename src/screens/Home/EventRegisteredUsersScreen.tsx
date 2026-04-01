@@ -33,8 +33,8 @@ type EventRegisteredUsersScreenNavigationProp = StackNavigationProp<
 >;
 type EventRegisteredUsersScreenRouteProp = RouteProp<RootStackParamList, 'EventRegisteredUsers'>;
 
-const STANDARD_SEMESTERS = ['1', '2', '3', '4', '5', '6', '7', '8'];
-const STANDARD_YEARS = ['1', '2', '3', '4'];
+const STANDARD_SEMESTERS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'];
+const STANDARD_YEARS = ['1', '2', '3', '4', '5'];
 const EXPORT_HEADERS = [
   'S.No',
   'Full Name',

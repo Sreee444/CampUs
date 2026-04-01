@@ -10,6 +10,7 @@ import {
   Image,
   ActivityIndicator,
   Platform,
+  Alert,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -20,12 +21,13 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { Toast } from '../../components/Toast';
 import DropdownSheet from '../../components/DropdownSheet';
-import { updateProfile, uploadAvatar } from '../../api/auth';
+import { removeAvatar, updateProfile, uploadAvatar } from '../../api/auth';
 import { Profile } from '../../types/database';
 import * as ImagePicker from 'expo-image-picker';
 import {
   DEPARTMENT_OPTIONS,
-  SECTION_OPTIONS,
+  getDepartmentAcademicLimits,
+  getSectionOptions,
   getSpecializationOptions,
 } from '../../constants/academic';
 import { calculateAcademicFields, ROLL_NUMBER_REGEX } from '../../utils/academic';
@@ -157,6 +159,10 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     changePhotoText: {
       fontSize: FontSizes.sm,
       color: Colors.primary,
+      fontWeight: FontWeights.medium,
+    },
+    removePhotoText: {
+      fontSize: FontSizes.sm,
       fontWeight: FontWeights.medium,
     },
     inputGroup: {
@@ -334,8 +340,8 @@ export default function EditProfileScreen() {
   }>({ visible: false, message: '', type: 'success' });
 
   const computedAcademic = useMemo(
-    () => calculateAcademicFields(yearOfAdmission),
-    [yearOfAdmission]
+    () => calculateAcademicFields(yearOfAdmission, department),
+    [yearOfAdmission, department]
   );
   const role = profile?.role;
   const isStudent = role === 'student';
@@ -349,6 +355,8 @@ export default function EditProfileScreen() {
     () => getSpecializationOptions(department),
     [department]
   );
+  const sectionOptions = useMemo(() => getSectionOptions(department), [department]);
+  const programLimits = useMemo(() => getDepartmentAcademicLimits(department), [department]);
 
   useEffect(() => {
     if (!specialization) return;
@@ -356,6 +364,12 @@ export default function EditProfileScreen() {
       setSpecialization(null);
     }
   }, [specialization, specializationOptions]);
+
+  useEffect(() => {
+    if (!sectionOptions.includes(section || '')) {
+      setSection((sectionOptions[0] || 'A') as 'A' | 'B' | 'C');
+    }
+  }, [section, sectionOptions]);
 
   useEffect(() => {
     if (!profile) return;
@@ -369,11 +383,14 @@ export default function EditProfileScreen() {
     setAvatarVersion(0);
     setDepartment(profile.department || null);
     setSpecialization(profile.specialization || null);
-    setSection(profile.section === 'D' ? null : profile.section || null);
+    const profileSection = String(profile.section || '').toUpperCase();
+    setSection(
+      (sectionOptions.includes(profileSection) ? profileSection : sectionOptions[0] || null) as 'A' | 'B' | 'C' | null
+    );
     setFacultyDesignation(profile.faculty_designation || null);
     setRollNumber(profile.roll_number || '');
     setYearOfAdmission(profile.year_of_admission ?? null);
-  }, [profile, isDirty]);
+  }, [profile, isDirty, sectionOptions]);
 
   useEffect(() => {
     setIsDirty(false);
@@ -443,6 +460,49 @@ export default function EditProfileScreen() {
     }
   };
 
+  const handleRemoveAvatar = async () => {
+    const userId = user?.id ?? profile?.id;
+    if (!userId) return;
+
+    if (!avatarUrl) {
+      setToast({ visible: true, message: 'No avatar to remove', type: 'error' });
+      return;
+    }
+
+    Alert.alert(
+      'Remove Profile Photo',
+      'Are you sure you want to remove your profile photo?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setIsUploading(true);
+              const removal = await removeAvatar(userId, avatarUrl);
+              await updateProfile(userId, { avatar_url: null });
+              setAvatarUrl('');
+              setAvatarVersion(Date.now());
+              setIsDirty(true);
+              await refreshProfile();
+              setToast({
+                visible: true,
+                message: removal.warning || 'Avatar removed successfully',
+                type: removal.warning ? 'info' : 'success',
+              });
+            } catch (error: any) {
+              console.error('EditProfile avatar remove failed:', error);
+              setToast({ visible: true, message: error.message || 'Failed to remove avatar', type: 'error' });
+            } finally {
+              setIsUploading(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const handleSave = async () => {
     const userId = user?.id ?? profile?.id;
     if (!userId) return;
@@ -470,7 +530,7 @@ export default function EditProfileScreen() {
 
       if (!department) nextErrors.department = 'Select department';
       if (!specialization) nextErrors.specialization = 'Select specialization';
-      if (!section) nextErrors.section = 'Select section';
+      if (sectionOptions.length > 1 && !section) nextErrors.section = 'Select section';
 
       if (!rollNumber.trim()) {
         nextErrors.roll_number = 'Roll number is required';
@@ -576,19 +636,20 @@ export default function EditProfileScreen() {
       return { title: 'Select Admission Year', options: admissionYearOptions.map(String) };
     }
     if (openDropdown === 'section') {
-      return { title: 'Select Section', options: [...SECTION_OPTIONS] as string[] };
+      return { title: 'Select Section', options: sectionOptions };
     }
     if (openDropdown === 'faculty_designation') {
       return { title: 'Select Designation', options: [...FACULTY_DESIGNATIONS] as string[] };
     }
     return { title: 'Select Specialization', options: specializationOptions };
-  }, [openDropdown, admissionYearOptions, specializationOptions]);
+  }, [openDropdown, admissionYearOptions, specializationOptions, sectionOptions]);
 
   const handleSheetSelect = (value: string) => {
     if (openDropdown === 'department') {
       selectAndClose(() => {
         setDepartment(value);
         setSpecialization(null);
+        setSection((getSectionOptions(value)[0] || 'A') as 'A' | 'B' | 'C');
       });
       return;
     }
@@ -655,6 +716,10 @@ export default function EditProfileScreen() {
                 <TouchableOpacity style={styles.changePhotoButton} onPress={handleTakePhoto} disabled={isUploading}>
                   <MaterialIcons name="camera-alt" size={18} color={Colors.primary} />
                   <Text style={styles.changePhotoText}>Camera</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.changePhotoButton} onPress={handleRemoveAvatar} disabled={isUploading || !avatarUrl}>
+                  <MaterialIcons name="delete-outline" size={18} color={avatarUrl ? '#ef4444' : Colors.textSecondary} />
+                  <Text style={[styles.removePhotoText, { color: avatarUrl ? '#ef4444' : Colors.textSecondary }]}>Remove</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -771,17 +836,24 @@ export default function EditProfileScreen() {
                   <View style={styles.inputGroup}>
                     <Text style={styles.label}>Section</Text>
                     <View style={styles.dropdownContainer}>
-                      <TouchableOpacity
-                        style={[styles.dropdownField, (isGraduated || isAlumniLocked) && styles.disabledInput]}
-                        disabled={isGraduated || isAlumniLocked}
-                        onPress={() => setOpenDropdown(openDropdown === 'section' ? null : 'section')}
-                      >
-                        <MaterialIcons name="groups" size={20} color={Colors.textSecondary} style={styles.dropdownLeftIcon} />
-                        <Text style={[styles.dropdownText, !section && styles.dropdownPlaceholder]}>
-                          {section || 'Select'}
-                        </Text>
-                        <MaterialIcons name="keyboard-arrow-down" size={22} color={Colors.textSecondary} />
-                      </TouchableOpacity>
+                      {sectionOptions.length > 1 ? (
+                        <TouchableOpacity
+                          style={[styles.dropdownField, (isGraduated || isAlumniLocked) && styles.disabledInput]}
+                          disabled={isGraduated || isAlumniLocked}
+                          onPress={() => setOpenDropdown(openDropdown === 'section' ? null : 'section')}
+                        >
+                          <MaterialIcons name="groups" size={20} color={Colors.textSecondary} style={styles.dropdownLeftIcon} />
+                          <Text style={[styles.dropdownText, !section && styles.dropdownPlaceholder]}>
+                            {section || sectionOptions[0] || 'A'}
+                          </Text>
+                          <MaterialIcons name="keyboard-arrow-down" size={22} color={Colors.textSecondary} />
+                        </TouchableOpacity>
+                      ) : (
+                        <View style={[styles.dropdownField, styles.disabledInput]}>
+                          <MaterialIcons name="groups" size={20} color={Colors.textSecondary} style={styles.dropdownLeftIcon} />
+                          <Text style={styles.dropdownText}>{sectionOptions[0] || 'A'}</Text>
+                        </View>
+                      )}
                     </View>
                     {!!errors.section && <Text style={styles.errorText}>{errors.section}</Text>}
                   </View>
@@ -875,7 +947,7 @@ export default function EditProfileScreen() {
                     <Text style={styles.label}>Year</Text>
                     <TextInput
                       style={[styles.input, styles.disabledInput]}
-                      value={computedAcademic.year ? String(computedAcademic.year) : '-'}
+                      value={computedAcademic.year ? `${computedAcademic.year}/${programLimits.maxYears}` : '-'}
                       editable={false}
                     />
                   </View>
@@ -885,7 +957,7 @@ export default function EditProfileScreen() {
                     <Text style={styles.label}>Semester</Text>
                     <TextInput
                       style={[styles.input, styles.disabledInput]}
-                      value={computedAcademic.semester ? String(computedAcademic.semester) : '-'}
+                      value={computedAcademic.semester ? `${computedAcademic.semester}/${programLimits.maxSemesters}` : '-'}
                       editable={false}
                     />
                   </View>

@@ -794,7 +794,7 @@ export default function FeedScreen() {
         <TouchableOpacity
           activeOpacity={0.85}
           style={styles.aiSuggestionStandalone}
-          onPress={() => navigation.navigate('AIInsights' as any)}
+          onPress={() => navigation.navigate('QuickRecommendations' as any)}
         >
           <View style={styles.aiSuggestionIconWrap}>
             <MaterialIcons name="auto-awesome" size={18} color="#4338CA" />

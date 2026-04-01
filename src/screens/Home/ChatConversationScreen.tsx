@@ -250,6 +250,7 @@ export default function ChatConversationScreen() {
   const [showBackgroundPicker, setShowBackgroundPicker] = useState(false);
   const [isLoadingBackground, setIsLoadingBackground] = useState(false);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+  const [realtimeRetryTick, setRealtimeRetryTick] = useState(0);
   const announcementPulse = useSharedValue(1);
   const announcementSlide = useSharedValue(-100);
   const announcementScale = useSharedValue(0.95);
@@ -259,6 +260,7 @@ export default function ChatConversationScreen() {
   const messageInputRef = useRef<TextInput | null>(null);
   const typingStopTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingSignalAtRef = useRef(0);
+  const reconnectAttemptRef = useRef(0);
   const reactionChoices = ['👍', '❤️', '😂', '😮', '😢', '👏'];
 
   const TYPING_IDLE_MS = 2200;
@@ -778,7 +780,7 @@ export default function ChatConversationScreen() {
     console.log("Subscribing to conversation:", conversationId);
 
     const channel = supabase
-      .channel(`chat-${conversationId}`)
+      .channel(`chat-${conversationId}-${user.id}-${realtimeRetryTick}`)
       .on(
         'postgres_changes',
         {
@@ -852,13 +854,28 @@ export default function ChatConversationScreen() {
       )
       .subscribe((status: string) => {
         console.log("Realtime status:", status);
+
+        if (status === 'SUBSCRIBED') {
+          reconnectAttemptRef.current = 0;
+          return;
+        }
+
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          const attempt = reconnectAttemptRef.current + 1;
+          reconnectAttemptRef.current = attempt;
+          const retryDelayMs = Math.min(1500 * attempt, 6000);
+
+          setTimeout(() => {
+            setRealtimeRetryTick((prev) => prev + 1);
+          }, retryDelayMs);
+        }
       });
 
     return () => {
       console.log("Removing channel:", conversationId);
       supabase.removeChannel(channel);
     };
-  }, [conversationId, user?.id, isAIChat, isGroup]);
+  }, [conversationId, user?.id, isAIChat, isGroup, realtimeRetryTick]);
 
   useEffect(() => {
     if (!isAIChat) return;

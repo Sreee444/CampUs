@@ -1,5 +1,5 @@
 // ...existing code...
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import {
   View,
@@ -24,7 +24,7 @@ import { RootStackParamList } from '../../navigation/types';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../api/supabase';
 import * as FileSystem from 'expo-file-system/legacy';
-import { DEPARTMENTS, YEARS } from '../../utils/teamUtils';
+import { DEPARTMENT_OPTIONS, getDepartmentAcademicLimits } from '../../constants/academic';
 
 type CreateEventScreenNavigationProp = StackNavigationProp<RootStackParamList, 'CreateEvent'>;
 
@@ -95,6 +95,34 @@ export default function CreateEventScreen() {
     eligible_departments: [],
     eligible_years: [],
   });
+
+  const globalMaxEventYear = useMemo(
+    () => Math.max(...DEPARTMENT_OPTIONS.map((dept) => getDepartmentAcademicLimits(dept).maxYears)),
+    []
+  );
+
+  const eventYearOptions = useMemo(() => {
+    const needsDepartmentScopedYears =
+      formData.eligibility_type === 'department_year' &&
+      formData.eligible_departments.length > 0;
+    const maxYears = needsDepartmentScopedYears
+      ? Math.max(
+          ...formData.eligible_departments.map(
+            (dept) => getDepartmentAcademicLimits(dept).maxYears
+          )
+        )
+      : globalMaxEventYear;
+
+    return Array.from({ length: maxYears }, (_, i) => i + 1);
+  }, [formData.eligibility_type, formData.eligible_departments, globalMaxEventYear]);
+
+  useEffect(() => {
+    setFormData((prev) => {
+      const sanitizedYears = prev.eligible_years.filter((year) => eventYearOptions.includes(year));
+      if (sanitizedYears.length === prev.eligible_years.length) return prev;
+      return { ...prev, eligible_years: sanitizedYears };
+    });
+  }, [eventYearOptions]);
 
   const [showPicker, setShowPicker] = useState<{
     field: keyof EventFormData | null;
@@ -252,6 +280,22 @@ export default function CreateEventScreen() {
       }
       if (!formData.is_online && !formData.venue.trim()) {
         Toast.show({ type: 'error', text1: 'Venue is required for offline events' });
+        return false;
+      }
+    }
+    if (step === 2) {
+      if (
+        ['department', 'department_year'].includes(formData.eligibility_type) &&
+        formData.eligible_departments.length === 0
+      ) {
+        Toast.show({ type: 'error', text1: 'Select at least one eligible department' });
+        return false;
+      }
+      if (
+        ['year', 'department_year'].includes(formData.eligibility_type) &&
+        formData.eligible_years.length === 0
+      ) {
+        Toast.show({ type: 'error', text1: 'Select at least one eligible year' });
         return false;
       }
     }
@@ -541,7 +585,7 @@ export default function CreateEventScreen() {
           <View style={st.subFieldGroup}>
             <Text style={st.subFieldLabel}>Select Departments</Text>
             <View style={st.chipGrid}>
-              {DEPARTMENTS.map((dept) => {
+              {DEPARTMENT_OPTIONS.map((dept) => {
                 const isSel = formData.eligible_departments.includes(dept);
                 return (
                   <TouchableOpacity
@@ -566,7 +610,7 @@ export default function CreateEventScreen() {
           <View style={st.subFieldGroup}>
             <Text style={st.subFieldLabel}>Select Years</Text>
             <View style={st.chipGrid}>
-              {YEARS.map((yr) => {
+              {eventYearOptions.map((yr) => {
                 const isSel = formData.eligible_years.includes(yr);
                 return (
                   <TouchableOpacity

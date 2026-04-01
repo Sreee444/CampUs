@@ -1,20 +1,47 @@
 export const DEPARTMENT_OPTIONS = [
   'Computer Science and Engineering',
-  'Information Technology',
   'Mechanical Engineering',
   'Civil Engineering',
-  'Chemical Engineering',
-  'Biotechnology',
-  'Aerospace Engineering',
   'Artificial Intelligence and Data Science',
   'Cyber Security',
-  'Electronics and Electrical Engineering',
   'Electronics and Communication Engineering',
+  'Electrical and Electronics Engineering',
   'Electronics and Computer Engineering',
   'Computer Science with AI',
+  'MBA',
+  'MCA',
+  'MTech',
+  'Integrated MCA',
 ] as const;
 
 export const SECTION_OPTIONS = ['A', 'B', 'C'] as const;
+
+const DEFAULT_SINGLE_SECTION = ['A'] as const;
+
+export const getSectionOptions = (department?: string | null): string[] => {
+  const dept = String(department || '').trim().toLowerCase();
+  if (
+    dept === 'computer science and engineering' ||
+    dept === 'computer science with ai'
+  ) {
+    return [...SECTION_OPTIONS] as string[];
+  }
+  return [...DEFAULT_SINGLE_SECTION] as string[];
+};
+
+export const getDepartmentAcademicLimits = (department?: string | null) => {
+  const dept = String(department || '').trim().toLowerCase();
+
+  if (dept === 'integrated mca') {
+    return { maxYears: 5, maxSemesters: 10 };
+  }
+
+  if (dept === 'mca' || dept === 'mba' || dept === 'mtech') {
+    return { maxYears: 2, maxSemesters: 4 };
+  }
+
+  return { maxYears: 4, maxSemesters: 8 };
+};
 
 export const SPECIALIZATION_BY_DEPARTMENT: Record<string, string[]> = {
   'Computer Science and Engineering': [
@@ -22,12 +49,6 @@ export const SPECIALIZATION_BY_DEPARTMENT: Record<string, string[]> = {
     'Cloud Computing',
     'Data Engineering',
     'Full Stack Development',
-  ],
-  'Information Technology': [
-    'Software Systems',
-    'Network Engineering',
-    'Cloud and DevOps',
-    'Web Technologies',
   ],
   'Mechanical Engineering': [
     'Thermal Engineering',
@@ -41,24 +62,6 @@ export const SPECIALIZATION_BY_DEPARTMENT: Record<string, string[]> = {
     'Geotechnical Engineering',
     'Transportation Engineering',
   ],
-  'Chemical Engineering': [
-    'Process Engineering',
-    'Petrochemical Technology',
-    'Biochemical Engineering',
-    'Environmental Process Engineering',
-  ],
-  Biotechnology: [
-    'Genetic Engineering',
-    'Bioinformatics',
-    'Industrial Biotechnology',
-    'Biomedical Technology',
-  ],
-  'Aerospace Engineering': [
-    'Aerodynamics',
-    'Avionics',
-    'Propulsion Systems',
-    'Aircraft Structures',
-  ],
   'Artificial Intelligence and Data Science': [
     'Machine Learning',
     'Data Analytics',
@@ -71,7 +74,7 @@ export const SPECIALIZATION_BY_DEPARTMENT: Record<string, string[]> = {
     'Digital Forensics',
     'Application Security',
   ],
-  'Electronics and Electrical Engineering': [
+  'Electrical and Electronics Engineering': [
     'Power Systems',
     'Embedded Systems',
     'Control Systems',
@@ -94,6 +97,30 @@ export const SPECIALIZATION_BY_DEPARTMENT: Record<string, string[]> = {
     'Intelligent Systems',
     'Deep Learning',
     'AI Product Engineering',
+  ],
+  MBA: [
+    'Finance',
+    'Marketing',
+    'Human Resource Management',
+    'Operations Management',
+  ],
+  MCA: [
+    'Application Development',
+    'Data Analytics',
+    'Cloud and DevOps',
+    'Cyber Security',
+  ],
+  MTech: [
+    'Computer Science',
+    'Embedded Systems',
+    'Power Electronics',
+    'Structural Engineering',
+  ],
+  'Integrated MCA': [
+    'Software Engineering',
+    'Data Science',
+    'Cyber Security',
+    'Cloud Computing',
   ],
 };
 

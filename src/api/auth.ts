@@ -22,6 +22,41 @@ const isTransientNetworkError = (error: any) => {
 };
 
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
+const AVATAR_BUCKET = 'avatars';
+
+const AVATAR_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'heif'];
+
+const dedupePaths = (paths: string[]) => Array.from(new Set(paths.filter(Boolean)));
+
+const getAvatarPathFromUrl = (avatarUrl?: string | null): string | null => {
+  if (!avatarUrl) return null;
+
+  try {
+    const withoutQuery = avatarUrl.split('?')[0];
+    const markers = [
+      `/storage/v1/object/public/${AVATAR_BUCKET}/`,
+      `/storage/v1/object/sign/${AVATAR_BUCKET}/`,
+    ];
+
+    for (const marker of markers) {
+      const index = withoutQuery.indexOf(marker);
+      if (index !== -1) {
+        const encodedPath = withoutQuery.slice(index + marker.length);
+        return decodeURIComponent(encodedPath);
+      }
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+};
+
+const getAvatarPathCandidates = (userId: string, avatarUrl?: string | null) => {
+  const fromUrl = getAvatarPathFromUrl(avatarUrl);
+  const legacyPaths = AVATAR_EXTENSIONS.map((ext) => `${userId}/avatar.${ext}`);
+  return dedupePaths([...(fromUrl ? [fromUrl] : []), ...legacyPaths]);
+};
 
 const base64ToArrayBuffer = (base64: string) => {
   const cleaned = base64.replace(/[\r\n\s]/g, '').replace(/-/g, '+').replace(/_/g, '/');
@@ -247,7 +282,7 @@ export const uploadAvatar = async (userId: string, fileUri: string) => {
   try {
     const fileExt = fileUri.split('.').pop()?.toLowerCase() || 'jpg';
     const fileName = `avatar.${fileExt}`;
-    const filePath = `${userId}/${fileName}`;
+    let filePath = `${userId}/${fileName}`;
 
     let mimeType = 'image/jpeg';
     if (fileExt === 'png') mimeType = 'image/png';
@@ -256,13 +291,25 @@ export const uploadAvatar = async (userId: string, fileUri: string) => {
 
     const arrayBuffer = await readImageAsArrayBuffer(fileUri);
 
-    const { error: uploadError } = await supabase.storage
-      .from('avatars')
+    let { error: uploadError } = await supabase.storage
+      .from(AVATAR_BUCKET)
       .upload(filePath, arrayBuffer, {
         upsert: true,
         contentType: mimeType,
         cacheControl: '3600',
       });
+
+    if (uploadError && /row-level security|policy/i.test(String(uploadError.message || ''))) {
+      filePath = `${userId}/avatar-${Date.now()}.${fileExt}`;
+      const retry = await supabase.storage
+        .from(AVATAR_BUCKET)
+        .upload(filePath, arrayBuffer, {
+          upsert: false,
+          contentType: mimeType,
+          cacheControl: '3600',
+        });
+      uploadError = retry.error;
+    }
 
     if (uploadError) {
       console.error('Storage upload error:', uploadError);
@@ -278,7 +325,7 @@ export const uploadAvatar = async (userId: string, fileUri: string) => {
       throw new Error(`Upload failed: ${uploadError.message}`);
     }
 
-    const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(filePath);
+    const { data: { publicUrl } } = supabase.storage.from(AVATAR_BUCKET).getPublicUrl(filePath);
     return publicUrl;
 
   } catch (error: any) {
@@ -293,4 +340,32 @@ export const uploadAvatar = async (userId: string, fileUri: string) => {
     }
     throw new Error(errorMessage);
   }
+};
+
+export const removeAvatar = async (userId: string, avatarUrl?: string | null) => {
+  const filePaths = getAvatarPathCandidates(userId, avatarUrl);
+
+  if (filePaths.length === 0) {
+    return { storageRemoved: false, warning: 'No avatar file path found in storage.' };
+  }
+
+  const { error } = await supabase.storage.from(AVATAR_BUCKET).remove(filePaths);
+
+  if (!error) {
+    return { storageRemoved: true as const };
+  }
+
+  const message = String(error.message || '').toLowerCase();
+  if (message.includes('policy') || message.includes('row-level security')) {
+    return {
+      storageRemoved: false as const,
+      warning: 'Avatar reference will be removed, but storage file cleanup needs admin storage policy update.',
+    };
+  }
+
+  if (message.includes('not found')) {
+    return { storageRemoved: false as const, warning: 'Avatar file not found in storage.' };
+  }
+
+  throw error;
 };

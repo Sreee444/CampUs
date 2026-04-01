@@ -148,20 +148,22 @@ export const createNotification = async (notificationData: {
 
   if (error) throw error;
 
-  // Only schedule a local notification if this device belongs to the target user.
-  // Otherwise, creators of notifications for other users would see those alerts locally.
+  // Always route push to the target user's registered device token.
+  // Background delivery cannot depend on the sender device being the same user.
   if (notificationData.user_id && notificationData.title && notificationData.body) {
-    const {
-      data: { user: currentUser },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (!authError && currentUser?.id === notificationData.user_id) {
-      await sendPushNotification(
-        notificationData.user_id,
-        notificationData.title,
-        notificationData.body
-      );
+    try {
+      await sendBroadcastPushNotification({
+        targetUserId: notificationData.user_id,
+        title: notificationData.title,
+        body: notificationData.body,
+        data: {
+          type: notificationData.type,
+          related_id: notificationData.related_id ?? null,
+          related_type: notificationData.related_type ?? null,
+        },
+      });
+    } catch (pushError) {
+      console.error('createNotification push dispatch error:', pushError);
     }
   }
 
@@ -367,7 +369,7 @@ export const sendMessageNotification = async (
 ) => {
   return createNotification({
     user_id: userId,
-    type: "connection_request",
+    type: "message",
     title: `New message from ${senderName}`,
     body: "Tap to view",
     related_id: conversationId,
