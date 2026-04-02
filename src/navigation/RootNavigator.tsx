@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator, CardStyleInterpolators } from '@react-navigation/stack';
 import { View, ActivityIndicator } from 'react-native';
@@ -75,10 +75,22 @@ import { MainTabNavigator } from './MainTabNavigator';
 
 const Stack = createStackNavigator<RootStackParamList>();
 
+// Minimum time (ms) the splash screen is shown after auth resolves
+const SPLASH_MIN_MS = 2000;
+
 export default function RootNavigator() {
   const { isAuthenticated, isLoading, profile, isBanned, isPasswordRecovery } = useAuth();
   const navigationRef = useRef<any>(null);
   const hasCompletedName = Boolean(profile?.full_name?.trim());
+
+  // Keep splash visible for at least SPLASH_MIN_MS after auth finishes loading
+  const [showSplash, setShowSplash] = useState(true);
+  useEffect(() => {
+    if (!isLoading) {
+      const timer = setTimeout(() => setShowSplash(false), SPLASH_MIN_MS);
+      return () => clearTimeout(timer);
+    }
+  }, [isLoading]);
 
   // Navigate based on auth and profile state changes
   useEffect(() => {
@@ -129,8 +141,8 @@ export default function RootNavigator() {
     }
   }, [isAuthenticated, isLoading, profile?.full_name, isBanned, isPasswordRecovery]);
 
-  // Show splash screen while checking auth
-  if (isLoading) {
+  // Show splash while auth is loading OR during the 2-second hold
+  if (isLoading || showSplash) {
     return <SplashScreen />;
   }
 

@@ -30,6 +30,9 @@ import { EventFeedItem } from '../../components/EventFeedItem';
 import { UserAvatar } from '../../components/UserAvatar';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import ReportModal from '../../components/ReportModal';
+import { InlineBanner } from '../../components/InlineBanner';
+import { EmptyState } from '../../components/EmptyState';
+import { LoadingState } from '../../components/LoadingState';
 import { ReportContentType } from '../../types/database';
 import { LinearGradient } from 'expo-linear-gradient';
 import Toast from 'react-native-toast-message';
@@ -140,6 +143,8 @@ export default function FeedScreen() {
   const [isLoadingPosts, setIsLoadingPosts] = useState(false);
   const [isPosting, setIsPosting] = useState(false);
   const [newPostText, setNewPostText] = useState('');
+  const [feedError, setFeedError] = useState<string | null>(null);
+  const [postsError, setPostsError] = useState<string | null>(null);
   const [selectedImageUri, setSelectedImageUri] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<{ uri: string; name: string } | null>(null);
   const [expandedPostId, setExpandedPostId] = useState<string | null>(null);
@@ -168,9 +173,10 @@ export default function FeedScreen() {
     try {
       const posts = await getFeedPosts(user.id);
       setAcademicPosts(posts);
+      setPostsError(null);
     } catch (error) {
       console.error('Academic feed load error:', error);
-      Toast.show({ type: 'error', text1: 'Failed to load academic feed' });
+      setPostsError('We could not load academic posts. Please try again.');
     } finally {
       setIsLoadingPosts(false);
     }
@@ -250,9 +256,10 @@ export default function FeedScreen() {
       setRecentProjects([]);
       setAiSuggestion('Check out the latest events and join a project team!');
       await loadAcademicFeed();
+      setFeedError(null);
     } catch (error) {
       console.error('Feed load error:', error);
-      Toast.show({ type: 'error', text1: 'Failed to load feed', text2: 'Please try again' });
+      setFeedError('We could not load your feed right now. Please try again.');
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -629,6 +636,17 @@ export default function FeedScreen() {
           />
         }
       >
+        {feedError ? (
+          <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+            <InlineBanner
+              type="error"
+              title="Feed unavailable"
+              message={feedError}
+              actionLabel="Retry"
+              onAction={() => loadFeedData(true)}
+            />
+          </View>
+        ) : null}
         {/* Hero Section Container */}
         <LinearGradient colors={['#F6EAE0', '#F3E7DB', '#EDE8FF']} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={styles.heroSectionContainer}>
           {/* Header */}
@@ -716,6 +734,8 @@ export default function FeedScreen() {
                   style={styles.actionCard}
                   activeOpacity={1}
                   onPress={() => navigation.navigate('MentorHub' as any)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open mentor hub"
                 >
                   <View style={[styles.actionIcon, { backgroundColor: '#E5D8F7' }]}>
                     <MaterialIcons name="school" size={22} color="#7C3AED" />
@@ -727,6 +747,8 @@ export default function FeedScreen() {
                   style={styles.actionCard}
                   activeOpacity={1}
                   onPress={() => navigation.navigate('Discussions' as any)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open discussions"
                 >
                   <View style={[styles.actionIcon, { backgroundColor: '#E8F2FF' }]}>
                     <MaterialIcons name="forum" size={22} color="#4F46E5" />
@@ -737,6 +759,8 @@ export default function FeedScreen() {
                   style={styles.actionCard}
                   activeOpacity={1}
                   onPress={() => navigation.navigate('AllUsers' as any)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Find people to connect"
                 >
                   <View style={[styles.actionIcon, { backgroundColor: '#F6E3C5' }]}>
                     <MaterialIcons name="people" size={22} color="#EA580C" />
@@ -750,6 +774,8 @@ export default function FeedScreen() {
                 <TouchableOpacity
                   style={styles.actionCard}
                   onPress={() => navigation.navigate('InterCampusHome' as any)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open intercampus events"
                 >
                   <View style={[styles.actionIcon, { backgroundColor: '#FAD4D4' }]}>
                     <MaterialIcons name="public" size={24} color="#DC2626" />
@@ -760,6 +786,8 @@ export default function FeedScreen() {
                   style={styles.actionCard}
                   activeOpacity={1}
                   onPress={() => navigation.navigate('CreateProject' as any)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Create a project"
                 >
                   <View style={[styles.actionIcon, { backgroundColor: '#D8F3E7' }]}>
                     <MaterialIcons name="work-outline" size={22} color="#059669" />
@@ -769,6 +797,8 @@ export default function FeedScreen() {
                 <TouchableOpacity
                   style={styles.actionCard}
                   onPress={() => navigation.navigate('AcademicFeed' as any)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open academic feed"
                 >
                   <View style={[styles.actionIcon, { backgroundColor: '#D7E7F6' }]}>
                     <MaterialIcons name="newspaper" size={24} color="#2563EB" />
@@ -779,11 +809,13 @@ export default function FeedScreen() {
                   style={styles.actionCard}
                   activeOpacity={1}
                   onPress={() => navigation.navigate('AIInsights' as any)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open AI insights"
                 >
                   <View style={[styles.actionIcon, { backgroundColor: '#E9D5FF' }]}>
                     <MaterialIcons name="insights" size={22} color="#9333EA" />
                   </View>
-                  <Text style={styles.actionLabel}>AI Stats</Text>
+                  <Text style={styles.actionLabel}>AI Insights</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -795,6 +827,8 @@ export default function FeedScreen() {
           activeOpacity={0.85}
           style={styles.aiSuggestionStandalone}
           onPress={() => navigation.navigate('QuickRecommendations' as any)}
+          accessibilityRole="button"
+          accessibilityLabel="Open AI recommendations"
         >
           <View style={styles.aiSuggestionIconWrap}>
             <MaterialIcons name="auto-awesome" size={18} color="#4338CA" />
@@ -807,18 +841,31 @@ export default function FeedScreen() {
         <LinearGradient colors={['#EDE8FF', '#E8EDFF', '#E8EDFF', '#BFE1DB']} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={[styles.eventsSection, styles.feedSectionContainer]}>
           <View style={[styles.sectionHeader, { paddingHorizontal: 20 }]}>
             <Text style={styles.sectionTitle}>Academic Feed</Text>
-            <TouchableOpacity onPress={() => navigation.navigate('AcademicFeed' as any)}>
+            <TouchableOpacity
+              onPress={() => navigation.navigate('AcademicFeed' as any)}
+              accessibilityRole="button"
+              accessibilityLabel="See all academic posts"
+            >
               <Text style={styles.seeAllText}>See All</Text>
             </TouchableOpacity>
           </View>
 
-          {isLoadingPosts ? (
-            <ActivityIndicator color="#64748B" style={{ marginVertical: 16 }} />
+          {postsError ? (
+            <InlineBanner
+              type="error"
+              title="Academic feed unavailable"
+              message={postsError}
+              actionLabel="Retry"
+              onAction={() => loadAcademicFeed()}
+            />
+          ) : isLoadingPosts ? (
+            <LoadingState message="Loading posts..." />
           ) : academicPosts.length === 0 ? (
-            <View style={styles.emptyCard}>
-              <MaterialIcons name="campaign" size={30} color="#cbd5e1" />
-              <Text style={styles.emptyText}>No academic posts yet</Text>
-            </View>
+            <EmptyState
+              icon="campaign"
+              title="No academic posts yet"
+              message="Be the first to share an update."
+            />
           ) : (
             <Animated.ScrollView
               horizontal
@@ -934,18 +981,23 @@ export default function FeedScreen() {
         >
           <View style={[styles.sectionHeader, { paddingHorizontal: 20 }]}>
             <Text style={styles.sectionTitle}>Upcoming Events</Text>
-            <TouchableOpacity onPress={() => navigation.navigate('Events' as any)}>
+            <TouchableOpacity
+              onPress={() => navigation.navigate('Events' as any)}
+              accessibilityRole="button"
+              accessibilityLabel="See all events"
+            >
               <Text style={styles.seeAllText}>See All</Text>
             </TouchableOpacity>
           </View>
 
           {isLoading ? (
-            <ActivityIndicator color="#64748B" style={{ marginVertical: 16 }} />
+            <LoadingState message="Loading events..." />
           ) : upcomingEvents.length === 0 ? (
-            <View style={[styles.emptyCard]}>
-              <MaterialIcons name="event-busy" size={32} color="#cbd5e1" />
-              <Text style={styles.emptyText}>No upcoming events</Text>
-            </View>
+            <EmptyState
+              icon="event-busy"
+              title="No upcoming events"
+              message="Check back later for new events."
+            />
           ) : (
             <Animated.ScrollView
               horizontal

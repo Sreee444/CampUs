@@ -6,7 +6,6 @@ import {
   StyleSheet,
   SafeAreaView,
   ScrollView,
-  ActivityIndicator,
   RefreshControl,
   Image,
   Platform,
@@ -25,6 +24,9 @@ import { useAuth } from '../../contexts/AuthContext';
 import { getEvents, registerForEvent, unregisterFromEvent } from '../../api/events';
 import { CountdownTimer, EventStatus } from '../../components/CountdownTimer';
 import { ConfirmBottomSheet } from '../../components/ConfirmBottomSheet';
+import { InlineBanner } from '../../components/InlineBanner';
+import { EmptyState } from '../../components/EmptyState';
+import { LoadingState } from '../../components/LoadingState';
 import { supabase } from '../../api/supabase';
 import Toast from 'react-native-toast-message';
 import { isAdminRole } from '../../utils/roles';
@@ -56,6 +58,7 @@ export default function EventsScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<'upcoming' | 'live' | 'past'>('upcoming');
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [eventToDelete, setEventToDelete] = useState<any>(null);
   const [showEventMenu, setShowEventMenu] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -88,13 +91,10 @@ export default function EventsScreen() {
 
       const data = await getEvents(user?.id, undefined, activeTab);
       setEvents(data || []);
+      setLoadError(null);
     } catch (error) {
       console.error('Events load error:', error);
-      Toast.show({
-        type: 'error',
-        text1: 'Failed to load events',
-        text2: 'Please try again'
-      });
+      setLoadError('We could not load events right now. Please try again.');
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -236,6 +236,8 @@ export default function EventsScreen() {
             <TouchableOpacity
               style={styles.calendarButton}
               onPress={() => { }}
+              accessibilityRole="button"
+              accessibilityLabel="Open calendar"
             >
               <MaterialIcons name="calendar-today" size={20} color="#6366F1" />
             </TouchableOpacity>
@@ -245,6 +247,8 @@ export default function EventsScreen() {
                 onPress={() => {
                   navigation.navigate('CreateEvent');
                 }}
+                accessibilityRole="button"
+                accessibilityLabel="Create event"
               >
                 <MaterialIcons name="add" size={20} color="#fff" />
               </TouchableOpacity>
@@ -311,31 +315,31 @@ export default function EventsScreen() {
             />
           }
         >
+        {loadError ? (
+          <InlineBanner
+            type="error"
+            title="Events unavailable"
+            message={loadError}
+            actionLabel="Retry"
+            onAction={() => loadEvents(true)}
+          />
+        ) : null}
         {isLoading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={Colors.primary} />
-            <Text style={styles.loadingText}>Loading events...</Text>
-          </View>
+          <LoadingState message="Loading events..." />
         ) : filteredEvents.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <MaterialIcons name="event-busy" size={64} color="#d1d5db" />
-            <Text style={styles.emptyTitle}>
-              No {activeTab === 'upcoming' ? 'upcoming' : activeTab === 'live' ? 'live' : 'past'} events
-            </Text>
-            <Text style={styles.emptyText}>
-              {activeTab === 'upcoming' && 'Check back later for new events'}
-              {activeTab === 'live' && 'No events are currently live'}
-              {activeTab === 'past' && 'No past events to show'}
-            </Text>
-            {canCreateEvent && activeTab === 'upcoming' && (
-              <TouchableOpacity
-                style={styles.createFirstButton}
-                onPress={() => navigation.navigate('CreateEvent')}
-              >
-                <Text style={styles.createFirstButtonText}>Create First Event</Text>
-              </TouchableOpacity>
-            )}
-          </View>
+          <EmptyState
+            icon="event-busy"
+            title={`No ${activeTab === 'upcoming' ? 'upcoming' : activeTab === 'live' ? 'live' : 'past'} events`}
+            message={
+              activeTab === 'upcoming'
+                ? 'Check back later for new events'
+                : activeTab === 'live'
+                  ? 'No events are currently live'
+                  : 'No past events to show'
+            }
+            actionLabel={canCreateEvent && activeTab === 'upcoming' ? 'Create First Event' : undefined}
+            onAction={canCreateEvent && activeTab === 'upcoming' ? () => navigation.navigate('CreateEvent') : undefined}
+          />
         ) : (
           filteredEvents.map((event) => {
             const eventTypeIcons: { [key: string]: string } = {

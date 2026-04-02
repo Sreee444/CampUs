@@ -7,7 +7,6 @@ import {
   SafeAreaView,
   ScrollView,
   TextInput,
-  ActivityIndicator,
   Platform,
   RefreshControl,
 } from 'react-native';
@@ -24,6 +23,9 @@ import { useAuth } from '../../contexts/AuthContext';
 import { getProjectTeams, getProjectsByRole, getMentoredProjects } from '../../api/projects';
 import { ProjectTeam } from '../../types/database';
 import { UserAvatar } from '../../components/UserAvatar';
+import { InlineBanner } from '../../components/InlineBanner';
+import { EmptyState } from '../../components/EmptyState';
+import { LoadingState } from '../../components/LoadingState';
 
 import {
   SEMANTIC_COLORS,
@@ -169,6 +171,8 @@ export default function ProjectsScreen() {
               style={styles.addButton}
               onPress={handleCreateProject}
               activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Create project"
             >
               <MaterialIcons name="add" size={22} color="#fff" />
             </TouchableOpacity>
@@ -247,9 +251,7 @@ export default function ProjectsScreen() {
         </ScrollView>
 
         {isLoading ? (
-          <View style={styles.loadingWrapper}>
-            <ActivityIndicator size="large" color="#6366F1" />
-          </View>
+          <LoadingState message="Loading projects..." />
         ) : (
           <ScrollView
             style={styles.scrollView}
@@ -262,16 +264,19 @@ export default function ProjectsScreen() {
             </Text>
 
             {fetchError ? (
-              <View style={styles.emptyContainer}>
-                <MaterialIcons name="cloud-off" size={48} color="#9CA3AF" />
-                <Text style={styles.errorText}>{fetchError}</Text>
-              </View>
+              <InlineBanner
+                type="error"
+                title="Projects unavailable"
+                message={fetchError}
+                actionLabel="Retry"
+                onAction={() => loadProjects(false)}
+              />
             ) : filteredProjects.length === 0 ? (
-              <View style={styles.emptyContainer}>
-                <MaterialIcons name="search-off" size={48} color="#9CA3AF" />
-                <Text style={styles.emptyText}>No projects found for that filter.</Text>
-                <Text style={styles.emptySubtext}>Try a different keyword or category.</Text>
-              </View>
+              <EmptyState
+                icon="search-off"
+                title="No projects found"
+                message="Try a different keyword or category."
+              />
             ) : (
               filteredProjects.map((project) => {
                 const hasMembersData = Array.isArray(project.members);

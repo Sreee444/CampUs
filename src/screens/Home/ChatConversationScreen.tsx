@@ -130,6 +130,11 @@ type ChatPollPayload = {
 const POLL_MESSAGE_PREFIX = '__poll__:';
 const POLL_REACTION_PREFIX = 'poll:';
 
+const MAIN_MENU_AI_OPTIONS = [
+  { id: 'ai-browse-events', label: 'Events', action: 'browse-events' },
+  { id: 'ai-browse-projects', label: 'Projects', action: 'browse-projects' },
+];
+
 type GroupParticipant = {
   id: string;
   user_id: string;
@@ -168,6 +173,9 @@ const createUserDraftMessage = (content: string, senderId: string): ChatMessage 
   sender_id: senderId,
   created_at: new Date().toISOString(),
 });
+
+const createMainMenuMessage = (): ChatMessage =>
+  createAiMessage('What do you want to know about?', MAIN_MENU_AI_OPTIONS as ChatMessage['aiOptions']);
 
 export default function ChatConversationScreen() {
   const navigation = useNavigation<ChatConversationScreenNavigationProp>();
@@ -422,6 +430,7 @@ export default function ChatConversationScreen() {
       return createAiMessage(
         `What should I tell you about ${itemTitle}?`,
         [
+          { id: `${itemTitle}-back`, label: 'Back to main menu', action: 'main-menu' },
           { id: `${itemTitle}-details`, label: 'Details', action: 'event-details', itemType, itemTitle },
           { id: `${itemTitle}-venue`, label: 'Venue', action: 'event-venue', itemType, itemTitle },
           { id: `${itemTitle}-time`, label: 'Time', action: 'event-date', itemType, itemTitle },
@@ -433,6 +442,7 @@ export default function ChatConversationScreen() {
     return createAiMessage(
       `What should I tell you about ${itemTitle}?`,
       [
+        { id: `${itemTitle}-back`, label: 'Back to main menu', action: 'main-menu' },
         { id: `${itemTitle}-details`, label: 'Details', action: 'project-details', itemType, itemTitle },
         { id: `${itemTitle}-status`, label: 'Status', action: 'project-status', itemType, itemTitle },
         { id: `${itemTitle}-recruiting`, label: 'Recruiting', action: 'project-recruiting', itemType, itemTitle },
@@ -443,15 +453,7 @@ export default function ChatConversationScreen() {
 
   const seedAiChat = React.useCallback(async () => {
     if (!user?.id) {
-      setMessages([
-        createAiMessage(
-          'What do you want to know about?',
-          [
-            { id: 'ai-browse-events', label: 'Events', action: 'browse-events' },
-            { id: 'ai-browse-projects', label: 'Projects', action: 'browse-projects' },
-          ]
-        ),
-      ]);
+      setMessages([createMainMenuMessage()]);
       setIsLoading(false);
       return;
     }
@@ -459,27 +461,13 @@ export default function ChatConversationScreen() {
     try {
       setIsLoading(true);
       const seededMessages: ChatMessage[] = [
-        createAiMessage(
-          'What do you want to know about?',
-          [
-            { id: 'ai-browse-events', label: 'Events', action: 'browse-events' },
-            { id: 'ai-browse-projects', label: 'Projects', action: 'browse-projects' },
-          ]
-        ),
+        createMainMenuMessage(),
       ];
 
       setMessages(seededMessages);
     } catch (error) {
       console.error('Failed to seed AI chat:', error);
-      setMessages([
-        createAiMessage(
-          'What do you want to know about?',
-          [
-            { id: 'ai-browse-events', label: 'Events', action: 'browse-events' },
-            { id: 'ai-browse-projects', label: 'Projects', action: 'browse-projects' },
-          ]
-        ),
-      ]);
+      setMessages([createMainMenuMessage()]);
     } finally {
       setIsLoading(false);
     }
@@ -487,6 +475,11 @@ export default function ChatConversationScreen() {
 
   const handleAiOptionPress = React.useCallback(async (option: NonNullable<ChatMessage['aiOptions']>[number]) => {
     if (!user?.id || isSending) return;
+
+    if (option.action === 'main-menu') {
+      setMessages([createMainMenuMessage()]);
+      return;
+    }
 
     const title = option.itemTitle || option.label;
     const userMessage = createUserDraftMessage(option.label, user.id);
@@ -519,12 +512,18 @@ export default function ChatConversationScreen() {
             upcomingEventOptions.length
               ? 'Here are upcoming events. Select one event.'
               : 'No upcoming events found right now.',
-            upcomingEventOptions.length ? upcomingEventOptions : undefined
+            upcomingEventOptions.length
+              ? [...upcomingEventOptions, { id: 'events-back', label: 'Back to main menu', action: 'main-menu' }]
+              : [{ id: 'events-back', label: 'Back to main menu', action: 'main-menu' }]
           ),
         ]);
       } catch (error) {
         console.error('Failed to load events for AI:', error);
-        appendAiSequence([createAiMessage('I could not load events right now. Please try again.')]);
+        appendAiSequence([
+          createAiMessage('I could not load events right now. Please try again.', [
+            { id: 'events-back', label: 'Back to main menu', action: 'main-menu' },
+          ]),
+        ]);
       } finally {
         setIsSending(false);
       }
@@ -548,12 +547,18 @@ export default function ChatConversationScreen() {
             projectOptions.length
               ? 'Here are active projects. Select one project.'
               : 'No active projects found right now.',
-            projectOptions.length ? projectOptions : undefined
+            projectOptions.length
+              ? [...projectOptions, { id: 'projects-back', label: 'Back to main menu', action: 'main-menu' }]
+              : [{ id: 'projects-back', label: 'Back to main menu', action: 'main-menu' }]
           ),
         ]);
       } catch (error) {
         console.error('Failed to load projects for AI:', error);
-        appendAiSequence([createAiMessage('I could not load projects right now. Please try again.')]);
+        appendAiSequence([
+          createAiMessage('I could not load projects right now. Please try again.', [
+            { id: 'projects-back', label: 'Back to main menu', action: 'main-menu' },
+          ]),
+        ]);
       } finally {
         setIsSending(false);
       }
@@ -574,24 +579,31 @@ export default function ChatConversationScreen() {
 
       const aiResponse = await chatWithAI(user.id, prompt);
       appendAiSequence([
-        createAiMessage(aiResponse, title && option.itemType ? [
-          {
-            id: `${title}-again-1`,
-            label: 'Details',
-            action: option.itemType === 'event' ? 'event-details' : 'project-details',
-            itemType: option.itemType,
-            itemTitle: title,
-          },
-          ...(option.itemType === 'event'
+        createAiMessage(
+          aiResponse,
+          title && option.itemType
             ? [
-                { id: `${title}-again-2`, label: 'Venue', action: 'event-venue', itemType: 'event' as const, itemTitle: title },
-                { id: `${title}-again-3`, label: 'Time', action: 'event-date', itemType: 'event' as const, itemTitle: title },
+                { id: `${title}-again-back`, label: 'Back to main menu', action: 'main-menu' },
+                {
+                  id: `${title}-again-1`,
+                  label: 'Details',
+                  action: option.itemType === 'event' ? 'event-details' : 'project-details',
+                  itemType: option.itemType,
+                  itemTitle: title,
+                },
+                ...(option.itemType === 'event'
+                  ? [
+                      { id: `${title}-again-2`, label: 'Venue', action: 'event-venue', itemType: 'event' as const, itemTitle: title },
+                      { id: `${title}-again-3`, label: 'Time', action: 'event-date', itemType: 'event' as const, itemTitle: title },
+                    ]
+                  : [
+                      { id: `${title}-again-2`, label: 'Status', action: 'project-status', itemType: 'project' as const, itemTitle: title },
+                        { id: `${title}-again-3`, label: 'Recruiting', action: 'project-recruiting', itemType: 'project' as const, itemTitle: title },
+                    ])
               ]
-            : [
-                { id: `${title}-again-2`, label: 'Status', action: 'project-status', itemType: 'project' as const, itemTitle: title },
-                { id: `${title}-again-3`, label: 'Recruiting', action: 'project-recruiting', itemType: 'project' as const, itemTitle: title },
-              ]),
-        ] : undefined, { itemType: option.itemType, itemTitle: title })
+            : undefined,
+          { itemType: option.itemType, itemTitle: title }
+        ),
       ]);
     } catch (error) {
       console.error('Failed AI option request:', error);
