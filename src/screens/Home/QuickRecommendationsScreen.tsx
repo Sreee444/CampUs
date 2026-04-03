@@ -58,12 +58,20 @@ export default function QuickRecommendationsScreen() {
     else setIsLoading(true);
 
     try {
+      const now = new Date();
       const [eventsData, projectData] = await Promise.all([
         getEvents(user?.id, undefined, 'upcoming'),
         profile?.role
           ? getProjectsByRole(profile.role as any, user?.id || '')
           : getProjectTeams(user?.id, true),
       ]);
+
+      const openRegistrationEvents = (eventsData || []).filter((event: any) => {
+        if (!event?.registration_deadline) return false;
+
+        const deadline = new Date(event.registration_deadline);
+        return !Number.isNaN(deadline.getTime()) && deadline > now;
+      });
 
       const statusFilteredProjects = (projectData || []).filter((project: any) => {
         const normalizedStatus = String(project?.status || '')
@@ -74,7 +82,7 @@ export default function QuickRecommendationsScreen() {
         return ALLOWED_PROJECT_STATUSES.has(normalizedStatus);
       });
 
-      setEvents((eventsData || []).slice(0, 6));
+      setEvents(openRegistrationEvents.slice(0, 6));
       setProjects((statusFilteredProjects as ProjectCard[]).slice(0, 8));
     } catch {
       setEvents([]);
@@ -86,13 +94,9 @@ export default function QuickRecommendationsScreen() {
   };
 
   useEffect(() => {
-    let mounted = true;
-
     loadRecommendations();
 
-    return () => {
-      mounted = false;
-    };
+    return undefined;
   }, [user?.id, profile?.role]);
 
   return (
