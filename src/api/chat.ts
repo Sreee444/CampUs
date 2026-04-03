@@ -26,7 +26,7 @@ import { moderateText } from "./ai";
 import { isAdminRole } from '../utils/roles';
 import { encryptMessage, decryptMessage } from "../../utils/encryption";
 import { BASE_URL } from '../config/api';
-import { sendChatPushNotification } from './notifications';
+import { createNotification } from './notifications';
 
 const decryptContentField = (value: any) => {
   if (value == null) return value;
@@ -1455,31 +1455,24 @@ export const sendMessage = async (
         (data as any)?.sender?.name ||
         'Someone';
 
-      await supabase.from('notifications').insert(
-        recipientIds.map((recipientId) => ({
-          user_id: recipientId,
-          type: 'message',
-          title: `New message from ${senderName}`,
-          body: preview,
-          related_id: conversationId,
-          related_type: 'conversation',
-          metadata: {
-            conversation_id: conversationId,
-            sender_id: currentUserId,
-            message_id: (data as any)?.id,
-          },
-          is_read: false,
-        })) as any
+      await Promise.all(
+        recipientIds.map((recipientId) =>
+          createNotification({
+            user_id: recipientId,
+            type: 'message',
+            title: `New message from ${senderName}`,
+            body: preview,
+            related_id: conversationId,
+            related_type: 'conversation',
+            metadata: {
+              conversation_id: conversationId,
+              sender_id: currentUserId,
+              message_id: (data as any)?.id,
+            },
+            is_read: false,
+          })
+        )
       );
-
-      await sendChatPushNotification({
-        conversationId,
-        senderId: currentUserId,
-        senderName,
-        messagePreview: preview,
-        isGroup: Boolean((conversation as any)?.is_group),
-        groupName: (conversation as any)?.group_name || undefined,
-      });
     }
   } catch (notificationError) {
     console.error('sendMessage notification error:', notificationError);

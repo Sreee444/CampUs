@@ -9,6 +9,11 @@ import { Platform } from "react-native";
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+const isExpoPushToken = (token?: string | null) => {
+  if (!token || typeof token !== 'string') return false;
+  return /^(Expo|Exponent)PushToken\[[^\]]+\]$/.test(token);
+};
+
 const resolveValidProjectId = () => {
   const candidates = [
     process.env.EXPO_PUBLIC_EAS_PROJECT_ID,
@@ -296,7 +301,7 @@ export const sendChatPushNotification = async (opts: {
     const messages = (participants as any[])
       .map((p: any) => {
         const token = p.profiles?.expo_push_token;
-        if (!token || !token.startsWith('ExponentPushToken')) return null;
+        if (!isExpoPushToken(token)) return null;
         return {
           to: token,
           title: opts.isGroup ? `${opts.senderName} in ${opts.groupName || 'Group'}` : opts.senderName,
@@ -327,7 +332,7 @@ export const sendBroadcastPushNotification = async (opts: {
       .single() as any;
 
     const token = profile?.expo_push_token;
-    if (!token || !token.startsWith('ExponentPushToken')) return;
+    if (!isExpoPushToken(token)) return;
 
     await postToExpoPushApi([{
       to: token,

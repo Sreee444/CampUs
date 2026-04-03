@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Platform } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import Animated, {
@@ -9,6 +9,7 @@ import Animated, {
   withSequence,
   Easing,
   interpolate,
+  runOnJS,
 } from 'react-native-reanimated';
 
 // ─── Design Tokens ────────────────────────────────────────────────────────────
@@ -24,6 +25,7 @@ const D_U_SLIDE = 520;   // Phase 3: "U" slides RIGHT to its correct position
 const D_ATTRACT = 750;   // Phase 4: "Camp" + "s" attract inward
 const D_TAGLINE = 560;   // Phase 5: tagline fades up
 const GLOW_HALF = 950;   // Phase 6 (∞): U glow half-period
+const TAGLINE_TEXT = 'Connect. Collaborate. Excel.';
 
 // U starts this many px LEFT of its natural position to appear screen-centered.
 // "Camp" (4 bold chars @ 54px) ≈ 118px wide; "s" ≈ 22px.
@@ -32,6 +34,9 @@ const U_CENTER_OFFSET = -50;
 
 // ─────────────────────────────────────────────────────────────────────────────
 export default function SplashScreen() {
+  const [typedTagline, setTypedTagline] = useState('');
+  const typingStartedRef = useRef(false);
+  const typingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const p1      = useSharedValue(0); // icon reveal
   const p2      = useSharedValue(0); // U appears at center
@@ -40,6 +45,24 @@ export default function SplashScreen() {
   const p5      = useSharedValue(0); // tagline
   const uGlow   = useSharedValue(0); // continuous glow pulse
   const shimmer = useSharedValue(0); // loader bar
+
+  const startTaglineTyping = () => {
+    if (typingStartedRef.current) return;
+
+    typingStartedRef.current = true;
+    setTypedTagline('');
+
+    let index = 0;
+    typingTimerRef.current = setInterval(() => {
+      index += 1;
+      setTypedTagline(TAGLINE_TEXT.slice(0, index));
+
+      if (index >= TAGLINE_TEXT.length && typingTimerRef.current) {
+        clearInterval(typingTimerRef.current);
+        typingTimerRef.current = null;
+      }
+    }, 60);
+  };
 
   useEffect(() => {
     // Loader shimmer — runs immediately throughout
@@ -78,6 +101,7 @@ export default function SplashScreen() {
             if (!done) return;
 
             // ─── Phase 5: Tagline ─────────────────────────────────────────
+            runOnJS(startTaglineTyping)();
             p5.value = withTiming(1, {
               duration: D_TAGLINE,
               easing: Easing.out(Easing.cubic),
@@ -98,6 +122,13 @@ export default function SplashScreen() {
         });
       });
     });
+
+    return () => {
+      if (typingTimerRef.current) {
+        clearInterval(typingTimerRef.current);
+        typingTimerRef.current = null;
+      }
+    };
   }, []);
 
   // ── Phase 1: Icon — fade + scale 0.7→1 + slight spin -12°→0° ────────────
@@ -209,7 +240,7 @@ export default function SplashScreen() {
 
         {/* Phase 5 — Tagline */}
         <Animated.Text style={[styles.subtitle, subtitleStyle]}>
-          Connect. Collaborate. Excel.
+          {typedTagline}
         </Animated.Text>
 
       </View>
