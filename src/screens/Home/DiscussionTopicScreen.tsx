@@ -8,6 +8,7 @@ import {
   StyleSheet,
   SafeAreaView,
   ScrollView,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
@@ -16,6 +17,7 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Toast from 'react-native-toast-message';
 import { isFacultyOrAdminRole } from '../../utils/roles';
 import { RootStackParamList } from '../../navigation/types';
@@ -70,6 +72,7 @@ export default function DiscussionTopicScreen() {
   const Colors = getColors(isDark);
   const styles = createStyles(Colors);
   const { user, profile } = useAuth();
+  const insets = useSafeAreaInsets();
 
   const [topic, setTopic] = useState<DiscussionTopic | null>(null);
   const [replies, setReplies] = useState<DiscussionReply[]>([]);
@@ -91,6 +94,7 @@ export default function DiscussionTopicScreen() {
   const [pollQuestion, setPollQuestion] = useState('');
   const [pollOptions, setPollOptions] = useState<string[]>(['', '']);
   const [isCreatingPoll, setIsCreatingPoll] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [pollVotesSheet, setPollVotesSheet] = useState<null | {
     question: string;
     options: string[];
@@ -151,6 +155,22 @@ export default function DiscussionTopicScreen() {
   useEffect(() => {
     loadTopic();
   }, [topicId]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+
+    const showSub = Keyboard.addListener('keyboardDidShow', (event) => {
+      setKeyboardHeight(event.endCoordinates.height || 0);
+    });
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardHeight(0);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const loadTopic = async () => {
     try {
@@ -485,11 +505,16 @@ export default function DiscussionTopicScreen() {
       </View>
 
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={{ flex: 1 }}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+        keyboardVerticalOffset={0}
       >
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          style={styles.content}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+        >
           {/* Topic Header */}
           <View style={styles.topicCard}>
             <View style={[styles.categoryBadge, { backgroundColor: categoryColor + '20' }]}>
@@ -731,7 +756,15 @@ export default function DiscussionTopicScreen() {
         {/* Reply Input */}
         {!topic.is_locked ? (
           isEventTimingOpen ? (
-            <View style={styles.replyInputContainer}>
+            <View
+              style={[
+                styles.replyInputContainer,
+                {
+                  paddingBottom: Platform.OS === 'ios' ? Math.max(8, Math.min(insets.bottom, 12)) : 8,
+                  marginBottom: Platform.OS === 'android' ? keyboardHeight : 0,
+                },
+              ]}
+            >
               <TouchableOpacity style={styles.pollQuickCreateBtn} onPress={() => setShowCreatePoll(true)}>
                 <MaterialIcons name="poll" size={20} color={Colors.primary} />
               </TouchableOpacity>
@@ -743,6 +776,8 @@ export default function DiscussionTopicScreen() {
                 onChangeText={setReplyContent}
                 multiline
                 maxLength={500}
+                blurOnSubmit={false}
+                textAlignVertical="top"
               />
               <TouchableOpacity
                 style={[styles.sendButton, isPosting && styles.sendButtonDisabled]}
@@ -1120,6 +1155,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       flexDirection: 'row',
       alignItems: 'flex-end',
       padding: Spacing.md,
+      paddingBottom: Spacing.md + 4,
       backgroundColor: Colors.surface,
       borderTopWidth: 1,
       borderTopColor: Colors.border,

@@ -11,6 +11,7 @@ import {
   Platform,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../../navigation/types';
@@ -86,84 +87,87 @@ export default function SkillsInterestsScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          <MaterialIcons name="arrow-back-ios" size={20} color={Colors.text} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Skills & Interests</Text>
-        <TouchableOpacity onPress={handleSave} disabled={isLoading}>
-          {isLoading ? (
-            <ActivityIndicator size="small" color={Colors.primary} />
-          ) : (
-            <Text style={styles.saveButton}>Save</Text>
-          )}
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Your Skills ({selectedSkills.length})</Text>
-          <View style={styles.skillsGrid}>
-            {selectedSkills.map((skill, index) => (
-              <View key={index} style={[styles.skillChip, styles.selectedSkill]}>
-                <Text style={styles.selectedSkillText}>{skill}</Text>
-                <TouchableOpacity onPress={() => toggleSkill(skill)}>
-                  <MaterialIcons name="close" size={16} color="#ffffff" />
-                </TouchableOpacity>
-              </View>
-            ))}
-          </View>
+      <LinearGradient colors={['#F5E6D8', '#EDEBFF', '#DFF3EE']} locations={[0, 0.5, 1]} style={styles.gradientBg}>
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+            <MaterialIcons name="arrow-back-ios" size={20} color={Colors.text} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Skills & Interests</Text>
+          <TouchableOpacity style={styles.saveAction} onPress={handleSave} disabled={isLoading}>
+            {isLoading ? (
+              <ActivityIndicator size="small" color={Colors.primary} />
+            ) : (
+              <Text style={styles.saveButton}>Save</Text>
+            )}
+          </TouchableOpacity>
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Add Custom Skill</Text>
-          <View style={styles.inputRow}>
-            <TextInput
-              style={styles.input}
-              value={customSkill}
-              onChangeText={setCustomSkill}
-              placeholder="Type a skill..."
-            />
-            <TouchableOpacity style={styles.addButton} onPress={addCustomSkill}>
-              <MaterialIcons name="add" size={24} color="#ffffff" />
-            </TouchableOpacity>
+        <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>Your Skills ({selectedSkills.length})</Text>
+            <View style={styles.skillsGrid}>
+              {selectedSkills.map((skill, index) => (
+                <View key={index} style={[styles.skillChip, styles.selectedSkill]}>
+                  <Text style={styles.selectedSkillText}>{skill}</Text>
+                  <TouchableOpacity onPress={() => toggleSkill(skill)}>
+                    <MaterialIcons name="close" size={16} color="#ffffff" />
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
           </View>
-        </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Available Skills</Text>
-          <View style={styles.skillsGrid}>
-            {availableSkills.map((skill, index) => (
-              <TouchableOpacity
-                key={index}
-                style={[
-                  styles.skillChip,
-                  selectedSkills.includes(skill) && styles.selectedSkill
-                ]}
-                onPress={() => toggleSkill(skill)}
-              >
-                <Text
-                  style={[
-                    styles.skillText,
-                    selectedSkills.includes(skill) && styles.selectedSkillText
-                  ]}
-                >
-                  {skill}
-                </Text>
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>Add Custom Skill</Text>
+            <View style={styles.inputRow}>
+              <TextInput
+                style={styles.input}
+                value={customSkill}
+                onChangeText={setCustomSkill}
+                placeholder="Type a skill..."
+                placeholderTextColor={Colors.textSecondary}
+              />
+              <TouchableOpacity style={styles.addButton} onPress={addCustomSkill}>
+                <MaterialIcons name="add" size={24} color="#ffffff" />
               </TouchableOpacity>
-            ))}
+            </View>
           </View>
-        </View>
 
-        <View style={{ height: 32 }} />
-      </ScrollView>
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>Available Skills</Text>
+            <View style={styles.skillsGrid}>
+              {availableSkills.map((skill, index) => (
+                <TouchableOpacity
+                  key={index}
+                  style={[
+                    styles.skillChip,
+                    selectedSkills.includes(skill) && styles.selectedSkill
+                  ]}
+                  onPress={() => toggleSkill(skill)}
+                >
+                  <Text
+                    style={[
+                      styles.skillText,
+                      selectedSkills.includes(skill) && styles.selectedSkillText
+                    ]}
+                  >
+                    {skill}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
 
-      <Toast
-        visible={toast.visible}
-        message={toast.message}
-        type={toast.type}
-        onHide={() => setToast({ ...toast, visible: false })}
-      />
+          <View style={{ height: 32 }} />
+        </ScrollView>
+
+        <Toast
+          visible={toast.visible}
+          message={toast.message}
+          type={toast.type}
+          onHide={() => setToast({ ...toast, visible: false })}
+        />
+      </LinearGradient>
     </SafeAreaView>
   );
 }
@@ -171,8 +175,11 @@ export default function SkillsInterestsScreen() {
 const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: 'transparent',
     ...(Platform.OS === 'web' && ({ height: '100vh', width: '100vw' } as any)),
+  },
+  gradientBg: {
+    flex: 1,
   },
   header: {
     flexDirection: 'row',
@@ -180,9 +187,8 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     justifyContent: 'space-between',
     paddingHorizontal: Spacing.md,
     paddingVertical: 12,
-    backgroundColor: Colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    backgroundColor: 'rgba(255,255,255,0.72)',
+    borderBottomWidth: 0,
   },
   backButton: {
     padding: 8,
@@ -195,14 +201,26 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   saveButton: {
     fontSize: FontSizes.md,
     fontWeight: FontWeights.semibold,
-    color: Colors.primary,
-    paddingHorizontal: 8,
+    color: '#ffffff',
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
+  saveAction: {
+    borderRadius: 999,
   },
   scrollView: {
     flex: 1,
   },
-  section: {
+  sectionCard: {
+    marginHorizontal: Spacing.md,
+    marginTop: Spacing.md,
     padding: Spacing.md,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,246,236,0.96)',
+    borderWidth: 0,
   },
   sectionTitle: {
     fontSize: FontSizes.md,
@@ -218,9 +236,8 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   skillChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.card,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    backgroundColor: Colors.softPeach,
+    borderWidth: 0,
     borderRadius: BorderRadius.full,
     paddingHorizontal: 16,
     paddingVertical: 8,
@@ -228,12 +245,11 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   selectedSkill: {
     backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
   },
   skillText: {
     fontSize: FontSizes.sm,
     fontWeight: FontWeights.medium,
-    color: Colors.textSecondary,
+    color: '#8b572a',
   },
   selectedSkillText: {
     color: '#ffffff',
@@ -244,10 +260,10 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   input: {
     flex: 1,
-    backgroundColor: Colors.card,
+    backgroundColor: '#ffffff',
     borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: BorderRadius.md,
+    borderColor: 'rgba(194,116,43,0.14)',
+    borderRadius: BorderRadius.full,
     paddingHorizontal: 16,
     paddingVertical: 12,
     fontSize: FontSizes.md,
@@ -257,7 +273,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: Colors.primary,
+    backgroundColor: '#c96f2d',
     alignItems: 'center',
     justifyContent: 'center',
   },

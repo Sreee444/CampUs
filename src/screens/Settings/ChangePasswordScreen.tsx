@@ -17,7 +17,7 @@ import { RootStackParamList } from '../../navigation/types';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { Toast } from '../../components/Toast';
-import { updatePassword } from '../../api/auth';
+import { signIn, updatePassword } from '../../api/auth';
 import { useAuth } from '../../contexts/AuthContext';
 
 type ChangePasswordScreenNavigationProp = StackNavigationProp<RootStackParamList, 'ChangePassword'>;
@@ -26,7 +26,7 @@ type ChangePasswordScreenRouteProp = RouteProp<RootStackParamList, 'ChangePasswo
 export default function ChangePasswordScreen() {
   const navigation = useNavigation<ChangePasswordScreenNavigationProp>();
   const route = useRoute<ChangePasswordScreenRouteProp>();
-  const { signOut } = useAuth();
+  const { signOut, user } = useAuth();
   const { isDark } = useTheme();
   const Colors = getColors(isDark);
   const styles = createStyles(Colors);
@@ -42,6 +42,7 @@ export default function ChangePasswordScreen() {
   const isForcedChange = Boolean(route.params?.forceChange);
 
   const handleChangePassword = async () => {
+    if (isLoading) return;
     if ((!isForcedChange && !currentPassword) || !newPassword || !confirmPassword) {
       setToast({ visible: true, message: 'Please fill all fields', type: 'error' });
       return;
@@ -55,36 +56,68 @@ export default function ChangePasswordScreen() {
       return;
     }
 
+    let timedOut = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
     try {
       setIsLoading(true);
+      timeoutId = setTimeout(() => {
+        timedOut = true;
+        setIsLoading(false);
+        setToast({
+          visible: true,
+          message: 'Taking longer than expected. Your password might already be updated. Please try logging in.',
+          type: 'warning',
+        });
+      }, 15000);
+
+      if (!isForcedChange) {
+        const email = user?.email;
+        if (!email) {
+          throw new Error('Unable to verify current password. Please log in again.');
+        }
+        await signIn(email, currentPassword);
+      }
+
       await updatePassword(newPassword);
-      setToast({ visible: true, message: 'Password changed successfully!', type: 'success' });
+      if (timeoutId) clearTimeout(timeoutId);
+
+      if (!timedOut) {
+        setToast({ visible: true, message: 'Password changed successfully!', type: 'success' });
+      } else {
+        setToast({ visible: true, message: 'Password updated. Please log in again.', type: 'success' });
+      }
       
       // Clear fields
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
 
-      setTimeout(async () => {
-        if (isForcedChange) {
-          await signOut();
-          navigation.reset({
-            index: 0,
-            routes: [{ name: 'Login' }],
-          });
-        } else {
-          navigation.goBack();
-        }
-      }, 300);
+      if (!timedOut) {
+        setTimeout(async () => {
+          if (isForcedChange) {
+            await signOut();
+            navigation.reset({
+              index: 0,
+              routes: [{ name: 'Login' }],
+            });
+          } else {
+            navigation.goBack();
+          }
+        }, 800);
+      }
     } catch (error: any) {
       console.error('Change password error:', error);
-      setToast({ 
-        visible: true, 
-        message: error.message || 'Failed to change password', 
-        type: 'error' 
-      });
+      if (!timedOut) {
+        setToast({ 
+          visible: true, 
+          message: error.message || 'Failed to change password', 
+          type: 'error' 
+        });
+      }
     } finally {
-      setIsLoading(false);
+      if (timeoutId) clearTimeout(timeoutId);
+      if (!timedOut) setIsLoading(false);
     }
   };
 

@@ -2,7 +2,7 @@
 
 export type UserRole = 'student' | 'alumni' | 'faculty' | 'admin' | 'developer';
 
-export type FacultyDesignation = 'hod' | 'professor' | 'assistant_professor' | 'lab_instructor';
+export type FacultyDesignation = 'principal' | 'vice_principal' | 'hod' | 'professor' | 'assistant_professor' | 'lab_instructor';
 
 export type UserStatus = 'online' | 'away' | 'offline';
 

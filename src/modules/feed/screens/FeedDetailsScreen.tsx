@@ -4,7 +4,10 @@ import {
   Dimensions,
   FlatList,
   Image,
+  Keyboard,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -50,7 +53,9 @@ export default function FeedDetailsScreen() {
   const [previewFileType, setPreviewFileType] = useState<AttachmentType | null>(null);
   const [profile, setProfile] = useState<any>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const listRef = React.useRef<FlatList>(null);
+  const commentInputRef = React.useRef<TextInput>(null);
 
   const loadPost = useCallback(async () => {
     try {
@@ -95,6 +100,31 @@ export default function FeedDetailsScreen() {
       listRef.current?.scrollToOffset({ offset: Math.max(0, attachmentSectionOffset), animated: true });
     }, 250);
   }, [route.params.focusAttachment, post, attachmentSectionOffset]);
+
+  useEffect(() => {
+    if (!route.params.focusComment) return;
+    const timer = setTimeout(() => {
+      commentInputRef.current?.focus();
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [route.params.focusComment]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+
+    const showSub = Keyboard.addListener('keyboardDidShow', (event) => {
+      setKeyboardHeight(event.endCoordinates.height || 0);
+    });
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardHeight(0);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const handleLike = useCallback(async () => {
     if (!post) return;
@@ -349,54 +379,61 @@ export default function FeedDetailsScreen() {
     </View>
   );
 
-  const renderFooter = () => (
-    <View style={styles.commentInputWrap}>
-      <TextInput
-        style={styles.commentInput}
-        placeholder="Write a comment..."
-        value={newComment}
-        onChangeText={setNewComment}
-        multiline
-        editable={!posting}
-      />
-      <TouchableOpacity
-        style={[styles.submitBtn, posting && styles.submitBtnDisabled]}
-        onPress={handleAddComment}
-        disabled={posting || !newComment.trim()}
-      >
-        <MaterialIcons name="send" size={16} color="#ffffff" />
-      </TouchableOpacity>
-    </View>
-  );
-
   return (
     <SafeAreaView style={styles.container}>
       <LinearGradient colors={['#F5E6D8', '#EDEBFF', '#DFF3EE']} locations={[0, 0.5, 1]} style={styles.gradientBg}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <MaterialIcons name="arrow-back" size={24} color="#0f172a" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Post Details</Text>
-        {canDeleteCurrentPost() ? (
-          <TouchableOpacity onPress={handleDeletePost}>
-            <MaterialIcons name="delete-outline" size={24} color="#ef4444" />
+      <KeyboardAvoidingView
+        style={styles.contentWrap}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => navigation.goBack()}>
+            <MaterialIcons name="arrow-back" size={24} color="#0f172a" />
           </TouchableOpacity>
-        ) : (
-          <View style={{ width: 24 }} />
-        )}
-      </View>
+          <Text style={styles.headerTitle}>Post Details</Text>
+          {canDeleteCurrentPost() ? (
+            <TouchableOpacity onPress={handleDeletePost}>
+              <MaterialIcons name="delete-outline" size={24} color="#ef4444" />
+            </TouchableOpacity>
+          ) : (
+            <View style={{ width: 24 }} />
+          )}
+        </View>
 
-      <FlatList
-        ref={listRef}
-        data={comments}
-        renderItem={renderComment}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.listContent}
-        ListHeaderComponent={renderHeader}
-        ListEmptyComponent={renderEmptyComments}
-        ListFooterComponent={renderFooter}
-        scrollEventThrottle={16}
-      />
+        <FlatList
+          ref={listRef}
+          data={comments}
+          renderItem={renderComment}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.listContent}
+          ListHeaderComponent={renderHeader}
+          ListEmptyComponent={renderEmptyComments}
+          scrollEventThrottle={16}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+        />
+
+        <View style={[styles.commentInputWrap, Platform.OS === 'android' && keyboardHeight > 0 ? { marginBottom: keyboardHeight } : null]}>
+          <TextInput
+            ref={commentInputRef}
+            style={styles.commentInput}
+            placeholder="Write a comment..."
+            value={newComment}
+            onChangeText={setNewComment}
+            multiline
+            editable={!posting}
+            blurOnSubmit={false}
+            textAlignVertical="top"
+          />
+          <TouchableOpacity
+            style={[styles.submitBtn, posting && styles.submitBtnDisabled]}
+            onPress={handleAddComment}
+            disabled={posting || !newComment.trim()}
+          >
+            <MaterialIcons name="send" size={16} color="#ffffff" />
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
 
       {!!imageAttachments.length && (
         <Modal
@@ -530,6 +567,9 @@ const styles = StyleSheet.create({
   gradientBg: {
     flex: 1,
   },
+  contentWrap: {
+    flex: 1,
+  },
   header: {
     paddingHorizontal: 16,
     paddingVertical: 12,
@@ -563,7 +603,7 @@ const styles = StyleSheet.create({
     color: '#64748b',
   },
   listContent: {
-    paddingBottom: 90,
+    paddingBottom: 16,
   },
   postContainer: {
     backgroundColor: 'rgba(255,255,255,0.85)',

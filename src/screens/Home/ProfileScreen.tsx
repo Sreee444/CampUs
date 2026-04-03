@@ -20,7 +20,7 @@ import { RootStackParamList, MainTabParamList } from '../../navigation/types';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { formatFacultyDesignation, isAdminRole, isFacultyOrAdminRole } from '../../utils/roles';
+import { formatFacultyDesignation, getRoleDisplayLabel, isAdminRole, isFacultyOrAdminRole, isLeadershipDesignation } from '../../utils/roles';
 import { getUserStats } from '../../api/users';
 import { LinearGradient } from 'expo-linear-gradient';
 import { UserAvatar } from '../../components/UserAvatar';
@@ -85,6 +85,7 @@ export default function ProfileScreen() {
   const isAlumni = role === 'alumni';
   const isAdmin = role === 'admin';
   const isFacultyLike = isFaculty || isAdmin;
+  const isLeadership = isLeadershipDesignation(profile?.faculty_designation);
 
   const academicStatusLabel = profile?.academic_status
     ? profile.academic_status.charAt(0).toUpperCase() + profile.academic_status.slice(1)
@@ -92,7 +93,7 @@ export default function ProfileScreen() {
 
   const hasAcademicInfo = Boolean(
     (isStudent && (profile?.year || profile?.semester || profile?.roll_number || profile?.section || profile?.year_of_admission || profile?.department || profile?.specialization)) ||
-    (isFacultyLike && (profile?.department || profile?.specialization || profile?.faculty_designation)) ||
+    (isFacultyLike && (profile?.faculty_designation || (!isLeadership && (profile?.department || profile?.specialization)))) ||
     (isAlumni && (profile?.department || profile?.specialization || profile?.batch || profile?.academic_status))
   );
 
@@ -104,6 +105,12 @@ export default function ProfileScreen() {
     } catch (error) {
       console.error('Share failed', error);
     }
+  };
+
+  const viewPublicProfile = () => {
+    const userId = user?.id || profile?.id;
+    if (!userId) return;
+    navigation.navigate('PublicProfile', { userId });
   };
 
   const handleLogout = () => {
@@ -161,8 +168,12 @@ export default function ProfileScreen() {
             </View>
 
             <Text style={styles.profileName}>{profile?.full_name || 'User'}</Text>
-            <Text style={styles.profileRole}>{profile?.role ? profile.role.charAt(0).toUpperCase() + profile.role.slice(1) : 'User'}</Text>
-            <Text style={styles.profileDepartment}>{profile?.department || 'No department set'}</Text>
+            <Text style={styles.profileRole}>{getRoleDisplayLabel(profile?.role, profile?.faculty_designation)}</Text>
+            {profile?.department && !isLeadership ? (
+              <Text style={styles.profileDepartment}>{profile.department}</Text>
+            ) : (isFacultyLike && profile?.faculty_designation ? (
+              <Text style={styles.profileDepartment}>{formatFacultyDesignation(profile.faculty_designation)}</Text>
+            ) : null)}
           </View>
 
         {isLoading ? (
@@ -205,7 +216,7 @@ export default function ProfileScreen() {
             <View style={styles.infoCard}>
               {isStudent && (
                 <>
-                  {profile?.department ? (
+                  {profile?.department && !isLeadership ? (
                     <View style={styles.infoRow}>
                       <View style={[styles.infoIconBox, { backgroundColor: '#e0f2fe' }]}>
                         <MaterialIcons name="business" size={15} color="#0284c7" />
@@ -216,7 +227,7 @@ export default function ProfileScreen() {
                       </View>
                     </View>
                   ) : null}
-                  {profile?.specialization ? (
+                  {profile?.specialization && !isLeadership ? (
                     <View style={styles.infoRow}>
                       <View style={[styles.infoIconBox, { backgroundColor: '#f0fdf4' }]}>
                         <MaterialIcons name="auto-awesome" size={15} color="#16a34a" />
@@ -289,7 +300,7 @@ export default function ProfileScreen() {
                       </View>
                     </View>
                   ) : null}
-                  {profile?.department ? (
+                  {profile?.department && !isLeadership ? (
                     <View style={styles.infoRow}>
                       <View style={[styles.infoIconBox, { backgroundColor: '#e0f2fe' }]}>
                         <MaterialIcons name="business" size={15} color="#0284c7" />
@@ -300,7 +311,7 @@ export default function ProfileScreen() {
                       </View>
                     </View>
                   ) : null}
-                  {profile?.specialization ? (
+                  {profile?.specialization && !isLeadership ? (
                     <View style={[styles.infoRow, styles.infoRowLast]}>
                       <View style={[styles.infoIconBox, { backgroundColor: '#f0fdf4' }]}>
                         <MaterialIcons name="auto-awesome" size={15} color="#16a34a" />
@@ -427,6 +438,17 @@ export default function ProfileScreen() {
             <MaterialIcons name="arrow-forward-ios" size={16} color="#94a3b8" />
           </TouchableOpacity>
 
+          <TouchableOpacity style={styles.actionItem} onPress={viewPublicProfile} disabled={!user?.id && !profile?.id}>
+            <View style={[styles.actionIcon, { backgroundColor: '#fff1e8' }]}>
+              <MaterialIcons name="visibility" size={20} color="#c2410c" />
+            </View>
+            <View style={styles.actionInfo}>
+              <Text style={styles.actionTitle}>View Public Profile</Text>
+              <Text style={styles.actionSubtitle}>See how others see you</Text>
+            </View>
+            <MaterialIcons name="arrow-forward-ios" size={16} color="#94a3b8" />
+          </TouchableOpacity>
+
           <TouchableOpacity style={styles.actionItem} onPress={() => navigation.navigate('AcademicDetails')}>
             <View style={styles.actionIcon}>
               <MaterialIcons name="school" size={20} color="#10b981" />
@@ -443,8 +465,8 @@ export default function ProfileScreen() {
               <MaterialIcons name="workspace-premium" size={20} color="#f59e0b" />
             </View>
             <View style={styles.actionInfo}>
-              <Text style={styles.actionTitle}>Certifications</Text>
-              <Text style={styles.actionSubtitle}>Manage your certificates</Text>
+              <Text style={styles.actionTitle}>Skills & Interests</Text>
+              <Text style={styles.actionSubtitle}>Manage your skills and interests</Text>
             </View>
             <MaterialIcons name="arrow-forward-ios" size={16} color="#94a3b8" />
           </TouchableOpacity>

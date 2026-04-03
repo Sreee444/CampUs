@@ -8,6 +8,7 @@ import {
     SafeAreaView,
     FlatList,
     TextInput,
+    Keyboard,
     KeyboardAvoidingView,
     Platform,
     ActivityIndicator,
@@ -73,6 +74,7 @@ export default function ProjectChatScreen() {
     const [backgroundImageUrl, setBackgroundImageUrl] = useState<string | null>(null);
     const [showBackgroundPicker, setShowBackgroundPicker] = useState(false);
     const [isLoadingBackground, setIsLoadingBackground] = useState(false);
+    const [keyboardHeight, setKeyboardHeight] = useState(0);
     const listRef = useRef<FlatList>(null);
     const prevMessageCountRef = useRef(0);
 
@@ -106,6 +108,22 @@ export default function ProjectChatScreen() {
 
         loadBackground();
     }, [chatId, user?.id]);
+
+    useEffect(() => {
+        if (Platform.OS !== 'android') return;
+
+        const showSub = Keyboard.addListener('keyboardDidShow', (event) => {
+            setKeyboardHeight(event.endCoordinates.height || 0);
+        });
+        const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+            setKeyboardHeight(0);
+        });
+
+        return () => {
+            showSub.remove();
+            hideSub.remove();
+        };
+    }, []);
 
     const selectChatTheme = async (theme: ChatTheme) => {
         setChatTheme(theme);
@@ -413,6 +431,8 @@ export default function ProjectChatScreen() {
                     style={S.messagesListContainer}
                     contentContainerStyle={S.messagesList}
                     showsVerticalScrollIndicator={false}
+                    keyboardShouldPersistTaps="handled"
+                    keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
                     ListEmptyComponent={
                         <View style={S.emptyChat}>
                             <MaterialIcons name="chat-bubble-outline" size={48} color={Colors.border} />
@@ -422,7 +442,7 @@ export default function ProjectChatScreen() {
                 />
 
                 {/* Input */}
-                <View style={[S.inputContainer, backgroundImageUrl && { backgroundColor: withHexAlpha(Colors.surface, 0.88) }]}>
+                <View style={[S.inputContainer, backgroundImageUrl && { backgroundColor: withHexAlpha(Colors.surface, 0.88) }, Platform.OS === 'android' && keyboardHeight > 0 ? { marginBottom: keyboardHeight } : null]}>
                     {!!selectedAttachmentUri && (
                         <View style={S.attachmentPreviewRow}>
                             <Image source={{ uri: selectedAttachmentUri }} style={S.attachmentPreviewImage} />
@@ -450,6 +470,8 @@ export default function ProjectChatScreen() {
                                 placeholderTextColor={Colors.textSecondary}
                                 multiline
                                 maxLength={2000}
+                                blurOnSubmit={false}
+                                textAlignVertical="top"
                                 returnKeyType="default"
                             />
                         </View>

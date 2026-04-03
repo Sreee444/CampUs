@@ -6,6 +6,7 @@ import {
   StyleSheet,
   SafeAreaView,
   TextInput,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
@@ -258,6 +259,7 @@ export default function ChatConversationScreen() {
   const [showBackgroundPicker, setShowBackgroundPicker] = useState(false);
   const [isLoadingBackground, setIsLoadingBackground] = useState(false);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [realtimeRetryTick, setRealtimeRetryTick] = useState(0);
   const announcementPulse = useSharedValue(1);
   const announcementSlide = useSharedValue(-100);
@@ -348,6 +350,22 @@ export default function ChatConversationScreen() {
 
     loadBackground();
   }, [conversationId, user?.id, isAIChat]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+
+    const showSub = Keyboard.addListener('keyboardDidShow', (event) => {
+      setKeyboardHeight(event.endCoordinates.height || 0);
+    });
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardHeight(0);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const selectChatTheme = (theme: ChatTheme) => {
     setChatTheme(theme);
@@ -2348,32 +2366,34 @@ export default function ChatConversationScreen() {
           style={styles.messagesContainer}
           imageStyle={styles.backgroundImage}
         >
-          <FlatList
-            ref={listRef}
-            data={filteredMessages}
-            keyExtractor={(item: ChatMessage) => item.id}
-            renderItem={renderMessage}
-            style={styles.messagesListContainer}
-            contentContainerStyle={styles.messagesContentContainer}
-            showsVerticalScrollIndicator={false}
-            ListEmptyComponent={
-              <View style={styles.emptyContainer}>
-                <MaterialIcons name="chat-bubble-outline" size={64} color={Colors.textSecondary} />
-                <Text style={styles.emptyText}>
-                  {showMessageSearch ? 'No matching messages' : 'No messages yet'}
-                </Text>
-                <Text style={styles.emptySubtext}>
-                  {showMessageSearch ? 'Try another search term' : 'Start the conversation!'}
-                </Text>
-              </View>
-            }
-          />
-
           <KeyboardAvoidingView
             style={styles.composerOverlay}
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            keyboardVerticalOffset={0}
           >
+            <FlatList
+              ref={listRef}
+              data={filteredMessages}
+              keyExtractor={(item: ChatMessage) => item.id}
+              renderItem={renderMessage}
+              style={styles.messagesListContainer}
+              contentContainerStyle={styles.messagesContentContainer}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+              ListEmptyComponent={
+                <View style={styles.emptyContainer}>
+                  <MaterialIcons name="chat-bubble-outline" size={64} color={Colors.textSecondary} />
+                  <Text style={styles.emptyText}>
+                    {showMessageSearch ? 'No matching messages' : 'No messages yet'}
+                  </Text>
+                  <Text style={styles.emptySubtext}>
+                    {showMessageSearch ? 'Try another search term' : 'Start the conversation!'}
+                  </Text>
+                </View>
+              }
+            />
+
             {replyingTo && (
               <View style={styles.replyBar}>
                 <View style={styles.replyTextWrap}>
@@ -2416,7 +2436,7 @@ export default function ChatConversationScreen() {
               </View>
             )}
 
-            <View style={styles.inputContainer}>
+            <View style={[styles.inputContainer, Platform.OS === 'android' && keyboardHeight > 0 ? { marginBottom: keyboardHeight } : null]}>
               <View
                 style={[
                   styles.inputMain,
@@ -2442,6 +2462,8 @@ export default function ChatConversationScreen() {
                   placeholderTextColor={Colors.textSecondary}
                   multiline
                   maxLength={500}
+                  blurOnSubmit={false}
+                  textAlignVertical="top"
                   editable={!isSending}
                 />
 
@@ -4093,13 +4115,11 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     messagesContentContainer: {
       paddingHorizontal: 6,
       paddingVertical: 6,
-      paddingBottom: 90,
+      paddingBottom: 10,
     },
     composerOverlay: {
-      position: 'absolute',
-      left: 0,
-      right: 0,
-      bottom: 0,
+      flex: 1,
+      width: '100%',
     },
     messageWrapper: {
       flexDirection: 'row',

@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   FlatList,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   TextInput,
@@ -53,6 +54,7 @@ export default function MentorshipChatScreen() {
   const [isSending, setIsSending] = useState(false);
   const [text, setText] = useState('');
   const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   const listRef = useRef<FlatList<MentorshipMessage>>(null);
   const typingStopTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -186,6 +188,22 @@ export default function MentorshipChatScreen() {
       setTypingUserIds([]);
     };
   }, [chatId, currentUserId]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+
+    const showSub = Keyboard.addListener('keyboardDidShow', (event) => {
+      setKeyboardHeight(event.endCoordinates.height || 0);
+    });
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardHeight(0);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const handleSend = async () => {
     const trimmed = text.trim();
@@ -393,7 +411,7 @@ export default function MentorshipChatScreen() {
               </View>
             )}
 
-            <View style={styles.inputRow}>
+            <View style={[styles.inputRow, Platform.OS === 'android' && keyboardHeight > 0 ? { marginBottom: keyboardHeight } : null]}>
               <TextInput
                 style={styles.input}
                 value={text}
@@ -409,6 +427,8 @@ export default function MentorshipChatScreen() {
                 placeholderTextColor={Colors.textSecondary}
                 multiline
                 maxLength={800}
+                blurOnSubmit={false}
+                textAlignVertical="top"
                 editable={!isClosed && !isSending}
               />
 

@@ -8,6 +8,7 @@ import {
     SafeAreaView,
     FlatList,
     TextInput,
+    Keyboard,
     KeyboardAvoidingView,
     Platform,
     ActivityIndicator,
@@ -88,6 +89,7 @@ export default function MentorshipChatScreen() {
     const [backgroundImageUrl, setBackgroundImageUrl] = useState<string | null>(null);
     const [showBackgroundPicker, setShowBackgroundPicker] = useState(false);
     const [isLoadingBackground, setIsLoadingBackground] = useState(false);
+    const [keyboardHeight, setKeyboardHeight] = useState(0);
     const [reactionPickerVisible, setReactionPickerVisible] = useState(false);
     const [reactionTargetMessageId, setReactionTargetMessageId] = useState<string | null>(null);
     const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
@@ -134,6 +136,22 @@ export default function MentorshipChatScreen() {
 
         loadBackground();
     }, [chatId, user?.id]);
+
+    useEffect(() => {
+        if (Platform.OS !== 'android') return;
+
+        const showSub = Keyboard.addListener('keyboardDidShow', (event) => {
+            setKeyboardHeight(event.endCoordinates.height || 0);
+        });
+        const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+            setKeyboardHeight(0);
+        });
+
+        return () => {
+            showSub.remove();
+            hideSub.remove();
+        };
+    }, []);
 
     const selectChatTheme = (theme: ChatTheme) => {
         setChatTheme(theme);
@@ -615,6 +633,8 @@ export default function MentorshipChatScreen() {
             >
                 <FlatList ref={listRef} data={filteredMessages} keyExtractor={(item) => item.id} renderItem={renderMessage}
                     style={styles.messagesListContainer} contentContainerStyle={styles.messagesContentContainer}
+                    keyboardShouldPersistTaps="handled"
+                    keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
                     onContentSizeChange={() => { if (!showMessageSearch) listRef.current?.scrollToEnd({ animated: false }); }}
                     ListEmptyComponent={
                         <View style={styles.emptyContainer}>
@@ -625,8 +645,8 @@ export default function MentorshipChatScreen() {
                     }
                 />
 
-                <KeyboardAvoidingView style={styles.composerOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}>
-                    <View style={styles.inputContainer}>
+                <KeyboardAvoidingView style={styles.composerOverlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}>
+                    <View style={[styles.inputContainer, Platform.OS === 'android' && keyboardHeight > 0 ? { marginBottom: keyboardHeight } : null]}>
                         {!!selectedAttachmentUri && (
                             <View style={styles.attachmentPreviewRow}>
                                 <Image source={{ uri: selectedAttachmentUri }} style={styles.attachmentPreviewImage} />
@@ -647,7 +667,7 @@ export default function MentorshipChatScreen() {
                             </TouchableOpacity>
                             <TextInput ref={messageInputRef} style={styles.input} value={messageText}
                                 onChangeText={(text) => { setMessageText(text); if (!text.trim() && !selectedAttachmentUri) { stopTypingSignal().catch(() => { }); return; } sendTypingSignal(); }}
-                                placeholder="Type a message" placeholderTextColor={Colors.textSecondary} multiline maxLength={2000} editable={!isSending} />
+                                placeholder="Type a message" placeholderTextColor={Colors.textSecondary} multiline maxLength={2000} blurOnSubmit={false} textAlignVertical="top" editable={!isSending} />
                         </View>
                         <TouchableOpacity
                             style={[

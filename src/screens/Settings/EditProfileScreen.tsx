@@ -13,9 +13,11 @@ import {
   Alert,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../../navigation/types';
+import { supabase } from '../../api/supabase';
 import { getColors, Spacing, FontSizes, FontWeights, Shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
@@ -31,7 +33,7 @@ import {
   getSpecializationOptions,
 } from '../../constants/academic';
 import { calculateAcademicFields, ROLL_NUMBER_REGEX } from '../../utils/academic';
-import { FACULTY_DESIGNATIONS, formatFacultyDesignation } from '../../utils/roles';
+import { formatFacultyDesignation, getDesignationOptionsByRole, isLeadershipDesignation } from '../../utils/roles';
 
 type EditProfileScreenNavigationProp = StackNavigationProp<RootStackParamList, 'EditProfile'>;
 
@@ -39,8 +41,11 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
   StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: Colors.background,
+      backgroundColor: 'transparent',
       ...(Platform.OS === 'web' && ({ height: '100vh', width: '100vw' } as any)),
+    },
+    gradientBg: {
+      flex: 1,
     },
     header: {
       flexDirection: 'row',
@@ -48,7 +53,8 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       justifyContent: 'space-between',
       paddingHorizontal: Spacing.md,
       paddingVertical: 12,
-      backgroundColor: Colors.surface,
+      backgroundColor: 'rgba(255,255,255,0.72)',
+      borderBottomWidth: 0,
     },
     backButton: {
       padding: 8,
@@ -61,8 +67,15 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     saveButton: {
       fontSize: FontSizes.md,
       fontWeight: FontWeights.semibold,
-      color: Colors.primary,
-      paddingHorizontal: 8,
+      color: '#7c4a1b',
+      backgroundColor: Colors.softPeach,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderRadius: 999,
+      overflow: 'hidden',
+    },
+    saveAction: {
+      borderRadius: 999,
     },
     scrollView: {
       flex: 1,
@@ -72,10 +85,11 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       gap: 18,
     },
     card: {
-      backgroundColor: Colors.surface,
+      backgroundColor: 'rgba(255,246,236,0.96)',
       borderRadius: 20,
       padding: 18,
-      ...Shadows.sm,
+      borderWidth: 0,
+      overflow: 'hidden',
     },
     cardHeader: {
       flexDirection: 'row',
@@ -155,10 +169,15 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       flexDirection: 'row',
       alignItems: 'center',
       gap: 6,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      borderRadius: 999,
+      backgroundColor: Colors.softPeach,
+      borderWidth: 0,
     },
     changePhotoText: {
       fontSize: FontSizes.sm,
-      color: Colors.primary,
+      color: '#9a5a25',
       fontWeight: FontWeights.medium,
     },
     removePhotoText: {
@@ -177,28 +196,30 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     },
     input: {
       height: 52,
-      backgroundColor: Colors.card,
+      backgroundColor: '#ffffff',
       borderRadius: 16,
       paddingHorizontal: 16,
       fontSize: FontSizes.md,
       color: Colors.text,
-      ...Shadows.sm,
+      borderWidth: 1,
+      borderColor: 'rgba(194,116,43,0.14)',
     },
     phoneRow: {
       flexDirection: 'row',
       alignItems: 'center',
       height: 52,
-      backgroundColor: Colors.card,
+      backgroundColor: '#ffffff',
       borderRadius: 16,
       paddingHorizontal: 12,
       gap: 8,
-      ...Shadows.sm,
+      borderWidth: 1,
+      borderColor: 'rgba(194,116,43,0.14)',
     },
     countryCodeBox: {
       paddingHorizontal: 10,
       paddingVertical: 6,
       borderRadius: 12,
-      backgroundColor: Colors.surface,
+      backgroundColor: Colors.softPeach,
     },
     countryCodeText: {
       fontSize: FontSizes.sm,
@@ -239,13 +260,14 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     },
     dropdownField: {
       height: 52,
-      backgroundColor: Colors.card,
+      backgroundColor: '#ffffff',
       borderRadius: 16,
       flexDirection: 'row',
       alignItems: 'center',
       paddingLeft: 44,
       paddingRight: 12,
-      ...Shadows.sm,
+      borderWidth: 1,
+      borderColor: 'rgba(194,116,43,0.14)',
     },
     dropdownContainer: {
       position: 'relative',
@@ -271,10 +293,10 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       left: 0,
       right: 0,
       borderRadius: 16,
-      backgroundColor: Colors.card,
+      backgroundColor: '#fffaf4',
+      borderWidth: 0,
       maxHeight: 200,
       zIndex: 40,
-      ...Shadows.sm,
     },
     dropdownListScroll: {
       maxHeight: 200,
@@ -338,6 +360,7 @@ export default function EditProfileScreen() {
     message: string;
     type: 'success' | 'info' | 'warning' | 'error';
   }>({ visible: false, message: '', type: 'success' });
+  const [leadershipDesignationOwners, setLeadershipDesignationOwners] = useState<Record<string, string>>({});
 
   const computedAcademic = useMemo(
     () => calculateAcademicFields(yearOfAdmission, department),
@@ -349,8 +372,18 @@ export default function EditProfileScreen() {
   const isAlumni = role === 'alumni';
   const isAdmin = role === 'admin';
   const isFacultyLike = isFaculty || isAdmin;
+  const isLeadership = isLeadershipDesignation(facultyDesignation);
   const isAlumniLocked = isAlumni;
   const isGraduated = (isAlumni ? profile?.academic_status : computedAcademic.academic_status) === 'graduated';
+  const currentProfileId = user?.id || profile?.id || '';
+  const designationOptions = useMemo(() => {
+    const base = getDesignationOptionsByRole(role);
+    return base.filter((designation) => {
+      if (designation !== 'principal' && designation !== 'vice_principal') return true;
+      const ownerId = leadershipDesignationOwners[designation];
+      return !ownerId || ownerId === currentProfileId;
+    });
+  }, [role, leadershipDesignationOwners, currentProfileId]);
   const specializationOptions = useMemo(
     () => getSpecializationOptions(department),
     [department]
@@ -395,6 +428,29 @@ export default function EditProfileScreen() {
   useEffect(() => {
     setIsDirty(false);
   }, [profile?.id]);
+
+  useEffect(() => {
+    if (!isFacultyLike) return;
+
+    const loadLeadershipOwners = async () => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, faculty_designation')
+        .in('faculty_designation', ['principal', 'vice_principal']);
+
+      if (error) return;
+
+      const owners: Record<string, string> = {};
+      for (const row of data || []) {
+        if (row?.faculty_designation && row?.id) {
+          owners[row.faculty_designation] = row.id;
+        }
+      }
+      setLeadershipDesignationOwners(owners);
+    };
+
+    loadLeadershipOwners();
+  }, [isFacultyLike]);
 
   const getInitials = () => {
     if (!fullName) return 'U';
@@ -512,41 +568,7 @@ export default function EditProfileScreen() {
       return;
     }
 
-    const nextErrors: {
-      department?: string;
-      specialization?: string;
-      section?: string;
-      roll_number?: string;
-      year_of_admission?: string;
-      faculty_designation?: string;
-    } = {};
-
-    if (isStudent) {
-      if (!yearOfAdmission) {
-        nextErrors.year_of_admission = 'Select year of admission';
-      } else if (yearOfAdmission < 2000 || yearOfAdmission > currentYear + 1) {
-        nextErrors.year_of_admission = 'Enter a valid admission year';
-      }
-
-      if (!department) nextErrors.department = 'Select department';
-      if (!specialization) nextErrors.specialization = 'Select specialization';
-      if (sectionOptions.length > 1 && !section) nextErrors.section = 'Select section';
-
-      if (!rollNumber.trim()) {
-        nextErrors.roll_number = 'Roll number is required';
-      } else if (!ROLL_NUMBER_REGEX.test(rollNumber.trim())) {
-        nextErrors.roll_number = 'Invalid roll number format';
-      }
-    }
-
-    if (isFacultyLike) {
-      if (!department) nextErrors.department = 'Select department';
-      if (!specialization) nextErrors.specialization = 'Select specialization';
-      if (isFaculty && !facultyDesignation) nextErrors.faculty_designation = 'Select designation';
-    }
-
-    setErrors(nextErrors);
-    if (Object.keys(nextErrors).length > 0) return;
+    setErrors({});
     if (phoneError) {
       setToast({ visible: true, message: phoneError, type: 'error' });
       return;
@@ -560,52 +582,6 @@ export default function EditProfileScreen() {
         bio: bio.trim() || undefined,
         avatar_url: avatarUrl || undefined,
       };
-
-      if (isStudent) {
-        updates.department = department || undefined;
-        updates.specialization = specialization || undefined;
-        updates.section = section || undefined;
-        updates.roll_number = rollNumber.trim() || undefined;
-        updates.year_of_admission = yearOfAdmission || undefined;
-        updates.year = computedAcademic.year || undefined;
-        updates.semester = computedAcademic.semester || undefined;
-        updates.batch = computedAcademic.batch || undefined;
-        updates.academic_status = computedAcademic.academic_status;
-        // Explicitly clear faculty fields to satisfy DB check constraints
-        updates.faculty_designation = null;
-      }
-
-      if (isFacultyLike) {
-        updates.department = department || undefined;
-        updates.specialization = specialization || undefined;
-        updates.faculty_designation = isFaculty ? ((facultyDesignation as any) || undefined) : null;
-        // Clear student/alumni-only fields
-        updates.section = null;
-        updates.roll_number = null;
-        updates.year_of_admission = null;
-        updates.year = null;
-        updates.semester = null;
-        updates.batch = null;
-        updates.academic_status = null;
-      }
-
-      if (isAlumni) {
-        updates.department = department || undefined;
-        updates.specialization = specialization || undefined;
-        updates.batch = profile?.batch || undefined;
-        updates.academic_status = profile?.academic_status || undefined;
-        // Clear faculty/student-only fields
-        updates.faculty_designation = null;
-        updates.section = null;
-        updates.roll_number = null;
-        updates.year_of_admission = null;
-        updates.year = null;
-        updates.semester = null;
-      }
-
-      if (!isFaculty) {
-        updates.faculty_designation = null;
-      }
 
       await updateProfile(userId, updates);
 
@@ -639,10 +615,10 @@ export default function EditProfileScreen() {
       return { title: 'Select Section', options: sectionOptions };
     }
     if (openDropdown === 'faculty_designation') {
-      return { title: 'Select Designation', options: [...FACULTY_DESIGNATIONS] as string[] };
+      return { title: 'Select Designation', options: [...designationOptions] as string[] };
     }
     return { title: 'Select Specialization', options: specializationOptions };
-  }, [openDropdown, admissionYearOptions, specializationOptions, sectionOptions]);
+  }, [openDropdown, admissionYearOptions, designationOptions, specializationOptions, sectionOptions]);
 
   const handleSheetSelect = (value: string) => {
     if (openDropdown === 'department') {
@@ -662,7 +638,13 @@ export default function EditProfileScreen() {
       return;
     }
     if (openDropdown === 'faculty_designation') {
-      selectAndClose(() => setFacultyDesignation(value));
+      selectAndClose(() => {
+        setFacultyDesignation(value);
+        if (isLeadershipDesignation(value)) {
+          setDepartment(null);
+          setSpecialization(null);
+        }
+      });
       return;
     }
     if (openDropdown === 'specialization') {
@@ -672,18 +654,19 @@ export default function EditProfileScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          <MaterialIcons name="arrow-back-ios" size={20} color={Colors.text} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Edit Profile</Text>
-        <TouchableOpacity onPress={handleSave} disabled={isLoading}>
-          {isLoading ? <ActivityIndicator size="small" color={Colors.primary} /> : <Text style={styles.saveButton}>Save</Text>}
-        </TouchableOpacity>
-      </View>
+      <LinearGradient colors={['#F5E6D8', '#EDEBFF', '#DFF3EE']} locations={[0, 0.5, 1]} style={styles.gradientBg}>
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+            <MaterialIcons name="arrow-back-ios" size={20} color={Colors.text} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Edit Profile</Text>
+          <TouchableOpacity style={styles.saveAction} onPress={handleSave} disabled={isLoading}>
+            {isLoading ? <ActivityIndicator size="small" color={Colors.primary} /> : <Text style={styles.saveButton}>Save</Text>}
+          </TouchableOpacity>
+        </View>
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        <View style={styles.content}>
+        <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+          <View style={styles.content}>
           <View style={styles.card}>
             <View style={styles.cardHeader}>
               <Text style={styles.cardTitle}>Personal Info</Text>
@@ -800,7 +783,7 @@ export default function EditProfileScreen() {
             </View>
           </View>
 
-          <View style={styles.card}>
+          {false && <View style={styles.card}>
             <View style={styles.cardHeader}>
               <Text style={styles.cardTitle}>Academic Details</Text>
               {isGraduated && (
@@ -861,7 +844,7 @@ export default function EditProfileScreen() {
               </View>
             )}
 
-            {(isStudent || isFacultyLike || isAlumni) && (
+            {(isStudent || isAlumni || (isFacultyLike && !isLeadership)) && (
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>Department</Text>
                 <View style={styles.dropdownContainer}>
@@ -881,7 +864,7 @@ export default function EditProfileScreen() {
               </View>
             )}
 
-            {(isStudent || isFacultyLike || isAlumni) && (
+            {(isStudent || isAlumni || (isFacultyLike && !isLeadership)) && (
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>Specialization</Text>
                 <View style={styles.dropdownContainer}>
@@ -901,7 +884,7 @@ export default function EditProfileScreen() {
               </View>
             )}
 
-            {isFaculty && (
+            {isFacultyLike && (
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>Designation</Text>
                 <View style={styles.dropdownContainer}>
@@ -989,23 +972,24 @@ export default function EditProfileScreen() {
                 </View>
               </View>
             )}
+          </View>}
           </View>
-        </View>
-      </ScrollView>
+        </ScrollView>
 
-      <Toast
-        visible={toast.visible}
-        message={toast.message}
-        type={toast.type}
-        onHide={() => setToast((prev) => ({ ...prev, visible: false }))}
-      />
-      <DropdownSheet
-        visible={!!openDropdown && !isGraduated && !isAlumniLocked && !!activeDropdown}
-        title={activeDropdown?.title || 'Select Option'}
-        options={activeDropdown?.options || []}
-        onSelect={handleSheetSelect}
-        onClose={() => setOpenDropdown(null)}
-      />
+        <Toast
+          visible={toast.visible}
+          message={toast.message}
+          type={toast.type}
+          onHide={() => setToast((prev) => ({ ...prev, visible: false }))}
+        />
+        <DropdownSheet
+          visible={!!openDropdown && !isGraduated && !isAlumniLocked && !!activeDropdown}
+          title={activeDropdown?.title || 'Select Option'}
+          options={activeDropdown?.options || []}
+          onSelect={handleSheetSelect}
+          onClose={() => setOpenDropdown(null)}
+        />
+      </LinearGradient>
     </SafeAreaView>
   );
 }

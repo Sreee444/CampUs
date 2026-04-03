@@ -42,7 +42,7 @@ import {
   ConnectionStatusResult,
 } from '../../api/connections';
 import { getUserVerifications, getMutualConnections, createDirectConversation } from '../../api/chat';
-import { formatFacultyDesignation } from '../../utils/roles';
+import { formatFacultyDesignation, getRoleDisplayLabel, isLeadershipDesignation } from '../../utils/roles';
 
 type PublicProfileScreenNavigationProp = StackNavigationProp<RootStackParamList, 'PublicProfile'>;
 type PublicProfileScreenRouteProp = RouteProp<RootStackParamList, 'PublicProfile'>;
@@ -63,6 +63,7 @@ export default function PublicProfileScreen() {
   const { user } = useAuth();
   const Colors = getColors(isDark);
   const styles = createStyles(Colors, isDark);
+  const isLeadership = isLeadershipDesignation(profile?.faculty_designation);
 
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -441,6 +442,7 @@ export default function PublicProfileScreen() {
   }
 
   const roleConfig = getRoleConfig();
+  const roleLabel = getRoleDisplayLabel(profile?.role, profile?.faculty_designation);
   const role = profile?.role;
   const isStudent = role === 'student';
   const isFaculty = role === 'faculty';
@@ -454,7 +456,7 @@ export default function PublicProfileScreen() {
     : '';
   const hasAcademicRows = Boolean(
     (isStudent && (profile.year_of_admission || profile.section || profile.department || profile.specialization || profile.roll_number || profile.year || profile.semester)) ||
-    (isFacultyLike && (profile.department || profile.specialization || profile.faculty_designation)) ||
+    (isFacultyLike && (profile.faculty_designation || (!isLeadership && (profile.department || profile.specialization)))) ||
     (isAlumni && (profile.department || profile.specialization || profile.batch || profile.academic_status))
   );
 
@@ -516,13 +518,15 @@ export default function PublicProfileScreen() {
             {/* Role pill */}
             <View style={[styles.rolePill, { backgroundColor: roleConfig.color + '22', borderColor: roleConfig.color + '44' }]}>
               <MaterialIcons name={roleConfig.icon as any} size={12} color={roleConfig.color} />
-              <Text style={[styles.rolePillText, { color: roleConfig.color }]}>{roleConfig.label.toUpperCase()}</Text>
+              <Text style={[styles.rolePillText, { color: roleConfig.color }]}>{roleLabel.toUpperCase()}</Text>
             </View>
 
             {/* Department */}
-            {profile.department ? (
+            {profile.department && !isLeadership ? (
               <Text style={styles.heroDepartment}>{profile.department}</Text>
-            ) : null}
+            ) : (profile.faculty_designation ? (
+              <Text style={styles.heroDepartment}>{formatFacultyDesignation(profile.faculty_designation)}</Text>
+            ) : null)}
 
             {/* Special badges & Verification badges */}
             {(profile.is_club_coordinator || profile.is_volunteer || profile.is_verified || verificationBadges.length > 0) && (
@@ -619,13 +623,13 @@ export default function PublicProfileScreen() {
                   <Text style={styles.infoVal}>{profile.section}</Text>
                 </View>
               ) : null}
-              {(isStudent || isFacultyLike || isAlumni) && profile.department ? (
+              {(isStudent || isFacultyLike || isAlumni) && profile.department && !isLeadership ? (
                 <View style={styles.infoRow}>
                   <Text style={styles.infoKey}>Department</Text>
                   <Text style={styles.infoVal}>{profile.department}</Text>
                 </View>
               ) : null}
-              {(isStudent || isFacultyLike || isAlumni) && profile.specialization ? (
+              {(isStudent || isFacultyLike || isAlumni) && profile.specialization && !isLeadership ? (
                 <View style={styles.infoRow}>
                   <Text style={styles.infoKey}>Specialization</Text>
                   <Text style={styles.infoVal}>{profile.specialization}</Text>

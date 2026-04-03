@@ -80,8 +80,8 @@ export const changeUserRole = async (
   newRole: "student" | "faculty" | "alumni" | "admin" | "developer"
 ) => {
   const updates: Partial<Profile> = { role: newRole };
-  // DB constraint: faculty_designation must be null for non-faculty roles
-  if (newRole !== 'faculty') {
+  // DB constraint: designation is only allowed for faculty/admin.
+  if (newRole !== 'faculty' && newRole !== 'admin') {
     updates.faculty_designation = null;
   }
   const { data, error } = await (supabase as any)

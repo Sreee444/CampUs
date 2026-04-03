@@ -1,5 +1,7 @@
 import React from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useTheme } from '../contexts/ThemeContext';
+import { getColors } from '../theme';
 
 type DropdownSheetProps = {
   visible: boolean;
@@ -16,11 +18,14 @@ export default function DropdownSheet({
   onSelect,
   onClose,
 }: DropdownSheetProps) {
+  const { isDark } = useTheme();
+  const Colors = getColors(isDark);
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable style={styles.sheet} onPress={() => {}}>
-          <Text style={styles.title}>{title}</Text>
+        <Pressable style={[styles.sheet, { backgroundColor: '#fffaf4' }]} onPress={() => {}}>
+          <Text style={[styles.title, { color: Colors.text }]}>{title}</Text>
           <ScrollView showsVerticalScrollIndicator={false} nestedScrollEnabled>
             {options.map((option) => (
               <TouchableOpacity
@@ -28,7 +33,7 @@ export default function DropdownSheet({
                 style={styles.option}
                 onPress={() => onSelect(option)}
               >
-                <Text style={styles.optionText}>{option}</Text>
+                <Text style={[styles.optionText, { color: Colors.text }]}>{option}</Text>
               </TouchableOpacity>
             ))}
           </ScrollView>
@@ -41,36 +46,30 @@ export default function DropdownSheet({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.2)',
+    backgroundColor: 'rgba(10,15,20,0.24)',
     justifyContent: 'center',
     paddingHorizontal: 20,
   },
   sheet: {
-    backgroundColor: '#ffffff',
-    borderRadius: 18,
+    borderRadius: 24,
     maxHeight: '65%',
-    paddingVertical: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
-    elevation: 10,
+    paddingVertical: 8,
+    overflow: 'hidden',
   },
   title: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#111827',
     paddingHorizontal: 16,
-    paddingBottom: 8,
+    paddingTop: 14,
+    paddingBottom: 10,
   },
   option: {
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 14,
   },
   optionText: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#374151',
   },
 });
 
