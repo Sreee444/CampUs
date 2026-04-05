@@ -34,6 +34,7 @@ import { createNotification } from '../../api/notifications';
 import { loadMyTeamState, cancelJoinRequest, acceptInvite, rejectInvite } from '../../utils/teamActions';
 import { evaluateEventEligibility } from '../../utils/eventEligibility';
 import { unregisterFromEvent } from '../../api/events';
+import { getExamDateKeys } from '../../api/exams';
 
 type Nav = StackNavigationProp<RootStackParamList, 'EventDetails'>;
 type Route = RouteProp<RootStackParamList, 'EventDetails'>;
@@ -57,12 +58,6 @@ interface EventDetails {
   registrations_count: number;
   organizer_profile?: { full_name: string };
 }
-
-const isExamEvent = (event: any) => {
-  const type = String(event?.event_type || '').toLowerCase();
-  const title = String(event?.title || '').trim();
-  return type === 'exam' || /^exam\s*:/i.test(title);
-};
 
 const getDateKey = (value: string) => {
   const parsed = new Date(value);
@@ -267,19 +262,9 @@ export default function EventDetailsScreen() {
         setShowUnregisterConfirm(false);
         await loadEventDetails();
       } else {
-        const { data: allEvents, error: allEventsError } = await supabase
-          .from('events')
-          .select('id, event_type, title, start_date');
-
-        if (allEventsError) throw allEventsError;
-
+        const examDateKeys = await getExamDateKeys();
         const eventDateKey = getDateKey(event.start_date);
-        const hasExamConflict = (allEvents || []).some(
-          (item: any) =>
-            item.id !== eventId &&
-            isExamEvent(item) &&
-            getDateKey(String(item.start_date || '')) === eventDateKey
-        );
+        const hasExamConflict = examDateKeys.includes(eventDateKey);
 
         if (hasExamConflict) {
           setShowUnregisterConfirm(false);

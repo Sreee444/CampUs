@@ -24,8 +24,15 @@ import { useNavigation } from '@react-navigation/native';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { createEvent, deleteEvent, getEvents, updateEvent } from '../../api/events';
+import { getEvents } from '../../api/events';
 import Toast from 'react-native-toast-message';
+import {
+  createExamSchedule,
+  deleteExamSchedule,
+  ExamSchedule,
+  getExamSchedules,
+  updateExamSchedule,
+} from '../../api/exams';
 import { isFacultyOrAdminRole } from '../../utils/roles';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -54,22 +61,12 @@ interface CalendarDay {
   events: Event[];
 }
 
-const EXAM_TITLE_PREFIX = 'Exam: ';
-
 const isExamEvent = (event?: Partial<Event> | null) => {
   if (!event) return false;
   const type = String(event.event_type || '').toLowerCase();
   const title = String(event.title || '').trim();
   return type === 'exam' || /^exam\s*:/i.test(title);
 };
-
-const toExamTitle = (title: string) => {
-  const trimmed = String(title || '').trim();
-  if (!trimmed) return EXAM_TITLE_PREFIX;
-  return /^exam\s*:/i.test(trimmed) ? trimmed : `${EXAM_TITLE_PREFIX}${trimmed}`;
-};
-
-const stripExamPrefix = (title?: string) => String(title || '').replace(/^exam\s*:\s*/i, '').trim();
 
 const toGoogleCalendarDate = (value: string) => {
   const parsed = new Date(value);
@@ -98,6 +95,7 @@ export default function CalendarScreen() {
   const [selectedEventTypes, setSelectedEventTypes] = useState<string[]>([]);
   const [showFilters, setShowFilters] = useState(false);
   const [weekDays, setWeekDays] = useState<CalendarDay[]>([]);
+  const [examRows, setExamRows] = useState<ExamSchedule[]>([]);
   const [showExamModal, setShowExamModal] = useState(false);
   const [isCreatingExam, setIsCreatingExam] = useState(false);
   const [editingExamId, setEditingExamId] = useState<string | null>(null);
@@ -133,6 +131,30 @@ export default function CalendarScreen() {
   const canManageExams = isFacultyOrAdminRole(profile?.role);
   const formatDateInput = (date: Date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
 
+  const examRowToEvent = (exam: ExamSchedule): Event => {
+    const dateKey = String(exam.exam_date || '').slice(0, 10);
+    const startTime = exam.start_time || '09:00:00';
+    const endTime = exam.end_time || '10:00:00';
+    return {
+      id: `exam:${exam.id}`,
+      title: exam.title,
+      description: exam.description || 'Scheduled exam',
+      event_type: 'exam',
+      start_date: `${dateKey}T${startTime}`,
+      end_date: `${dateKey}T${endTime}`,
+      registration_deadline: `${dateKey}T00:00:00`,
+      venue: exam.department || undefined,
+      is_registered: false,
+      registrations_count: 0,
+    };
+  };
+
+  const getExamIdFromEvent = (event: Event): string | null => {
+    if (!event?.id?.startsWith('exam:')) return null;
+    const [, id] = event.id.split(':');
+    return id || null;
+  };
+
   const closeExamModal = () => {
     setShowExamModal(false);
     setShowExamDatePicker(false);
@@ -151,11 +173,15 @@ export default function CalendarScreen() {
 
   const openEditExamModal = (event: Event) => {
     if (!canManageExams || !isExamEvent(event)) return;
-    const eventDate = new Date(event.start_date);
-    setEditingExamId(event.id);
-    setExamDate(formatDateInput(Number.isNaN(eventDate.getTime()) ? new Date() : eventDate));
-    setExamTitle(stripExamPrefix(event.title));
-    setExamDescription(event.description || '');
+    const examId = getExamIdFromEvent(event);
+    if (!examId) return;
+    const row = examRows.find((item) => item.id === examId);
+    if (!row) return;
+
+    setEditingExamId(row.id);
+    setExamDate(String(row.exam_date || '').slice(0, 10));
+    setExamTitle(row.title || '');
+    setExamDescription(row.description || '');
     setShowExamDatePicker(false);
     setShowExamModal(true);
   };
@@ -218,15 +244,22 @@ export default function CalendarScreen() {
     if (!user?.id) return;
     try {
       setIsLoading(true);
-      
-      // Load events with user ID for personalized results
-      const eventData = await getEvents(user.id, undefined, 'all');
-      setEvents(eventData || []);
-      setFilteredEvents(eventData || []);
+
+      const [eventData, exams] = await Promise.all([
+        getEvents(user.id, undefined, 'all'),
+        getExamSchedules(),
+      ]);
+      const mappedExams = (exams || []).map(examRowToEvent);
+      const normalEvents = (eventData || []).filter((event: Event) => !isExamEvent(event));
+      const mergedEvents = [...normalEvents, ...mappedExams];
+
+      setExamRows(exams || []);
+      setEvents(mergedEvents);
+      setFilteredEvents(mergedEvents);
       
       // Build calendar and week view
-      generateCalendarDays(currentDate, eventData || []);
-      generateWeekDays(currentDate, eventData || []);
+      generateCalendarDays(currentDate, mergedEvents);
+      generateWeekDays(currentDate, mergedEvents);
     } catch (error) {
       console.error('Error loading events:', error);
       Toast.show({ type: 'error', text1: 'Failed to load calendar' });
@@ -374,8 +407,9 @@ export default function CalendarScreen() {
 
   const getEventStats = () => {
     const nowTs = Date.now();
-    const total = filteredEvents.length;
-    const registered = filteredEvents.filter((e) => {
+    const nonExamEvents = filteredEvents.filter((e) => !isExamEvent(e));
+    const total = nonExamEvents.length;
+    const registered = nonExamEvents.filter((e) => {
       if (!e.is_registered) return false;
       const eventDate = new Date(e.start_date);
       return (
@@ -383,10 +417,10 @@ export default function CalendarScreen() {
         eventDate.getFullYear() === currentDate.getFullYear()
       );
     }).length;
-    const upcoming = filteredEvents.filter(
+    const upcoming = nonExamEvents.filter(
       (e) => new Date(e.start_date).getTime() > nowTs
     ).length;
-    const thisMonth = filteredEvents.filter((e) => {
+    const thisMonth = nonExamEvents.filter((e) => {
       const eventDate = new Date(e.start_date);
       return (
         eventDate.getMonth() === currentDate.getMonth() &&
@@ -398,7 +432,7 @@ export default function CalendarScreen() {
   };
 
   const upcomingEvents = filteredEvents.filter(
-    (event) => new Date(event.start_date).getTime() > Date.now()
+    (event) => !isExamEvent(event) && new Date(event.start_date).getTime() > Date.now()
   );
 
   const handleCreateExam = async () => {
@@ -412,41 +446,29 @@ export default function CalendarScreen() {
       return;
     }
 
-    const startIso = `${date}T00:00:00`;
-    const endIso = `${date}T23:59:59`;
-    const startDate = new Date(startIso);
-    const endDate = new Date(endIso);
-
-    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
-      Toast.show({ type: 'error', text1: 'Invalid date format', text2: 'Use YYYY-MM-DD' });
-      return;
-    }
-
     try {
       setIsCreatingExam(true);
-      const examPayload = {
-        title: toExamTitle(title),
-        description: examDescription.trim() || 'Scheduled exam',
-        // DB currently rejects `exam` in events_event_type_check, so store under `other`
-        // and infer exam semantics from title prefix.
-        event_type: 'other' as any,
-        start_date: startDate.toISOString(),
-        end_date: endDate.toISOString(),
-        registration_deadline: startDate.toISOString(),
-        venue: null,
-        is_online: false,
-      } as any;
-
       if (editingExamId) {
-        await updateEvent(editingExamId, examPayload);
+        await updateExamSchedule(
+          editingExamId,
+          {
+            title,
+            description: examDescription.trim() || null,
+            exam_date: date,
+          },
+          user.id
+        );
         Toast.show({ type: 'success', text1: 'Exam updated' });
       } else {
-        await createEvent({
-          ...examPayload,
-          created_by: user.id,
-          max_participants: null as any,
-        } as any);
-        Toast.show({ type: 'success', text1: 'Exam added to calendar' });
+        await createExamSchedule(
+          {
+            title,
+            description: examDescription.trim() || null,
+            exam_date: date,
+          },
+          user.id
+        );
+        Toast.show({ type: 'success', text1: 'Exam added' });
       }
 
       closeExamModal();
@@ -461,10 +483,12 @@ export default function CalendarScreen() {
 
   const handleDeleteExam = (event: Event) => {
     if (!canManageExams || !isExamEvent(event)) return;
+    const examId = getExamIdFromEvent(event);
+    if (!examId) return;
 
     Alert.alert(
       'Delete exam?',
-      `This will permanently remove "${event.title}" from the calendar.`,
+      `This will permanently remove "${event.title}".`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -472,7 +496,7 @@ export default function CalendarScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              await deleteEvent(event.id);
+              await deleteExamSchedule(examId);
               setSelectedDayEvents((prev) => prev.filter((item) => item.id !== event.id));
               Toast.show({ type: 'success', text1: 'Exam deleted' });
               await loadEventsAndCalendar();
@@ -489,6 +513,7 @@ export default function CalendarScreen() {
       ]
     );
   };
+
 
   const handleAddToCalendar = async (event: Event) => {
     try {
@@ -563,11 +588,6 @@ export default function CalendarScreen() {
           <Text style={styles.headerTitle}>Calendar</Text>
         </View>
         <View style={styles.headerActions}>
-          {canManageExams && (
-            <TouchableOpacity style={styles.examAddButton} onPress={() => openExamModal()}>
-              <MaterialIcons name="quiz" size={20} color="#dc2626" />
-            </TouchableOpacity>
-          )}
           <TouchableOpacity
             style={styles.filterButton}
             onPress={() => setShowFilters(!showFilters)}
@@ -868,7 +888,6 @@ export default function CalendarScreen() {
           </View>
         </ScrollView>
 
-        {renderQuickAddButton()}
         {renderAddExamModal()}
         {renderDayModal()}
       </SafeAreaView>
@@ -990,9 +1009,12 @@ export default function CalendarScreen() {
                   {calendarDay.day}
                 </Text>
 
-                  {calendarDay.events.length > 0 && (
+                  {calendarDay.events.filter((event) => !isExamEvent(event)).length > 0 && (
                   <View style={styles.eventDots}>
-                    {calendarDay.events.slice(0, 2).map((event, idx) => (
+                    {calendarDay.events
+                      .filter((event) => !isExamEvent(event))
+                      .slice(0, 2)
+                      .map((event, idx) => (
                       (() => {
                         const effectiveType = isExamEvent(event) ? 'exam' : event.event_type;
                         return (
@@ -1006,14 +1028,14 @@ export default function CalendarScreen() {
                         );
                       })()
                     ))}
-                    {calendarDay.events.length > 2 && (
+                    {calendarDay.events.filter((event) => !isExamEvent(event)).length > 2 && (
                       <Text
                         style={[
                           styles.moreDots,
                           { color: isToday ? '#fff' : '#a855f7' },
                         ]}
                       >
-                        +{calendarDay.events.length - 2}
+                        +{calendarDay.events.filter((event) => !isExamEvent(event)).length - 2}
                       </Text>
                     )}
                   </View>
@@ -1232,9 +1254,11 @@ export default function CalendarScreen() {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.eventTitle}>{event.title}</Text>
-              <Text style={styles.eventTime}>
-                <MaterialIcons name="access-time" size={12} /> {eventTime}
-              </Text>
+              {!isExam && (
+                <Text style={styles.eventTime}>
+                  <MaterialIcons name="access-time" size={12} /> {eventTime}
+                </Text>
+              )}
             </View>
           </View>
           {!isDetailed && (
@@ -1308,6 +1332,7 @@ export default function CalendarScreen() {
                 </TouchableOpacity>
               </View>
             )}
+
           </>
         )}
       </TouchableOpacity>

@@ -22,6 +22,7 @@ import { isAdminRole } from '../../utils/roles';
 import { RootStackParamList } from '../../navigation/types';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../api/supabase';
+import { getExamDateKeys } from '../../api/exams';
 import * as FileSystem from 'expo-file-system/legacy';
 import { ConfirmBottomSheet } from '../../components/ConfirmBottomSheet';
 import { DEPARTMENT_OPTIONS, getDepartmentAcademicLimits } from '../../constants/academic';
@@ -67,24 +68,10 @@ const STEPS = [
 const ACCENT = '#4f46e5';
 const BG = '#f5f5f7';
 
-const isExamEvent = (event: any) => {
-  const type = String(event?.event_type || '').toLowerCase();
-  const title = String(event?.title || '').trim();
-  return type === 'exam' || /^exam\s*:/i.test(title);
-};
-
 const getDateKey = (date: Date) => {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
   const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-};
-const getDateKeyFromString = (value: string) => {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return '';
-  const y = parsed.getFullYear();
-  const m = String(parsed.getMonth() + 1).padStart(2, '0');
-  const d = String(parsed.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 };
 
@@ -150,21 +137,7 @@ export default function CreateEventScreen() {
   useEffect(() => {
     const loadExamDates = async () => {
       try {
-        const { data, error } = await supabase
-          .from('events')
-          .select('event_type, title, start_date');
-
-        if (error) throw error;
-        const rows = (data || []) as any[];
-
-        const dates = Array.from(
-          new Set(
-            rows
-              .filter((item) => isExamEvent(item))
-              .map((item) => getDateKeyFromString(String(item.start_date || '')))
-              .filter(Boolean)
-          )
-        );
+        const dates = await getExamDateKeys();
         setExamDateKeys(dates);
       } catch (error) {
         console.error('Failed to load exam dates for conflict detection:', error);

@@ -30,6 +30,7 @@ import { LoadingState } from '../../components/LoadingState';
 import { supabase } from '../../api/supabase';
 import Toast from 'react-native-toast-message';
 import { isAdminRole } from '../../utils/roles';
+import { getExamDateKeys } from '../../api/exams';
 import {
   SEMANTIC_COLORS,
   getRegistrationColor,
@@ -107,18 +108,13 @@ export default function EventsScreen() {
       if (refresh) setIsRefreshing(true);
       else setIsLoading(true);
 
-      const data = await getEvents(user?.id, undefined, activeTab);
+      const [data, examDates] = await Promise.all([
+        getEvents(user?.id, undefined, activeTab),
+        getExamDateKeys(),
+      ]);
       const allEvents = data || [];
-      const examDates = Array.from(
-        new Set(
-          allEvents
-            .filter((event) => isExamEvent(event))
-            .map((event) => getDateKey(event.start_date))
-            .filter(Boolean)
-        )
-      );
-      setExamDateKeys(examDates);
       const nonExamEvents = allEvents.filter((event) => !isExamEvent(event));
+      setExamDateKeys(examDates);
       setEvents(nonExamEvents);
       setLoadError(null);
     } catch (error) {
@@ -309,7 +305,9 @@ export default function EventsScreen() {
           <View style={styles.headerButtons}>
             <TouchableOpacity
               style={styles.calendarButton}
-              onPress={() => { }}
+              onPress={() => {
+                navigation.navigate('Calendar');
+              }}
               accessibilityRole="button"
               accessibilityLabel="Open calendar"
             >
@@ -436,15 +434,7 @@ export default function EventsScreen() {
             const statusLabel = isLive ? '🔴 Live Now' : activeTab === 'past' ? '⏰ Ended' : '✅ Upcoming';
             const statusBg = isLive ? '#FEE2E2' : activeTab === 'past' ? '#F3F4F6' : '#DFF5EC';
             const statusColor = isLive ? '#DC2626' : activeTab === 'past' ? '#6B7280' : '#059669';
-            const eventDateKey = new Date(event.start_date).toDateString();
-            const hasExamConflict =
-              !isExamLike &&
-              filteredEvents.some(
-                (item) =>
-                  item.id !== event.id &&
-                  isExamEvent(item) &&
-                  new Date(item.start_date).toDateString() === eventDateKey
-              );
+            const hasExamConflict = !isExamLike && examDateKeys.includes(getDateKey(event.start_date));
 
             return (
             <TouchableOpacity

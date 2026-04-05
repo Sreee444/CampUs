@@ -3,6 +3,7 @@
 import { supabase } from "./supabase";
 import { ProjectTeam, ProjectTeamMember } from "../types/database";
 import { ensureProjectChat, addParticipantToProjectChat, getProjectChatId } from './projectChat';
+import { isAdminRole } from '../utils/roles';
 
 // ─── Helper Functions ──────────────────────────────────────
 
@@ -691,7 +692,7 @@ export const removeTeamMember = async (
 
       if (actorProfileError) throw actorProfileError;
 
-      isAdminAction = actorProfile?.role === 'admin';
+      isAdminAction = isAdminRole(actorProfile?.role);
     }
 
     if (!isSelfRemoval && !isCreatorAction && !isAdminAction) {
@@ -707,7 +708,7 @@ export const removeTeamMember = async (
 
       if (targetProfileError) throw targetProfileError;
 
-      if (targetProfile?.role === 'admin') {
+      if (isAdminRole(targetProfile?.role)) {
         throw new Error("Admin members cannot be removed from the team");
       }
     }

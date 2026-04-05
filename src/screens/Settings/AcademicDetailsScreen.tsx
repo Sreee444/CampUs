@@ -30,7 +30,7 @@ import {
   getSpecializationOptions,
 } from '../../constants/academic';
 import { calculateAcademicFields, ROLL_NUMBER_REGEX } from '../../utils/academic';
-import { formatFacultyDesignation, getDesignationOptionsByRole, isLeadershipDesignation } from '../../utils/roles';
+import { formatFacultyDesignation, getDesignationOptionsByRole, isAdminRole, isLeadershipDesignation } from '../../utils/roles';
 
 type AcademicDetailsScreenNavigationProp = StackNavigationProp<RootStackParamList, 'AcademicDetails'>;
 
@@ -246,7 +246,7 @@ export default function AcademicDetailsScreen() {
   const isStudent = role === 'student';
   const isFaculty = role === 'faculty';
   const isAlumni = role === 'alumni';
-  const isAdmin = role === 'admin';
+  const isAdmin = isAdminRole(role);
   const isFacultyLike = isFaculty || isAdmin;
   const isLeadership = isLeadershipDesignation(facultyDesignation);
   const isAlumniLocked = isAlumni;

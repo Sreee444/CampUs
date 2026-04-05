@@ -83,7 +83,7 @@ export default function ProfileScreen() {
   const isStudent = role === 'student';
   const isFaculty = role === 'faculty';
   const isAlumni = role === 'alumni';
-  const isAdmin = role === 'admin';
+  const isAdmin = isAdminRole(role);
   const isFacultyLike = isFaculty || isAdmin;
   const isLeadership = isLeadershipDesignation(profile?.faculty_designation);
 

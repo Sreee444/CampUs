@@ -42,7 +42,7 @@ import {
   ConnectionStatusResult,
 } from '../../api/connections';
 import { getUserVerifications, getMutualConnections, createDirectConversation } from '../../api/chat';
-import { formatFacultyDesignation, getRoleDisplayLabel, isLeadershipDesignation } from '../../utils/roles';
+import { formatFacultyDesignation, getRoleDisplayLabel, isAdminRole, isLeadershipDesignation } from '../../utils/roles';
 
 type PublicProfileScreenNavigationProp = StackNavigationProp<RootStackParamList, 'PublicProfile'>;
 type PublicProfileScreenRouteProp = RouteProp<RootStackParamList, 'PublicProfile'>;
@@ -447,7 +447,7 @@ export default function PublicProfileScreen() {
   const isStudent = role === 'student';
   const isFaculty = role === 'faculty';
   const isAlumni = role === 'alumni';
-  const isAdmin = role === 'admin';
+  const isAdmin = isAdminRole(role);
   const isFacultyLike = isFaculty || isAdmin;
   const skills = Array.isArray(profile.skills) ? profile.skills : [];
   const interests = Array.isArray(profile.interests) ? profile.interests : [];

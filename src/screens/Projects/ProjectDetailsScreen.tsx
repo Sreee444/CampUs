@@ -47,6 +47,7 @@ import { getProjectStatusColor, getTeamFillColor, PROJECT_STATUS_OPTIONS } from 
 import { createNotification } from '../../api/notifications';
 import { supabase } from '../../api/supabase';
 import { computeMatchScore, detectSkillRoles, ParticipantWithMatch, sortByMatch } from '../../utils/matchingUtils';
+import { isAdminRole } from '../../utils/roles';
 
 type ProjectDetailsScreenNavigationProp = StackNavigationProp<RootStackParamList, 'ProjectDetails'>;
 type ProjectDetailsScreenRouteProp = RouteProp<RootStackParamList, 'ProjectDetails'>;
@@ -145,7 +146,7 @@ export default function ProjectDetailsScreen() {
 
   const creatorId = team?.creator?.id ?? team?.created_by;
   const isCreator = user?.id === creatorId;
-  const isAdmin = profile?.role === 'admin';
+  const isAdmin = isAdminRole(profile?.role);
   const canManageTeam = isCreator || isAdmin;
   const canManageMembers = canManageTeam;
   const teamMembers = team?.members || [];
@@ -846,7 +847,7 @@ export default function ProjectDetailsScreen() {
       return;
     }
 
-    if (memberToRemove.role === 'admin') {
+    if (isAdminRole(memberToRemove.role)) {
       Toast.show({
         type: 'error',
         text1: 'Remove Failed',
@@ -1018,7 +1019,7 @@ export default function ProjectDetailsScreen() {
       const { data: admins } = await supabase
         .from('profiles')
         .select('id')
-        .eq('role', 'admin');
+        .in('role', ['admin', 'developer']);
 
       if (admins && admins.length > 0) {
         // Create notification for each admin
@@ -1529,7 +1530,7 @@ export default function ProjectDetailsScreen() {
             <View style={styles.teamList}>
               {displayMembers.map((member) => {
                 const isLeader = member.id === creatorId;
-                const isAdminMember = member.role === 'admin';
+                const isAdminMember = isAdminRole(member.role);
                 const matchInfo = computeMatchScore(member.skills ?? [], requiredRoles);
                 const matchColor = getMatchColor(matchInfo.percentage);
                 const canShowMenu = isCreator && !isLeader && !isAdminMember;
