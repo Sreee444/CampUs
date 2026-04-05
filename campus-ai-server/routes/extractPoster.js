@@ -177,6 +177,63 @@ function normalizeEventType(value) {
   return 'other';
 }
 
+function cleanPosterLine(line) {
+  return String(line || '')
+    .replace(/[|]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isInstitutionOrMetaLine(line) {
+  const text = cleanPosterLine(line).toLowerCase();
+  if (!text) return true;
+
+  return /\b(autonomous|department|dept\.?|college|university|institute|school|society|of india|prof\.?|assistant professor|students?|s\d|cse|ece|civil|mechanical|computer science)\b/.test(text.replace(/\n/g, ' '))
+    || /\b(date|time|venue|register|registration|fee|scan|qr|contact)\b/.test(text)
+    || /^https?:\/\//.test(text)
+    || /^www\./.test(text);
+}
+
+function hasEventKeyword(line) {
+  return /\b(workshop|seminar|talk|webinar|hackathon|competition|contest|bootcamp|summit|lecture|session|expo|event)\b/i.test(line);
+}
+
+function buildFallbackTitle(lines) {
+  const cleaned = lines.map(cleanPosterLine).filter(Boolean);
+
+  for (let i = 0; i < cleaned.length; i += 1) {
+    const current = cleaned[i];
+    const next = cleaned[i + 1] || '';
+    const next2 = cleaned[i + 2] || '';
+
+    if (!hasEventKeyword(current) && !hasEventKeyword(`${current} ${next}`)) continue;
+
+    const parts = [current];
+    if (next && (!isInstitutionOrMetaLine(next) || /^on\b/i.test(next))) parts.push(next);
+    if (next2 && /^on\b/i.test(next2)) parts.push(next2);
+
+    const candidate = cleanPosterLine(parts.join(' '));
+    if (candidate.length >= 6 && candidate.length <= 120) {
+      return candidate;
+    }
+  }
+
+  const fallback = cleaned.find((line) => !isInstitutionOrMetaLine(line) && line.length >= 6 && line.length <= 80);
+  return fallback || '';
+}
+
+function buildFallbackDescription(lines, title) {
+  const titleLower = cleanPosterLine(title).toLowerCase();
+  const descriptionLines = lines
+    .map(cleanPosterLine)
+    .filter(Boolean)
+    .filter((line) => line.toLowerCase() !== titleLower)
+    .filter((line) => !isInstitutionOrMetaLine(line))
+    .slice(0, 3);
+
+  return descriptionLines.join(' ').slice(0, 240);
+}
+
 function fallbackFromPosterText(posterText) {
   const text = normalizeWhitespace(posterText);
   if (!text) {
@@ -263,13 +320,9 @@ function fallbackFromPosterText(posterText) {
   const fallbackRegistrationFee = registrationFeeMatch ? registrationFeeMatch[1] : '';
   const fallbackHasRegistrationQr = /\b(register now|scan|qr)\b/i.test(lower);
 
-  // Prefer short strong line as title if AI misses it.
-  const fallbackTitle =
-    lines.find((l) => l.length >= 4 && l.length <= 60 && /hack|workshop|contest|competition|summit|fest|event/i.test(l)) ||
-    lines[0] ||
-    '';
-
-  const fallbackDescription = lines.slice(1, 4).join(' ').slice(0, 240);
+  // Build a cleaner title/description from OCR text while avoiding institution/meta lines.
+  const fallbackTitle = buildFallbackTitle(lines);
+  const fallbackDescription = buildFallbackDescription(lines, fallbackTitle);
 
   // Basic location fallback from "City, State" style line.
   const fallbackLocation =

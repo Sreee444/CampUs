@@ -73,6 +73,26 @@ function firstNonEmpty(...values) {
   return '';
 }
 
+function dedupeRepeatedEventImages(events) {
+  const seenImages = new Set();
+
+  return events.map((event) => {
+    const primaryImage = firstNonEmpty(event?.posterImage, event?.bannerImage);
+    if (!primaryImage) return event;
+
+    if (seenImages.has(primaryImage)) {
+      return {
+        ...event,
+        bannerImage: '',
+        posterImage: '',
+      };
+    }
+
+    seenImages.add(primaryImage);
+    return event;
+  });
+}
+
 function normalizeDateTimeText(value) {
   const monthPattern = '(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)';
   let text = String(value || '');
@@ -579,7 +599,7 @@ function normalizeExtractResult(parsed, url, websiteText = '') {
   const rawEvents = Array.isArray(source.events) ? source.events : [];
   const fallback = extractFallbackDateTime(websiteText);
 
-  const events = rawEvents.map((rawEvent) => ({
+  const events = dedupeRepeatedEventImages(rawEvents.map((rawEvent) => ({
     eventStartDateTime: firstNonEmpty(rawEvent?.eventStartDateTime, rawEvent?.event_start_datetime, rawEvent?.startDateTime, fallback.fallbackDateTime),
     title: firstNonEmpty(rawEvent?.title, rawEvent?.event_title),
     description: firstNonEmpty(rawEvent?.description, rawEvent?.event_description),
@@ -607,7 +627,7 @@ function normalizeExtractResult(parsed, url, websiteText = '') {
     eventLink: firstNonEmpty(rawEvent?.eventLink, rawEvent?.event_link, url),
     bannerImage: firstNonEmpty(rawEvent?.bannerImage, rawEvent?.banner_image),
     posterImage: firstNonEmpty(rawEvent?.posterImage, rawEvent?.poster_image),
-  }));
+  })));
 
   const firstEvent = events[0] || {};
   const rawFestName = firstNonEmpty(source.festName, source.fest_name);

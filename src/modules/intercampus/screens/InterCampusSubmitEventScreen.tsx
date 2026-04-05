@@ -17,6 +17,7 @@ import { Image } from 'expo-image';
 import Toast from 'react-native-toast-message';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { RootStackParamList } from '../../../navigation/types';
 import { useAuth } from '../../../contexts/AuthContext';
 import { isFacultyOrAdminRole } from '../../../utils/roles';
@@ -83,6 +84,110 @@ const asString = (value: any) => {
 };
 
 const asTrimmed = (value: any) => asString(value).trim();
+
+const cleanAiText = (value: any) =>
+  asTrimmed(value)
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/[©®™]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const INSTITUTION_NOISE_WORDS = [
+  'autonomous',
+  'department',
+  'dept',
+  'college',
+  'university',
+  'society',
+  'assistant professor',
+  'prof',
+  'students',
+  'cse',
+  'ece',
+];
+
+const removeInstitutionNoise = (value: string) => {
+  let result = value;
+  INSTITUTION_NOISE_WORDS.forEach((word) => {
+    const pattern = new RegExp(`\\b${word.replace(/\s+/g, '\\s+')}\\b`, 'gi');
+    result = result.replace(pattern, ' ');
+  });
+  return result.replace(/\s+/g, ' ').trim();
+};
+
+const normalizePosterTitle = (rawTitle: any, rawDescription: any) => {
+  const baseTitle = cleanAiText(rawTitle);
+  const baseDescription = cleanAiText(rawDescription);
+
+  let cleaned = removeInstitutionNoise(baseTitle);
+  cleaned = cleaned.replace(/^on\s+/i, '').trim();
+
+  if (!cleaned || cleaned.length < 4) {
+    if (/\blatex\b/i.test(`${baseTitle} ${baseDescription}`)) {
+      return 'Workshop on LaTeX';
+    }
+    if (/\bworkshop\b/i.test(baseDescription)) {
+      return 'Workshop';
+    }
+    return baseTitle;
+  }
+
+  if (/\blatex\b/i.test(cleaned) && !/\bworkshop\b/i.test(cleaned)) {
+    return `Workshop on ${cleaned.replace(/\blatex\b/i, 'LaTeX')}`;
+  }
+
+  return cleaned;
+};
+
+const normalizePosterDescription = (rawDescription: any, normalizedTitle: string) => {
+  const desc = cleanAiText(rawDescription);
+  if (!desc) return '';
+
+  const descLower = desc.toLowerCase();
+  const titleLower = cleanAiText(normalizedTitle).toLowerCase();
+
+  const hasEventKeyword = /\b(workshop|seminar|hackathon|competition|contest|talk|session|bootcamp|expo|event)\b/i.test(desc);
+  const looksInstitutional = INSTITUTION_NOISE_WORDS.some((word) => descLower.includes(word));
+
+  if (!hasEventKeyword && looksInstitutional) return '';
+  if (titleLower && descLower === titleLower) return '';
+
+  return desc;
+};
+
+const isLikelyValidPosterUrl = (value: any) => {
+  const raw = cleanAiText(value);
+  if (!raw) return false;
+  try {
+    const parsed = new URL(raw);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return false;
+    const host = parsed.hostname.toLowerCase();
+    if (!host.includes('.')) return false;
+    if (host.includes('dept.') || host.includes('department')) return false;
+    const tld = host.split('.').pop() || '';
+    const commonTlds = new Set(['com', 'org', 'net', 'edu', 'in', 'ac', 'co', 'io', 'gov']);
+    if (!commonTlds.has(tld)) return false;
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const sanitizePosterExtractedPayload = (extracted: any) => {
+  const normalizedTitle = normalizePosterTitle(extracted?.title, extracted?.description);
+  const normalizedDescription = normalizePosterDescription(extracted?.description, normalizedTitle);
+
+  return {
+    ...extracted,
+    title: normalizedTitle,
+    description: normalizedDescription,
+    event_link: isLikelyValidPosterUrl(extracted?.event_link || extracted?.eventLink) ? asString(extracted?.event_link || extracted?.eventLink) : '',
+    registration_link: isLikelyValidPosterUrl(extracted?.registration_link || extracted?.registrationLink || extracted?.registration_qr_link || extracted?.registrationQrLink)
+      ? asString(extracted?.registration_link || extracted?.registrationLink || extracted?.registration_qr_link || extracted?.registrationQrLink)
+      : '',
+  };
+};
 
 const dateOnlyFromDateTime = (value: any) => {
   const raw = asTrimmed(value);
@@ -153,31 +258,53 @@ const toDraftFromExtracted = (
   sourceUrl = '',
   posterUri = '',
 ): Partial<EventDraft> => {
-  const eventStartDateTime = asString(extracted?.event_start_datetime || extracted?.eventStartDateTime);
-  const eventStartDate = asString(extracted?.event_start_date) || dateOnlyFromDateTime(eventStartDateTime);
-  const eventStartTime = asString(extracted?.event_start_time || extracted?.eventStartTime) || timeOnlyFromDateTime(eventStartDateTime);
-  const eventLink = asString(extracted?.event_link || extracted?.eventLink);
+  const safeExtracted = sourceType === 'poster' ? sanitizePosterExtractedPayload(extracted) : extracted;
+
+  const eventStartDateTime = asString(safeExtracted?.event_start_datetime || safeExtracted?.eventStartDateTime);
+  const eventStartDate = asString(safeExtracted?.event_start_date) || dateOnlyFromDateTime(eventStartDateTime);
+  const eventStartTime = asString(safeExtracted?.event_start_time || safeExtracted?.eventStartTime) || timeOnlyFromDateTime(eventStartDateTime);
+  const eventLink = asString(safeExtracted?.event_link || safeExtracted?.eventLink);
   const resolvedSourceUrl = eventLink || sourceUrl;
 
   return {
-    title: asString(extracted?.title),
-    description: asString(extracted?.description),
+    title: asString(safeExtracted?.title),
+    description: asString(safeExtracted?.description),
     event_start_datetime: eventStartDateTime,
     event_start_time: eventStartTime,
     event_start_date: eventStartDate,
-    event_end_date: asString(extracted?.event_end_date),
-    venue: asString(extracted?.venue),
-    participation_type: asString(extracted?.participation_type).toLowerCase() === 'team' ? 'team' : 'individual',
-    min_team_size: extracted?.min_team_size === null || extracted?.min_team_size === undefined ? '' : asString(extracted?.min_team_size),
-    max_team_size: extracted?.max_team_size === null || extracted?.max_team_size === undefined ? '' : asString(extracted?.max_team_size),
-    registration_link: asString(extracted?.registration_link || extracted?.registration_qr_link || extracted?.registrationQrLink),
-    event_type: asString(extracted?.event_type),
-    banner_image: asString(extracted?.banner_image || extracted?.bannerImage),
+    event_end_date: asString(safeExtracted?.event_end_date),
+    venue: asString(safeExtracted?.venue),
+    participation_type: asString(safeExtracted?.participation_type).toLowerCase() === 'team' ? 'team' : 'individual',
+    min_team_size: safeExtracted?.min_team_size === null || safeExtracted?.min_team_size === undefined ? '' : asString(safeExtracted?.min_team_size),
+    max_team_size: safeExtracted?.max_team_size === null || safeExtracted?.max_team_size === undefined ? '' : asString(safeExtracted?.max_team_size),
+    registration_link: asString(safeExtracted?.registration_link || safeExtracted?.registration_qr_link || safeExtracted?.registrationQrLink),
+    event_type: asString(safeExtracted?.event_type),
+    banner_image: asString(safeExtracted?.banner_image || safeExtracted?.bannerImage),
     source_type: sourceType,
     source_url: resolvedSourceUrl,
-    poster_image: posterUri || asString(extracted?.poster_image || extracted?.posterImage || extracted?.banner_image || extracted?.bannerImage),
+    poster_image: posterUri || asString(safeExtracted?.poster_image || safeExtracted?.posterImage || safeExtracted?.banner_image || safeExtracted?.bannerImage),
     ai_generated: true,
   };
+};
+
+const dedupeRepeatedEventImages = (events: EventDraft[]) => {
+  const seenImages = new Set<string>();
+
+  return events.map((event) => {
+    const primaryImage = asTrimmed(event.poster_image || event.banner_image);
+    if (!primaryImage) return event;
+
+    if (seenImages.has(primaryImage)) {
+      return {
+        ...event,
+        poster_image: '',
+        banner_image: '',
+      };
+    }
+
+    seenImages.add(primaryImage);
+    return event;
+  });
 };
 
 const getEventCompleteness = (event: EventDraft) => {
@@ -426,6 +553,7 @@ function EventEditor({
 
 export default function InterCampusSubmitEventScreen() {
   const navigation = useNavigation<Nav>();
+  const insets = useSafeAreaInsets();
   const { user, profile } = useAuth();
   const isAutoApprove = isFacultyOrAdminRole(profile?.role);
 
@@ -563,9 +691,10 @@ export default function InterCampusSubmitEventScreen() {
             ...patch,
           } as EventDraft;
         });
+        const normalizedEvents = dedupeRepeatedEventImages(mappedEvents);
 
-        if (mappedEvents.length) {
-          const datedEvents = mappedEvents.filter((event) => !!event.event_start_date);
+        if (normalizedEvents.length) {
+          const datedEvents = normalizedEvents.filter((event) => !!event.event_start_date);
           if (datedEvents.length) {
             const start = [...datedEvents]
               .map((event) => event.event_start_date)
@@ -578,8 +707,8 @@ export default function InterCampusSubmitEventScreen() {
             if (end) setFestEndDate((prev) => prev || end);
           }
 
-          setFestEvents(mappedEvents);
-          setFestEventDraft({ ...mappedEvents[0] });
+          setFestEvents(normalizedEvents);
+          setFestEventDraft({ ...normalizedEvents[0] });
           setFestPreviewRequired(true);
           setFestPreviewConfirmed(false);
         }
@@ -682,18 +811,19 @@ export default function InterCampusSubmitEventScreen() {
             ...patch,
           } as EventDraft;
         });
+        const normalizedEvents = dedupeRepeatedEventImages(mappedEvents);
 
         console.log('[InterCampus AI UI] fest mapped events summary', {
-          total: mappedEvents.length,
-          withStartDateOrTime: mappedEvents.filter((e) => asTrimmed(e.event_start_date) || asTrimmed(e.event_start_datetime) || asTrimmed(e.event_start_time)).length,
-          withRegistration: mappedEvents.filter((e) => asTrimmed(e.registration_link)).length,
-          withParticipation: mappedEvents.filter((e) => asTrimmed(e.participation_type)).length,
+          total: normalizedEvents.length,
+          withStartDateOrTime: normalizedEvents.filter((e) => asTrimmed(e.event_start_date) || asTrimmed(e.event_start_datetime) || asTrimmed(e.event_start_time)).length,
+          withRegistration: normalizedEvents.filter((e) => asTrimmed(e.registration_link)).length,
+          withParticipation: normalizedEvents.filter((e) => asTrimmed(e.participation_type)).length,
         });
 
-        if (mappedEvents.length) {
+        if (normalizedEvents.length) {
           // Only calculate dates from events if fest-level dates weren't extracted
           if (!festExtracted.fest_start_date || !festExtracted.fest_end_date) {
-            const datedEvents = mappedEvents.filter((event) => !!event.event_start_date);
+            const datedEvents = normalizedEvents.filter((event) => !!event.event_start_date);
             if (datedEvents.length) {
               const start = [...datedEvents]
                 .map((event) => event.event_start_date)
@@ -707,8 +837,8 @@ export default function InterCampusSubmitEventScreen() {
             }
           }
 
-          setFestEvents(mappedEvents);
-          setFestEventDraft({ ...mappedEvents[0] });
+          setFestEvents(normalizedEvents);
+          setFestEventDraft({ ...normalizedEvents[0] });
           setFestPreviewRequired(true);
           setFestPreviewConfirmed(false);
         }
@@ -1016,6 +1146,8 @@ export default function InterCampusSubmitEventScreen() {
     }
   };
 
+  const showBottomBar = submissionType === 'single' || (submissionType === 'fest' && festStep === 'events');
+
   return (
     <InterCampusScreen>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
@@ -1033,7 +1165,13 @@ export default function InterCampusSubmitEventScreen() {
           <View style={{ width: 24 }} />
         </View>
 
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={[
+            styles.content,
+          ]}
+          keyboardShouldPersistTaps="handled"
+        >
           {!submissionType && (
             <>
               <Text style={styles.title}>What do you want to submit?</Text>
@@ -1189,39 +1327,65 @@ export default function InterCampusSubmitEventScreen() {
                     <Text style={styles.muted}>{festCollegeName || 'College'}{festStartDate ? ` • Starts ${festStartDate}` : ''}</Text>
                   </View>
 
-                  <SourcePicker
-                    selected={festEventSourceType}
-                    includeLink
-                    onSelect={(value) => {
-                      setFestEventSourceType(value);
-                      setFestEventDraft((prev) => ({ ...prev, source_type: value }));
-                    }}
-                  />
-
-                  {festEventSourceType === 'link' && (
-                    <View style={styles.card}>
-                      <TextField
-                        label="Event Website URL"
-                        value={festEventLinkInput}
-                        onChangeText={setFestEventLinkInput}
-                        placeholder="https://example.com/event"
-                      />
-                      <TouchableOpacity style={styles.primaryBtn} onPress={() => extractFromLink('fest_event')} disabled={loadingExtract}>
-                        <Text style={styles.primaryBtnText}>{loadingExtract ? 'Extracting...' : 'Extract Event with AI'}</Text>
+                  <View style={styles.quickImportCard}>
+                    <Text style={styles.quickImportTitle}>Quick add event</Text>
+                    <Text style={styles.quickImportText}>
+                      Choose link or poster import. The input section below updates based on your selection.
+                    </Text>
+                    <View style={styles.quickModeRow}>
+                      <TouchableOpacity
+                        style={[styles.quickModeBtn, festEventSourceType === 'link' && styles.quickModeBtnActive]}
+                        onPress={() => setFestEventSourceType('link')}
+                      >
+                        <MaterialIcons name="language" size={16} color={festEventSourceType === 'link' ? '#ffffff' : '#6366F1'} />
+                        <Text style={[styles.quickModeBtnText, festEventSourceType === 'link' && styles.quickModeBtnTextActive]}>Use Event Link</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.quickModeBtn, festEventSourceType === 'poster' && styles.quickModeBtnActive]}
+                        onPress={() => setFestEventSourceType('poster')}
+                      >
+                        <MaterialIcons name="image" size={16} color={festEventSourceType === 'poster' ? '#ffffff' : '#6366F1'} />
+                        <Text style={[styles.quickModeBtnText, festEventSourceType === 'poster' && styles.quickModeBtnTextActive]}>Upload Poster</Text>
                       </TouchableOpacity>
                     </View>
-                  )}
 
-                  {festEventSourceType === 'poster' && (
-                    <View style={styles.card}>
-                      {!!festEventDraft.poster_image && (
-                        <Image source={{ uri: festEventDraft.poster_image }} style={styles.posterPreview} contentFit="cover" />
-                      )}
-                      <TouchableOpacity style={styles.primaryBtn} onPress={() => pickPoster('fest_event')} disabled={loadingExtract}>
-                        <Text style={styles.primaryBtnText}>{loadingExtract ? 'Processing...' : 'Pick Poster & Extract'}</Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
+                    {festEventSourceType === 'poster' ? (
+                      <>
+                        {!!festEventDraft.poster_image && (
+                          <Image source={{ uri: festEventDraft.poster_image }} style={styles.posterPreview} contentFit="cover" />
+                        )}
+                        <TouchableOpacity
+                          style={styles.secondaryBtn}
+                          onPress={() => {
+                            setFestEventSourceType('poster');
+                            pickPoster('fest_event');
+                          }}
+                          disabled={loadingExtract}
+                        >
+                          <Text style={styles.secondaryBtnText}>{loadingExtract ? 'Processing...' : 'Pick Poster & Extract'}</Text>
+                        </TouchableOpacity>
+                      </>
+                    ) : (
+                      <>
+                        <TextField
+                          label="Event URL"
+                          value={festEventLinkInput}
+                          onChangeText={setFestEventLinkInput}
+                          placeholder="https://example.com/event"
+                        />
+                        <TouchableOpacity
+                          style={styles.primaryBtn}
+                          onPress={() => {
+                            setFestEventSourceType('link');
+                            extractFromLink('fest_event');
+                          }}
+                          disabled={loadingExtract}
+                        >
+                          <Text style={styles.primaryBtnText}>{loadingExtract ? 'Extracting...' : 'Fetch Event with AI'}</Text>
+                        </TouchableOpacity>
+                      </>
+                    )}
+                  </View>
 
                   <EventEditor draft={festEventDraft} setDraft={setFestEventDraft} />
 
@@ -1262,9 +1426,9 @@ export default function InterCampusSubmitEventScreen() {
                     ) : (
                       festEvents.map((event, index) => (
                         <View key={`${event.title}-${index}`} style={styles.addedEvent}>
-                          {event.banner_image && (
+                          {asTrimmed(event.poster_image || event.banner_image) && (
                             <Image
-                              source={{ uri: event.banner_image }}
+                              source={{ uri: asTrimmed(event.poster_image || event.banner_image) }}
                               style={styles.addedEventBanner}
                               contentFit="cover"
                             />
@@ -1363,9 +1527,17 @@ export default function InterCampusSubmitEventScreen() {
                     )}
                   </View>
 
-                  <TouchableOpacity style={styles.outlineBtn} onPress={() => setFestStep('details')}>
-                    <Text style={styles.outlineBtnText}>Back to Fest Details</Text>
-                  </TouchableOpacity>
+                  <View style={styles.festActionRow}>
+                    <TouchableOpacity style={[styles.outlineBtn, styles.festActionBtn]} onPress={() => setFestStep('details')}>
+                      <Text style={styles.outlineBtnText}>Back to Fest Details</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.bottomSubmitBtn, styles.festActionBtn]} onPress={submitFest} disabled={saving}>
+                      <MaterialIcons name="check-circle" size={20} color="#ffffff" />
+                      <Text style={styles.bottomSubmitBtnText}>
+                        {saving ? 'Submitting...' : 'Submit Fest'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
 
                   <View style={{ height: 20 }} />
                 </>
@@ -1376,7 +1548,11 @@ export default function InterCampusSubmitEventScreen() {
 
               {/* Fixed Bottom Button Bar - Single Event */}
               {submissionType === 'single' && (
-                <View style={styles.bottomFixedBar}>
+                <View style={styles.bottomDock}>
+                  <View style={styles.footerLabelRow}>
+                    <MaterialIcons name="bolt" size={14} color="#4f46e5" />
+                    <Text style={styles.footerLabel}>Ready to publish</Text>
+                  </View>
                   <TouchableOpacity
                     style={styles.bottomSubmitBtn}
                     disabled={saving}
@@ -1398,21 +1574,6 @@ export default function InterCampusSubmitEventScreen() {
                 </View>
               )}
 
-              {/* Fixed Bottom Button Bar - Fest Submit */}
-              {submissionType === 'fest' && festStep === 'events' && (
-                <View style={styles.bottomFixedBar}>
-                  <TouchableOpacity
-                    style={styles.bottomSubmitBtn}
-                    onPress={submitFest}
-                    disabled={saving}
-                  >
-                    <MaterialIcons name="check-circle" size={20} color="#ffffff" />
-                    <Text style={styles.bottomSubmitBtnText}>
-                      {saving ? 'Submitting...' : 'Submit Fest'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              )}
             </View>
             </KeyboardAvoidingView>
     </InterCampusScreen>
@@ -1434,8 +1595,23 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   headerTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a' },
-  content: { padding: 16, gap: 12, paddingBottom: 90 },
-    contentWithFixedBtn: { padding: 16, gap: 12, paddingBottom: 120 },
+  keyboardAvoidingContainer: {
+    flex: 1,
+    position: 'relative',
+  },
+  scrollView: {
+    flex: 1,
+  },
+  content: { padding: 16, gap: 12, paddingBottom: 24 },
+  contentWithFixedBtn: { padding: 16, gap: 12, paddingBottom: 132 },
+  festActionRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 4,
+  },
+  festActionBtn: {
+    flex: 1,
+  },
   title: { fontSize: 18, fontWeight: '800', color: '#0f172a' },
   sectionTitle: { fontSize: 15, fontWeight: '700', color: '#0f172a' },
   muted: { fontSize: 12, color: '#64748b' },
@@ -1460,6 +1636,51 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.6)',
     padding: 16,
     gap: 8,
+  },
+  quickImportCard: {
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.82)',
+    padding: 16,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(99,102,241,0.16)',
+  },
+  quickImportTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  quickImportText: {
+    fontSize: 12,
+    color: '#64748b',
+    lineHeight: 17,
+  },
+  quickModeRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  quickModeBtn: {
+    flex: 1,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#6366F1',
+    backgroundColor: 'rgba(99,102,241,0.1)',
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  quickModeBtnActive: {
+    backgroundColor: '#6366F1',
+  },
+  quickModeBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#6366F1',
+  },
+  quickModeBtnTextActive: {
+    color: '#ffffff',
   },
 
   sourceGrid: { gap: 8 },
@@ -1671,19 +1892,37 @@ const styles = StyleSheet.create({
   },
 
   /* Fixed Bottom Submit Button Bar */
-  bottomFixedBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: 'rgba(255,255,255,0.95)',
-    borderTopWidth: 1,
-    borderTopColor: '#e5e7eb',
-    padding: 12,
+  bottomDock: {
+    marginHorizontal: 12,
+    marginBottom: Platform.OS === 'android' ? 12 : 16,
+    backgroundColor: 'rgba(255,255,255,0.97)',
+    borderWidth: 1,
+    borderColor: 'rgba(99,102,241,0.18)',
+    paddingHorizontal: 12,
+    paddingTop: 10,
     paddingBottom: 16,
+    borderRadius: 20,
+    gap: 10,
+    alignItems: 'stretch',
+    zIndex: 30,
+    elevation: 24,
+    shadowColor: '#1d4ed8',
+    shadowOpacity: 0.14,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+  },
+  footerLabelRow: {
     flexDirection: 'row',
-    gap: 8,
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  footerLabel: {
+    color: '#4f46e5',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+    textTransform: 'uppercase',
   },
   bottomSubmitBtn: {
     flex: 1,
@@ -1691,9 +1930,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: '#6366F1',
-    borderRadius: 12,
-    paddingVertical: 13,
+    backgroundColor: '#4f46e5',
+    borderRadius: 16,
+    paddingVertical: 15,
     shadowColor: '#000000',
     shadowOpacity: 0.12,
     shadowRadius: 8,
@@ -1702,11 +1941,6 @@ const styles = StyleSheet.create({
   },
   bottomSubmitBtnText: {
     color: '#ffffff',
-
-      keyboardAvoidingContainer: {
-        flex: 1,
-        position: 'relative',
-      },
     fontSize: 15,
     fontWeight: '800',
   },
