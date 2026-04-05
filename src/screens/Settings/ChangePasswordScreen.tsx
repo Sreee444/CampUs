@@ -41,6 +41,41 @@ export default function ChangePasswordScreen() {
   const [toast, setToast] = useState<{ visible: boolean; message: string; type: 'success' | 'info' | 'warning' | 'error' }>({ visible: false, message: '', type: 'success' });
   const isForcedChange = Boolean(route.params?.forceChange);
 
+  const handleBackPress = async () => {
+    if (__DEV__) {
+      console.log('[ChangePassword] Back pressed', { isForcedChange });
+    }
+    if (isForcedChange) {
+      try {
+        if (__DEV__) {
+          console.log('[ChangePassword] Forced flow: attempting signOut()');
+        }
+        await signOut();
+        if (__DEV__) {
+          console.log('[ChangePassword] Forced flow: signOut() resolved, attempting Login navigate fallback');
+        }
+        setTimeout(() => {
+          try {
+            navigation.navigate('Login');
+            if (__DEV__) {
+              console.log('[ChangePassword] Forced flow: fallback navigation to Login dispatched');
+            }
+          } catch {
+            // RootNavigator will still reset to Login when auth state becomes unauthenticated.
+            if (__DEV__) {
+              console.log('[ChangePassword] Forced flow: fallback navigation skipped (stack not ready)');
+            }
+          }
+        }, 100);
+      } catch (error: any) {
+        console.error('Forced change sign-out failed:', error);
+        setToast({ visible: true, message: 'Unable to go back right now. Please try again.', type: 'error' });
+      }
+      return;
+    }
+    navigation.goBack();
+  };
+
   const handleChangePassword = async () => {
     if (isLoading) return;
     if ((!isForcedChange && !currentPassword) || !newPassword || !confirmPassword) {
@@ -124,11 +159,9 @@ export default function ChangePasswordScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        {isForcedChange ? <View style={{ width: 60 }} /> : (
-          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-            <MaterialIcons name="arrow-back-ios" size={20} color={Colors.text} />
-          </TouchableOpacity>
-        )}
+        <TouchableOpacity style={styles.backButton} onPress={handleBackPress}>
+          <MaterialIcons name="arrow-back-ios" size={20} color={Colors.text} />
+        </TouchableOpacity>
         <Text style={styles.headerTitle}>{isForcedChange ? 'Set New Password' : 'Change Password'}</Text>
         <View style={{ width: 60 }} />
       </View>

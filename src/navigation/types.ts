@@ -47,6 +47,7 @@ export type RootStackParamList = {
   BrowseTeams: { eventId: string };
   AdminDashboard: undefined;
   AdminUsers: undefined;
+  AdminAddUser: undefined;
   AdminModeration: undefined;
   AdminReports: undefined;
   AdminBroadcast: undefined;

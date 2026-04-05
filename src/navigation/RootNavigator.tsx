@@ -43,6 +43,7 @@ import NotificationsScreen from '../screens/Notifications/NotificationsScreen';
 import NotificationDetailsScreen from '../screens/Notifications/NotificationDetailsScreen';
 import AdminDashboardScreen from '../screens/Admin/AdminDashboardScreen';
 import AdminUsersScreen from '../screens/Admin/AdminUsersScreen';
+import AdminAddUserScreen from '../screens/Admin/AdminAddUserScreen';
 import AdminModerationScreen from '../screens/Admin/AdminModerationScreen';
 import AdminReportsScreen from '../screens/Admin/AdminReportsScreen';
 import AdminBroadcastScreen from '../screens/Admin/AdminBroadcastScreen';
@@ -94,8 +95,35 @@ export default function RootNavigator() {
 
   // Navigate based on auth and profile state changes
   useEffect(() => {
-    if (!isLoading && navigationRef.current && isAuthenticated) {
+    if (!isLoading && navigationRef.current) {
       const currentRoute = navigationRef.current.getCurrentRoute()?.name;
+
+      if (__DEV__) {
+        console.log('[RootNavigator] auth gate check', {
+          isAuthenticated,
+          isPasswordRecovery,
+          isBanned,
+          currentRoute: currentRoute || null,
+        });
+      }
+
+      if (!isAuthenticated) {
+        // ChangePassword exists in both stacks; after sign-out from forced change,
+        // explicitly route to Login so users don't get stuck on the same screen.
+        const allowedUnauthScreens = ['Login', 'ResetPassword'];
+        if (!currentRoute || !allowedUnauthScreens.includes(currentRoute)) {
+          if (__DEV__) {
+            console.log('[RootNavigator] unauthenticated on non-auth route, resetting to Login', {
+              currentRoute: currentRoute || null,
+            });
+          }
+          navigationRef.current.reset({
+            index: 0,
+            routes: [{ name: 'Login' }],
+          });
+        }
+        return;
+      }
 
       // Password recovery: always route to ChangePassword first
       if (isPasswordRecovery) {
@@ -181,12 +209,14 @@ export default function RootNavigator() {
               component={ResetPasswordScreen}
               options={{ animationEnabled: true }}
             />
-            {/* ChangePassword is also needed here for password recovery flow */}
-            <Stack.Screen
-              name="ChangePassword"
-              component={ChangePasswordScreen}
-              options={{ animationEnabled: true, gestureEnabled: false }}
-            />
+            {/* Only expose ChangePassword in auth stack during password recovery. */}
+            {isPasswordRecovery && (
+              <Stack.Screen
+                name="ChangePassword"
+                component={ChangePasswordScreen}
+                options={{ animationEnabled: true, gestureEnabled: false }}
+              />
+            )}
           </>
         ) : isBanned ? (
           <>
@@ -363,6 +393,11 @@ export default function RootNavigator() {
             <Stack.Screen
               name="AdminUsers"
               component={AdminUsersScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="AdminAddUser"
+              component={AdminAddUserScreen}
               options={{ animationEnabled: true }}
             />
             <Stack.Screen

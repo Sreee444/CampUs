@@ -134,6 +134,13 @@ export default function AdminDashboardScreen() {
       color: '#3b82f6',
     },
     {
+      title: 'Add User',
+      icon: 'person-add',
+      description: 'Create accounts with default password',
+      screen: 'AdminAddUser',
+      color: '#2563eb',
+    },
+    {
       title: 'Content Moderation',
       icon: 'fact-check',
       description: 'Approve and reject feed content',
@@ -201,8 +208,8 @@ export default function AdminDashboardScreen() {
     { label: 'Audit', icon: 'rule-folder', screen: 'AdminAudit' },
   ];
 
-  const handleNavigate = (screen: string) => {
-    navigation.navigate(screen as any);
+  const handleNavigate = (item: ModuleItem) => {
+    navigation.navigate(item.screen as any);
   };
 
   const roleBreakdown = useMemo(() => {
@@ -340,7 +347,7 @@ export default function AdminDashboardScreen() {
                     opacity: pressed ? 0.85 : 1,
                   },
                 ]}
-                onPress={() => handleNavigate(item.screen)}
+                onPress={() => handleNavigate(item)}
                 hitSlop={6}
               >
                 <View style={[styles.iconContainer, { backgroundColor: item.color + '18' }]}>
@@ -373,7 +380,7 @@ export default function AdminDashboardScreen() {
                     opacity: pressed ? 0.85 : 1,
                   },
                 ]}
-                onPress={() => handleNavigate(item.screen)}
+                onPress={() => handleNavigate(item)}
                 hitSlop={6}
               >
                 <View style={[styles.iconContainer, { backgroundColor: item.color + '18' }]}>

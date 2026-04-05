@@ -74,6 +74,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
+        if (__DEV__) {
+          console.log('[AuthContext] onAuthStateChange', {
+            event,
+            hasSession: Boolean(session),
+            userId: session?.user?.id || null,
+          });
+        }
+
         // When user clicks the password reset email link, Supabase fires PASSWORD_RECOVERY.
         // Flag this so the RootNavigator can route to ChangePassword instead of MainTabs.
         if (event === 'PASSWORD_RECOVERY') {
@@ -328,6 +336,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const handleSignOut = async () => {
     try {
+      if (__DEV__) {
+        console.log('[AuthContext] signOut start', {
+          userId: user?.id || null,
+          isPasswordRecovery,
+        });
+      }
       if (user?.id) {
         try {
           await updateUserStatus(user.id, 'offline');
@@ -339,18 +353,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
       await supabase.auth.signOut({ scope: 'local' });
+      if (__DEV__) {
+        console.log('[AuthContext] signOut supabase call resolved');
+      }
+    } catch (error: any) {
+      // Ignore abort errors (common on web during hot reload)
+      if (isTransientNetworkError(error)) {
+        console.warn('Transient sign out error. Clearing local auth state anyway.');
+      } else {
+        console.error('Error signing out:', error);
+      }
+    } finally {
+      // Always clear local auth state so the app can recover and route to Login.
+      if (__DEV__) {
+        console.log('[AuthContext] signOut finally: clearing local auth state');
+      }
+      setIsPasswordRecovery(false);
       setUser(null);
       setProfile(null);
       setIsBanned(false);
       setBanReason(null);
       setBanUntil(null);
       setBanDuration(null);
-    } catch (error: any) {
-      // Ignore abort errors (common on web during hot reload)
-      if (isTransientNetworkError(error)) {
-        return;
-      }
-      console.error('Error signing out:', error);
     }
   };
 

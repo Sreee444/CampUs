@@ -8,8 +8,8 @@ const path = require('path');
 const chatRoute = require('./routes/chat');
 const extractEventRoute = require('./routes/extractEvent');
 const extractPosterRoute = require('./routes/extractPoster');
+const adminUsersRoute = require('./routes/adminUsers');
 
-const REQUIRED_ENV_VARS = ['GROQ_API_KEY', 'SUPABASE_URL', 'SUPABASE_KEY'];
 const app = express();
 const PORT = Number(process.env.PORT) || 5000;
 
@@ -19,10 +19,37 @@ if (!fs.existsSync(uploadsDir)) {
 }
 
 function logMissingEnvVariables() {
-  const missing = REQUIRED_ENV_VARS.filter((key) => !process.env[key]);
+  const hasSupabaseUrl = Boolean(process.env.SUPABASE_URL || process.env.EXPO_PUBLIC_SUPABASE_URL);
+  const hasSupabaseAnonKey = Boolean(
+    process.env.SUPABASE_ANON_KEY || process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY
+  );
+  const hasSupabaseServiceKey = Boolean(
+    process.env.SUPABASE_SERVICE_KEY ||
+      process.env.SUPABASE_SERVICE_ROLE_KEY ||
+      process.env.EXPO_PUBLIC_SUPABASE_SERVICE_KEY ||
+      process.env.EXPO_PUBLIC_SUPABASE_SERVICE_ROLE_KEY ||
+      process.env.SUPABASE_KEY
+  );
+
+  const missing = [];
+  if (!process.env.GROQ_API_KEY) {
+    missing.push('GROQ_API_KEY');
+  }
+  if (!hasSupabaseUrl) {
+    missing.push('SUPABASE_URL (or EXPO_PUBLIC_SUPABASE_URL)');
+  }
+  if (!hasSupabaseServiceKey) {
+    missing.push('SUPABASE_SERVICE_KEY (or SUPABASE_SERVICE_ROLE_KEY)');
+  }
+
   if (missing.length) {
     console.error(`[startup] Missing environment variables: ${missing.join(', ')}`);
     console.error('[startup] Add them in Render Environment settings before using related endpoints.');
+    if (hasSupabaseAnonKey && !hasSupabaseServiceKey) {
+      console.error(
+        '[startup] Found Supabase anon key, but admin endpoints require a service-role key (SUPABASE_SERVICE_KEY or SUPABASE_SERVICE_ROLE_KEY).'
+      );
+    }
   }
 }
 
@@ -58,6 +85,7 @@ app.get('/health', (_req, res) => {
 app.use('/extractEvent', extractEventRoute);
 app.use('/extractPoster', extractPosterRoute);
 app.use('/chat', chatRoute);
+app.use('/admin', adminUsersRoute);
 
 // Backward-compatible aliases for existing clients
 app.use('/ai/extract-event', extractEventRoute);

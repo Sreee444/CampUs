@@ -1,6 +1,7 @@
 import { supabase } from "./supabase";
-import { Profile, Report, UserBan } from "../types/database";
+import { Profile, Report, UserBan, UserRole } from "../types/database";
 import { canModerateAcademic } from "../utils/roles";
+import { BASE_URL } from "../config/api";
 
 export type TimeRange = '7d' | '30d' | '90d';
 
@@ -108,6 +109,47 @@ export const updateUserProfileAdmin = async (
 
   if (error) throw error;
   return data as Profile;
+};
+
+export type AdminCreateUserPayload = {
+  email: string;
+  full_name?: string | null;
+  role?: UserRole;
+  department?: string | null;
+  year?: number | null;
+  semester?: number | null;
+  section?: string | null;
+  password?: string | null;
+};
+
+export const createUserByAdmin = async (payload: AdminCreateUserPayload) => {
+  const session = await supabase.auth.getSession();
+  const token = session.data.session?.access_token;
+  if (!token) {
+    throw new Error('Not authenticated');
+  }
+
+  const response = await fetch(`${BASE_URL}/admin/create-user`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    let message = 'Failed to create user';
+    try {
+      const errorBody = await response.json();
+      message = errorBody?.error || message;
+    } catch {
+      // ignore parsing errors
+    }
+    throw new Error(message);
+  }
+
+  return response.json();
 };
 
 export const toggleUserBan = async (
@@ -1047,6 +1089,7 @@ export type AdminLogAction =
   | 'ban_user'
   | 'unban_user'
   | 'role_change'
+  | 'user_created'
   | 'post_approved'
   | 'post_rejected'
   | 'report_resolved'

@@ -31,6 +31,20 @@ const BAN_DURATIONS = [
   { label: 'Permanent', value: null },
 ];
 
+const FACULTY_DESIGNATION_OPTIONS = [
+  { label: 'Professor', value: 'professor' },
+  { label: 'Assistant Professor', value: 'assistant_professor' },
+  { label: 'Lab Instructor', value: 'lab_instructor' },
+  { label: 'HOD', value: 'hod' },
+  { label: 'Vice Principal', value: 'vice_principal' },
+  { label: 'Principal', value: 'principal' },
+];
+
+const ACADEMIC_STATUS_OPTIONS = [
+  { label: 'Active', value: 'active' },
+  { label: 'Graduated', value: 'graduated' },
+];
+
 const Page_SIZE = 20;
 type RoleFilter = 'all' | 'student' | 'faculty' | 'alumni' | 'admin' | 'developer';
 type UserModalTab = 'profile' | 'role' | 'safety';
@@ -88,12 +102,26 @@ export default function AdminUsersScreen() {
   const [editPhone, setEditPhone] = useState('');
   const [editBio, setEditBio] = useState('');
   const [editDept, setEditDept] = useState('');
+  const [editSpecialization, setEditSpecialization] = useState('');
+  const [editRollNumber, setEditRollNumber] = useState('');
+  const [editYearOfAdmission, setEditYearOfAdmission] = useState('');
   const [editYear, setEditYear] = useState('');
   const [editSemester, setEditSemester] = useState('');
   const [editSection, setEditSection] = useState('');
+  const [editBatch, setEditBatch] = useState('');
+  const [editFacultyDesignation, setEditFacultyDesignation] = useState('');
+  const [editAcademicStatus, setEditAcademicStatus] = useState('');
+  const [editSkills, setEditSkills] = useState('');
+  const [editInterests, setEditInterests] = useState('');
   const [showRemoveAvatarConfirm, setShowRemoveAvatarConfirm] = useState(false);
   const [showDepartmentPicker, setShowDepartmentPicker] = useState(false);
+  const [showEditYearPicker, setShowEditYearPicker] = useState(false);
+  const [showEditSemesterPicker, setShowEditSemesterPicker] = useState(false);
+  const [showEditSectionPicker, setShowEditSectionPicker] = useState(false);
+  const [showEditFacultyDesignationPicker, setShowEditFacultyDesignationPicker] = useState(false);
+  const [showEditAcademicStatusPicker, setShowEditAcademicStatusPicker] = useState(false);
   const [activeModalTab, setActiveModalTab] = useState<UserModalTab>('profile');
+
 
   const showToastAboveModal = (payload: { type: 'success' | 'error' | 'info'; text1: string; text2?: string }) => {
     setShowUserModal(false);
@@ -132,6 +160,27 @@ export default function AdminUsersScreen() {
     () => getSectionOptions(draftFilters.department || activeFilters.department),
     [draftFilters.department, activeFilters.department]
   );
+
+  const editLimits = React.useMemo(
+    () => getDepartmentAcademicLimits(editDept),
+    [editDept]
+  );
+
+  const editYearOptions = React.useMemo(
+    () => Array.from({ length: editLimits.maxYears }, (_, i) => String(i + 1)),
+    [editLimits.maxYears]
+  );
+
+  const editSemesterOptions = React.useMemo(
+    () => Array.from({ length: editLimits.maxSemesters }, (_, i) => String(i + 1)),
+    [editLimits.maxSemesters]
+  );
+
+  const editSectionOptions = React.useMemo(
+    () => getSectionOptions(editDept),
+    [editDept]
+  );
+
 
   const filteredDataset = React.useMemo(() => {
     const q = normalize(searchQuery);
@@ -186,14 +235,34 @@ export default function AdminUsersScreen() {
   useEffect(() => {
     if (!selectedUser) return;
     setEditName(selectedUser.full_name ?? '');
-    setEditPhone(selectedUser.phone ?? '');
+    setEditPhone(String(selectedUser.phone ?? '').replace(/\D/g, '').slice(-10));
     setEditBio(selectedUser.bio ?? '');
     setEditDept(selectedUser.department ?? '');
+    setEditSpecialization(selectedUser.specialization ?? '');
+    setEditRollNumber(selectedUser.roll_number ?? '');
+    setEditYearOfAdmission(selectedUser.year_of_admission ? String(selectedUser.year_of_admission) : '');
     setEditYear(selectedUser.year ? String(selectedUser.year) : '');
     setEditSemester(selectedUser.semester ? String(selectedUser.semester) : '');
     setEditSection(selectedUser.section ?? '');
+    setEditBatch(selectedUser.batch ?? '');
+    setEditFacultyDesignation(selectedUser.faculty_designation ?? '');
+    setEditAcademicStatus(selectedUser.academic_status ?? '');
+    setEditSkills((selectedUser.skills ?? []).join(', '));
+    setEditInterests((selectedUser.interests ?? []).join(', '));
     setActiveModalTab('profile');
   }, [selectedUser]);
+
+  const parseCsvList = (value: string) => value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  const parseOptionalInt = (value: string) => {
+    const parsed = Number.parseInt(value.trim(), 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
+  const normalizeIndianPhoneInput = (value: string) => value.replace(/\D/g, '').slice(0, 10);
 
   const summaryCards = [
     { label: 'Loaded', value: users.length, color: Colors.text },
@@ -218,6 +287,7 @@ export default function AdminUsersScreen() {
   const resetDraftFilters = () => {
     setDraftFilters(DEFAULT_USER_FILTERS);
   };
+
 
   const handleChangeRole = async (u: Profile, newRole: string) => {
     if (!user?.id) return;
@@ -312,29 +382,65 @@ export default function AdminUsersScreen() {
     try {
       setIsProcessing(true);
 
+      const isStudentRole = selectedUser.role === 'student';
+      const isFacultyLikeRole = selectedUser.role === 'faculty' || selectedUser.role === 'admin';
+      const isAlumniRole = selectedUser.role === 'alumni';
+      const canEditAcademicCore = isStudentRole || isFacultyLikeRole || isAlumniRole;
+
       const trimmedSection = editSection.trim().toUpperCase();
-      const sectionValue = ['A', 'B', 'C'].includes(trimmedSection) ? trimmedSection : null;
+      const sectionValue = ['A', 'B', 'C', 'D'].includes(trimmedSection) ? trimmedSection : null;
 
-      const parsedYear = Number.parseInt(editYear.trim(), 10);
-      const yearValue = Number.isFinite(parsedYear) ? parsedYear : null;
+      const yearValue = parseOptionalInt(editYear);
+      const semesterValue = parseOptionalInt(editSemester);
+      const yearOfAdmissionValue = parseOptionalInt(editYearOfAdmission);
 
-      const parsedSemester = Number.parseInt(editSemester.trim(), 10);
-      const semesterValue = Number.isFinite(parsedSemester) ? parsedSemester : null;
+      const parsedSkills = parseCsvList(editSkills);
+      const parsedInterests = parseCsvList(editInterests);
+      const phoneDigits = normalizeIndianPhoneInput(editPhone);
 
-      const updates = {
+      if (phoneDigits.length > 0 && phoneDigits.length !== 10) {
+        showToastAboveModal({ type: 'error', text1: 'Invalid phone number', text2: 'Enter exactly 10 digits for India (+91).' });
+        return;
+      }
+
+      const updates: any = {
         full_name: editName.trim() || null,
-        phone: editPhone.trim() || null,
+        phone: phoneDigits ? `+91${phoneDigits}` : null,
         bio: editBio.trim() || null,
-        department: editDept.trim() || null,
-        year: yearValue,
-        semester: semesterValue,
-        section: sectionValue,
-      } as any;
+        skills: parsedSkills,
+        interests: parsedInterests,
+      };
+
+      if (canEditAcademicCore) {
+        updates.department = editDept.trim() || null;
+        updates.specialization = editSpecialization.trim() || null;
+      }
+
+      if (isStudentRole) {
+        updates.roll_number = editRollNumber.trim() || null;
+        updates.year_of_admission = yearOfAdmissionValue;
+        updates.year = yearValue;
+        updates.semester = semesterValue;
+        updates.section = sectionValue;
+      }
+
+      if (isFacultyLikeRole) {
+        updates.faculty_designation = editFacultyDesignation || null;
+      }
+
+      if (isAlumniRole) {
+        updates.batch = editBatch.trim() || null;
+        updates.academic_status = editAcademicStatus || null;
+      }
 
       const updated = await updateUserProfileAdmin(selectedUser.id, updates);
       await insertAdminLog(user.id, 'role_change' as any, selectedUser.id, {
         action_type: 'profile_edit',
-        fields: ['full_name', 'phone', 'bio', 'department'],
+        fields: [
+          'full_name', 'phone', 'bio', 'department', 'specialization', 'roll_number',
+          'year_of_admission', 'year', 'semester', 'section', 'batch',
+          'faculty_designation', 'academic_status', 'skills', 'interests',
+        ],
       });
       setUsers(prev => prev.map(x => x.id === selectedUser.id ? { ...x, ...updated } : x));
       setFilteredUsers(prev => prev.map(x => x.id === selectedUser.id ? { ...x, ...updated } : x));
@@ -354,6 +460,7 @@ export default function AdminUsersScreen() {
     setShowUserModal(false);
     setShowBanModal(true);
   };
+
 
   const handleConfirmBan = async () => {
     if (!selectedUser || !user?.id) return;
@@ -634,28 +741,152 @@ export default function AdminUsersScreen() {
                               />
                             </View>
                             <View style={styles.editField}>
-                              <Text style={[styles.editLabel, { color: Colors.text }]}>Phone</Text>
-                              <TextInput
-                                style={[styles.editInput, { backgroundColor: Colors.background, color: Colors.text, borderColor: Colors.border }]}
-                                value={editPhone}
-                                onChangeText={setEditPhone}
-                                placeholder="Phone number"
-                                placeholderTextColor={Colors.textSecondary}
-                                keyboardType="phone-pad"
-                              />
+                              <Text style={[styles.editLabel, { color: Colors.text }]}>Phone Number</Text>
+                              <View style={[styles.phoneInputRow, { backgroundColor: Colors.background, borderColor: Colors.border }]}>
+                                <Text style={[styles.phoneCodeText, { color: Colors.textSecondary }]}>+91</Text>
+                                <TextInput
+                                  style={[styles.phoneInput, { color: Colors.text }]}
+                                  value={editPhone}
+                                  onChangeText={(value) => setEditPhone(normalizeIndianPhoneInput(value))}
+                                  placeholder="10-digit number"
+                                  placeholderTextColor={Colors.textSecondary}
+                                  keyboardType="number-pad"
+                                  maxLength={10}
+                                />
+                              </View>
                             </View>
-                            <View style={styles.editField}>
-                              <Text style={[styles.editLabel, { color: Colors.text }]}>Department</Text>
-                              <TouchableOpacity
-                                style={[styles.dropdownInput, { backgroundColor: Colors.background, borderColor: Colors.border }]}
-                                onPress={() => setShowDepartmentPicker(true)}
-                              >
-                                <Text style={[styles.dropdownInputText, { color: editDept ? Colors.text : Colors.textSecondary }]} numberOfLines={1}>
-                                  {editDept || 'Select department'}
-                                </Text>
-                                <MaterialIcons name="keyboard-arrow-down" size={20} color={Colors.textSecondary} />
-                              </TouchableOpacity>
-                            </View>
+                            {(selectedUser.role === 'student' || selectedUser.role === 'faculty' || selectedUser.role === 'admin' || selectedUser.role === 'alumni') && (
+                              <View style={styles.editField}>
+                                <Text style={[styles.editLabel, { color: Colors.text }]}>Department</Text>
+                                <TouchableOpacity
+                                  style={[styles.dropdownInput, { backgroundColor: Colors.background, borderColor: Colors.border }]}
+                                  onPress={() => setShowDepartmentPicker(true)}
+                                >
+                                  <Text style={[styles.dropdownInputText, { color: editDept ? Colors.text : Colors.textSecondary }]} numberOfLines={1}>
+                                    {editDept || 'Select department'}
+                                  </Text>
+                                  <MaterialIcons name="keyboard-arrow-down" size={20} color={Colors.textSecondary} />
+                                </TouchableOpacity>
+                              </View>
+                            )}
+                            {(selectedUser.role === 'student' || selectedUser.role === 'faculty' || selectedUser.role === 'admin' || selectedUser.role === 'alumni') && (
+                              <View style={styles.editField}>
+                                <Text style={[styles.editLabel, { color: Colors.text }]}>Specialization</Text>
+                                <TextInput
+                                  style={[styles.editInput, { backgroundColor: Colors.background, color: Colors.text, borderColor: Colors.border }]}
+                                  value={editSpecialization}
+                                  onChangeText={setEditSpecialization}
+                                  placeholder="Specialization"
+                                  placeholderTextColor={Colors.textSecondary}
+                                />
+                              </View>
+                            )}
+
+                            {selectedUser.role === 'student' && (
+                              <>
+                                <View style={styles.editField}>
+                                  <Text style={[styles.editLabel, { color: Colors.text }]}>Roll Number</Text>
+                                  <TextInput
+                                    style={[styles.editInput, { backgroundColor: Colors.background, color: Colors.text, borderColor: Colors.border }]}
+                                    value={editRollNumber}
+                                    onChangeText={setEditRollNumber}
+                                    placeholder="Roll number"
+                                    placeholderTextColor={Colors.textSecondary}
+                                    autoCapitalize="characters"
+                                  />
+                                </View>
+                                <View style={styles.editField}>
+                                  <Text style={[styles.editLabel, { color: Colors.text }]}>Year of Admission</Text>
+                                  <TextInput
+                                    style={[styles.editInput, { backgroundColor: Colors.background, color: Colors.text, borderColor: Colors.border }]}
+                                    value={editYearOfAdmission}
+                                    onChangeText={setEditYearOfAdmission}
+                                    placeholder="e.g. 2023"
+                                    placeholderTextColor={Colors.textSecondary}
+                                    keyboardType="number-pad"
+                                  />
+                                </View>
+                                <View style={styles.editField}>
+                                  <Text style={[styles.editLabel, { color: Colors.text }]}>Year</Text>
+                                  <TouchableOpacity
+                                    style={[styles.dropdownInput, { backgroundColor: Colors.background, borderColor: Colors.border }]}
+                                    onPress={() => setShowEditYearPicker(true)}
+                                  >
+                                    <Text style={[styles.dropdownInputText, { color: editYear ? Colors.text : Colors.textSecondary }]}>
+                                      {editYear || 'Select year'}
+                                    </Text>
+                                    <MaterialIcons name="keyboard-arrow-down" size={20} color={Colors.textSecondary} />
+                                  </TouchableOpacity>
+                                </View>
+                                <View style={styles.editField}>
+                                  <Text style={[styles.editLabel, { color: Colors.text }]}>Semester</Text>
+                                  <TouchableOpacity
+                                    style={[styles.dropdownInput, { backgroundColor: Colors.background, borderColor: Colors.border }]}
+                                    onPress={() => setShowEditSemesterPicker(true)}
+                                  >
+                                    <Text style={[styles.dropdownInputText, { color: editSemester ? Colors.text : Colors.textSecondary }]}>
+                                      {editSemester || 'Select semester'}
+                                    </Text>
+                                    <MaterialIcons name="keyboard-arrow-down" size={20} color={Colors.textSecondary} />
+                                  </TouchableOpacity>
+                                </View>
+                                <View style={styles.editField}>
+                                  <Text style={[styles.editLabel, { color: Colors.text }]}>Section</Text>
+                                  <TouchableOpacity
+                                    style={[styles.dropdownInput, { backgroundColor: Colors.background, borderColor: Colors.border }]}
+                                    onPress={() => setShowEditSectionPicker(true)}
+                                  >
+                                    <Text style={[styles.dropdownInputText, { color: editSection ? Colors.text : Colors.textSecondary }]}>
+                                      {editSection || 'Select section'}
+                                    </Text>
+                                    <MaterialIcons name="keyboard-arrow-down" size={20} color={Colors.textSecondary} />
+                                  </TouchableOpacity>
+                                </View>
+                              </>
+                            )}
+
+                            {(selectedUser.role === 'faculty' || selectedUser.role === 'admin') && (
+                              <View style={styles.editField}>
+                                <Text style={[styles.editLabel, { color: Colors.text }]}>Faculty Designation</Text>
+                                <TouchableOpacity
+                                  style={[styles.dropdownInput, { backgroundColor: Colors.background, borderColor: Colors.border }]}
+                                  onPress={() => setShowEditFacultyDesignationPicker(true)}
+                                >
+                                  <Text style={[styles.dropdownInputText, { color: editFacultyDesignation ? Colors.text : Colors.textSecondary }]}>
+                                    {FACULTY_DESIGNATION_OPTIONS.find((option) => option.value === editFacultyDesignation)?.label || 'Select designation'}
+                                  </Text>
+                                  <MaterialIcons name="keyboard-arrow-down" size={20} color={Colors.textSecondary} />
+                                </TouchableOpacity>
+                              </View>
+                            )}
+
+                            {selectedUser.role === 'alumni' && (
+                              <>
+                                <View style={styles.editField}>
+                                  <Text style={[styles.editLabel, { color: Colors.text }]}>Batch</Text>
+                                  <TextInput
+                                    style={[styles.editInput, { backgroundColor: Colors.background, color: Colors.text, borderColor: Colors.border }]}
+                                    value={editBatch}
+                                    onChangeText={setEditBatch}
+                                    placeholder="Batch"
+                                    placeholderTextColor={Colors.textSecondary}
+                                  />
+                                </View>
+                                <View style={styles.editField}>
+                                  <Text style={[styles.editLabel, { color: Colors.text }]}>Academic Status</Text>
+                                  <TouchableOpacity
+                                    style={[styles.dropdownInput, { backgroundColor: Colors.background, borderColor: Colors.border }]}
+                                    onPress={() => setShowEditAcademicStatusPicker(true)}
+                                  >
+                                    <Text style={[styles.dropdownInputText, { color: editAcademicStatus ? Colors.text : Colors.textSecondary }]}>
+                                      {ACADEMIC_STATUS_OPTIONS.find((option) => option.value === editAcademicStatus)?.label || 'Select status'}
+                                    </Text>
+                                    <MaterialIcons name="keyboard-arrow-down" size={20} color={Colors.textSecondary} />
+                                  </TouchableOpacity>
+                                </View>
+                              </>
+                            )}
+
                             <View style={styles.editField}>
                               <Text style={[styles.editLabel, { color: Colors.text }]}>Bio</Text>
                               <TextInput
@@ -665,6 +896,26 @@ export default function AdminUsersScreen() {
                                 placeholder="Short bio"
                                 placeholderTextColor={Colors.textSecondary}
                                 multiline
+                              />
+                            </View>
+                            <View style={styles.editField}>
+                              <Text style={[styles.editLabel, { color: Colors.text }]}>Skills (comma separated)</Text>
+                              <TextInput
+                                style={[styles.editInput, { backgroundColor: Colors.background, color: Colors.text, borderColor: Colors.border }]}
+                                value={editSkills}
+                                onChangeText={setEditSkills}
+                                placeholder="React, Node.js, SQL"
+                                placeholderTextColor={Colors.textSecondary}
+                              />
+                            </View>
+                            <View style={styles.editField}>
+                              <Text style={[styles.editLabel, { color: Colors.text }]}>Interests (comma separated)</Text>
+                              <TextInput
+                                style={[styles.editInput, { backgroundColor: Colors.background, color: Colors.text, borderColor: Colors.border }]}
+                                value={editInterests}
+                                onChangeText={setEditInterests}
+                                placeholder="AI, Robotics"
+                                placeholderTextColor={Colors.textSecondary}
                               />
                             </View>
                             <TouchableOpacity
@@ -860,9 +1111,78 @@ export default function AdminUsersScreen() {
         onClose={() => setShowDepartmentPicker(false)}
         onSelect={(value) => {
           setEditDept(value);
+          setEditYear('');
+          setEditSemester('');
+          setEditSection('');
           setShowDepartmentPicker(false);
         }}
       />
+
+      <DropdownSheet
+        visible={showEditYearPicker}
+        title="Select Year"
+        options={['Clear year', ...editYearOptions]}
+        onClose={() => setShowEditYearPicker(false)}
+        onSelect={(value) => {
+          setEditYear(value === 'Clear year' ? '' : value);
+          setShowEditYearPicker(false);
+        }}
+      />
+
+      <DropdownSheet
+        visible={showEditSemesterPicker}
+        title="Select Semester"
+        options={['Clear semester', ...editSemesterOptions]}
+        onClose={() => setShowEditSemesterPicker(false)}
+        onSelect={(value) => {
+          setEditSemester(value === 'Clear semester' ? '' : value);
+          setShowEditSemesterPicker(false);
+        }}
+      />
+
+      <DropdownSheet
+        visible={showEditSectionPicker}
+        title="Select Section"
+        options={['Clear section', ...editSectionOptions]}
+        onClose={() => setShowEditSectionPicker(false)}
+        onSelect={(value) => {
+          setEditSection(value === 'Clear section' ? '' : value);
+          setShowEditSectionPicker(false);
+        }}
+      />
+
+      <DropdownSheet
+        visible={showEditFacultyDesignationPicker}
+        title="Select Faculty Designation"
+        options={['Clear designation', ...FACULTY_DESIGNATION_OPTIONS.map((option) => option.label)]}
+        onClose={() => setShowEditFacultyDesignationPicker(false)}
+        onSelect={(value) => {
+          if (value === 'Clear designation') {
+            setEditFacultyDesignation('');
+          } else {
+            const mapped = FACULTY_DESIGNATION_OPTIONS.find((option) => option.label === value)?.value ?? '';
+            setEditFacultyDesignation(mapped);
+          }
+          setShowEditFacultyDesignationPicker(false);
+        }}
+      />
+
+      <DropdownSheet
+        visible={showEditAcademicStatusPicker}
+        title="Select Academic Status"
+        options={['Clear status', ...ACADEMIC_STATUS_OPTIONS.map((option) => option.label)]}
+        onClose={() => setShowEditAcademicStatusPicker(false)}
+        onSelect={(value) => {
+          if (value === 'Clear status') {
+            setEditAcademicStatus('');
+          } else {
+            const mapped = ACADEMIC_STATUS_OPTIONS.find((option) => option.label === value)?.value ?? '';
+            setEditAcademicStatus(mapped);
+          }
+          setShowEditAcademicStatusPicker(false);
+        }}
+      />
+
 
       <DropdownSheet
         visible={showFilterDepartmentPicker}
@@ -992,6 +1312,7 @@ export default function AdminUsersScreen() {
           </View>
         </View>
       </Modal>
+
     </SafeAreaView>
   );
 }
@@ -1033,6 +1354,9 @@ const createStyles = (Colors: any) => StyleSheet.create({
   editField: { gap: 6 },
   editLabel: { fontSize: FontSizes.xs, fontWeight: FontWeights.semibold },
   editInput: { borderWidth: 1, borderRadius: BorderRadius.lg, paddingHorizontal: 12, paddingVertical: 10, fontSize: FontSizes.sm },
+  phoneInputRow: { borderWidth: 1, borderRadius: BorderRadius.lg, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12 },
+  phoneCodeText: { fontSize: FontSizes.sm, fontWeight: FontWeights.semibold, marginRight: 8 },
+  phoneInput: { flex: 1, fontSize: FontSizes.sm, paddingVertical: 10 },
   dropdownInput: { borderWidth: 1, borderRadius: BorderRadius.lg, paddingHorizontal: 12, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   dropdownInputText: { flex: 1, fontSize: FontSizes.sm, marginRight: 8 },
   editTextArea: { minHeight: 80, textAlignVertical: 'top' },

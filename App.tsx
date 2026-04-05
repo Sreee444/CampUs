@@ -11,10 +11,9 @@ import { StyleSheet, AppState } from 'react-native';
 import { registerForPushNotifications, subscribeToNotifications } from './src/api/notifications';
 import { updateUserStatus } from './src/api/chat';
 import { BroadcastBanner } from './src/components/BroadcastBanner';
+import { BASE_URL } from './src/config/api';
 
 function AppContent() {
-
-  console.log("API URL:", process.env.EXPO_PUBLIC_AI_API_BASE_URL);
   const { isDark } = useTheme();
   const { user } = useAuth();
   const [broadcastBanner, setBroadcastBanner] = useState<{
@@ -24,6 +23,12 @@ function AppContent() {
     visible: boolean;
   }>({ title: '', message: '', imageUrl: null, visible: false });
   const broadcastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!__DEV__) return;
+    console.log('API URL (effective):', BASE_URL);
+    console.log('API URL (env):', process.env.EXPO_PUBLIC_AI_API_BASE_URL || '(not set)');
+  }, []);
 
   useEffect(() => {
     // Register for push notifications
