@@ -38,15 +38,18 @@ export default function ChangePasswordScreen() {
   const [showNew, setShowNew] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isExiting, setIsExiting] = useState(false);
   const [toast, setToast] = useState<{ visible: boolean; message: string; type: 'success' | 'info' | 'warning' | 'error' }>({ visible: false, message: '', type: 'success' });
   const isForcedChange = Boolean(route.params?.forceChange);
 
   const handleBackPress = async () => {
+    if (isExiting) return;
     if (__DEV__) {
       console.log('[ChangePassword] Back pressed', { isForcedChange });
     }
     if (isForcedChange) {
       try {
+        setIsExiting(true);
         if (__DEV__) {
           console.log('[ChangePassword] Forced flow: attempting signOut()');
         }
@@ -70,10 +73,17 @@ export default function ChangePasswordScreen() {
       } catch (error: any) {
         console.error('Forced change sign-out failed:', error);
         setToast({ visible: true, message: 'Unable to go back right now. Please try again.', type: 'error' });
+      } finally {
+        setIsExiting(false);
       }
       return;
     }
-    navigation.goBack();
+
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      navigation.navigate('MainTabs', { screen: 'Home' });
+    }
   };
 
   const handleChangePassword = async () => {
@@ -128,19 +138,15 @@ export default function ChangePasswordScreen() {
       setNewPassword('');
       setConfirmPassword('');
 
-      if (!timedOut) {
-        setTimeout(async () => {
-          if (isForcedChange) {
-            await signOut();
-            navigation.reset({
-              index: 0,
-              routes: [{ name: 'Login' }],
-            });
-          } else {
-            navigation.goBack();
-          }
-        }, 800);
-      }
+      const redirectDelay = timedOut ? 200 : 800;
+      setTimeout(async () => {
+        // After any password update, force re-login so the user lands in Home via the normal login flow.
+        await signOut();
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Login' }],
+        });
+      }, redirectDelay);
     } catch (error: any) {
       console.error('Change password error:', error);
       if (!timedOut) {

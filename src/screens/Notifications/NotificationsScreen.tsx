@@ -9,6 +9,7 @@ import {
     ActivityIndicator,
     RefreshControl,
     Image,
+    Alert,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -22,7 +23,8 @@ import {
     getNotifications,
     markNotificationAsRead,
     markAllNotificationsAsRead,
-    deleteNotification
+    deleteNotification,
+    clearAllNotifications,
 } from '../../api/notifications';
 import {
     getPendingReceivedRequests,
@@ -53,6 +55,100 @@ dayjs.extend(relativeTime);
 
 type NotificationsScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Notifications'>;
 
+const getNotificationMeta = (type: string) => {
+    switch (type) {
+        case 'broadcast':
+            return {
+                icon: 'campaign' as const,
+                iconColor: '#b45309',
+                iconBg: '#fef3c7',
+                label: 'Broadcast',
+                isPriority: true,
+            };
+        case 'event':
+        case 'event_registration':
+            return {
+                icon: 'event' as const,
+                iconColor: '#e11d48',
+                iconBg: '#ffe4e6',
+                label: 'Event',
+                isPriority: false,
+            };
+        case 'message':
+            return {
+                icon: 'chat-bubble' as const,
+                iconColor: '#2563eb',
+                iconBg: '#dbeafe',
+                label: 'Message',
+                isPriority: false,
+            };
+        case 'connection_request':
+            return {
+                icon: 'person-add' as const,
+                iconColor: '#d97706',
+                iconBg: '#fef3c7',
+                label: 'Connection Request',
+                isPriority: false,
+            };
+        case 'connection_accepted':
+            return {
+                icon: 'handshake' as const,
+                iconColor: '#059669',
+                iconBg: '#d1fae5',
+                label: 'Connection Accepted',
+                isPriority: false,
+            };
+        case 'team_invite':
+            return {
+                icon: 'mail' as const,
+                iconColor: '#4f46e5',
+                iconBg: '#eef2ff',
+                label: 'Team Invite',
+                isPriority: false,
+            };
+        case 'team_join_request':
+            return {
+                icon: 'group-add' as const,
+                iconColor: '#7c3aed',
+                iconBg: '#ede9fe',
+                label: 'Team Join Request',
+                isPriority: false,
+            };
+        case 'project_invite':
+            return {
+                icon: 'work-outline' as const,
+                iconColor: '#4338ca',
+                iconBg: '#e0e7ff',
+                label: 'Project Invite',
+                isPriority: false,
+            };
+        case 'project_request':
+            return {
+                icon: 'groups' as const,
+                iconColor: '#7c3aed',
+                iconBg: '#f3e8ff',
+                label: 'Project Request',
+                isPriority: false,
+            };
+        case 'team':
+            return {
+                icon: 'group' as const,
+                iconColor: '#8b5cf6',
+                iconBg: '#f3e8ff',
+                label: 'Team Update',
+                isPriority: false,
+            };
+        default:
+            return {
+                icon: 'notifications' as const,
+                iconColor: '#6366f1',
+                iconBg: '#eef2ff',
+                label: 'General',
+                isPriority: false,
+            };
+    }
+};
+
 export default function NotificationsScreen() {
     const navigation = useNavigation<NotificationsScreenNavigationProp>();
     const { isDark } = useTheme();
@@ -65,6 +161,7 @@ export default function NotificationsScreen() {
     const [requests, setRequests] = useState<ConnectionWithProfile[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const [isClearingAll, setIsClearingAll] = useState(false);
     const [processingInviteId, setProcessingInviteId] = useState<string | null>(null);
     const [toast, setToast] = useState<{ visible: boolean; message: string; type: 'success' | 'info' | 'warning' | 'error' }>({ visible: false, message: '', type: 'success' });
 
@@ -434,7 +531,36 @@ export default function NotificationsScreen() {
         }
     };
 
+    const handleClearAllNotifications = () => {
+        if (!user?.id || isClearingAll || notifications.length === 0) return;
+
+        Alert.alert(
+            'Clear all notifications?',
+            'This will permanently delete all notifications.',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Clear All',
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            setIsClearingAll(true);
+                            await clearAllNotifications(user.id);
+                            setNotifications([]);
+                            setToast({ visible: true, message: 'All notifications cleared', type: 'success' });
+                        } catch (error) {
+                            setToast({ visible: true, message: 'Failed to clear notifications', type: 'error' });
+                        } finally {
+                            setIsClearingAll(false);
+                        }
+                    },
+                },
+            ]
+        );
+    };
+
     const renderNotificationItem = (item: Notification) => {
+        const meta = getNotificationMeta(item.type);
         const isTeamInvite = item.type === 'team_invite';
         const isProjectInvite = item.type === 'project_invite';
         const isProjectRequest = item.type === 'project_request';
@@ -449,31 +575,29 @@ export default function NotificationsScreen() {
                     styles.notificationItem,
                     !item.is_read && styles.unreadItem,
                     hasInlineInviteActions && styles.teamInviteItem,
+                    meta.isPriority && styles.priorityItem,
                 ]}
                 onPress={() => handleNotificationPress(item)}
                 activeOpacity={hasInlineInviteActions ? 1 : 0.7}
             >
                 {/* Icon */}
-                <View style={[styles.iconContainer, hasInlineInviteActions && styles.teamInviteIcon]}>
-                    {item.type === 'event' && <MaterialIcons name="event" size={24} color="#e11d48" />}
-                    {item.type === 'message' && <MaterialIcons name="chat-bubble" size={24} color="#3b82f6" />}
-                    {item.type === 'connection_request' && <MaterialIcons name="person-add" size={24} color="#f59e0b" />}
-                    {item.type === 'connection_accepted' && <MaterialIcons name="person" size={24} color="#10b981" />}
-                    {item.type === 'team' && <MaterialIcons name="group" size={24} color="#8b5cf6" />}
-                    {item.type === 'team_invite' && <MaterialIcons name="mail" size={24} color="#6366f1" />}
-                    {item.type === 'team_join_request' && <MaterialIcons name="group-add" size={24} color="#8b5cf6" />}
-                    {item.type === 'project_invite' && <MaterialIcons name="mail" size={24} color="#6366f1" />}
-                    {item.type === 'project_request' && <MaterialIcons name="group-add" size={24} color="#8b5cf6" />}
-                    {!['event', 'message', 'connection_request', 'connection_accepted', 'team', 'team_invite', 'team_join_request', 'project_invite', 'project_request'].includes(item.type) && (
-                        <MaterialIcons name="notifications" size={24} color={Colors.primary} />
-                    )}
+                <View style={[styles.iconContainer, { backgroundColor: meta.iconBg }, hasInlineInviteActions && styles.teamInviteIcon]}>
+                    <MaterialIcons name={meta.icon} size={24} color={meta.iconColor} />
                 </View>
 
                 {/* Content */}
                 <View style={styles.contentContainer}>
-                    <Text style={[styles.notificationTitle, !item.is_read && styles.unreadText]}>
-                        {item.title}
-                    </Text>
+                    <View style={styles.notificationTopRow}>
+                        <Text style={[styles.notificationTitle, !item.is_read && styles.unreadText]}>
+                            {item.title}
+                        </Text>
+                        <View style={[styles.typeChip, meta.isPriority && styles.priorityChip]}>
+                            <Text style={[styles.typeChipText, meta.isPriority && styles.priorityChipText]}>{meta.label}</Text>
+                        </View>
+                    </View>
+                    {meta.isPriority && (
+                        <Text style={styles.priorityHintText}>Priority campus announcement</Text>
+                    )}
                     <Text style={styles.notificationBody} numberOfLines={2}>
                         {(item as any).body}
                     </Text>
@@ -663,6 +787,11 @@ export default function NotificationsScreen() {
                                 <TouchableOpacity onPress={handleMarkAllRead}>
                                     <Text style={styles.actionText}>Mark all as read</Text>
                                 </TouchableOpacity>
+                                <TouchableOpacity onPress={handleClearAllNotifications} disabled={isClearingAll}>
+                                    <Text style={[styles.actionText, styles.clearActionText]}>
+                                        {isClearingAll ? 'Clearing...' : 'Clear all'}
+                                    </Text>
+                                </TouchableOpacity>
                             </View>
                             {notifications.map(renderNotificationItem)}
                         </>
@@ -774,13 +903,16 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     },
     actionsRow: {
         flexDirection: 'row',
-        justifyContent: 'flex-end',
+        justifyContent: 'space-between',
         padding: Spacing.md,
     },
     actionText: {
         fontSize: FontSizes.sm,
         color: Colors.primary,
         fontWeight: FontWeights.medium,
+    },
+    clearActionText: {
+        color: '#dc2626',
     },
     notificationItem: {
         flexDirection: 'row',
@@ -929,8 +1061,43 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
         borderLeftWidth: 3,
         borderLeftColor: '#6366f1',
     },
+    priorityItem: {
+        borderLeftWidth: 4,
+        borderLeftColor: '#d97706',
+        backgroundColor: '#fffbeb',
+    },
     teamInviteIcon: {
         backgroundColor: '#eef2ff',
+    },
+    notificationTopRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 8,
+        marginBottom: 2,
+    },
+    typeChip: {
+        backgroundColor: '#eef2ff',
+        borderRadius: 999,
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+    },
+    typeChipText: {
+        color: '#4f46e5',
+        fontSize: 10,
+        fontWeight: FontWeights.semibold,
+    },
+    priorityChip: {
+        backgroundColor: '#fef3c7',
+    },
+    priorityChipText: {
+        color: '#b45309',
+    },
+    priorityHintText: {
+        color: '#b45309',
+        fontSize: 11,
+        fontWeight: FontWeights.semibold,
+        marginBottom: 2,
     },
     inviteActions: {
         flexDirection: 'row',

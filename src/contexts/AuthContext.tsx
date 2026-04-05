@@ -32,6 +32,7 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 // Minimum splash screen display time in milliseconds
 const MINIMUM_SPLASH_TIME = 3000; // 3 seconds
+const SIGN_OUT_TIMEOUT_MS = 2500;
 
 const isTransientNetworkError = (error: any) => {
   const message = String(error?.message || '').toLowerCase();
@@ -335,6 +336,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const handleSignOut = async () => {
+    const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> => {
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      try {
+        return await Promise.race([
+          promise,
+          new Promise<T>((_, reject) => {
+            timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+          }),
+        ]);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    };
+
     try {
       if (__DEV__) {
         console.log('[AuthContext] signOut start', {
@@ -344,7 +359,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       if (user?.id) {
         try {
-          await updateUserStatus(user.id, 'offline');
+          await withTimeout(updateUserStatus(user.id, 'offline'), SIGN_OUT_TIMEOUT_MS, 'updateUserStatus');
         } catch (statusError: any) {
           // Never block logout on optional presence updates.
           if (statusError?.code !== 'PGRST116' && !isTransientNetworkError(statusError)) {
@@ -352,7 +367,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
         }
       }
-      await supabase.auth.signOut({ scope: 'local' });
+      await withTimeout(supabase.auth.signOut({ scope: 'local' }), SIGN_OUT_TIMEOUT_MS, 'supabase.auth.signOut');
       if (__DEV__) {
         console.log('[AuthContext] signOut supabase call resolved');
       }

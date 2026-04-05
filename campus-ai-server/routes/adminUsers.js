@@ -84,93 +84,170 @@ const requireAdmin = async (req, res, next) => {
   next();
 };
 
+const parseOptionalNumber = (value) => {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const createUserAndProfile = async (payload) => {
+  const {
+    email,
+    full_name,
+    role,
+    department,
+    year,
+    semester,
+    section,
+    password,
+  } = payload || {};
+
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  if (!normalizedEmail) {
+    throw new Error('Email is required');
+  }
+
+  const safeRole = String(role || 'student').trim().toLowerCase();
+  const allowedRoles = ['student', 'faculty', 'alumni', 'admin'];
+  if (!allowedRoles.includes(safeRole)) {
+    throw new Error('Invalid role provided');
+  }
+
+  const rawPassword = String(password || '').trim();
+  const passwordToUse = rawPassword ? rawPassword : '123456';
+  if (passwordToUse.length < 6) {
+    throw new Error('Password must be at least 6 characters');
+  }
+
+  const { data: createdUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
+    email: normalizedEmail,
+    password: passwordToUse,
+    email_confirm: true,
+  });
+
+  if (createError || !createdUser?.user?.id) {
+    const message = createError?.message || 'Failed to create user';
+    throw new Error(message);
+  }
+
+  const userId = createdUser.user.id;
+  const profilePayload = {
+    id: userId,
+    email: normalizedEmail,
+    full_name: String(full_name || '').trim() || null,
+    role: safeRole,
+    department: String(department || '').trim() || null,
+    year: parseOptionalNumber(year),
+    semester: parseOptionalNumber(semester),
+    section: String(section || '').trim().toUpperCase() || null,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  const { error: profileError } = await supabaseAdmin
+    .from('profiles')
+    .upsert(profilePayload, { onConflict: 'id' });
+
+  if (profileError) {
+    throw new Error('User created but profile insert failed');
+  }
+
+  return {
+    user_id: userId,
+    email: normalizedEmail,
+    role: safeRole,
+    full_name: profilePayload.full_name,
+    department: profilePayload.department,
+    year: profilePayload.year,
+    semester: profilePayload.semester,
+    section: profilePayload.section,
+  };
+};
+
+const validateBulkRow = (row = {}) => {
+  const role = String(row.role || '').trim().toLowerCase();
+  const fullName = String(row.full_name || '').trim();
+  const email = String(row.email || '').trim();
+  const department = String(row.department || '').trim();
+  const section = String(row.section || '').trim();
+  const year = parseOptionalNumber(row.year);
+  const semester = parseOptionalNumber(row.semester);
+
+  if (!fullName) return 'full_name is required';
+  if (!email) return 'email is required';
+  if (!['student', 'faculty', 'alumni'].includes(role)) {
+    return 'role must be one of: student, faculty, alumni';
+  }
+
+  if (role === 'student') {
+    if (!department) return 'department is required for student';
+    if (!Number.isFinite(year)) return 'year is required for student';
+    if (!Number.isFinite(semester)) return 'semester is required for student';
+    if (!section) return 'section is required for student';
+  }
+
+  if ((role === 'faculty' || role === 'alumni') && !department) {
+    return `department is required for ${role}`;
+  }
+
+  return null;
+};
+
 router.post('/create-user', requireSupabaseConfig, requireAdmin, async (req, res) => {
   try {
-    const {
-      email,
-      full_name,
-      role,
-      department,
-      year,
-      semester,
-      section,
-      password,
-    } = req.body || {};
+    const created = await createUserAndProfile(req.body || {});
+    return res.status(200).json(created);
+  } catch (error) {
+    const message = String(error?.message || 'Failed to create user');
+    const lower = message.toLowerCase();
+    const status = lower.includes('already') ? 409 : lower.includes('profile insert failed') ? 500 : 400;
+    console.error('[admin-users] create-user failed:', message);
+    return res.status(status).json({ error: message });
+  }
+});
 
-    const normalizedEmail = String(email || '').trim().toLowerCase();
-    if (!normalizedEmail) {
-      return res.status(400).json({ error: 'Email is required' });
+router.post('/bulk-create-users', requireSupabaseConfig, requireAdmin, async (req, res) => {
+  try {
+    const users = Array.isArray(req.body?.users) ? req.body.users : [];
+    if (!users.length) {
+      return res.status(400).json({ error: 'users array is required' });
     }
 
-    const safeRole = String(role || 'student').trim().toLowerCase();
-    const allowedRoles = ['student', 'faculty', 'alumni', 'admin'];
-    if (!allowedRoles.includes(safeRole)) {
-      return res.status(400).json({ error: 'Invalid role provided' });
-    }
+    const created = [];
+    const failed = [];
 
-    const rawPassword = String(password || '').trim();
-    const passwordToUse = rawPassword ? rawPassword : '123456';
-    if (passwordToUse.length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters' });
-    }
+    for (let i = 0; i < users.length; i += 1) {
+      const row = users[i] || {};
+      const rowIndex = i + 1;
+      const email = String(row.email || '').trim().toLowerCase();
 
-    const { data: createdUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
-      email: normalizedEmail,
-      password: passwordToUse,
-      email_confirm: true,
-    });
+      const rowError = validateBulkRow(row);
+      if (rowError) {
+        failed.push({ index: rowIndex, email, error: rowError });
+        continue;
+      }
 
-    if (createError || !createdUser?.user?.id) {
-      const message = createError?.message || 'Failed to create user';
-      console.error('[admin-users] auth.createUser failed:', {
-        email: normalizedEmail,
-        role: safeRole,
-        error: message,
-      });
-      const status = message.toLowerCase().includes('already') ? 409 : 400;
-      return res.status(status).json({ error: message });
-    }
-
-    const userId = createdUser.user.id;
-    const profilePayload = {
-      id: userId,
-      email: normalizedEmail,
-      full_name: String(full_name || '').trim() || null,
-      role: safeRole,
-      department: String(department || '').trim() || null,
-      year: Number.isFinite(Number(year)) ? Number(year) : null,
-      semester: Number.isFinite(Number(semester)) ? Number(semester) : null,
-      section: String(section || '').trim().toUpperCase() || null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-
-    const { error: profileError } = await supabaseAdmin
-      .from('profiles')
-      .upsert(profilePayload, { onConflict: 'id' });
-
-    if (profileError) {
-      console.error('[admin-users] profile upsert failed:', {
-        userId,
-        email: normalizedEmail,
-        role: safeRole,
-        error: profileError?.message || profileError,
-      });
-      return res.status(500).json({ error: 'User created but profile insert failed' });
+      try {
+        const createdUser = await createUserAndProfile(row);
+        created.push({ index: rowIndex, ...createdUser });
+      } catch (error) {
+        failed.push({
+          index: rowIndex,
+          email,
+          error: String(error?.message || 'Failed to create user'),
+        });
+      }
     }
 
     return res.status(200).json({
-      user_id: userId,
-      email: normalizedEmail,
-      role: safeRole,
-      full_name: profilePayload.full_name,
-      department: profilePayload.department,
-      year: profilePayload.year,
-      semester: profilePayload.semester,
-      section: profilePayload.section,
+      total: users.length,
+      created_count: created.length,
+      failed_count: failed.length,
+      created,
+      failed,
     });
   } catch (error) {
-    console.error('[admin-users] create-user error:', error?.message || error);
+    console.error('[admin-users] bulk-create-users error:', error?.message || error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 });

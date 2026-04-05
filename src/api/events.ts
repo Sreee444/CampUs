@@ -4,6 +4,18 @@ import { supabase } from "./supabase";
 import { Event, EventRegistration, EventDiscussion, EventType } from "../types/database";
 import { evaluateEventEligibility } from "../utils/eventEligibility";
 
+const UNREGISTER_LOCK_HOURS = 48;
+
+const getUnregisterCutoffTime = (startDate: string) => {
+  return new Date(startDate).getTime() - UNREGISTER_LOCK_HOURS * 60 * 60 * 1000;
+};
+
+export const canUnregisterBeforeEvent = (startDate: string) => {
+  if (!startDate) return false;
+  const cutoff = getUnregisterCutoffTime(startDate);
+  return Date.now() < cutoff;
+};
+
 // Get all events — tab can be 'upcoming' | 'live' | 'past' | 'all'
 export const getEvents = async (
   userId?: string,
@@ -202,6 +214,18 @@ export const registerForEvent = async (eventId: string, userId: string) => {
 
 // Unregister from event
 export const unregisterFromEvent = async (eventId: string, userId: string) => {
+  const { data: event, error: eventError } = await supabase
+    .from('events')
+    .select('start_date, title')
+    .eq('id', eventId)
+    .single();
+
+  if (eventError) throw eventError;
+
+  if (!canUnregisterBeforeEvent(String(event?.start_date || ''))) {
+    throw new Error('Unregistration is allowed only until 2 days before the event starts.');
+  }
+
   const { error } = await supabase
     .from("event_registrations")
     .delete()

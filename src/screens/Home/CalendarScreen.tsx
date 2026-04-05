@@ -13,17 +13,20 @@ import {
   Share,
   Linking,
   TextInput,
+  Alert,
   Animated,
   Dimensions,
   PanResponder,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useNavigation } from '@react-navigation/native';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { getEvents } from '../../api/events';
+import { createEvent, deleteEvent, getEvents, updateEvent } from '../../api/events';
 import Toast from 'react-native-toast-message';
+import { isFacultyOrAdminRole } from '../../utils/roles';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -51,10 +54,33 @@ interface CalendarDay {
   events: Event[];
 }
 
+const EXAM_TITLE_PREFIX = 'Exam: ';
+
+const isExamEvent = (event?: Partial<Event> | null) => {
+  if (!event) return false;
+  const type = String(event.event_type || '').toLowerCase();
+  const title = String(event.title || '').trim();
+  return type === 'exam' || /^exam\s*:/i.test(title);
+};
+
+const toExamTitle = (title: string) => {
+  const trimmed = String(title || '').trim();
+  if (!trimmed) return EXAM_TITLE_PREFIX;
+  return /^exam\s*:/i.test(trimmed) ? trimmed : `${EXAM_TITLE_PREFIX}${trimmed}`;
+};
+
+const stripExamPrefix = (title?: string) => String(title || '').replace(/^exam\s*:\s*/i, '').trim();
+
+const toGoogleCalendarDate = (value: string) => {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '';
+  return parsed.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+};
+
 export default function CalendarScreen() {
   const navigation = useNavigation<any>();
   const { isDark } = useTheme();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const Colors = getColors(isDark);
   const styles = createStyles(Colors, isDark);
 
@@ -72,6 +98,13 @@ export default function CalendarScreen() {
   const [selectedEventTypes, setSelectedEventTypes] = useState<string[]>([]);
   const [showFilters, setShowFilters] = useState(false);
   const [weekDays, setWeekDays] = useState<CalendarDay[]>([]);
+  const [showExamModal, setShowExamModal] = useState(false);
+  const [isCreatingExam, setIsCreatingExam] = useState(false);
+  const [editingExamId, setEditingExamId] = useState<string | null>(null);
+  const [examTitle, setExamTitle] = useState('');
+  const [examDate, setExamDate] = useState('');
+  const [showExamDatePicker, setShowExamDatePicker] = useState(false);
+  const [examDescription, setExamDescription] = useState('');
   
   // Animation values
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -97,6 +130,35 @@ export default function CalendarScreen() {
   ).current;
 
   const pad2 = (value: number) => String(value).padStart(2, '0');
+  const canManageExams = isFacultyOrAdminRole(profile?.role);
+  const formatDateInput = (date: Date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+
+  const closeExamModal = () => {
+    setShowExamModal(false);
+    setShowExamDatePicker(false);
+    setEditingExamId(null);
+  };
+
+  const openExamModal = (date?: Date) => {
+    const baseDate = date || selectedDate || currentDate;
+    setEditingExamId(null);
+    setExamDate(formatDateInput(baseDate));
+    setExamTitle('');
+    setExamDescription('');
+    setShowExamDatePicker(false);
+    setShowExamModal(true);
+  };
+
+  const openEditExamModal = (event: Event) => {
+    if (!canManageExams || !isExamEvent(event)) return;
+    const eventDate = new Date(event.start_date);
+    setEditingExamId(event.id);
+    setExamDate(formatDateInput(Number.isNaN(eventDate.getTime()) ? new Date() : eventDate));
+    setExamTitle(stripExamPrefix(event.title));
+    setExamDescription(event.description || '');
+    setShowExamDatePicker(false);
+    setShowExamModal(true);
+  };
   const applySearch = () => {
     setSearchQuery(searchInput.trim());
   };
@@ -311,10 +373,18 @@ export default function CalendarScreen() {
   };
 
   const getEventStats = () => {
+    const nowTs = Date.now();
     const total = filteredEvents.length;
-    const registered = filteredEvents.filter((e) => e.is_registered).length;
+    const registered = filteredEvents.filter((e) => {
+      if (!e.is_registered) return false;
+      const eventDate = new Date(e.start_date);
+      return (
+        eventDate.getMonth() === currentDate.getMonth() &&
+        eventDate.getFullYear() === currentDate.getFullYear()
+      );
+    }).length;
     const upcoming = filteredEvents.filter(
-      (e) => new Date(e.start_date) > new Date()
+      (e) => new Date(e.start_date).getTime() > nowTs
     ).length;
     const thisMonth = filteredEvents.filter((e) => {
       const eventDate = new Date(e.start_date);
@@ -327,37 +397,130 @@ export default function CalendarScreen() {
     return { total, registered, upcoming, thisMonth };
   };
 
+  const upcomingEvents = filteredEvents.filter(
+    (event) => new Date(event.start_date).getTime() > Date.now()
+  );
+
+  const handleCreateExam = async () => {
+    if (!user?.id || !canManageExams) return;
+
+    const title = examTitle.trim();
+    const date = examDate.trim();
+
+    if (!title || !date) {
+      Toast.show({ type: 'error', text1: 'Title and date are required' });
+      return;
+    }
+
+    const startIso = `${date}T00:00:00`;
+    const endIso = `${date}T23:59:59`;
+    const startDate = new Date(startIso);
+    const endDate = new Date(endIso);
+
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+      Toast.show({ type: 'error', text1: 'Invalid date format', text2: 'Use YYYY-MM-DD' });
+      return;
+    }
+
+    try {
+      setIsCreatingExam(true);
+      const examPayload = {
+        title: toExamTitle(title),
+        description: examDescription.trim() || 'Scheduled exam',
+        // DB currently rejects `exam` in events_event_type_check, so store under `other`
+        // and infer exam semantics from title prefix.
+        event_type: 'other' as any,
+        start_date: startDate.toISOString(),
+        end_date: endDate.toISOString(),
+        registration_deadline: startDate.toISOString(),
+        venue: null,
+        is_online: false,
+      } as any;
+
+      if (editingExamId) {
+        await updateEvent(editingExamId, examPayload);
+        Toast.show({ type: 'success', text1: 'Exam updated' });
+      } else {
+        await createEvent({
+          ...examPayload,
+          created_by: user.id,
+          max_participants: null as any,
+        } as any);
+        Toast.show({ type: 'success', text1: 'Exam added to calendar' });
+      }
+
+      closeExamModal();
+      await loadEventsAndCalendar();
+    } catch (error: any) {
+      console.error('Save exam error:', error);
+      Toast.show({ type: 'error', text1: 'Failed to save exam', text2: error?.message || 'Please try again' });
+    } finally {
+      setIsCreatingExam(false);
+    }
+  };
+
+  const handleDeleteExam = (event: Event) => {
+    if (!canManageExams || !isExamEvent(event)) return;
+
+    Alert.alert(
+      'Delete exam?',
+      `This will permanently remove "${event.title}" from the calendar.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteEvent(event.id);
+              setSelectedDayEvents((prev) => prev.filter((item) => item.id !== event.id));
+              Toast.show({ type: 'success', text1: 'Exam deleted' });
+              await loadEventsAndCalendar();
+            } catch (error: any) {
+              console.error('Delete exam error:', error);
+              Toast.show({
+                type: 'error',
+                text1: 'Failed to delete exam',
+                text2: error?.message || 'Please try again',
+              });
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const handleAddToCalendar = async (event: Event) => {
     try {
       const startDate = new Date(event.start_date);
       const endDate = new Date(event.end_date);
+      const startCal = toGoogleCalendarDate(event.start_date);
+      const endCal = toGoogleCalendarDate(event.end_date);
 
-      // For iOS Calendar: use calendar:// scheme
-      if (Platform.OS === 'ios') {
-        const calendarURL = `calendar://event?title=${encodeURIComponent(
-          event.title
-        )}&notes=${encodeURIComponent(event.description || '')}&location=${encodeURIComponent(
-          event.venue || ''
-        )}&startTime=${startDate.getTime()}&endTime=${endDate.getTime()}`;
-        await Linking.openURL(calendarURL);
-      } else if (Platform.OS === 'android') {
-        // For Android: use Google Calendar intent or native calendar
-        const calendarURL = `content://com.android.calendar/events?title=${encodeURIComponent(
-          event.title
-        )}&description=${encodeURIComponent(
-          event.description || ''
-        )}&eventLocation=${encodeURIComponent(
-          event.venue || ''
-        )}&beginTime=${startDate.getTime()}&endTime=${endDate.getTime()}`;
-        await Linking.openURL(calendarURL);
+      if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || !startCal || !endCal) {
+        Toast.show({ type: 'error', text1: 'Invalid event date/time' });
+        return;
       }
+
+      const calendarUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(
+        event.title
+      )}&details=${encodeURIComponent(event.description || '')}&location=${encodeURIComponent(
+        event.venue || ''
+      )}&dates=${startCal}/${endCal}`;
+
+      const canOpen = await Linking.canOpenURL(calendarUrl);
+      if (!canOpen) {
+        Toast.show({ type: 'error', text1: 'Could not open calendar' });
+        return;
+      }
+      await Linking.openURL(calendarUrl);
 
       Toast.show({
         type: 'success',
-        text1: 'Opening calendar app...',
+        text1: 'Opening calendar...',
       });
     } catch (error) {
-      Toast.show({ type: 'error', text1: 'Could not open calendar app' });
+      Toast.show({ type: 'error', text1: 'Could not open calendar' });
     }
   };
 
@@ -385,17 +548,37 @@ export default function CalendarScreen() {
       ]}
     >
       <View style={styles.headerTop}>
-        <Text style={styles.headerTitle}>Calendar</Text>
-        <TouchableOpacity
-          style={styles.filterButton}
-          onPress={() => setShowFilters(!showFilters)}
-        >
-          <MaterialIcons
-            name="filter-list"
-            size={24}
-            color={showFilters ? Colors.primary : Colors.text}
-          />
-        </TouchableOpacity>
+        <View style={styles.headerLeft}>
+          <TouchableOpacity
+            style={styles.headerBackButton}
+            onPress={() => {
+              if (navigation.canGoBack()) {
+                navigation.goBack();
+              }
+            }}
+            activeOpacity={0.8}
+          >
+            <MaterialIcons name="arrow-back" size={20} color={Colors.text} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Calendar</Text>
+        </View>
+        <View style={styles.headerActions}>
+          {canManageExams && (
+            <TouchableOpacity style={styles.examAddButton} onPress={() => openExamModal()}>
+              <MaterialIcons name="quiz" size={20} color="#dc2626" />
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            style={styles.filterButton}
+            onPress={() => setShowFilters(!showFilters)}
+          >
+            <MaterialIcons
+              name="filter-list"
+              size={24}
+              color={showFilters ? Colors.primary : Colors.text}
+            />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Search Bar */}
@@ -686,6 +869,7 @@ export default function CalendarScreen() {
         </ScrollView>
 
         {renderQuickAddButton()}
+        {renderAddExamModal()}
         {renderDayModal()}
       </SafeAreaView>
     );
@@ -704,11 +888,11 @@ export default function CalendarScreen() {
             <View style={styles.sectionTitleContainer}>
               <MaterialIcons name="event-available" size={24} color="#10b981" />
               <Text style={styles.sectionTitle}>
-                Upcoming Events ({filteredEvents.length})
+                Upcoming Events ({upcomingEvents.length})
               </Text>
             </View>
 
-            {filteredEvents.length === 0 ? (
+            {upcomingEvents.length === 0 ? (
               <View style={styles.emptyState}>
                 <MaterialIcons name="event-note" size={48} color={Colors.textSecondary} />
                 <Text style={styles.emptyText}>No events found</Text>
@@ -720,7 +904,7 @@ export default function CalendarScreen() {
               </View>
             ) : (
               <FlatList
-                data={[...filteredEvents].sort((a, b) => 
+                data={[...upcomingEvents].sort((a, b) => 
                   new Date(a.start_date).getTime() -
                   new Date(b.start_date).getTime()
                 )}
@@ -736,6 +920,7 @@ export default function CalendarScreen() {
         </ScrollView>
 
         {renderQuickAddButton()}
+        {renderAddExamModal()}
       </SafeAreaView>
     );
   }
@@ -777,8 +962,7 @@ export default function CalendarScreen() {
             const isToday =
               calendarDay.isCurrentMonth &&
               calendarDay.date.toDateString() === new Date().toDateString();
-            const isSelected =
-              selectedDate && calendarDay.date.toDateString() === selectedDate.toDateString();
+            const hasExam = calendarDay.events.some((event) => isExamEvent(event));
             const dateKey = `${calendarDay.year}-${calendarDay.month}-${calendarDay.day}`;
 
             return (
@@ -787,11 +971,11 @@ export default function CalendarScreen() {
                 style={[
                   styles.dayCell,
                   !calendarDay.isCurrentMonth && styles.dayCellDisabled,
+                  hasExam && !isToday && styles.dayCellExam,
                   isToday && [styles.dayCellToday, { 
                     backgroundColor: '#a855f7',
                     borderColor: '#9333ea',
                   }],
-                  isSelected && [styles.dayCellSelected, { borderColor: Colors.primary }],
                 ]}
                 onPress={() => handleDayPress(calendarDay)}
                 disabled={!calendarDay.isCurrentMonth}
@@ -809,13 +993,18 @@ export default function CalendarScreen() {
                   {calendarDay.events.length > 0 && (
                   <View style={styles.eventDots}>
                     {calendarDay.events.slice(0, 2).map((event, idx) => (
+                      (() => {
+                        const effectiveType = isExamEvent(event) ? 'exam' : event.event_type;
+                        return (
                       <View
                         key={idx}
                         style={[
                           styles.eventDot,
-                          { backgroundColor: isToday ? '#fff' : getEventTypeColor(event.event_type) },
+                          { backgroundColor: isToday ? '#fff' : getEventTypeColor(effectiveType) },
                         ]}
                       />
+                        );
+                      })()
                     ))}
                     {calendarDay.events.length > 2 && (
                       <Text
@@ -838,12 +1027,15 @@ export default function CalendarScreen() {
       </ScrollView>
 
       {renderQuickAddButton()}
+      {renderAddExamModal()}
       {renderDayModal()}
     </SafeAreaView>
   );
 
   // Helper function: Quick Add Button
   function renderQuickAddButton() {
+    if (!canManageExams) return null;
+
     return (
       <Animated.View
         style={{
@@ -857,13 +1049,95 @@ export default function CalendarScreen() {
         }}
       >
         <TouchableOpacity
-          style={[styles.fabButton, { backgroundColor: '#a855f7' }]}
-          onPress={() => navigation.navigate('CreateEvent')}
+          style={[styles.fabButton, { backgroundColor: '#dc2626' }]}
+          onPress={() => openExamModal()}
           activeOpacity={0.8}
         >
           <MaterialIcons name="add" size={32} color="#fff" />
         </TouchableOpacity>
       </Animated.View>
+    );
+  }
+
+  function renderAddExamModal() {
+    return (
+      <Modal visible={showExamModal} transparent animationType="slide" onRequestClose={closeExamModal}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: Colors.surface }]}> 
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>{editingExamId ? 'Edit Exam' : 'Add Exam'}</Text>
+              <TouchableOpacity onPress={closeExamModal}>
+                <MaterialIcons name="close" size={24} color={Colors.text} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.modalBody}>
+              <TextInput
+                style={[styles.formInput, { borderColor: Colors.border, color: Colors.text, backgroundColor: Colors.background }]}
+                placeholder="Exam title"
+                placeholderTextColor={Colors.textSecondary}
+                value={examTitle}
+                onChangeText={setExamTitle}
+              />
+              <TouchableOpacity
+                style={[styles.formInput, styles.datePickerTrigger, { borderColor: Colors.border, backgroundColor: Colors.background }]}
+                onPress={() => setShowExamDatePicker(true)}
+              >
+                <View style={styles.datePickerLabelWrap}>
+                  <MaterialIcons name="calendar-today" size={16} color={Colors.textSecondary} />
+                  <Text style={[styles.datePickerLabel, { color: examDate ? Colors.text : Colors.textSecondary }]}>
+                    {examDate || 'Select exam date'}
+                  </Text>
+                </View>
+                <MaterialIcons name="expand-more" size={20} color={Colors.textSecondary} />
+              </TouchableOpacity>
+              {showExamDatePicker && (
+                <View style={[styles.datePickerContainer, { borderColor: Colors.border, backgroundColor: Colors.background }]}>
+                  <DateTimePicker
+                    value={(() => {
+                      const parsed = new Date(examDate || '');
+                      return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+                    })()}
+                    mode="date"
+                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                    onChange={(_event, selectedDate) => {
+                      if (selectedDate) {
+                        setExamDate(formatDateInput(selectedDate));
+                      }
+                      if (Platform.OS !== 'ios') {
+                        setShowExamDatePicker(false);
+                      }
+                    }}
+                  />
+                  {Platform.OS === 'ios' && (
+                    <TouchableOpacity style={styles.datePickerDoneBtn} onPress={() => setShowExamDatePicker(false)}>
+                      <Text style={[styles.datePickerDoneText, { color: Colors.primary }]}>Done</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+              <TextInput
+                style={[styles.formInput, styles.multilineInput, { borderColor: Colors.border, color: Colors.text, backgroundColor: Colors.background }]}
+                placeholder="Description (optional)"
+                placeholderTextColor={Colors.textSecondary}
+                value={examDescription}
+                onChangeText={setExamDescription}
+                multiline
+              />
+              <TouchableOpacity
+                style={[styles.actionButtonPrimary, { backgroundColor: '#dc2626' }, isCreatingExam && { opacity: 0.7 }]}
+                onPress={handleCreateExam}
+                disabled={isCreatingExam}
+              >
+                {isCreatingExam ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.actionButtonPrimaryText}>{editingExamId ? 'Update Exam' : 'Save Exam'}</Text>
+                )}
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     );
   }
 
@@ -910,6 +1184,8 @@ export default function CalendarScreen() {
 
   // Helper function: Render Event Card
   function renderEventCard(event: Event, isDetailed = false) {
+    const effectiveType = isExamEvent(event) ? 'exam' : event.event_type;
+    const isExam = isExamEvent(event);
     // Format time from ISO datetime
     const startDate = new Date(event.start_date);
     const endDate = new Date(event.end_date);
@@ -937,21 +1213,21 @@ export default function CalendarScreen() {
       <TouchableOpacity
         key={event.id}
         style={[styles.eventCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}
-        onPress={() => navigation.navigate('EventDetails', { eventId: event.id })}
-        activeOpacity={0.7}
+        onPress={isExam ? undefined : () => navigation.navigate('EventDetails', { eventId: event.id })}
+        activeOpacity={isExam ? 1 : 0.7}
       >
         <View style={styles.eventCardHeader}>
           <View style={styles.eventCardLeft}>
             <View
               style={[
                 styles.eventTypeIcon,
-                { backgroundColor: getEventTypeColor(event.event_type) + '20' },
+                { backgroundColor: getEventTypeColor(effectiveType) + '20' },
               ]}
             >
               <MaterialIcons
-                name={getEventTypeIcon(event.event_type)}
+                name={getEventTypeIcon(effectiveType)}
                 size={20}
-                color={getEventTypeColor(event.event_type)}
+                color={getEventTypeColor(effectiveType)}
               />
             </View>
             <View style={{ flex: 1 }}>
@@ -1013,6 +1289,25 @@ export default function CalendarScreen() {
                 <Text style={[styles.actionButtonText, { color: '#fff' }]}>Share</Text>
               </TouchableOpacity>
             </View>
+
+            {canManageExams && isExamEvent(event) && (
+              <View style={styles.eventFooter}>
+                <TouchableOpacity
+                  style={[styles.actionButton, { backgroundColor: '#dbeafe' }]}
+                  onPress={() => openEditExamModal(event)}
+                >
+                  <MaterialIcons name="edit" size={16} color="#1d4ed8" />
+                  <Text style={[styles.actionButtonText, { color: '#1d4ed8' }]}>Edit Exam</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.actionButton, { backgroundColor: '#fee2e2' }]}
+                  onPress={() => handleDeleteExam(event)}
+                >
+                  <MaterialIcons name="delete-outline" size={16} color="#b91c1c" />
+                  <Text style={[styles.actionButtonText, { color: '#b91c1c' }]}>Delete Exam</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </>
         )}
       </TouchableOpacity>
@@ -1085,6 +1380,37 @@ const createStyles = (Colors: any, isDark: boolean) =>
       alignItems: 'center',
       justifyContent: 'space-between',
       marginBottom: Spacing.md,
+    },
+    headerLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      flex: 1,
+    },
+    headerBackButton: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: Colors.border,
+      backgroundColor: Colors.surface,
+    },
+    headerActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    examAddButton: {
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: '#fee2e2',
+      borderWidth: 1,
+      borderColor: '#fecaca',
     },
     title: {
       fontSize: FontSizes.xxl,
@@ -1170,6 +1496,10 @@ const createStyles = (Colors: any, isDark: boolean) =>
       shadowOpacity: 0.3,
       shadowRadius: 8,
       elevation: 6,
+    },
+    dayCellExam: {
+      borderColor: '#dc2626',
+      backgroundColor: '#fef2f2',
     },
     dayCellSelected: {
       borderWidth: 3,
@@ -1351,6 +1681,60 @@ const createStyles = (Colors: any, isDark: boolean) =>
     modalBody: {
       padding: Spacing.md,
       maxHeight: 'auto',
+    },
+    formInput: {
+      borderWidth: 1,
+      borderRadius: BorderRadius.lg,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      marginBottom: 10,
+      fontSize: FontSizes.sm,
+    },
+    datePickerTrigger: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    datePickerLabelWrap: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    datePickerLabel: {
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.medium,
+    },
+    datePickerContainer: {
+      borderWidth: 1,
+      borderRadius: BorderRadius.lg,
+      marginBottom: 10,
+      overflow: 'hidden',
+    },
+    datePickerDoneBtn: {
+      alignItems: 'center',
+      paddingVertical: 10,
+      borderTopWidth: 1,
+      borderTopColor: '#e2e8f0',
+    },
+    datePickerDoneText: {
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.semibold,
+    },
+    multilineInput: {
+      minHeight: 90,
+      textAlignVertical: 'top',
+    },
+    actionButtonPrimary: {
+      borderRadius: BorderRadius.lg,
+      paddingVertical: 12,
+      alignItems: 'center',
+      marginTop: 6,
+      marginBottom: 12,
+    },
+    actionButtonPrimaryText: {
+      color: '#fff',
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.semibold,
     },
     // New styles for enhanced UI
     loadingContainer: {

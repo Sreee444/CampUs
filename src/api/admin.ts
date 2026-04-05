@@ -122,6 +122,28 @@ export type AdminCreateUserPayload = {
   password?: string | null;
 };
 
+export type AdminBulkCreateUsersPayload = {
+  users: AdminCreateUserPayload[];
+};
+
+export type AdminBulkCreateUsersResult = {
+  total: number;
+  created_count: number;
+  failed_count: number;
+  created: Array<{
+    index: number;
+    user_id: string;
+    email: string;
+    role: string;
+    full_name?: string | null;
+  }>;
+  failed: Array<{
+    index: number;
+    email?: string;
+    error: string;
+  }>;
+};
+
 export const createUserByAdmin = async (payload: AdminCreateUserPayload) => {
   const session = await supabase.auth.getSession();
   const token = session.data.session?.access_token;
@@ -140,6 +162,38 @@ export const createUserByAdmin = async (payload: AdminCreateUserPayload) => {
 
   if (!response.ok) {
     let message = 'Failed to create user';
+    try {
+      const errorBody = await response.json();
+      message = errorBody?.error || message;
+    } catch {
+      // ignore parsing errors
+    }
+    throw new Error(message);
+  }
+
+  return response.json();
+};
+
+export const bulkCreateUsersByAdmin = async (
+  payload: AdminBulkCreateUsersPayload
+): Promise<AdminBulkCreateUsersResult> => {
+  const session = await supabase.auth.getSession();
+  const token = session.data.session?.access_token;
+  if (!token) {
+    throw new Error('Not authenticated');
+  }
+
+  const response = await fetch(`${BASE_URL}/admin/bulk-create-users`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    let message = 'Failed to bulk create users';
     try {
       const errorBody = await response.json();
       message = errorBody?.error || message;

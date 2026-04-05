@@ -1,4 +1,3 @@
-// ...existing code...
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import {
@@ -24,6 +23,7 @@ import { RootStackParamList } from '../../navigation/types';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../api/supabase';
 import * as FileSystem from 'expo-file-system/legacy';
+import { ConfirmBottomSheet } from '../../components/ConfirmBottomSheet';
 import { DEPARTMENT_OPTIONS, getDepartmentAcademicLimits } from '../../constants/academic';
 
 type CreateEventScreenNavigationProp = StackNavigationProp<RootStackParamList, 'CreateEvent'>;
@@ -67,6 +67,27 @@ const STEPS = [
 const ACCENT = '#4f46e5';
 const BG = '#f5f5f7';
 
+const isExamEvent = (event: any) => {
+  const type = String(event?.event_type || '').toLowerCase();
+  const title = String(event?.title || '').trim();
+  return type === 'exam' || /^exam\s*:/i.test(title);
+};
+
+const getDateKey = (date: Date) => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+const getDateKeyFromString = (value: string) => {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '';
+  const y = parsed.getFullYear();
+  const m = String(parsed.getMonth() + 1).padStart(2, '0');
+  const d = String(parsed.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
 export default function CreateEventScreen() {
   const navigation = useNavigation<CreateEventScreenNavigationProp>();
   const { user, profile } = useAuth();
@@ -74,6 +95,8 @@ export default function CreateEventScreen() {
   const [currentStep, setCurrentStep] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [examDateKeys, setExamDateKeys] = useState<string[]>([]);
+  const [showExamConflictConfirm, setShowExamConflictConfirm] = useState(false);
   const progressAnim = useRef(new Animated.Value(0)).current;
 
   const [formData, setFormData] = useState<EventFormData>({
@@ -123,6 +146,33 @@ export default function CreateEventScreen() {
       return { ...prev, eligible_years: sanitizedYears };
     });
   }, [eventYearOptions]);
+
+  useEffect(() => {
+    const loadExamDates = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('events')
+          .select('event_type, title, start_date');
+
+        if (error) throw error;
+        const rows = (data || []) as any[];
+
+        const dates = Array.from(
+          new Set(
+            rows
+              .filter((item) => isExamEvent(item))
+              .map((item) => getDateKeyFromString(String(item.start_date || '')))
+              .filter(Boolean)
+          )
+        );
+        setExamDateKeys(dates);
+      } catch (error) {
+        console.error('Failed to load exam dates for conflict detection:', error);
+      }
+    };
+
+    loadExamDates();
+  }, []);
 
   const [showPicker, setShowPicker] = useState<{
     field: keyof EventFormData | null;
@@ -303,17 +353,12 @@ export default function CreateEventScreen() {
   };
 
   // ─── Submit ─────────────────
-  const handleSubmit = async () => {
-    if (!user?.id || !canCreateEvent) {
-      Toast.show({ type: 'error', text1: 'You do not have permission to create events' });
-      return;
-    }
-    for (let i = 0; i < 3; i++) {
-      if (!validateStep(i)) {
-        animateToStep(i);
-        return;
-      }
-    }
+  const hasExamDateConflict = useMemo(
+    () => examDateKeys.includes(getDateKey(formData.start_date)),
+    [examDateKeys, formData.start_date]
+  );
+
+  const submitEvent = async () => {
     try {
       setIsSubmitting(true);
       const { error } = await supabase
@@ -330,8 +375,8 @@ export default function CreateEventScreen() {
           max_participants: formData.max_participants,
           registration_deadline: formData.registration_deadline.toISOString(),
           banner_image: formData.banner_image.trim() || null,
-          created_by: user.id,
-          organizers: [user.id],
+          created_by: user!.id,
+          organizers: [user!.id],
           participation_type: formData.participation_type,
           min_team_size: formData.participation_type === 'team' ? formData.min_team_size : null,
           max_team_size: formData.participation_type === 'team' ? formData.max_team_size : null,
@@ -352,6 +397,25 @@ export default function CreateEventScreen() {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleSubmit = async () => {
+    if (!user?.id || !canCreateEvent) {
+      Toast.show({ type: 'error', text1: 'You do not have permission to create events' });
+      return;
+    }
+    for (let i = 0; i < 3; i++) {
+      if (!validateStep(i)) {
+        animateToStep(i);
+        return;
+      }
+    }
+    if (hasExamDateConflict) {
+      setShowExamConflictConfirm(true);
+      return;
+    }
+
+    await submitEvent();
   };
 
   // ─── Helper formatters ─────────────────
@@ -654,6 +718,14 @@ export default function CreateEventScreen() {
             <Text style={st.dateBtnText}>{formatTime(formData.start_date)}</Text>
           </TouchableOpacity>
         </View>
+        {hasExamDateConflict && (
+          <View style={st.conflictWarningBox}>
+            <MaterialIcons name="warning-amber" size={16} color="#b45309" />
+            <Text style={st.conflictWarningText}>
+              Exam is already scheduled on this date. Consider changing date/time to reduce conflict.
+            </Text>
+          </View>
+        )}
       </View>
 
       <View style={st.fieldGroup}>
@@ -979,6 +1051,21 @@ export default function CreateEventScreen() {
         )}
       </View>
 
+      <ConfirmBottomSheet
+        visible={showExamConflictConfirm}
+        onClose={() => setShowExamConflictConfirm(false)}
+        onConfirm={() => {
+          setShowExamConflictConfirm(false);
+          void submitEvent();
+        }}
+        title="Exam conflict warning"
+        message="An exam is already scheduled on this date. Creating another event may cause conflicts for students."
+        confirmText={isSubmitting ? 'Creating...' : 'Create Anyway'}
+        cancelText="Cancel"
+        confirmColor="#f59e0b"
+        icon="warning-amber"
+      />
+
       {/* Date Time Picker */}
       {showPicker.show && showPicker.field && (
         Platform.OS === 'ios' ? (
@@ -1129,6 +1216,24 @@ const st = StyleSheet.create({
   fieldLabel: { fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 8 },
   required: { color: '#ef4444' },
   fieldHint: { fontSize: 12, color: '#9ca3af', marginTop: 6 },
+  conflictWarningBox: {
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#fcd34d',
+    backgroundColor: '#fffbeb',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  conflictWarningText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#92400e',
+    fontWeight: '500',
+  },
   subFieldGroup: { marginTop: 16 },
   subFieldLabel: { fontSize: 13, fontWeight: '500', color: '#6b7280', marginBottom: 8 },
 

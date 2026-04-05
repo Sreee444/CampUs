@@ -33,6 +33,7 @@ import { ConfirmBottomSheet } from '../../components/ConfirmBottomSheet';
 import { createNotification } from '../../api/notifications';
 import { loadMyTeamState, cancelJoinRequest, acceptInvite, rejectInvite } from '../../utils/teamActions';
 import { evaluateEventEligibility } from '../../utils/eventEligibility';
+import { unregisterFromEvent } from '../../api/events';
 
 type Nav = StackNavigationProp<RootStackParamList, 'EventDetails'>;
 type Route = RouteProp<RootStackParamList, 'EventDetails'>;
@@ -57,6 +58,21 @@ interface EventDetails {
   organizer_profile?: { full_name: string };
 }
 
+const isExamEvent = (event: any) => {
+  const type = String(event?.event_type || '').toLowerCase();
+  const title = String(event?.title || '').trim();
+  return type === 'exam' || /^exam\s*:/i.test(title);
+};
+
+const getDateKey = (value: string) => {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '';
+  const y = parsed.getFullYear();
+  const m = String(parsed.getMonth() + 1).padStart(2, '0');
+  const d = String(parsed.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
 export default function EventDetailsScreen() {
   const navigation = useNavigation<Nav>();
   const route = useRoute<Route>();
@@ -68,8 +84,8 @@ export default function EventDetailsScreen() {
   const [isRegistering, setIsRegistering] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [showRegisterConfirm, setShowRegisterConfirm] = useState(false);
   const [showUnregisterConfirm, setShowUnregisterConfirm] = useState(false);
+  const [showExamConflictConfirm, setShowExamConflictConfirm] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
 
   // Team state
@@ -221,32 +237,92 @@ export default function EventDetailsScreen() {
   /* ─── REGISTRATION ─── */
   const handleRegistration = async () => {
     if (!user || !event) return;
+
+    const registerCurrentUser = async () => {
+      await (supabase.from('event_registrations') as any).upsert(
+        { event_id: eventId, user_id: user.id, status: 'registered' },
+        { onConflict: 'event_id,user_id' }
+      );
+      Toast.show({ type: 'success', text1: 'Registered for event!' });
+      await notifyAdmins((profile as any)?.full_name + ' registered for ' + event.title);
+      try {
+        const reminder = await createEventReminder(eventId, user.id, 60);
+        if (reminder) await scheduleEventReminder(eventId, event.title, event.start_date, 60);
+      } catch {}
+      setShowUnregisterConfirm(false);
+      await loadEventDetails();
+    };
+
     try {
       setIsRegistering(true);
       if (event.is_registered) {
+        const canUnregisterNow = Date.now() < (new Date(event.start_date).getTime() - 48 * 60 * 60 * 1000);
+        if (!canUnregisterNow) {
+          throw new Error('Unregistration is allowed only until 2 days before the event starts.');
+        }
         await cleanupTeamOnEventLeave();
-        await (supabase.from('event_registrations') as any)
-          .update({ status: 'cancelled' }).eq('event_id', eventId).eq('user_id', user.id);
+        await unregisterFromEvent(eventId, user.id);
         Toast.show({ type: 'success', text1: 'Unregistered from event' });
         await notifyAdmins((profile as any)?.full_name + ' unregistered from ' + event.title);
+        setShowUnregisterConfirm(false);
+        await loadEventDetails();
       } else {
-        await (supabase.from('event_registrations') as any).upsert(
-          { event_id: eventId, user_id: user.id, status: 'registered' },
-          { onConflict: 'event_id,user_id' }
+        const { data: allEvents, error: allEventsError } = await supabase
+          .from('events')
+          .select('id, event_type, title, start_date');
+
+        if (allEventsError) throw allEventsError;
+
+        const eventDateKey = getDateKey(event.start_date);
+        const hasExamConflict = (allEvents || []).some(
+          (item: any) =>
+            item.id !== eventId &&
+            isExamEvent(item) &&
+            getDateKey(String(item.start_date || '')) === eventDateKey
         );
-        Toast.show({ type: 'success', text1: 'Registered for event!' });
-        await notifyAdmins((profile as any)?.full_name + ' registered for ' + event.title);
-        try {
-          const reminder = await createEventReminder(eventId, user.id, 60);
-          if (reminder) await scheduleEventReminder(eventId, event.title, event.start_date, 60);
-        } catch {}
+
+        if (hasExamConflict) {
+          setShowUnregisterConfirm(false);
+          setIsRegistering(false);
+          setTimeout(() => {
+            setShowExamConflictConfirm(true);
+          }, 180);
+          return;
+        }
+
+        await registerCurrentUser();
       }
-      setShowRegisterConfirm(false);
+    } catch (err: any) {
+      Toast.show({ type: 'error', text1: 'Registration failed', text2: err.message });
+    } finally { setIsRegistering(false); }
+  };
+
+  const handleConfirmExamConflictRegister = async () => {
+    if (!user || !event) {
+      setShowExamConflictConfirm(false);
+      return;
+    }
+
+    try {
+      setShowExamConflictConfirm(false);
+      setIsRegistering(true);
+      await (supabase.from('event_registrations') as any).upsert(
+        { event_id: eventId, user_id: user.id, status: 'registered' },
+        { onConflict: 'event_id,user_id' }
+      );
+      Toast.show({ type: 'success', text1: 'Registered for event!' });
+      await notifyAdmins((profile as any)?.full_name + ' registered for ' + event.title);
+      try {
+        const reminder = await createEventReminder(eventId, user.id, 60);
+        if (reminder) await scheduleEventReminder(eventId, event.title, event.start_date, 60);
+      } catch {}
       setShowUnregisterConfirm(false);
       await loadEventDetails();
     } catch (err: any) {
       Toast.show({ type: 'error', text1: 'Registration failed', text2: err.message });
-    } finally { setIsRegistering(false); }
+    } finally {
+      setIsRegistering(false);
+    }
   };
 
   const handleToggleLooking = async () => {
@@ -379,6 +455,7 @@ export default function EventDetailsScreen() {
   const isLive = start <= now && end >= now;
   const isEnded = end < now;
   const regOpen = new Date(event.registration_deadline) > now;
+  const canUnregister = Date.now() < (new Date(event.start_date).getTime() - 48 * 60 * 60 * 1000);
   const canRegister = regOpen && eligibility.isEligible && !isEnded &&
     (!event.max_participants || event.registrations_count < event.max_participants);
   const isCreator = user?.id === event.created_by;
@@ -565,19 +642,25 @@ export default function EventDetailsScreen() {
                 </View>
               </LinearGradient>
               <TouchableOpacity
-                style={[s.btnDangerOutline, isRegistering && s.btnOff]}
-                onPress={() => setShowUnregisterConfirm(true)}
-                disabled={isRegistering}
+                style={[s.btnDangerOutline, (isRegistering || !canUnregister) && s.btnOff]}
+                onPress={() => canUnregister && setShowUnregisterConfirm(true)}
+                disabled={isRegistering || !canUnregister}
               >
                 <MaterialIcons name="cancel" size={18} color="#ef4444" />
                 <Text style={s.btnDangerOutlineText}>{isRegistering ? 'Processing...' : 'Unregister'}</Text>
               </TouchableOpacity>
+              {!canUnregister && (
+                <View style={s.warningBox}>
+                  <MaterialIcons name="info-outline" size={16} color="#f59e0b" />
+                  <Text style={s.warningText}>You can unregister only until 2 days before event start.</Text>
+                </View>
+              )}
             </>
           ) : (
             <>
               <TouchableOpacity
                 style={[s.btnRegister, (!canRegister || isRegistering) && s.btnOff]}
-                onPress={() => setShowRegisterConfirm(true)}
+                onPress={handleRegistration}
                 disabled={!canRegister || isRegistering}
                 activeOpacity={0.8}
               >
@@ -874,17 +957,6 @@ export default function EventDetailsScreen() {
 
       {/* ── CONFIRM SHEETS ── */}
       <ConfirmBottomSheet
-        visible={showRegisterConfirm}
-        onClose={() => setShowRegisterConfirm(false)}
-        onConfirm={handleRegistration}
-        title="Confirm Registration"
-        message={'Register for ' + event.title + '? You will get a reminder 1 hr before.'}
-        confirmText={isRegistering ? 'Processing...' : 'Register'}
-        cancelText="Cancel"
-        confirmColor="#4f46e5"
-        icon="event-available"
-      />
-      <ConfirmBottomSheet
         visible={showUnregisterConfirm}
         onClose={() => setShowUnregisterConfirm(false)}
         onConfirm={handleRegistration}
@@ -894,6 +966,17 @@ export default function EventDetailsScreen() {
         cancelText="Keep"
         confirmColor="#ef4444"
         icon="cancel"
+      />
+      <ConfirmBottomSheet
+        visible={showExamConflictConfirm}
+        onClose={() => setShowExamConflictConfirm(false)}
+        onConfirm={handleConfirmExamConflictRegister}
+        title="Exam conflict warning"
+        message="An exam is scheduled on this date. Do you still want to register for this event?"
+        confirmText={isRegistering ? 'Processing...' : 'Register Anyway'}
+        cancelText="Cancel"
+        confirmColor="#f59e0b"
+        icon="warning-amber"
       />
       <ConfirmBottomSheet
         visible={showDeleteConfirm}

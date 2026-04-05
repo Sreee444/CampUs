@@ -46,6 +46,21 @@ type EventsScreenNavigationProp = CompositeNavigationProp<
 
 const categories = ['All', 'workshop', 'seminar', 'hackathon', 'competition', 'fest', 'other'];
 
+const isExamEvent = (event: any) => {
+  const type = String(event?.event_type || '').toLowerCase();
+  const title = String(event?.title || '').trim();
+  return type === 'exam' || /^exam\s*:/i.test(title);
+};
+
+const getDateKey = (value: string) => {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '';
+  const y = parsed.getFullYear();
+  const m = String(parsed.getMonth() + 1).padStart(2, '0');
+  const d = String(parsed.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
 export default function EventsScreen() {
   const navigation = useNavigation<EventsScreenNavigationProp>();
   const { isDark } = useTheme();
@@ -63,6 +78,9 @@ export default function EventsScreen() {
   const [showEventMenu, setShowEventMenu] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [examDateKeys, setExamDateKeys] = useState<string[]>([]);
+  const [showExamConflictConfirm, setShowExamConflictConfirm] = useState(false);
+  const [pendingConflictEvent, setPendingConflictEvent] = useState<any | null>(null);
 
   // Keep create button visibility aligned with CreateEventScreen permissions
   const canCreateEvent = Boolean(
@@ -90,7 +108,18 @@ export default function EventsScreen() {
       else setIsLoading(true);
 
       const data = await getEvents(user?.id, undefined, activeTab);
-      setEvents(data || []);
+      const allEvents = data || [];
+      const examDates = Array.from(
+        new Set(
+          allEvents
+            .filter((event) => isExamEvent(event))
+            .map((event) => getDateKey(event.start_date))
+            .filter(Boolean)
+        )
+      );
+      setExamDateKeys(examDates);
+      const nonExamEvents = allEvents.filter((event) => !isExamEvent(event));
+      setEvents(nonExamEvents);
       setLoadError(null);
     } catch (error) {
       console.error('Events load error:', error);
@@ -124,14 +153,59 @@ export default function EventsScreen() {
       return;
     }
 
+    const doRegister = async () => {
+      await registerForEvent(event.id, user.id);
+      Toast.show({ type: 'success', text1: 'Registered successfully!' });
+      loadEvents(true);
+    };
+
     try {
       if (event.is_registered) {
+        const canUnregisterNow = Date.now() < (new Date(event.start_date).getTime() - 48 * 60 * 60 * 1000);
+        if (!canUnregisterNow) {
+          Toast.show({
+            type: 'info',
+            text1: 'Unregister locked',
+            text2: 'You can unregister only until 2 days before event start.',
+          });
+          return;
+        }
         await unregisterFromEvent(event.id, user.id);
         Toast.show({ type: 'success', text1: 'Unregistered successfully' });
+        loadEvents(true);
       } else {
-        await registerForEvent(event.id, user.id);
-        Toast.show({ type: 'success', text1: 'Registered successfully!' });
+        const hasExamConflict = examDateKeys.includes(getDateKey(event.start_date));
+        if (hasExamConflict) {
+          setPendingConflictEvent(event);
+          setShowExamConflictConfirm(true);
+          return;
+        }
+
+        await doRegister();
       }
+    } catch (error) {
+      console.error('Registration error:', error);
+      Toast.show({
+        type: 'error',
+        text1: 'Registration failed',
+        text2: (error as any)?.message || 'Please try again',
+      });
+    }
+  };
+
+  const handleConfirmExamConflictRegister = async () => {
+    const event = pendingConflictEvent;
+    if (!event || !user?.id) {
+      setShowExamConflictConfirm(false);
+      setPendingConflictEvent(null);
+      return;
+    }
+
+    try {
+      setShowExamConflictConfirm(false);
+      await registerForEvent(event.id, user.id);
+      Toast.show({ type: 'success', text1: 'Registered successfully!' });
+      setPendingConflictEvent(null);
       loadEvents(true);
     } catch (error) {
       console.error('Registration error:', error);
@@ -342,15 +416,17 @@ export default function EventsScreen() {
           />
         ) : (
           filteredEvents.map((event) => {
+            const isExamLike = isExamEvent(event);
             const eventTypeIcons: { [key: string]: string } = {
               workshop: 'build',
               seminar: 'lightbulb',
               hackathon: 'code',
               competition: 'emoji-events',
               fest: 'celebration',
+              exam: 'quiz',
               other: 'event',
             };
-            const typeIcon = eventTypeIcons[event.event_type] || 'event';
+            const typeIcon = eventTypeIcons[isExamLike ? 'exam' : event.event_type] || 'event';
 
             // Status label
             const now = new Date();
@@ -360,6 +436,15 @@ export default function EventsScreen() {
             const statusLabel = isLive ? '🔴 Live Now' : activeTab === 'past' ? '⏰ Ended' : '✅ Upcoming';
             const statusBg = isLive ? '#FEE2E2' : activeTab === 'past' ? '#F3F4F6' : '#DFF5EC';
             const statusColor = isLive ? '#DC2626' : activeTab === 'past' ? '#6B7280' : '#059669';
+            const eventDateKey = new Date(event.start_date).toDateString();
+            const hasExamConflict =
+              !isExamLike &&
+              filteredEvents.some(
+                (item) =>
+                  item.id !== event.id &&
+                  isExamEvent(item) &&
+                  new Date(item.start_date).toDateString() === eventDateKey
+              );
 
             return (
             <TouchableOpacity
@@ -382,7 +467,7 @@ export default function EventsScreen() {
                 <View style={styles.eventTypeBadge}>
                   <MaterialIcons name={typeIcon as any} size={13} color="#7C3AED" />
                   <Text style={styles.eventTypeText}>
-                    {event.event_type.charAt(0).toUpperCase() + event.event_type.slice(1)}
+                    {isExamLike ? 'Exam' : event.event_type.charAt(0).toUpperCase() + event.event_type.slice(1)}
                   </Text>
                 </View>
                 <View style={styles.eventHeaderRight}>
@@ -435,6 +520,13 @@ export default function EventsScreen() {
                   <MaterialIcons name="schedule" size={15} color="#f59e0b" />
                   <Text style={styles.infoRowText}>{formatEventDate(event.start_date)}</Text>
                 </View>
+
+                {hasExamConflict && (
+                  <View style={styles.infoRow}>
+                    <MaterialIcons name="warning-amber" size={15} color="#dc2626" />
+                    <Text style={[styles.infoRowText, { color: '#991b1b' }]}>Exam scheduled on this date</Text>
+                  </View>
+                )}
 
                 {/* Venue */}
                 <View style={styles.infoRow}>
@@ -494,10 +586,14 @@ export default function EventsScreen() {
                   event.is_registered,
                   isFull
                 );
+                const canUnregisterNow = Date.now() < (new Date(event.start_date).getTime() - 48 * 60 * 60 * 1000);
                 const blockedByEligibility = !event.is_registered && !eligibility.isEligible;
+                const hasExamConflict = examDateKeys.includes(getDateKey(event.start_date));
                 const blockedState = blockedByEligibility
                   ? { disabled: true, bg: '#f3f4f6', color: '#6b7280', icon: 'block', label: "Can't Register" }
-                  : buttonState;
+                  : (event.is_registered && !canUnregisterNow)
+                    ? { disabled: true, bg: '#fef2f2', color: '#991b1b', icon: 'lock', label: 'Unregister Locked' }
+                    : buttonState;
 
                 // Override styling for registered/closed states to match design
                 let btnBg = blockedState.bg;
@@ -539,6 +635,12 @@ export default function EventsScreen() {
                     )}
                     {!blockedByEligibility && isRegClosed && !event.is_registered && (
                       <Text style={[styles.blockedText, { color: '#991b1b' }]}>Registration is closed for this event.</Text>
+                    )}
+                    {!blockedByEligibility && event.is_registered && !canUnregisterNow && (
+                      <Text style={[styles.blockedText, { color: '#991b1b' }]}>Unregister allowed only until 2 days before start.</Text>
+                    )}
+                    {!blockedByEligibility && !event.is_registered && hasExamConflict && (
+                      <Text style={[styles.blockedText, { color: '#b45309' }]}>Exam is scheduled on this date. Please verify before registering.</Text>
                     )}
                   </View>
                 );
@@ -590,6 +692,22 @@ export default function EventsScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      {/* Delete Confirmation */}
+      <ConfirmBottomSheet
+        visible={showExamConflictConfirm}
+        onClose={() => {
+          setShowExamConflictConfirm(false);
+          setPendingConflictEvent(null);
+        }}
+        onConfirm={handleConfirmExamConflictRegister}
+        title="Exam conflict warning"
+        message="An exam is scheduled on this date. Do you still want to register for this event?"
+        confirmText="Register Anyway"
+        cancelText="Cancel"
+        confirmColor="#f59e0b"
+        icon="warning-amber"
+      />
 
       {/* Delete Confirmation */}
       <ConfirmBottomSheet

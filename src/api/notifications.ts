@@ -214,6 +214,16 @@ export const deleteNotification = async (notificationId: string) => {
   if (error) throw error;
 };
 
+// Delete all notifications for a user
+export const clearAllNotifications = async (userId: string) => {
+  const { error } = await supabase
+    .from('notifications')
+    .delete()
+    .eq('user_id', userId);
+
+  if (error) throw error;
+};
+
 // Get unread count
 export const getUnreadCount = async (userId: string) => {
   const { count, error } = await supabase
