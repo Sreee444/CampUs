@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
     View,
     Text,
@@ -15,34 +15,61 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../../navigation/types';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
+import { useAuth } from '../../contexts/AuthContext';
 import { Toast } from '../../components/Toast';
+import { updateProfile } from '../../api/auth';
 
 type NotificationSettingsScreenNavigationProp = StackNavigationProp<RootStackParamList, 'NotificationSettings'>;
 
 export default function NotificationSettingsScreen() {
     const navigation = useNavigation<NotificationSettingsScreenNavigationProp>();
     const { isDark } = useTheme();
+        const { user, profile, refreshProfile } = useAuth();
     const Colors = getColors(isDark);
     const styles = createStyles(Colors);
     const [toast, setToast] = useState<{ visible: boolean; message: string; type: 'success' | 'info' | 'warning' | 'error' }>({ visible: false, message: '', type: 'success' });
 
-    const [pushEnabled, setPushEnabled] = useState(true);
-    const [emailEnabled, setEmailEnabled] = useState(true);
-    const [smsEnabled, setSmsEnabled] = useState(false);
+        const [notificationEnabled, setNotificationEnabled] = useState(true);
+        const [chatEnabled, setChatEnabled] = useState(true);
+        const [savingKey, setSavingKey] = useState<'notification' | 'chat' | null>(null);
 
-    const [projectUpdates, setProjectUpdates] = useState(true);
-    const [teamMessages, setTeamMessages] = useState(true);
-    const [eventReminders, setEventReminders] = useState(true);
-    const [mentorMessages, setMentorMessages] = useState(true);
-    const [systemAlerts, setSystemAlerts] = useState(true);
-    const [weeklyDigest, setWeeklyDigest] = useState(false);
+        useEffect(() => {
+            setNotificationEnabled(profile?.notification_enabled !== false);
+            setChatEnabled(profile?.chat_enabled !== false);
+        }, [profile?.notification_enabled, profile?.chat_enabled]);
 
-    const handleToggle = (name: string, value: boolean) => {
-        setToast({
-            visible: true,
-            message: `${name} ${value ? 'enabled' : 'disabled'}`,
-            type: 'info'
-        });
+        const persistToggle = async (
+            key: 'notification_enabled' | 'chat_enabled',
+            value: boolean,
+            setter: (next: boolean) => void,
+            label: string,
+            saving: 'notification' | 'chat'
+        ) => {
+            const userId = user?.id || profile?.id;
+            if (!userId) return;
+
+            const previous = key === 'notification_enabled' ? notificationEnabled : chatEnabled;
+            setter(value);
+            setSavingKey(saving);
+
+            try {
+                await updateProfile(userId, { [key]: value } as any);
+                await refreshProfile();
+                setToast({
+                    visible: true,
+                    message: `${label} ${value ? 'enabled' : 'disabled'}`,
+                    type: 'success',
+                });
+            } catch (error: any) {
+                setter(previous);
+                setToast({
+                    visible: true,
+                    message: error?.message || `Failed to update ${label.toLowerCase()}`,
+                    type: 'error',
+                });
+            } finally {
+                setSavingKey(null);
+            }
     };
 
     return (
@@ -63,134 +90,65 @@ export default function NotificationSettingsScreen() {
                         <View style={styles.settingInfo}>
                             <MaterialIcons name="notifications-active" size={24} color={Colors.primary} />
                             <View style={styles.settingText}>
-                                <Text style={styles.settingName}>Push Notifications</Text>
-                                <Text style={styles.settingDescription}>Receive notifications on this device</Text>
+                                <Text style={styles.settingName}>App Notifications</Text>
+                                <Text style={styles.settingDescription}>Enable reminders and campus updates in-app</Text>
                             </View>
                         </View>
-                        <Switch
-                            value={pushEnabled}
-                            onValueChange={(val) => { setPushEnabled(val); handleToggle('Push notifications', val); }}
-                            trackColor={{ false: '#e2e8f0', true: Colors.primary }}
-                        />
-                    </View>
-
-                    <View style={styles.settingItem}>
-                        <View style={styles.settingInfo}>
-                            <MaterialIcons name="email" size={24} color="#f59e0b" />
-                            <View style={styles.settingText}>
-                                <Text style={styles.settingName}>Email Notifications</Text>
-                                <Text style={styles.settingDescription}>Send updates to your email</Text>
-                            </View>
-                        </View>
-                        <Switch
-                            value={emailEnabled}
-                            onValueChange={(val) => { setEmailEnabled(val); handleToggle('Email notifications', val); }}
-                            trackColor={{ false: '#e2e8f0', true: Colors.primary }}
-                        />
-                    </View>
-
-                    <View style={styles.settingItem}>
-                        <View style={styles.settingInfo}>
-                            <MaterialIcons name="sms" size={24} color="#10b981" />
-                            <View style={styles.settingText}>
-                                <Text style={styles.settingName}>SMS Notifications</Text>
-                                <Text style={styles.settingDescription}>Send important alerts via SMS</Text>
-                            </View>
-                        </View>
-                        <Switch
-                            value={smsEnabled}
-                            onValueChange={(val) => { setSmsEnabled(val); handleToggle('SMS notifications', val); }}
-                            trackColor={{ false: '#e2e8f0', true: Colors.primary }}
-                        />
+                        {savingKey === 'notification' ? (
+                          <ActivityIndicator size="small" color={Colors.primary} />
+                        ) : (
+                          <Switch
+                              value={notificationEnabled}
+                              onValueChange={(val) => persistToggle('notification_enabled', val, setNotificationEnabled, 'Notifications', 'notification')}
+                              trackColor={{ false: '#e2e8f0', true: Colors.primary }}
+                          />
+                        )}
                     </View>
                 </View>
 
                 <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Notification Types</Text>
+                    <Text style={styles.sectionTitle}>Messaging</Text>
 
                     <View style={styles.settingItem}>
                         <View style={styles.settingInfo}>
+                            <MaterialIcons name="chat-bubble-outline" size={24} color="#0ea5e9" />
                             <View style={styles.settingText}>
-                                <Text style={styles.settingName}>Project Updates</Text>
-                                <Text style={styles.settingDescription}>New tasks, comments, and milestones</Text>
+                                <Text style={styles.settingName}>Chat Availability</Text>
+                                <Text style={styles.settingDescription}>Allow direct and mentorship chat interactions</Text>
                             </View>
                         </View>
-                        <Switch
-                            value={projectUpdates}
-                            onValueChange={(val) => { setProjectUpdates(val); handleToggle('Project updates', val); }}
-                            trackColor={{ false: '#e2e8f0', true: Colors.primary }}
-                        />
+                        {savingKey === 'chat' ? (
+                          <ActivityIndicator size="small" color={Colors.primary} />
+                        ) : (
+                          <Switch
+                              value={chatEnabled}
+                              onValueChange={(val) => persistToggle('chat_enabled', val, setChatEnabled, 'Chat availability', 'chat')}
+                              trackColor={{ false: '#e2e8f0', true: Colors.primary }}
+                          />
+                        )}
                     </View>
+                </View>
 
-                    <View style={styles.settingItem}>
-                        <View style={styles.settingInfo}>
-                            <View style={styles.settingText}>
-                                <Text style={styles.settingName}>Team Messages</Text>
-                                <Text style={styles.settingDescription}>Direct messages from team members</Text>
-                            </View>
-                        </View>
-                        <Switch
-                            value={teamMessages}
-                            onValueChange={(val) => { setTeamMessages(val); handleToggle('Team messages', val); }}
-                            trackColor={{ false: '#e2e8f0', true: Colors.primary }}
-                        />
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>What You Receive</Text>
+                  <View style={styles.settingItem}>
+                    <View style={styles.settingInfo}>
+                      <MaterialIcons name="event-available" size={20} color="#f59e0b" />
+                      <View style={styles.settingText}>
+                        <Text style={styles.settingName}>Events and deadlines</Text>
+                        <Text style={styles.settingDescription}>Registrations, reminders, and updates from campus activities</Text>
+                      </View>
                     </View>
-
-                    <View style={styles.settingItem}>
-                        <View style={styles.settingInfo}>
-                            <View style={styles.settingText}>
-                                <Text style={styles.settingName}>Event Reminders</Text>
-                                <Text style={styles.settingDescription}>Upcoming events and deadlines</Text>
-                            </View>
-                        </View>
-                        <Switch
-                            value={eventReminders}
-                            onValueChange={(val) => { setEventReminders(val); handleToggle('Event reminders', val); }}
-                            trackColor={{ false: '#e2e8f0', true: Colors.primary }}
-                        />
+                  </View>
+                  <View style={styles.settingItem}>
+                    <View style={styles.settingInfo}>
+                      <MaterialIcons name="groups" size={20} color="#10b981" />
+                      <View style={styles.settingText}>
+                        <Text style={styles.settingName}>Projects and teams</Text>
+                        <Text style={styles.settingDescription}>Invites, request updates, and team activity notices</Text>
+                      </View>
                     </View>
-
-                    <View style={styles.settingItem}>
-                        <View style={styles.settingInfo}>
-                            <View style={styles.settingText}>
-                                <Text style={styles.settingName}>Mentor Messages</Text>
-                                <Text style={styles.settingDescription}>Messages from your mentors</Text>
-                            </View>
-                        </View>
-                        <Switch
-                            value={mentorMessages}
-                            onValueChange={(val) => { setMentorMessages(val); handleToggle('Mentor messages', val); }}
-                            trackColor={{ false: '#e2e8f0', true: Colors.primary }}
-                        />
-                    </View>
-
-                    <View style={styles.settingItem}>
-                        <View style={styles.settingInfo}>
-                            <View style={styles.settingText}>
-                                <Text style={styles.settingName}>System Alerts</Text>
-                                <Text style={styles.settingDescription}>Important system announcements</Text>
-                            </View>
-                        </View>
-                        <Switch
-                            value={systemAlerts}
-                            onValueChange={(val) => { setSystemAlerts(val); handleToggle('System alerts', val); }}
-                            trackColor={{ false: '#e2e8f0', true: Colors.primary }}
-                        />
-                    </View>
-
-                    <View style={styles.settingItem}>
-                        <View style={styles.settingInfo}>
-                            <View style={styles.settingText}>
-                                <Text style={styles.settingName}>Weekly Digest</Text>
-                                <Text style={styles.settingDescription}>Summary of your weekly activity</Text>
-                            </View>
-                        </View>
-                        <Switch
-                            value={weeklyDigest}
-                            onValueChange={(val) => { setWeeklyDigest(val); handleToggle('Weekly digest', val); }}
-                            trackColor={{ false: '#e2e8f0', true: Colors.primary }}
-                        />
-                    </View>
+                  </View>
                 </View>
 
                 <View style={{ height: 32 }} />

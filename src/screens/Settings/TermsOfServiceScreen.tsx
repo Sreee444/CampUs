@@ -50,6 +50,14 @@ export default function TermsOfServiceScreen() {
         </View>
 
         <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Eligibility and Accounts</Text>
+          <Text style={styles.bodyText}>
+            CampUs is intended for verified campus users. Accounts are provisioned by campus administration,
+            and you must use your assigned account responsibly.
+          </Text>
+        </View>
+
+        <View style={styles.section}>
           <Text style={styles.sectionTitle}>User Responsibilities</Text>
           <Text style={styles.bodyText}>
             Keep your account secure, provide accurate information, and respect other users.
@@ -68,7 +76,7 @@ export default function TermsOfServiceScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Termination</Text>
           <Text style={styles.bodyText}>
-            We may suspend or terminate accounts that violate these terms or put the community at risk.
+            We may suspend or restrict accounts that violate these terms, campus rules, or put the community at risk.
           </Text>
         </View>
 

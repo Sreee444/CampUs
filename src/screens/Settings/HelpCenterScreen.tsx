@@ -59,14 +59,14 @@ export default function HelpCenterScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Account & Access</Text>
           <View style={styles.card}>
+            <Text style={styles.itemTitle}>Account Creation</Text>
+            <Text style={styles.itemText}>
+              CampUs accounts are created by your campus admin. If you cannot sign in, contact admin for access.
+            </Text>
+            <View style={styles.divider} />
             <Text style={styles.itemTitle}>Reset Your Password</Text>
             <Text style={styles.itemText}>
               Use the “Forgot Password” option on the login screen to set a new password.
-            </Text>
-            <View style={styles.divider} />
-            <Text style={styles.itemTitle}>Email Verification</Text>
-            <Text style={styles.itemText}>
-              Verify your email to secure your account and receive important updates.
             </Text>
           </View>
         </View>

@@ -44,14 +44,16 @@ export default function PrivacyPolicyScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Information We Collect</Text>
           <Text style={styles.bodyText}>
-            We collect account details, profile information, and activity needed to provide core features.
+            We collect account details, profile information, and activity data needed to provide core features
+            such as projects, events, messaging, and mentorship.
           </Text>
         </View>
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>How We Use Data</Text>
           <Text style={styles.bodyText}>
-            Data is used to personalize your experience, improve app performance, and support safety.
+            Data is used to personalize your experience, improve app performance, support moderation,
+            and keep the campus community safe.
           </Text>
         </View>
 
@@ -66,7 +68,8 @@ export default function PrivacyPolicyScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Your Choices</Text>
           <Text style={styles.bodyText}>
-            You can update profile visibility and communication preferences from the Privacy Settings screen.
+            You can manage available communication and notification preferences from Settings.
+            Some visibility controls may be managed by your institution.
           </Text>
         </View>
 

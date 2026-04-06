@@ -8,6 +8,7 @@ import {
   ScrollView,
   Switch,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -15,31 +16,56 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../../navigation/types';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
+import { useAuth } from '../../contexts/AuthContext';
 import { Toast } from '../../components/Toast';
+import { updateProfile } from '../../api/auth';
 
 type PrivacyScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Privacy'>;
 
 export default function PrivacyScreen() {
   const navigation = useNavigation<PrivacyScreenNavigationProp>();
   const { isDark } = useTheme();
+  const { user, profile, refreshProfile } = useAuth();
   const Colors = getColors(isDark);
   const styles = createStyles(Colors);
   const [toast, setToast] = useState<{ visible: boolean; message: string; type: 'success' | 'info' | 'warning' | 'error' }>({ visible: false, message: '', type: 'success' });
-  
-  const [profilePublic, setProfilePublic] = useState(true);
-  const [showEmail, setShowEmail] = useState(false);
-  const [showPhone, setShowPhone] = useState(false);
-  const [allowMessages, setAllowMessages] = useState(true);
-  const [showProjects, setShowProjects] = useState(true);
-  const [showActivity, setShowActivity] = useState(true);
-  const [analytics, setAnalytics] = useState(true);
+  const [allowMessages, setAllowMessages] = useState(profile?.chat_enabled !== false);
+  const [isSavingMessages, setIsSavingMessages] = useState(false);
 
-  const handleToggle = (name: string, value: boolean) => {
-    setToast({ 
-      visible: true, 
-      message: `${name} ${value ? 'enabled' : 'disabled'}`, 
-      type: 'info' 
-    });
+  React.useEffect(() => {
+    setAllowMessages(profile?.chat_enabled !== false);
+  }, [profile?.chat_enabled]);
+
+  const handleMessagesToggle = async (value: boolean) => {
+    const userId = user?.id || profile?.id;
+    if (!userId) return;
+
+    const previous = allowMessages;
+    setAllowMessages(value);
+    setIsSavingMessages(true);
+
+    try {
+      await updateProfile(userId, { chat_enabled: value });
+      await refreshProfile();
+      setToast({
+        visible: true,
+        message: `Messages ${value ? 'enabled' : 'disabled'}`,
+        type: 'success',
+      });
+    } catch (error: any) {
+      setAllowMessages(previous);
+      setToast({
+        visible: true,
+        message: error?.message || 'Failed to update privacy setting',
+        type: 'error',
+      });
+    } finally {
+      setIsSavingMessages(false);
+    }
+  };
+
+  const handleDownloadData = () => {
+    setToast({ visible: true, message: 'Data export is managed by admin support.', type: 'info' });
   };
 
   return (
@@ -56,81 +82,33 @@ export default function PrivacyScreen() {
         <View style={styles.infoCard}>
           <MaterialIcons name="lock-outline" size={20} color={Colors.primary} />
           <Text style={styles.infoText}>
-            Control who can see your information and how your data is used
+            Privacy controls below are connected to your real CampUs account settings.
           </Text>
         </View>
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Profile Visibility</Text>
-          
+
           <View style={styles.settingItem}>
             <View style={styles.settingInfo}>
+              <MaterialIcons name="public" size={22} color={Colors.primary} />
               <View style={styles.settingText}>
-                <Text style={styles.settingName}>Public Profile</Text>
-                <Text style={styles.settingDescription}>Anyone in campus can view your profile</Text>
+                <Text style={styles.settingName}>Campus Profile Visibility</Text>
+                <Text style={styles.settingDescription}>Your profile is visible to verified campus users</Text>
               </View>
             </View>
-            <Switch
-              value={profilePublic}
-              onValueChange={(val) => { setProfilePublic(val); handleToggle('Public profile', val); }}
-              trackColor={{ false: '#e2e8f0', true: Colors.primary }}
-            />
+            <Text style={styles.fixedStatus}>Managed</Text>
           </View>
 
           <View style={styles.settingItem}>
             <View style={styles.settingInfo}>
+              <MaterialIcons name="email" size={22} color="#f59e0b" />
               <View style={styles.settingText}>
-                <Text style={styles.settingName}>Show Email Address</Text>
-                <Text style={styles.settingDescription}>Display email on your profile</Text>
+                <Text style={styles.settingName}>Email Address</Text>
+                <Text style={styles.settingDescription}>{profile?.email || user?.email || 'Not set'}</Text>
               </View>
             </View>
-            <Switch
-              value={showEmail}
-              onValueChange={(val) => { setShowEmail(val); handleToggle('Show email', val); }}
-              trackColor={{ false: '#e2e8f0', true: Colors.primary }}
-            />
-          </View>
-
-          <View style={styles.settingItem}>
-            <View style={styles.settingInfo}>
-              <View style={styles.settingText}>
-                <Text style={styles.settingName}>Show Phone Number</Text>
-                <Text style={styles.settingDescription}>Display phone on your profile</Text>
-              </View>
-            </View>
-            <Switch
-              value={showPhone}
-              onValueChange={(val) => { setShowPhone(val); handleToggle('Show phone', val); }}
-              trackColor={{ false: '#e2e8f0', true: Colors.primary }}
-            />
-          </View>
-
-          <View style={styles.settingItem}>
-            <View style={styles.settingInfo}>
-              <View style={styles.settingText}>
-                <Text style={styles.settingName}>Show Projects</Text>
-                <Text style={styles.settingDescription}>Display your projects publicly</Text>
-              </View>
-            </View>
-            <Switch
-              value={showProjects}
-              onValueChange={(val) => { setShowProjects(val); handleToggle('Show projects', val); }}
-              trackColor={{ false: '#e2e8f0', true: Colors.primary }}
-            />
-          </View>
-
-          <View style={styles.settingItem}>
-            <View style={styles.settingInfo}>
-              <View style={styles.settingText}>
-                <Text style={styles.settingName}>Show Activity</Text>
-                <Text style={styles.settingDescription}>Display your recent activity</Text>
-              </View>
-            </View>
-            <Switch
-              value={showActivity}
-              onValueChange={(val) => { setShowActivity(val); handleToggle('Show activity', val); }}
-              trackColor={{ false: '#e2e8f0', true: Colors.primary }}
-            />
+            <Text style={styles.fixedStatus}>Account</Text>
           </View>
         </View>
 
@@ -139,16 +117,21 @@ export default function PrivacyScreen() {
           
           <View style={styles.settingItem}>
             <View style={styles.settingInfo}>
+              <MaterialIcons name="chat-bubble-outline" size={22} color="#0ea5e9" />
               <View style={styles.settingText}>
                 <Text style={styles.settingName}>Allow Messages</Text>
-                <Text style={styles.settingDescription}>Anyone can send you messages</Text>
+                <Text style={styles.settingDescription}>Control whether users can message you</Text>
               </View>
             </View>
-            <Switch
-              value={allowMessages}
-              onValueChange={(val) => { setAllowMessages(val); handleToggle('Allow messages', val); }}
-              trackColor={{ false: '#e2e8f0', true: Colors.primary }}
-            />
+            {isSavingMessages ? (
+              <ActivityIndicator size="small" color={Colors.primary} />
+            ) : (
+              <Switch
+                value={allowMessages}
+                onValueChange={handleMessagesToggle}
+                trackColor={{ false: '#e2e8f0', true: Colors.primary }}
+              />
+            )}
           </View>
         </View>
 
@@ -157,29 +140,21 @@ export default function PrivacyScreen() {
           
           <View style={styles.settingItem}>
             <View style={styles.settingInfo}>
+              <MaterialIcons name="insights" size={22} color="#8b5cf6" />
               <View style={styles.settingText}>
                 <Text style={styles.settingName}>Usage Analytics</Text>
-                <Text style={styles.settingDescription}>Help improve app by sharing usage data</Text>
+                <Text style={styles.settingDescription}>Anonymous analytics helps improve app performance</Text>
               </View>
             </View>
-            <Switch
-              value={analytics}
-              onValueChange={(val) => { setAnalytics(val); handleToggle('Usage analytics', val); }}
-              trackColor={{ false: '#e2e8f0', true: Colors.primary }}
-            />
+            <Text style={styles.fixedStatus}>Enabled</Text>
           </View>
         </View>
 
         <View style={styles.dangerZone}>
           <Text style={styles.dangerTitle}>Data Management</Text>
-          <TouchableOpacity style={styles.dangerButton}>
+          <TouchableOpacity style={styles.dangerButton} onPress={handleDownloadData}>
             <MaterialIcons name="download" size={20} color={Colors.primary} />
             <Text style={styles.dangerButtonText}>Download My Data</Text>
-            <MaterialIcons name="chevron-right" size={20} color="#94a3b8" />
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.dangerButton, styles.deleteButton]}>
-            <MaterialIcons name="delete-outline" size={20} color="#ef4444" />
-            <Text style={[styles.dangerButtonText, styles.deleteText]}>Delete Account</Text>
             <MaterialIcons name="chevron-right" size={20} color="#94a3b8" />
           </TouchableOpacity>
         </View>
@@ -281,6 +256,12 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     fontSize: FontSizes.sm,
     color: Colors.textSecondary,
   },
+  fixedStatus: {
+    fontSize: FontSizes.xs,
+    color: Colors.textSecondary,
+    fontWeight: FontWeights.semibold,
+    textTransform: 'uppercase',
+  },
   dangerZone: {
     margin: Spacing.md,
     backgroundColor: Colors.surface,
@@ -302,16 +283,10 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     borderTopWidth: 1,
     borderTopColor: Colors.border,
   },
-  deleteButton: {
-    marginTop: 4,
-  },
   dangerButtonText: {
     flex: 1,
     fontSize: FontSizes.md,
     fontWeight: FontWeights.medium,
     color: Colors.text,
-  },
-  deleteText: {
-    color: '#ef4444',
   },
 });
