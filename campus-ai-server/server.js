@@ -9,7 +9,6 @@ const chatRoute = require('./routes/chat');
 const extractEventRoute = require('./routes/extractEvent');
 const extractPosterRoute = require('./routes/extractPoster');
 const adminUsersRoute = require('./routes/adminUsers');
-const authOtpRoute = require('./routes/authOtp');
 
 const app = express();
 const PORT = Number(process.env.PORT) || 5000;
@@ -87,7 +86,6 @@ app.use('/extractEvent', extractEventRoute);
 app.use('/extractPoster', extractPosterRoute);
 app.use('/chat', chatRoute);
 app.use('/admin', adminUsersRoute);
-app.use('/auth', authOtpRoute);
 
 // Backward-compatible aliases for existing clients
 app.use('/ai/extract-event', extractEventRoute);
