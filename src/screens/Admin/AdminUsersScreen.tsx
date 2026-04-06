@@ -37,9 +37,9 @@ const ACADEMIC_STATUS_OPTIONS = [
   { label: 'Graduated', value: 'graduated' },
 ];
 
-const Page_SIZE = 20;
 type RoleFilter = 'all' | 'student' | 'faculty' | 'alumni' | 'admin' | 'developer';
 type UserModalTab = 'profile' | 'role' | 'safety';
+type QuickScope = 'loaded' | 'banned' | 'student' | 'faculty' | 'alumni' | 'admin' | 'developer';
 
 type UserListFilters = {
   role: RoleFilter;
@@ -109,6 +109,8 @@ export default function AdminUsersScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [quickScope, setQuickScope] = useState<QuickScope>('loaded');
+  const [showQuickScopePicker, setShowQuickScopePicker] = useState(false);
   const [activeFilters, setActiveFilters] = useState<UserListFilters>(DEFAULT_USER_FILTERS);
   const [draftFilters, setDraftFilters] = useState<UserListFilters>(DEFAULT_USER_FILTERS);
   const [showFiltersModal, setShowFiltersModal] = useState(false);
@@ -117,9 +119,6 @@ export default function AdminUsersScreen() {
   const [showFilterSemesterPicker, setShowFilterSemesterPicker] = useState(false);
   const [showFilterSectionPicker, setShowFilterSectionPicker] = useState(false);
   const [bannedIds, setBannedIds] = useState<string[]>([]);
-  const [page, setPage] = useState(0);
-  const [hasMore, setHasMore] = useState(true);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
 
   // User action modal
@@ -214,7 +213,7 @@ export default function AdminUsersScreen() {
   );
 
 
-  const filteredDataset = React.useMemo(() => {
+  const baseFilteredDataset = React.useMemo(() => {
     const q = normalize(searchQuery);
     return allUsers.filter((u) => {
       if (activeFilters.role !== 'all' && u.role !== activeFilters.role) return false;
@@ -233,6 +232,47 @@ export default function AdminUsersScreen() {
     });
   }, [allUsers, activeFilters, searchQuery]);
 
+  const quickScopeCounts = React.useMemo(() => ({
+    loaded: baseFilteredDataset.length,
+    banned: baseFilteredDataset.filter((u) => bannedIds.includes(u.id)).length,
+    student: baseFilteredDataset.filter((u) => u.role === 'student').length,
+    faculty: baseFilteredDataset.filter((u) => u.role === 'faculty').length,
+    alumni: baseFilteredDataset.filter((u) => u.role === 'alumni').length,
+    admin: baseFilteredDataset.filter((u) => u.role === 'admin').length,
+    developer: baseFilteredDataset.filter((u) => u.role === 'developer').length,
+  }), [baseFilteredDataset, bannedIds]);
+
+  const quickScopeOptions = React.useMemo(() => ([
+    { key: 'loaded' as QuickScope, label: 'Loaded', count: quickScopeCounts.loaded },
+    { key: 'banned' as QuickScope, label: 'Banned', count: quickScopeCounts.banned },
+    { key: 'student' as QuickScope, label: 'Student', count: quickScopeCounts.student },
+    { key: 'faculty' as QuickScope, label: 'Faculty', count: quickScopeCounts.faculty },
+    { key: 'alumni' as QuickScope, label: 'Alumni', count: quickScopeCounts.alumni },
+    { key: 'admin' as QuickScope, label: 'Admin', count: quickScopeCounts.admin },
+    { key: 'developer' as QuickScope, label: 'Developer', count: quickScopeCounts.developer },
+  ]), [quickScopeCounts]);
+
+  const selectedQuickScopeOption = React.useMemo(
+    () => quickScopeOptions.find((option) => option.key === quickScope) ?? quickScopeOptions[0],
+    [quickScopeOptions, quickScope]
+  );
+
+  const filteredDataset = React.useMemo(() => {
+    switch (quickScope) {
+      case 'banned':
+        return baseFilteredDataset.filter((u) => bannedIds.includes(u.id));
+      case 'student':
+      case 'faculty':
+      case 'alumni':
+      case 'admin':
+      case 'developer':
+        return baseFilteredDataset.filter((u) => u.role === quickScope);
+      case 'loaded':
+      default:
+        return baseFilteredDataset;
+    }
+  }, [baseFilteredDataset, quickScope, bannedIds]);
+
   const loadUsers = useCallback(async () => {
     try {
       setIsLoading(true);
@@ -244,28 +284,19 @@ export default function AdminUsersScreen() {
 
       setAllUsers(usersData);
       setBannedIds(bans.map((b: UserBan) => b.user_id));
-      setPage(0);
     } catch (error) {
       Toast.show({ type: 'error', text1: 'Failed to load users' });
     } finally {
       setIsLoading(false);
-      setIsLoadingMore(false);
     }
   }, []);
 
   useEffect(() => { loadUsers(); }, []);
 
   useEffect(() => {
-    setPage(0);
-  }, [searchQuery, activeFilters, allUsers]);
-
-  useEffect(() => {
-    const paginated = filteredDataset.slice(0, (page + 1) * Page_SIZE);
-    setUsers(paginated);
-    setFilteredUsers(paginated);
-    setHasMore(filteredDataset.length > (page + 1) * Page_SIZE);
-    setIsLoadingMore(false);
-  }, [filteredDataset, page]);
+    setUsers(filteredDataset);
+    setFilteredUsers(filteredDataset);
+  }, [filteredDataset]);
   useEffect(() => {
     if (!selectedUser) return;
     setEditName(selectedUser.full_name ?? '');
@@ -323,16 +354,6 @@ export default function AdminUsersScreen() {
     String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
 
   const normalizeIndianPhoneInput = (value: string) => value.replace(/\D/g, '').slice(0, 10);
-
-  const summaryCards = [
-    { label: 'Loaded', value: users.length, color: Colors.text },
-    { label: 'Banned', value: users.filter((u) => bannedIds.includes(u.id)).length, color: '#ef4444' },
-    { label: 'Student', value: users.filter((u) => u.role === 'student').length, color: '#3b82f6' },
-    { label: 'Faculty', value: users.filter((u) => u.role === 'faculty').length, color: '#8b5cf6' },
-    { label: 'Alumni', value: users.filter((u) => u.role === 'alumni').length, color: '#f59e0b' },
-    { label: 'Admin', value: users.filter((u) => u.role === 'admin').length, color: Colors.primary },
-    { label: 'Developer', value: users.filter((u) => u.role === 'developer').length, color: '#0f766e' },
-  ];
 
   const applyDraftFilters = () => {
     setActiveFilters(draftFilters);
@@ -619,16 +640,43 @@ export default function AdminUsersScreen() {
         onRefresh={loadUsers}
       />
 
-      <View style={styles.summaryRow}>
-        {summaryCards.map((card) => (
-          <View
-            key={card.label}
-            style={[styles.summaryCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}
-          >
-            <Text style={[styles.summaryLabel, { color: Colors.textSecondary }]}>{card.label}</Text>
-            <Text style={[styles.summaryValue, { color: card.color }]}>{card.value}</Text>
+      <View style={styles.quickScopeRow}>
+        <TouchableOpacity
+          style={[styles.quickScopeButton, { backgroundColor: Colors.surface, borderColor: Colors.border }]}
+          onPress={() => setShowQuickScopePicker((prev) => !prev)}
+        >
+          <MaterialIcons name="tune" size={16} color={Colors.primary} />
+          <Text style={[styles.quickScopeText, { color: Colors.text }]}>Quick Scope: {selectedQuickScopeOption.label}</Text>
+          <View style={[styles.quickScopeCountBadge, { backgroundColor: Colors.primary }]}> 
+            <Text style={styles.quickScopeCountText}>{selectedQuickScopeOption.count}</Text>
           </View>
-        ))}
+          <MaterialIcons name="keyboard-arrow-down" size={20} color={Colors.textSecondary} />
+        </TouchableOpacity>
+
+        {showQuickScopePicker && (
+          <View style={[styles.quickScopeMenu, { backgroundColor: Colors.surface, borderColor: Colors.border }]}> 
+            <ScrollView style={styles.quickScopeMenuScroll} nestedScrollEnabled>
+              {quickScopeOptions.map((option) => {
+                const isActive = option.key === quickScope;
+                return (
+                  <TouchableOpacity
+                    key={option.key}
+                    style={[styles.quickScopeMenuItem, { borderBottomColor: Colors.border }, isActive && { backgroundColor: Colors.background }]}
+                    onPress={() => {
+                      setQuickScope(option.key);
+                      setShowQuickScopePicker(false);
+                    }}
+                  >
+                    <Text style={[styles.quickScopeMenuItemText, { color: Colors.text }]}>{option.label}</Text>
+                    <View style={[styles.quickScopeMenuCountBadge, { backgroundColor: isActive ? Colors.primary : Colors.background, borderColor: Colors.border }]}> 
+                      <Text style={[styles.quickScopeMenuCountText, { color: isActive ? '#fff' : Colors.text }]}>{option.count}</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
       </View>
 
       {/* Search */}
@@ -684,14 +732,6 @@ export default function AdminUsersScreen() {
           keyExtractor={(item, index) => `${item?.id || 'user'}-${index}`}
           renderItem={renderUserRow}
           contentContainerStyle={styles.listContent}
-          onEndReached={() => {
-            if (hasMore && !isLoadingMore) {
-              setIsLoadingMore(true);
-              setPage((prev) => prev + 1);
-            }
-          }}
-          onEndReachedThreshold={0.3}
-          ListFooterComponent={isLoadingMore ? <ActivityIndicator size="small" color={Colors.primary} style={{ margin: 16 }} /> : null}
           ListEmptyComponent={
             <View style={styles.center}>
               <MaterialIcons name="person-off" size={44} color={Colors.textSecondary} />
@@ -1330,7 +1370,6 @@ export default function AdminUsersScreen() {
           setShowFilterSectionPicker(false);
         }}
       />
-
       {/* Ban Configuration Modal */}
       <Modal visible={showBanModal} transparent animationType="fade" onRequestClose={() => setShowBanModal(false)}>
         <View style={styles.modalOverlay}>
@@ -1407,10 +1446,17 @@ export default function AdminUsersScreen() {
 
 const createStyles = (Colors: any) => StyleSheet.create({
   container: { flex: 1, ...(Platform.OS === 'web' && { height: '100vh', width: '100vw' } as any) },
-  summaryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, paddingHorizontal: Spacing.md, paddingTop: Spacing.sm, paddingBottom: 2 },
-  summaryCard: { width: '31%', borderRadius: BorderRadius.lg, borderWidth: 1, alignItems: 'center', paddingVertical: 10, paddingHorizontal: 8 },
-  summaryLabel: { fontSize: FontSizes.xs, marginBottom: 2 },
-  summaryValue: { fontSize: FontSizes.md, fontWeight: FontWeights.bold },
+  quickScopeRow: { paddingHorizontal: Spacing.md, paddingTop: Spacing.sm, paddingBottom: 4 },
+  quickScopeButton: { borderWidth: 1, borderRadius: BorderRadius.lg, paddingHorizontal: 12, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  quickScopeText: { flex: 1, fontSize: FontSizes.sm, fontWeight: FontWeights.semibold },
+  quickScopeCountBadge: { minWidth: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
+  quickScopeCountText: { color: '#fff', fontSize: FontSizes.xs, fontWeight: FontWeights.bold },
+  quickScopeMenu: { marginTop: 6, borderWidth: 1, borderRadius: BorderRadius.lg, overflow: 'hidden' },
+  quickScopeMenuScroll: { maxHeight: 280 },
+  quickScopeMenuItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingVertical: 11, borderBottomWidth: 1 },
+  quickScopeMenuItemText: { fontSize: FontSizes.sm, fontWeight: FontWeights.medium },
+  quickScopeMenuCountBadge: { minWidth: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6, borderWidth: 1 },
+  quickScopeMenuCountText: { fontSize: FontSizes.xs, fontWeight: FontWeights.bold },
   searchBar: { flexDirection: 'row', alignItems: 'center', marginHorizontal: Spacing.md, marginVertical: 10, paddingHorizontal: 12, borderRadius: BorderRadius.lg, borderWidth: 1, gap: 8 },
   searchInput: { flex: 1, paddingVertical: 11, fontSize: FontSizes.sm },
   filterActionRow: { paddingHorizontal: Spacing.md, paddingBottom: Spacing.sm, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },

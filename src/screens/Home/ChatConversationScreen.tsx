@@ -2285,7 +2285,7 @@ export default function ChatConversationScreen() {
           )}
 
           <View style={styles.headerInfo}>
-            <Text style={styles.headerName}>
+            <Text style={styles.headerName} numberOfLines={1} ellipsizeMode="tail">
               {isGroup ? groupDetails?.group_name || name : directPartnerProfile?.full_name || name}
             </Text>
             {isGroup ? (
@@ -3248,7 +3248,7 @@ export default function ChatConversationScreen() {
                           role={request.requester?.role}
                         />
                         <View style={styles.memberTextWrap}>
-                          <Text style={styles.memberName}>{request.requester?.full_name || 'User'}</Text>
+                          <Text style={styles.memberName} numberOfLines={1} ellipsizeMode="tail">{request.requester?.full_name || 'User'}</Text>
                           <Text style={styles.memberMeta}>
                             {request.requester?.department || request.requester?.role || 'Requested to join'}
                           </Text>
@@ -3313,7 +3313,7 @@ export default function ChatConversationScreen() {
                         role={member.user?.role}
                       />
                       <View style={styles.memberTextWrap}>
-                        <Text style={styles.memberName}>{member.user?.full_name || 'Member'}</Text>
+                        <Text style={styles.memberName} numberOfLines={1} ellipsizeMode="tail">{member.user?.full_name || 'Member'}</Text>
                         <Text style={styles.memberMeta}>{`${groupRoleLabel} • ${userRoleLabel}`}</Text>
                         {!!member.user?.bio && (
                           <Text style={styles.memberBio} numberOfLines={2}>
@@ -3410,7 +3410,7 @@ export default function ChatConversationScreen() {
                             role={profileItem.role}
                           />
                           <View style={styles.memberTextWrap}>
-                            <Text style={styles.memberName}>{profileItem.full_name || 'User'}</Text>
+                            <Text style={styles.memberName} numberOfLines={1} ellipsizeMode="tail">{profileItem.full_name || 'User'}</Text>
                             <Text style={styles.memberMeta}>{profileItem.department || profileItem.role || 'Connection'}</Text>
                           </View>
                         </View>
@@ -4021,6 +4021,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       flexDirection: 'row',
       alignItems: 'center',
       gap: Spacing.sm,
+      minWidth: 0,
     },
     headerAvatar: {
       width: 40,
@@ -4061,8 +4062,10 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     },
     headerInfo: {
       flex: 1,
+      minWidth: 0,
     },
     headerName: {
+      flexShrink: 1,
       fontSize: FontSizes.md,
       fontWeight: FontWeights.semibold,
       color: Colors.text,
@@ -5305,8 +5308,10 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     },
     memberTextWrap: {
       flex: 1,
+      minWidth: 0,
     },
     memberName: {
+      flexShrink: 1,
       fontSize: FontSizes.md,
       color: Colors.text,
       fontWeight: FontWeights.semibold,

@@ -539,7 +539,7 @@ export default function ChatScreen() {
               />
             </View>
             <View style={styles.discoverGroupTextWrap}>
-              <Text style={styles.discoverGroupName}>{conversation.group_name || 'Group'}</Text>
+              <Text style={styles.discoverGroupName} numberOfLines={1} ellipsizeMode="tail">{conversation.group_name || 'Group'}</Text>
               <View style={styles.publicGroupMetaRow}>
                 <View style={[styles.typeChip, styles.typeChipGroup]}>
                   <Text style={[styles.typeChipText, styles.typeChipTextGroup]}>Public group</Text>
@@ -676,13 +676,12 @@ export default function ChatScreen() {
         <View style={styles.conversationInfo}>
           <View style={styles.conversationHeader}>
             <View style={styles.conversationNameRow}>
-              <Text style={styles.conversationName} numberOfLines={1}>{name}</Text>
+              <Text style={styles.conversationName} numberOfLines={1} ellipsizeMode="tail">{name}</Text>
             </View>
             <View style={styles.conversationMetaRight}>
               <Text style={[styles.conversationTime, unreadCount > 0 && styles.conversationTimeUnread]}>{lastMessageTime}</Text>
               {unreadCount > 0 && (
                 <View style={styles.unreadBadge}>
-                  <MaterialIcons name="chat-bubble" size={10} color="#ffffff" style={styles.unreadBadgeIcon} />
                   <Text style={styles.unreadText}>{unreadLabel}</Text>
                 </View>
               )}
@@ -1049,7 +1048,7 @@ export default function ChatScreen() {
                           />
                         </View>
                         <View style={styles.discoverGroupTextWrap}>
-                          <Text style={styles.discoverGroupName}>{group.group_name || 'Group'}</Text>
+                          <Text style={styles.discoverGroupName} numberOfLines={1} ellipsizeMode="tail">{group.group_name || 'Group'}</Text>
                           <Text style={styles.discoverGroupMeta}>Public group</Text>
                           <Text style={styles.discoverGroupBio} numberOfLines={2}>
                             {group.group_bio || 'No group bio yet'}
@@ -1492,11 +1491,11 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   conversationItem: {
     flexDirection: 'row',
     position: 'relative',
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingVertical: 14,
     marginBottom: 10,
     borderRadius: 20,
-    gap: 12,
+    gap: 8,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.8)',
@@ -1517,7 +1516,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   avatarWrapper: {
     position: 'relative',
-    marginRight: 12,
+    marginRight: 6,
   },
   avatarRing: {
     borderWidth: 2,
@@ -1574,16 +1573,17 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   conversationInfo: {
     flex: 1,
+    minWidth: 0,
   },
   conversationMenuButton: {
-    width: 30,
+    width: 22,
     alignItems: 'center',
     justifyContent: 'flex-start',
     paddingTop: 2,
   },
   conversationHeader: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 6,
   },
@@ -1591,22 +1591,26 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
-    marginRight: 8,
+    minWidth: 0,
+    marginRight: 4,
   },
   conversationName: {
+    flex: 1,
     flexShrink: 1,
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '600',
     color: '#111827',
   },
   conversationMetaRight: {
+    justifyContent: 'center',
     alignItems: 'flex-end',
-    minWidth: 52,
-    marginLeft: 8,
+    minWidth: 36,
+    marginLeft: 4,
   },
   conversationTime: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#6B7280',
+    textAlign: 'right',
   },
   conversationTimeUnread: {
     color: '#16A34A',
@@ -1658,24 +1662,21 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     marginRight: 4,
   },
   unreadBadge: {
-    minWidth: 24,
+    minWidth: 22,
     height: 22,
     borderRadius: 999,
     backgroundColor: '#25D366',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 6,
+    paddingHorizontal: 5,
     marginTop: 4,
-    flexDirection: 'row',
-    gap: 3,
-  },
-  unreadBadgeIcon: {
-    marginTop: 0.5,
   },
   unreadText: {
-    fontSize: 11,
-    fontWeight: '600',
+    fontSize: 10,
+    fontWeight: '700',
     color: '#ffffff',
+    textAlign: 'center',
+    includeFontPadding: false,
   },
   aiChatFabTouch: {
     position: 'absolute',
@@ -2103,11 +2104,13 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   discoverGroupTextWrap: {
     flex: 1,
+    minWidth: 0,
   },
   discoverGroupName: {
     fontSize: FontSizes.md,
     fontWeight: FontWeights.semibold,
     color: Colors.text,
+    flexShrink: 1,
   },
   discoverGroupMeta: {
     fontSize: FontSizes.xs,
