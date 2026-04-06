@@ -85,7 +85,7 @@ const SPLASH_MIN_MS = 2000;
 export default function RootNavigator() {
   const { isAuthenticated, isLoading, profile, isBanned, isPasswordRecovery } = useAuth();
   const navigationRef = useRef<any>(null);
-  const hasCompletedName = Boolean(profile?.full_name?.trim());
+  const hasCompletedProfile = Boolean(profile?.full_name?.trim() && profile?.roll_number?.trim());
 
   // Keep splash visible for at least SPLASH_MIN_MS after auth finishes loading
   const [showSplash, setShowSplash] = useState(true);
@@ -131,7 +131,7 @@ export default function RootNavigator() {
       // Profile completion gate
       if (isBanned) {
         targetRoute = 'Banned';
-      } else if (!profile || !hasCompletedName) {
+      } else if (!profile || !hasCompletedProfile) {
         targetRoute = 'CompleteProfile';
       } else {
         targetRoute = 'MainTabs';
@@ -156,7 +156,7 @@ export default function RootNavigator() {
         });
       }
     }
-  }, [isAuthenticated, isLoading, profile?.full_name, isBanned, isPasswordRecovery]);
+  }, [isAuthenticated, isLoading, profile?.full_name, profile?.roll_number, isBanned, isPasswordRecovery]);
 
   // Show splash while auth is loading OR during the 2-second hold
   if (isLoading || showSplash) {
@@ -168,8 +168,8 @@ export default function RootNavigator() {
     if (!isAuthenticated) return 'Login';
     if (isPasswordRecovery) return 'ChangePassword';
     if (isBanned) return 'Banned';
-    // Go to CompleteProfile if name is missing
-    if (!profile || !hasCompletedName) return 'CompleteProfile';
+    // Go to CompleteProfile if name or register number is missing
+    if (!profile || !hasCompletedProfile) return 'CompleteProfile';
     return 'MainTabs';
   };
 

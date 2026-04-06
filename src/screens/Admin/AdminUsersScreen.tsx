@@ -516,7 +516,6 @@ export default function AdminUsersScreen() {
       }
 
       if (isAlumniRole) {
-        updates.batch = editBatch.trim() || null;
         updates.academic_status = editAcademicStatus || null;
       }
 
@@ -525,7 +524,7 @@ export default function AdminUsersScreen() {
         action_type: 'profile_edit',
         fields: [
           'full_name', 'phone', 'bio', 'department', 'specialization', 'roll_number',
-          'year_of_admission', 'year', 'semester', 'section', 'batch',
+          'year_of_admission', 'year', 'semester', 'section',
           'faculty_designation', 'academic_status', 'skills', 'interests',
         ],
       });
