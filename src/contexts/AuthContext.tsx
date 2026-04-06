@@ -33,6 +33,7 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 // Minimum splash screen display time in milliseconds
 const MINIMUM_SPLASH_TIME = 3000; // 3 seconds
 const SIGN_OUT_TIMEOUT_MS = 2500;
+const SIGN_OUT_EVENT_GUARD_MS = 4000;
 
 const isTransientNetworkError = (error: any) => {
   const message = String(error?.message || '').toLowerCase();
@@ -58,6 +59,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
   const startTimeRef = useRef<number>(Date.now());
+  const isSigningOutRef = useRef(false);
+  const signOutGuardUntilRef = useRef(0);
 
   const formatDuration = (ms: number) => {
     const totalHours = Math.max(1, Math.round(ms / (60 * 60 * 1000)));
@@ -81,6 +84,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             hasSession: Boolean(session),
             userId: session?.user?.id || null,
           });
+        }
+
+        // During sign-out, ignore transient SIGNED_IN/TOKEN_REFRESHED events
+        // that can race in on slow networks before SIGNED_OUT lands.
+        if (
+          isSigningOutRef.current &&
+          (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') &&
+          Date.now() < signOutGuardUntilRef.current
+        ) {
+          if (__DEV__) {
+            console.log('[AuthContext] Ignoring auth event during sign-out', { event });
+          }
+          return;
         }
 
         // When user clicks the password reset email link, Supabase fires PASSWORD_RECOVERY.
@@ -351,6 +367,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     try {
+      isSigningOutRef.current = true;
+      signOutGuardUntilRef.current = Date.now() + SIGN_OUT_EVENT_GUARD_MS;
+
       if (__DEV__) {
         console.log('[AuthContext] signOut start', {
           userId: user?.id || null,
@@ -367,7 +386,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
         }
       }
-      await withTimeout(supabase.auth.signOut({ scope: 'local' }), SIGN_OUT_TIMEOUT_MS, 'supabase.auth.signOut');
+      // Do not wrap signOut in a short timeout. On slower networks, 2.5s is
+      // too aggressive and causes false failures + auth bounce-back.
+      await supabase.auth.signOut({ scope: 'local' });
       if (__DEV__) {
         console.log('[AuthContext] signOut supabase call resolved');
       }
@@ -390,6 +411,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setBanReason(null);
       setBanUntil(null);
       setBanDuration(null);
+
+      setTimeout(() => {
+        isSigningOutRef.current = false;
+      }, SIGN_OUT_EVENT_GUARD_MS);
     }
   };
 
