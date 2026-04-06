@@ -2750,9 +2750,28 @@ export default function ChatConversationScreen() {
                     <Text style={styles.groupSettingsHeroTitle} numberOfLines={1}>
                       {groupDetails?.group_name || name}
                     </Text>
-                    <Text style={styles.groupSettingsHeroMeta}>
-                      {groupMembers.length} members • {groupDetails?.group_visibility === 'public' ? 'Public' : 'Private'}
-                    </Text>
+                    <View style={styles.groupSettingsHeroMetaRow}>
+                      <Text style={styles.groupSettingsHeroMeta}>{groupMembers.length} members</Text>
+                      <View
+                        style={[
+                          styles.groupVisibilityPill,
+                          groupDetails?.group_visibility === 'public'
+                            ? styles.groupVisibilityPillPublic
+                            : styles.groupVisibilityPillPrivate,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.groupVisibilityPillText,
+                            groupDetails?.group_visibility === 'public'
+                              ? styles.groupVisibilityPillTextPublic
+                              : styles.groupVisibilityPillTextPrivate,
+                          ]}
+                        >
+                          {groupDetails?.group_visibility === 'public' ? 'Public' : 'Private'}
+                        </Text>
+                      </View>
+                    </View>
                   </View>
                 </View>
                 <TouchableOpacity
@@ -3329,9 +3348,26 @@ export default function ChatConversationScreen() {
                     {groupDetails?.group_name || name}
                   </Text>
                   <Text style={styles.groupProfileMeta}>{groupMembers.length} members</Text>
-                  <Text style={styles.groupProfileVisibility}>
-                    {groupDetails?.group_visibility === 'public' ? 'Public group' : 'Private group'}
-                  </Text>
+                  <View
+                    style={[
+                      styles.groupVisibilityPill,
+                      styles.groupProfileVisibility,
+                      groupDetails?.group_visibility === 'public'
+                        ? styles.groupVisibilityPillPublic
+                        : styles.groupVisibilityPillPrivate,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.groupVisibilityPillText,
+                        groupDetails?.group_visibility === 'public'
+                          ? styles.groupVisibilityPillTextPublic
+                          : styles.groupVisibilityPillTextPrivate,
+                      ]}
+                    >
+                      {groupDetails?.group_visibility === 'public' ? 'Public group' : 'Private group'}
+                    </Text>
+                  </View>
                   <Text
                     style={[
                       styles.groupProfileBio,
@@ -5367,9 +5403,15 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       fontWeight: FontWeights.semibold,
     },
     groupSettingsHeroMeta: {
-      marginTop: 2,
       fontSize: FontSizes.sm,
       color: Colors.textSecondary,
+    },
+    groupSettingsHeroMetaRow: {
+      marginTop: 4,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      flexWrap: 'wrap',
     },
     groupSettingsHeroQuickBtn: {
       flexDirection: 'row',
@@ -5562,10 +5604,33 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       marginTop: 1,
     },
     groupProfileVisibility: {
-      fontSize: FontSizes.xs,
-      color: Colors.primary,
       marginTop: 2,
+      alignSelf: 'flex-start',
+    },
+    groupVisibilityPill: {
+      borderWidth: 1,
+      borderRadius: BorderRadius.full,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      alignSelf: 'flex-start',
+    },
+    groupVisibilityPillPublic: {
+      borderColor: '#D52B1E',
+      backgroundColor: '#D52B1E1A',
+    },
+    groupVisibilityPillPrivate: {
+      borderColor: '#138A36',
+      backgroundColor: '#138A361A',
+    },
+    groupVisibilityPillText: {
+      fontSize: FontSizes.xs,
       fontWeight: FontWeights.semibold,
+    },
+    groupVisibilityPillTextPublic: {
+      color: '#B42318',
+    },
+    groupVisibilityPillTextPrivate: {
+      color: '#0F6A2A',
     },
     groupProfileBio: {
       fontSize: FontSizes.sm,
