@@ -16,7 +16,7 @@
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
     "baseUrl": ".",
-    "ignoreDeprecations": "6.0",
+    "ignoreDeprecations": "5.0",
     "paths": {
       "*": [
         "src/*"
