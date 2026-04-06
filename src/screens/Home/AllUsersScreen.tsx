@@ -10,6 +10,7 @@ import {
   TextInput,
   Image,
   Keyboard,
+  Alert,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -22,6 +23,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../../api/supabase';
 import { Profile } from '../../types/database';
 import { createDirectConversation } from '../../api/chat';
+import { getMyConnections, removeConnection } from '../../api/connections';
 import Toast from 'react-native-toast-message';
 
 type AllUsersScreenNavigationProp = StackNavigationProp<RootStackParamList>;
@@ -55,6 +57,7 @@ export default function AllUsersScreen() {
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
+  const [acceptedConnectionMap, setAcceptedConnectionMap] = useState<Record<string, string>>({});
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -119,6 +122,10 @@ export default function AllUsersScreen() {
   }, [selectedRole]);
 
   useEffect(() => {
+    loadAcceptedConnections();
+  }, [user?.id]);
+
+  useEffect(() => {
     if (debounceRef.current) {
       clearTimeout(debounceRef.current);
     }
@@ -154,6 +161,22 @@ export default function AllUsersScreen() {
   const loadMore = () => {
     if (!isLoadingMore && hasMore) {
       loadUsers(false);
+    }
+  };
+
+  const loadAcceptedConnections = async () => {
+    try {
+      const connections = await getMyConnections('accepted');
+      const nextMap: Record<string, string> = {};
+      for (const connection of connections) {
+        const otherUserId = connection.profile?.id;
+        if (otherUserId && connection.id) {
+          nextMap[otherUserId] = connection.id;
+        }
+      }
+      setAcceptedConnectionMap(nextMap);
+    } catch (error) {
+      console.error('Error loading accepted connections:', error);
     }
   };
 
@@ -204,6 +227,7 @@ export default function AllUsersScreen() {
 
   const renderUserCard = ({ item }: { item: Profile }) => {
     const roleColor = getRoleColor(item.role);
+    const connectionId = acceptedConnectionMap[item.id];
 
     const handleMessageUser = async () => {
       if (!user?.id) return;
@@ -222,6 +246,35 @@ export default function AllUsersScreen() {
           text2: error?.message || 'Please try again',
         });
       }
+    };
+
+    const handleUnfriend = () => {
+      if (!connectionId) return;
+
+      Alert.alert(
+        'Unfriend user?',
+        `You will remove ${item.full_name || 'this user'} from your connections.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Unfriend',
+            style: 'destructive',
+            onPress: async () => {
+              const result = await removeConnection(connectionId);
+              if (result.success) {
+                setAcceptedConnectionMap((prev) => {
+                  const next = { ...prev };
+                  delete next[item.id];
+                  return next;
+                });
+                Toast.show({ type: 'success', text1: 'Connection removed' });
+              } else {
+                Toast.show({ type: 'error', text1: 'Failed to unfriend', text2: result.error || 'Please try again' });
+              }
+            },
+          },
+        ]
+      );
     };
 
     return (
@@ -280,6 +333,14 @@ export default function AllUsersScreen() {
           <TouchableOpacity style={styles.messageUserButton} onPress={handleMessageUser}>
             <MaterialIcons name="send" size={14} color={Colors.primaryContent} />
             <Text style={styles.messageUserButtonText}>Message</Text>
+          </TouchableOpacity>
+        ) : connectionId ? (
+          <TouchableOpacity
+            style={styles.unfriendButton}
+            onPress={handleUnfriend}
+          >
+            <MaterialIcons name="person-remove" size={14} color="#ef4444" />
+            <Text style={styles.unfriendButtonText}>Unfriend</Text>
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
@@ -557,6 +618,22 @@ const createStyles = (Colors: any) =>
     },
     connectButtonText: {
       color: '#6366F1',
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.semibold,
+    },
+    unfriendButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: '#ef4444',
+      backgroundColor: 'rgba(239,68,68,0.1)',
+      paddingHorizontal: Spacing.sm,
+      paddingVertical: Spacing.xs,
+    },
+    unfriendButtonText: {
+      color: '#ef4444',
       fontSize: FontSizes.sm,
       fontWeight: FontWeights.semibold,
     },

@@ -193,14 +193,22 @@ export const cancelConnectionRequest = async (
     const currentUserId = await getCurrentUserId();
 
     // Find the pending request sent by current user
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('connections')
       .delete()
+      .select('id')
       .eq('requester_id', currentUserId)
       .eq('recipient_id', userId)
       .eq('status', 'pending');
 
     if (error) throw error;
+
+    if (!data || data.length === 0) {
+      return {
+        success: false,
+        error: 'No pending request found to cancel'
+      };
+    }
 
     return {
       success: true

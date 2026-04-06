@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, SafeAreaView,
   TextInput, Platform, FlatList, ActivityIndicator, Modal, ScrollView, Image,
@@ -10,13 +10,14 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { banUser, changeUserRole, getActiveBans, getAllUsers, getUserActiveBan, insertAdminLog, unbanUser, updateUserProfileAdmin } from '../../api/admin';
+import { supabase } from '../../api/supabase';
 import { removeAvatar, uploadAvatar } from '../../api/auth';
 import { Profile, UserBan } from '../../types/database';
 import { UserAvatar } from '../../components/UserAvatar';
 import { useAuth } from '../../contexts/AuthContext';
 import { RootStackParamList } from '../../navigation/types';
 import Toast from 'react-native-toast-message';
-import { isAdminRole } from '../../utils/roles';
+import { formatFacultyDesignation, getDesignationOptionsByRole, isAdminRole, isLeadershipDesignation } from '../../utils/roles';
 import AdminHeader from '../../components/admin/AdminHeader';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import DropdownSheet from '../../components/DropdownSheet';
@@ -29,15 +30,6 @@ const BAN_DURATIONS = [
   { label: '7 Days', value: 7 },
   { label: '30 Days', value: 30 },
   { label: 'Permanent', value: null },
-];
-
-const FACULTY_DESIGNATION_OPTIONS = [
-  { label: 'Professor', value: 'professor' },
-  { label: 'Assistant Professor', value: 'assistant_professor' },
-  { label: 'Lab Instructor', value: 'lab_instructor' },
-  { label: 'HOD', value: 'hod' },
-  { label: 'Vice Principal', value: 'vice_principal' },
-  { label: 'Principal', value: 'principal' },
 ];
 
 const ACADEMIC_STATUS_OPTIONS = [
@@ -65,12 +57,51 @@ const DEFAULT_USER_FILTERS: UserListFilters = {
   section: '',
 };
 
+const AdminUserRow = React.memo(function AdminUserRow({
+  item,
+  isBanned,
+  Colors,
+  styles,
+  onPress,
+}: {
+  item: Profile;
+  isBanned: boolean;
+  Colors: any;
+  styles: any;
+  onPress: (user: Profile) => void;
+}) {
+  const facultyDesignationLabel = item.faculty_designation ? formatFacultyDesignation(item.faculty_designation) : '';
+
+  return (
+    <TouchableOpacity
+      style={[styles.userCard, { backgroundColor: Colors.surface }, isBanned && styles.bannedCard]}
+      onPress={() => onPress(item)}
+      activeOpacity={0.7}
+    >
+      <UserAvatar uri={item.avatar_url} name={item.full_name} size={46} role={item.role} />
+      <View style={{ flex: 1, marginLeft: 10 }}>
+        <Text style={[styles.userName, { color: Colors.text }]}>{item.full_name || item.email}</Text>
+        <Text style={[styles.userMeta, { color: Colors.textSecondary }]}>
+          {item.role.toUpperCase()} • {item.department ?? 'No dept'}
+        </Text>
+        {(item.role === 'faculty' || item.role === 'admin') && facultyDesignationLabel && (
+          <Text style={[styles.userMeta, { color: Colors.textSecondary }]}>
+            Designation: {facultyDesignationLabel}
+          </Text>
+        )}
+        {isBanned && <Text style={styles.bannedBadge}>🔒 BANNED</Text>}
+      </View>
+      <MaterialIcons name="chevron-right" size={20} color={Colors.textSecondary} />
+    </TouchableOpacity>
+  );
+});
+
 export default function AdminUsersScreen() {
   const navigation = useNavigation<NavProp>();
   const { isDark } = useTheme();
   const { user, profile: adminProfile } = useAuth();
-  const Colors = getColors(isDark);
-  const styles = createStyles(Colors);
+  const Colors = useMemo(() => getColors(isDark), [isDark]);
+  const styles = useMemo(() => createStyles(Colors), [Colors]);
 
   const [allUsers, setAllUsers] = useState<Profile[]>([]);
   const [users, setUsers] = useState<Profile[]>([]);
@@ -118,9 +149,10 @@ export default function AdminUsersScreen() {
   const [showEditYearPicker, setShowEditYearPicker] = useState(false);
   const [showEditSemesterPicker, setShowEditSemesterPicker] = useState(false);
   const [showEditSectionPicker, setShowEditSectionPicker] = useState(false);
-  const [showEditFacultyDesignationPicker, setShowEditFacultyDesignationPicker] = useState(false);
   const [showEditAcademicStatusPicker, setShowEditAcademicStatusPicker] = useState(false);
   const [activeModalTab, setActiveModalTab] = useState<UserModalTab>('profile');
+  const [designationOwners, setDesignationOwners] = useState<Record<string, string>>({});
+  const [pendingRole, setPendingRole] = useState<string>('');
 
 
   const showToastAboveModal = (payload: { type: 'success' | 'error' | 'info'; text1: string; text2?: string }) => {
@@ -245,12 +277,34 @@ export default function AdminUsersScreen() {
     setEditSemester(selectedUser.semester ? String(selectedUser.semester) : '');
     setEditSection(selectedUser.section ?? '');
     setEditBatch(selectedUser.batch ?? '');
-    setEditFacultyDesignation(selectedUser.faculty_designation ?? '');
+    setEditFacultyDesignation(selectedUser.faculty_designation ? formatFacultyDesignation(selectedUser.faculty_designation) : '');
     setEditAcademicStatus(selectedUser.academic_status ?? '');
     setEditSkills((selectedUser.skills ?? []).join(', '));
     setEditInterests((selectedUser.interests ?? []).join(', '));
+    setPendingRole(selectedUser.role);
     setActiveModalTab('profile');
   }, [selectedUser]);
+
+  useEffect(() => {
+    const loadDesignationOwners = async () => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, faculty_designation')
+        .in('faculty_designation', ['principal', 'vice_principal']);
+
+      if (error) return;
+
+      const owners: Record<string, string> = {};
+      for (const row of data || []) {
+        if (row?.faculty_designation && row?.id) {
+          owners[row.faculty_designation] = row.id;
+        }
+      }
+      setDesignationOwners(owners);
+    };
+
+    loadDesignationOwners();
+  }, []);
 
   const parseCsvList = (value: string) => value
     .split(',')
@@ -261,6 +315,9 @@ export default function AdminUsersScreen() {
     const parsed = Number.parseInt(value.trim(), 10);
     return Number.isFinite(parsed) ? parsed : null;
   };
+
+  const normalizeDesignationInput = (value: string) =>
+    String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
 
   const normalizeIndianPhoneInput = (value: string) => value.replace(/\D/g, '').slice(0, 10);
 
@@ -310,6 +367,11 @@ export default function AdminUsersScreen() {
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  const handleSaveRoleChange = async () => {
+    if (!selectedUser || !pendingRole || pendingRole === selectedUser.role) return;
+    await handleChangeRole(selectedUser, pendingRole);
   };
 
   const handleAdminAvatarUpload = async () => {
@@ -397,6 +459,7 @@ export default function AdminUsersScreen() {
       const parsedSkills = parseCsvList(editSkills);
       const parsedInterests = parseCsvList(editInterests);
       const phoneDigits = normalizeIndianPhoneInput(editPhone);
+      const normalizedDesignation = normalizeDesignationInput(editFacultyDesignation);
 
       if (phoneDigits.length > 0 && phoneDigits.length !== 10) {
         showToastAboveModal({ type: 'error', text1: 'Invalid phone number', text2: 'Enter exactly 10 digits for India (+91).' });
@@ -425,7 +488,29 @@ export default function AdminUsersScreen() {
       }
 
       if (isFacultyLikeRole) {
-        updates.faculty_designation = editFacultyDesignation || null;
+        const allowedDesignations = getDesignationOptionsByRole(selectedUser.role);
+
+        if (normalizedDesignation && !allowedDesignations.includes(normalizedDesignation as any)) {
+          showToastAboveModal({
+            type: 'error',
+            text1: 'Invalid designation',
+            text2: `Allowed values: ${allowedDesignations.join(', ')}`,
+          });
+          return;
+        }
+
+        if (normalizedDesignation && isLeadershipDesignation(normalizedDesignation)) {
+          const ownerId = designationOwners[normalizedDesignation];
+          if (ownerId && ownerId !== selectedUser.id) {
+            showToastAboveModal({
+              type: 'error',
+              text1: 'Designation already assigned',
+              text2: `${formatFacultyDesignation(normalizedDesignation)} can be assigned to only one user.`,
+            });
+            return;
+          }
+        }
+        updates.faculty_designation = normalizedDesignation || null;
       }
 
       if (isAlumniRole) {
@@ -460,7 +545,6 @@ export default function AdminUsersScreen() {
     setShowUserModal(false);
     setShowBanModal(true);
   };
-
 
   const handleConfirmBan = async () => {
     if (!selectedUser || !user?.id) return;
@@ -505,26 +589,23 @@ export default function AdminUsersScreen() {
     }
   };
 
-  const UserRow = React.memo(({ item }: { item: Profile }) => {
-    const isBanned = bannedIds.includes(item.id);
-    return (
-      <TouchableOpacity
-        style={[styles.userCard, { backgroundColor: Colors.surface }, isBanned && styles.bannedCard]}
-        onPress={() => { setSelectedUser(item); setShowUserModal(true); }}
-        activeOpacity={0.7}
-      >
-        <UserAvatar uri={item.avatar_url} name={item.full_name} size={46} role={item.role} />
-        <View style={{ flex: 1, marginLeft: 10 }}>
-          <Text style={[styles.userName, { color: Colors.text }]}>{item.full_name || item.email}</Text>
-          <Text style={[styles.userMeta, { color: Colors.textSecondary }]}>
-            {item.role.toUpperCase()} • {item.department ?? 'No dept'}
-          </Text>
-          {isBanned && <Text style={styles.bannedBadge}>🔒 BANNED</Text>}
-        </View>
-        <MaterialIcons name="chevron-right" size={20} color={Colors.textSecondary} />
-      </TouchableOpacity>
-    );
-  });
+  const handleOpenUser = useCallback((item: Profile) => {
+    setSelectedUser(item);
+    setShowUserModal(true);
+  }, []);
+
+  const renderUserRow = useCallback(
+    ({ item }: { item: Profile }) => (
+      <AdminUserRow
+        item={item}
+        isBanned={bannedIds.includes(item.id)}
+        Colors={Colors}
+        styles={styles}
+        onPress={handleOpenUser}
+      />
+    ),
+    [bannedIds, Colors, styles, handleOpenUser]
+  );
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors.background }]}>
@@ -599,7 +680,7 @@ export default function AdminUsersScreen() {
         <FlatList
           data={filteredUsers}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => <UserRow item={item} />}
+          renderItem={renderUserRow}
           contentContainerStyle={styles.listContent}
           onEndReached={() => {
             if (hasMore && !isLoadingMore) {
@@ -769,6 +850,16 @@ export default function AdminUsersScreen() {
                                 </TouchableOpacity>
                               </View>
                             )}
+                            {(selectedUser.role === 'faculty' || selectedUser.role === 'admin') && selectedUser.faculty_designation && (
+                              <View style={styles.editField}>
+                                <Text style={[styles.editLabel, { color: Colors.text }]}>Designation</Text>
+                                <View style={[styles.dropdownInput, { backgroundColor: Colors.background, borderColor: Colors.border }]}> 
+                                  <Text style={[styles.dropdownInputText, { color: Colors.text }]} numberOfLines={1}>
+                                    {formatFacultyDesignation(selectedUser.faculty_designation)}
+                                  </Text>
+                                </View>
+                              </View>
+                            )}
                             {(selectedUser.role === 'student' || selectedUser.role === 'faculty' || selectedUser.role === 'admin' || selectedUser.role === 'alumni') && (
                               <View style={styles.editField}>
                                 <Text style={[styles.editLabel, { color: Colors.text }]}>Specialization</Text>
@@ -848,15 +939,14 @@ export default function AdminUsersScreen() {
                             {(selectedUser.role === 'faculty' || selectedUser.role === 'admin') && (
                               <View style={styles.editField}>
                                 <Text style={[styles.editLabel, { color: Colors.text }]}>Faculty Designation</Text>
-                                <TouchableOpacity
-                                  style={[styles.dropdownInput, { backgroundColor: Colors.background, borderColor: Colors.border }]}
-                                  onPress={() => setShowEditFacultyDesignationPicker(true)}
-                                >
-                                  <Text style={[styles.dropdownInputText, { color: editFacultyDesignation ? Colors.text : Colors.textSecondary }]}>
-                                    {FACULTY_DESIGNATION_OPTIONS.find((option) => option.value === editFacultyDesignation)?.label || 'Select designation'}
-                                  </Text>
-                                  <MaterialIcons name="keyboard-arrow-down" size={20} color={Colors.textSecondary} />
-                                </TouchableOpacity>
+                                <TextInput
+                                  style={[styles.editInput, { backgroundColor: Colors.background, color: Colors.text, borderColor: Colors.border }]}
+                                  value={editFacultyDesignation}
+                                  onChangeText={setEditFacultyDesignation}
+                                  placeholder={selectedUser.role === 'admin' ? 'Type principal / vice_principal / hod' : 'Type professor / assistant_professor / lab_instructor'}
+                                  placeholderTextColor={Colors.textSecondary}
+                                  autoCapitalize="none"
+                                />
                               </View>
                             )}
 
@@ -933,23 +1023,35 @@ export default function AdminUsersScreen() {
                         <>
                           <Text style={[styles.sheetSectionLabel, { color: Colors.textSecondary }]}>Change Role</Text>
                           <View style={styles.roleGrid}>
-                            {['student', 'faculty', 'alumni', 'admin', 'developer'].map((role) => (
+                            {['student', 'faculty', 'alumni', 'admin'].map((role) => (
                               <TouchableOpacity
                                 key={role}
                                 style={[
                                   styles.roleButton,
                                   { borderColor: Colors.border, backgroundColor: Colors.background },
-                                  selectedUser.role === role && { backgroundColor: Colors.primary, borderColor: Colors.primary },
+                                  pendingRole === role && { backgroundColor: Colors.primary, borderColor: Colors.primary },
                                 ]}
-                                onPress={() => handleChangeRole(selectedUser, role)}
+                                onPress={() => setPendingRole(role)}
                                 disabled={isProcessing}
                               >
-                                <Text style={[styles.roleButtonText, { color: selectedUser.role === role ? '#fff' : Colors.text }]}>
+                                <Text style={[styles.roleButtonText, { color: pendingRole === role ? '#fff' : Colors.text }]}>
                                   {role.charAt(0).toUpperCase() + role.slice(1)}
                                 </Text>
                               </TouchableOpacity>
                             ))}
                           </View>
+
+                          <TouchableOpacity
+                            style={[
+                              styles.editSaveBtn,
+                              { backgroundColor: Colors.primary },
+                              (isProcessing || !pendingRole || pendingRole === selectedUser.role) && { opacity: 0.6 },
+                            ]}
+                            onPress={handleSaveRoleChange}
+                            disabled={isProcessing || !pendingRole || pendingRole === selectedUser.role}
+                          >
+                            <Text style={styles.editSaveText}>Save Role</Text>
+                          </TouchableOpacity>
 
                           <TouchableOpacity
                             style={[styles.actionRow, { backgroundColor: Colors.background }]}
@@ -1148,22 +1250,6 @@ export default function AdminUsersScreen() {
         onSelect={(value) => {
           setEditSection(value === 'Clear section' ? '' : value);
           setShowEditSectionPicker(false);
-        }}
-      />
-
-      <DropdownSheet
-        visible={showEditFacultyDesignationPicker}
-        title="Select Faculty Designation"
-        options={['Clear designation', ...FACULTY_DESIGNATION_OPTIONS.map((option) => option.label)]}
-        onClose={() => setShowEditFacultyDesignationPicker(false)}
-        onSelect={(value) => {
-          if (value === 'Clear designation') {
-            setEditFacultyDesignation('');
-          } else {
-            const mapped = FACULTY_DESIGNATION_OPTIONS.find((option) => option.label === value)?.value ?? '';
-            setEditFacultyDesignation(mapped);
-          }
-          setShowEditFacultyDesignationPicker(false);
         }}
       />
 

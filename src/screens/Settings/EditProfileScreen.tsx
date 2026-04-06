@@ -345,7 +345,7 @@ export default function EditProfileScreen() {
   const [isUploading, setIsUploading] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<
-    'department' | 'year_of_admission' | 'specialization' | 'section' | 'faculty_designation' | null
+    'department' | 'year_of_admission' | 'specialization' | 'section' | null
   >(null);
   const [errors, setErrors] = useState<{
     department?: string;
@@ -372,7 +372,10 @@ export default function EditProfileScreen() {
   const isAlumni = role === 'alumni';
   const isAdmin = isAdminRole(role);
   const isFacultyLike = isFaculty || isAdmin;
-  const isLeadership = isLeadershipDesignation(facultyDesignation);
+  const normalizeDesignationInput = (value: string | null | undefined) =>
+    String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  const normalizedFacultyDesignation = normalizeDesignationInput(facultyDesignation);
+  const isLeadership = isLeadershipDesignation(normalizedFacultyDesignation);
   const isAlumniLocked = isAlumni;
   const isGraduated = (isAlumni ? profile?.academic_status : computedAcademic.academic_status) === 'graduated';
   const currentProfileId = user?.id || profile?.id || '';
@@ -420,7 +423,7 @@ export default function EditProfileScreen() {
     setSection(
       (sectionOptions.includes(profileSection) ? profileSection : sectionOptions[0] || null) as 'A' | 'B' | 'C' | null
     );
-    setFacultyDesignation(profile.faculty_designation || null);
+    setFacultyDesignation(profile.faculty_designation ? formatFacultyDesignation(profile.faculty_designation) : null);
     setRollNumber(profile.roll_number || '');
     setYearOfAdmission(profile.year_of_admission ?? null);
   }, [profile, isDirty, sectionOptions]);
@@ -614,11 +617,8 @@ export default function EditProfileScreen() {
     if (openDropdown === 'section') {
       return { title: 'Select Section', options: sectionOptions };
     }
-    if (openDropdown === 'faculty_designation') {
-      return { title: 'Select Designation', options: [...designationOptions] as string[] };
-    }
     return { title: 'Select Specialization', options: specializationOptions };
-  }, [openDropdown, admissionYearOptions, designationOptions, specializationOptions, sectionOptions]);
+  }, [openDropdown, admissionYearOptions, specializationOptions, sectionOptions]);
 
   const handleSheetSelect = (value: string) => {
     if (openDropdown === 'department') {
@@ -635,16 +635,6 @@ export default function EditProfileScreen() {
     }
     if (openDropdown === 'section') {
       selectAndClose(() => setSection(value as 'A' | 'B' | 'C'));
-      return;
-    }
-    if (openDropdown === 'faculty_designation') {
-      selectAndClose(() => {
-        setFacultyDesignation(value);
-        if (isLeadershipDesignation(value)) {
-          setDepartment(null);
-          setSpecialization(null);
-        }
-      });
       return;
     }
     if (openDropdown === 'specialization') {

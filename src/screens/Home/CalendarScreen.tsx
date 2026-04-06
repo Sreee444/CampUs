@@ -17,6 +17,7 @@ import {
   Animated,
   Dimensions,
   PanResponder,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -1084,81 +1085,93 @@ export default function CalendarScreen() {
   function renderAddExamModal() {
     return (
       <Modal visible={showExamModal} transparent animationType="slide" onRequestClose={closeExamModal}>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: Colors.surface }]}> 
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>{editingExamId ? 'Edit Exam' : 'Add Exam'}</Text>
-              <TouchableOpacity onPress={closeExamModal}>
-                <MaterialIcons name="close" size={24} color={Colors.text} />
-              </TouchableOpacity>
-            </View>
-            <ScrollView style={styles.modalBody}>
-              <TextInput
-                style={[styles.formInput, { borderColor: Colors.border, color: Colors.text, backgroundColor: Colors.background }]}
-                placeholder="Exam title"
-                placeholderTextColor={Colors.textSecondary}
-                value={examTitle}
-                onChangeText={setExamTitle}
-              />
-              <TouchableOpacity
-                style={[styles.formInput, styles.datePickerTrigger, { borderColor: Colors.border, backgroundColor: Colors.background }]}
-                onPress={() => setShowExamDatePicker(true)}
+        <KeyboardAvoidingView
+          style={styles.modalKeyboardAvoidingView}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, { backgroundColor: Colors.surface }]}> 
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>{editingExamId ? 'Edit Exam' : 'Add Exam'}</Text>
+                <TouchableOpacity onPress={closeExamModal}>
+                  <MaterialIcons name="close" size={24} color={Colors.text} />
+                </TouchableOpacity>
+              </View>
+              <ScrollView
+                style={styles.modalBody}
+                contentContainerStyle={styles.modalBodyContent}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
               >
-                <View style={styles.datePickerLabelWrap}>
-                  <MaterialIcons name="calendar-today" size={16} color={Colors.textSecondary} />
-                  <Text style={[styles.datePickerLabel, { color: examDate ? Colors.text : Colors.textSecondary }]}>
-                    {examDate || 'Select exam date'}
-                  </Text>
-                </View>
-                <MaterialIcons name="expand-more" size={20} color={Colors.textSecondary} />
-              </TouchableOpacity>
-              {showExamDatePicker && (
-                <View style={[styles.datePickerContainer, { borderColor: Colors.border, backgroundColor: Colors.background }]}>
-                  <DateTimePicker
-                    value={(() => {
-                      const parsed = new Date(examDate || '');
-                      return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
-                    })()}
-                    mode="date"
-                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                    onChange={(_event, selectedDate) => {
-                      if (selectedDate) {
-                        setExamDate(formatDateInput(selectedDate));
-                      }
-                      if (Platform.OS !== 'ios') {
-                        setShowExamDatePicker(false);
-                      }
-                    }}
-                  />
-                  {Platform.OS === 'ios' && (
-                    <TouchableOpacity style={styles.datePickerDoneBtn} onPress={() => setShowExamDatePicker(false)}>
-                      <Text style={[styles.datePickerDoneText, { color: Colors.primary }]}>Done</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              )}
-              <TextInput
-                style={[styles.formInput, styles.multilineInput, { borderColor: Colors.border, color: Colors.text, backgroundColor: Colors.background }]}
-                placeholder="Description (optional)"
-                placeholderTextColor={Colors.textSecondary}
-                value={examDescription}
-                onChangeText={setExamDescription}
-                multiline
-              />
-              <TouchableOpacity
-                style={[styles.actionButtonPrimary, { backgroundColor: '#dc2626' }, isCreatingExam && { opacity: 0.7 }]}
-                onPress={handleCreateExam}
-                disabled={isCreatingExam}
-              >
-                {isCreatingExam ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.actionButtonPrimaryText}>{editingExamId ? 'Update Exam' : 'Save Exam'}</Text>
+                <TextInput
+                  style={[styles.formInput, { borderColor: Colors.border, color: Colors.text, backgroundColor: Colors.background }]}
+                  placeholder="Exam title"
+                  placeholderTextColor={Colors.textSecondary}
+                  value={examTitle}
+                  onChangeText={setExamTitle}
+                  returnKeyType="next"
+                />
+                <TouchableOpacity
+                  style={[styles.formInput, styles.datePickerTrigger, { borderColor: Colors.border, backgroundColor: Colors.background }]}
+                  onPress={() => setShowExamDatePicker(true)}
+                >
+                  <View style={styles.datePickerLabelWrap}>
+                    <MaterialIcons name="calendar-today" size={16} color={Colors.textSecondary} />
+                    <Text style={[styles.datePickerLabel, { color: examDate ? Colors.text : Colors.textSecondary }]}> 
+                      {examDate || 'Select exam date'}
+                    </Text>
+                  </View>
+                  <MaterialIcons name="expand-more" size={20} color={Colors.textSecondary} />
+                </TouchableOpacity>
+                {showExamDatePicker && (
+                  <View style={[styles.datePickerContainer, { borderColor: Colors.border, backgroundColor: Colors.background }]}> 
+                    <DateTimePicker
+                      value={(() => {
+                        const parsed = new Date(examDate || '');
+                        return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+                      })()}
+                      mode="date"
+                      display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                      onChange={(_event, selectedDate) => {
+                        if (selectedDate) {
+                          setExamDate(formatDateInput(selectedDate));
+                        }
+                        if (Platform.OS !== 'ios') {
+                          setShowExamDatePicker(false);
+                        }
+                      }}
+                    />
+                    {Platform.OS === 'ios' && (
+                      <TouchableOpacity style={styles.datePickerDoneBtn} onPress={() => setShowExamDatePicker(false)}>
+                        <Text style={[styles.datePickerDoneText, { color: Colors.primary }]}>Done</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
                 )}
-              </TouchableOpacity>
-            </ScrollView>
+                <TextInput
+                  style={[styles.formInput, styles.multilineInput, { borderColor: Colors.border, color: Colors.text, backgroundColor: Colors.background }]}
+                  placeholder="Description (optional)"
+                  placeholderTextColor={Colors.textSecondary}
+                  value={examDescription}
+                  onChangeText={setExamDescription}
+                  multiline
+                />
+                <TouchableOpacity
+                  style={[styles.actionButtonPrimary, { backgroundColor: '#dc2626' }, isCreatingExam && { opacity: 0.7 }]}
+                  onPress={handleCreateExam}
+                  disabled={isCreatingExam}
+                >
+                  {isCreatingExam ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.actionButtonPrimaryText}>{editingExamId ? 'Update Exam' : 'Save Exam'}</Text>
+                  )}
+                </TouchableOpacity>
+              </ScrollView>
+            </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     );
   }
@@ -1683,6 +1696,9 @@ const createStyles = (Colors: any, isDark: boolean) =>
       backgroundColor: 'rgba(0,0,0,0.5)',
       justifyContent: 'flex-end',
     },
+    modalKeyboardAvoidingView: {
+      flex: 1,
+    },
     modalContent: {
       borderTopLeftRadius: BorderRadius.xl,
       borderTopRightRadius: BorderRadius.xl,
@@ -1706,6 +1722,9 @@ const createStyles = (Colors: any, isDark: boolean) =>
     modalBody: {
       padding: Spacing.md,
       maxHeight: 'auto',
+    },
+    modalBodyContent: {
+      paddingBottom: Spacing.lg,
     },
     formInput: {
       borderWidth: 1,

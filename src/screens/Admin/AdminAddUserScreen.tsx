@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, TextInput, ScrollView, TouchableOpacity, ActivityIndicator, Platform } from 'react-native';
+import { View, Text, StyleSheet, SafeAreaView, TextInput, ScrollView, TouchableOpacity, ActivityIndicator, Platform, Modal } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -11,11 +11,12 @@ import { RootStackParamList } from '../../navigation/types';
 import { useTheme } from '../../contexts/ThemeContext';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights } from '../../theme';
 import AdminHeader from '../../components/admin/AdminHeader';
+import { ConfirmBottomSheet } from '../../components/ConfirmBottomSheet';
 import DropdownSheet from '../../components/DropdownSheet';
 import { DEPARTMENT_OPTIONS, getDepartmentAcademicLimits, getSectionOptions } from '../../constants/academic';
 import { bulkCreateUsersByAdmin, createUserByAdmin, insertAdminLog } from '../../api/admin';
 import { useAuth } from '../../contexts/AuthContext';
-import { isAdminRole } from '../../utils/roles';
+import { formatFacultyDesignation, getDesignationOptionsByRole, isAdminRole } from '../../utils/roles';
 import { UserRole } from '../../types/database';
 
 type NavProp = StackNavigationProp<RootStackParamList>;
@@ -28,6 +29,7 @@ type BulkDraftUser = {
   email: string;
   role: BulkRole;
   department: string;
+  faculty_designation: string;
   year: string;
   semester: string;
   section: string;
@@ -46,6 +48,7 @@ export default function AdminAddUserScreen() {
   const [newEmail, setNewEmail] = useState('');
   const [newRole, setNewRole] = useState<UserRole>('student');
   const [newDept, setNewDept] = useState('');
+  const [newFacultyDesignation, setNewFacultyDesignation] = useState('');
   const [newYear, setNewYear] = useState('');
   const [newSemester, setNewSemester] = useState('');
   const [newSection, setNewSection] = useState('');
@@ -58,8 +61,22 @@ export default function AdminAddUserScreen() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isBulkProcessing, setIsBulkProcessing] = useState(false);
   const [isBulkSubmitting, setIsBulkSubmitting] = useState(false);
+  const [bulkProcessingCount, setBulkProcessingCount] = useState(0);
+  const [showBulkProgressOverlay, setShowBulkProgressOverlay] = useState(false);
   const [bulkDraftUsers, setBulkDraftUsers] = useState<BulkDraftUser[]>([]);
-  const [editingBulkId, setEditingBulkId] = useState<string | null>(null);
+  const [bulkFileName, setBulkFileName] = useState('');
+  const [showBulkConfirm, setShowBulkConfirm] = useState(false);
+  const [bulkResultModal, setBulkResultModal] = useState<{
+    visible: boolean;
+    type: 'success' | 'error' | 'info';
+    title: string;
+    message: string;
+  }>({
+    visible: false,
+    type: 'info',
+    title: '',
+    message: '',
+  });
 
   const addLimits = useMemo(
     () => getDepartmentAcademicLimits(newDept),
@@ -81,6 +98,14 @@ export default function AdminAddUserScreen() {
     [newDept]
   );
 
+  const allowedDesignationValues = useMemo(
+    () => getDesignationOptionsByRole(newRole),
+    [newRole]
+  );
+
+  const normalizeDesignationInput = (value: string) =>
+    String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+
   const resetForm = () => {
     setNewName('');
     setNewEmail('');
@@ -89,6 +114,7 @@ export default function AdminAddUserScreen() {
     setNewYear('');
     setNewSemester('');
     setNewSection('');
+    setNewFacultyDesignation('');
     setUseCustomPassword(false);
     setCustomPassword('');
   };
@@ -113,6 +139,13 @@ export default function AdminAddUserScreen() {
     }
   }, [showDepartment]);
 
+  useEffect(() => {
+    if (!allowedDesignationValues.length) {
+      setNewFacultyDesignation('');
+      return;
+    }
+  }, [newRole, allowedDesignationValues.length]);
+
   const handleCreateUser = async () => {
     if (!user?.id) return;
     const trimmedName = newName.trim();
@@ -125,6 +158,23 @@ export default function AdminAddUserScreen() {
 
     if (useCustomPassword && customPassword.trim().length < 6) {
       Toast.show({ type: 'error', text1: 'Password must be at least 6 characters' });
+      return;
+    }
+
+    const normalizedDesignation = normalizeDesignationInput(newFacultyDesignation);
+
+    if ((isFaculty || newRole === 'admin') && !normalizedDesignation) {
+      Toast.show({ type: 'error', text1: 'Faculty designation is required' });
+      return;
+    }
+
+    if ((isFaculty || newRole === 'admin') && !allowedDesignationValues.includes(normalizedDesignation as any)) {
+      const allowedLabels = allowedDesignationValues.map((value) => formatFacultyDesignation(value)).join(', ');
+      Toast.show({
+        type: 'error',
+        text1: 'Invalid designation',
+        text2: `Use one of: ${allowedLabels}`,
+      });
       return;
     }
 
@@ -144,6 +194,7 @@ export default function AdminAddUserScreen() {
         full_name: trimmedName,
         role: newRole,
         department: showDepartment ? (newDept.trim() || null) : null,
+        faculty_designation: (isFaculty || newRole === 'admin') ? normalizedDesignation || null : null,
         year: showStudentFields ? yearValue : null,
         semester: showStudentFields ? semesterValue : null,
         section: showStudentFields ? sectionValue : null,
@@ -193,6 +244,7 @@ export default function AdminAddUserScreen() {
     const fullName = row.full_name.trim();
     const email = row.email.trim().toLowerCase();
     const department = row.department.trim();
+    const facultyDesignation = row.faculty_designation.trim();
 
     if (!fullName) return 'full_name is required';
     if (!email) return 'email is required';
@@ -208,6 +260,10 @@ export default function AdminAddUserScreen() {
       return `department is required for ${row.role}`;
     }
 
+    if (row.role === 'faculty' && !facultyDesignation) {
+      return 'faculty_designation is required for faculty';
+    }
+
     if (row.password.trim() && row.password.trim().length < 6) {
       return 'password must be at least 6 characters';
     }
@@ -215,19 +271,43 @@ export default function AdminAddUserScreen() {
     return '';
   };
 
-  const updateBulkDraftUser = (id: string, updates: Partial<BulkDraftUser>) => {
-    setBulkDraftUsers((prev) => prev.map((item) => (item.id === id ? { ...item, ...updates } : item)));
-  };
-
-  const removeBulkDraftUser = (id: string) => {
-    setBulkDraftUsers((prev) => prev.filter((item) => item.id !== id));
-    setEditingBulkId((prev) => (prev === id ? null : prev));
-  };
-
-  const editingBulkUser = useMemo(
-    () => bulkDraftUsers.find((item) => item.id === editingBulkId) || null,
-    [bulkDraftUsers, editingBulkId]
+  const bulkRowErrorCount = useMemo(
+    () => bulkDraftUsers.filter((row) => !!getBulkRowError(row)).length,
+    [bulkDraftUsers]
   );
+
+  const bulkRoleCounts = useMemo(
+    () => bulkDraftUsers.reduce(
+      (counts, row) => {
+        counts[row.role] += 1;
+        return counts;
+      },
+      { student: 0, faculty: 0, alumni: 0 } as Record<BulkRole, number>
+    ),
+    [bulkDraftUsers]
+  );
+
+  const clearBulkDraft = () => {
+    setBulkDraftUsers([]);
+    setBulkFileName('');
+    setShowBulkConfirm(false);
+    setBulkProcessingCount(0);
+    setShowBulkProgressOverlay(false);
+  };
+
+  const showBulkResult = (type: 'success' | 'error' | 'info', title: string, message: string) => {
+    setBulkResultModal({
+      visible: true,
+      type,
+      title,
+      message,
+    });
+  };
+
+  const openBulkConfirm = () => {
+    if (!bulkDraftUsers.length) return;
+    setShowBulkConfirm(true);
+  };
 
   const handleBulkUpload = async () => {
     if (!user?.id || isBulkProcessing) return;
@@ -253,6 +333,8 @@ export default function AdminAddUserScreen() {
       if (!isSupportedSpreadsheet) {
         throw new Error('Please select a .csv, .xls, or .xlsx file');
       }
+
+      clearBulkDraft();
 
       const fileBase64 = await FileSystem.readAsStringAsync(asset.uri, {
         encoding: FileSystem.EncodingType.Base64,
@@ -284,6 +366,7 @@ export default function AdminAddUserScreen() {
             email: firstValue(row, ['email', 'mail']),
             role: safeRole,
             department: firstValue(row, ['department', 'dept']),
+            faculty_designation: firstValue(row, ['faculty_designation', 'designation']),
             year: firstValue(row, ['year']),
             semester: firstValue(row, ['semester']),
             section: firstValue(row, ['section']).toUpperCase(),
@@ -298,11 +381,11 @@ export default function AdminAddUserScreen() {
       }
 
       setBulkDraftUsers(usersPayload);
-      setEditingBulkId(usersPayload[0]?.id || null);
+      setBulkFileName(asset.name || 'selected file');
       Toast.show({
         type: 'success',
-        text1: 'Preview ready',
-        text2: `${usersPayload.length} rows imported. Review and edit before creating users.`,
+        text1: 'File ready',
+        text2: `${usersPayload.length} rows parsed. Review the summary, then confirm upload.`,
       });
     } catch (error: any) {
       console.error('[AdminAddUser] bulk upload failed:', error?.message || error);
@@ -315,25 +398,15 @@ export default function AdminAddUserScreen() {
   const handleSubmitBulkDrafts = async () => {
     if (!user?.id || !bulkDraftUsers.length || isBulkSubmitting) return;
 
-    const invalidIndex = bulkDraftUsers.findIndex((row) => !!getBulkRowError(row));
-    if (invalidIndex !== -1) {
-      const invalidRow = bulkDraftUsers[invalidIndex];
-      setEditingBulkId(invalidRow.id);
-      Toast.show({
-        type: 'error',
-        text1: `Row ${invalidRow.sourceRow} needs fix`,
-        text2: getBulkRowError(invalidRow),
-      });
-      return;
-    }
-
     try {
       setIsBulkSubmitting(true);
+      setBulkProcessingCount(bulkDraftUsers.length);
       const payload = bulkDraftUsers.map((row) => ({
         full_name: row.full_name.trim(),
         email: row.email.trim().toLowerCase(),
         role: row.role as UserRole,
         department: row.department.trim() || null,
+        faculty_designation: row.faculty_designation.trim() || null,
         year: row.year.trim() ? Number(row.year.trim()) : null,
         semester: row.semester.trim() ? Number(row.semester.trim()) : null,
         section: row.section.trim().toUpperCase() || null,
@@ -350,32 +423,23 @@ export default function AdminAddUserScreen() {
       });
 
       if (summary.failed_count > 0) {
-        const failedIndices = new Set(summary.failed.map((item) => item.index - 1));
-        setBulkDraftUsers((prev) => prev.filter((_, index) => failedIndices.has(index)));
-        setEditingBulkId((prev) => {
-          const remaining = bulkDraftUsers.filter((_, index) => failedIndices.has(index));
-          return remaining[0]?.id || prev;
-        });
-
-        Toast.show({
-          type: 'info',
-          text1: `${summary.created_count} created, ${summary.failed_count} failed`,
-          text2: summary.failed[0]?.error || 'Fix failed rows and retry',
-        });
+        showBulkResult(
+          'error',
+          `${summary.created_count} created, ${summary.failed_count} failed`,
+          summary.failed[0]?.error || 'Some rows failed. Fix the source file and upload again.'
+        );
+        clearBulkDraft();
       } else {
-        setBulkDraftUsers([]);
-        setEditingBulkId(null);
-        Toast.show({
-          type: 'success',
-          text1: 'Bulk users created',
-          text2: `${summary.created_count} users created successfully`,
-        });
+        clearBulkDraft();
+        showBulkResult('success', 'Bulk users created', `${summary.created_count} users created successfully.`);
       }
     } catch (error: any) {
       console.error('[AdminAddUser] submit bulk users failed:', error?.message || error);
-      Toast.show({ type: 'error', text1: 'Bulk create failed', text2: error?.message || 'Please try again' });
+      showBulkResult('error', 'Bulk create failed', error?.message || 'Please try again');
     } finally {
       setIsBulkSubmitting(false);
+      setBulkProcessingCount(0);
+      setShowBulkProgressOverlay(false);
     }
   };
 
@@ -409,7 +473,7 @@ export default function AdminAddUserScreen() {
             <Text style={[styles.bulkInfoTitle, { color: Colors.text }]}>Bulk Upload (CSV/Excel)</Text>
             <Text style={[styles.bulkInfoText, { color: Colors.textSecondary }]}>Supported roles: student, faculty, alumni</Text>
             <Text style={[styles.bulkInfoText, { color: Colors.textSecondary }]}>Student required: full_name, email, role, department, year, semester, section</Text>
-            <Text style={[styles.bulkInfoText, { color: Colors.textSecondary }]}>Faculty required: full_name, email, role, department</Text>
+            <Text style={[styles.bulkInfoText, { color: Colors.textSecondary }]}>Faculty required: full_name, email, role, department, faculty_designation</Text>
             <Text style={[styles.bulkInfoText, { color: Colors.textSecondary }]}>Alumni required: full_name, email, role, department</Text>
             <Text style={[styles.bulkInfoText, { color: Colors.textSecondary }]}>Optional for all: password</Text>
             <TouchableOpacity
@@ -426,128 +490,57 @@ export default function AdminAddUserScreen() {
           </View>
 
           {bulkDraftUsers.length > 0 && (
-            <View style={[styles.bulkPreviewCard, { borderColor: Colors.border, backgroundColor: Colors.background }]}>
-              <Text style={[styles.bulkPreviewTitle, { color: Colors.text }]}>Preview Users ({bulkDraftUsers.length})</Text>
-              {bulkDraftUsers.map((item) => {
-                const rowError = getBulkRowError(item);
-                return (
-                  <View key={item.id} style={[styles.bulkPreviewRow, { borderColor: Colors.border }]}> 
-                    <View style={styles.bulkPreviewRowHeader}>
-                      <Text style={[styles.bulkPreviewRowTitle, { color: Colors.text }]}>Row {item.sourceRow}</Text>
-                      <View style={styles.bulkPreviewActions}>
-                        <TouchableOpacity onPress={() => setEditingBulkId(item.id)}>
-                          <Text style={[styles.bulkActionText, { color: Colors.primary }]}>Edit</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity onPress={() => removeBulkDraftUser(item.id)}>
-                          <Text style={[styles.bulkActionText, { color: '#dc2626' }]}>Remove</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                    <Text style={[styles.bulkPreviewText, { color: Colors.textSecondary }]}>Name: {item.full_name || '-'}</Text>
-                    <Text style={[styles.bulkPreviewText, { color: Colors.textSecondary }]}>Email: {item.email || '-'}</Text>
-                    <Text style={[styles.bulkPreviewText, { color: Colors.textSecondary }]}>Role: {item.role}</Text>
-                    <Text style={[styles.bulkPreviewText, { color: Colors.textSecondary }]}>Department: {item.department || '-'}</Text>
-                    {item.role === 'student' && (
-                      <Text style={[styles.bulkPreviewText, { color: Colors.textSecondary }]}>Year/Sem/Section: {item.year || '-'} / {item.semester || '-'} / {item.section || '-'}</Text>
-                    )}
-                    {!!rowError && <Text style={styles.bulkErrorText}>Needs fix: {rowError}</Text>}
-                  </View>
-                );
-              })}
+            <View style={[styles.bulkSummaryCard, { borderColor: Colors.border, backgroundColor: Colors.background }]}> 
+              <View style={styles.bulkSummaryHeader}>
+                <Text style={[styles.bulkSummaryTitle, { color: Colors.text }]}>File Ready</Text>
+                <Text style={[styles.bulkSummaryFile, { color: Colors.textSecondary }]} numberOfLines={1}>
+                  {bulkFileName || 'Selected file'}
+                </Text>
+              </View>
 
-              {!!editingBulkUser && (
-                <View style={[styles.bulkEditorCard, { borderColor: Colors.border, backgroundColor: Colors.surface }]}> 
-                  <Text style={[styles.bulkEditorTitle, { color: Colors.text }]}>Edit Row {editingBulkUser.sourceRow}</Text>
-                  <TextInput
-                    style={[styles.editInput, { backgroundColor: Colors.background, color: Colors.text, borderColor: Colors.border }]}
-                    placeholder="Full name"
-                    placeholderTextColor={Colors.textSecondary}
-                    value={editingBulkUser.full_name}
-                    onChangeText={(value) => updateBulkDraftUser(editingBulkUser.id, { full_name: value })}
-                  />
-                  <TextInput
-                    style={[styles.editInput, { backgroundColor: Colors.background, color: Colors.text, borderColor: Colors.border }]}
-                    placeholder="Email"
-                    placeholderTextColor={Colors.textSecondary}
-                    autoCapitalize="none"
-                    keyboardType="email-address"
-                    value={editingBulkUser.email}
-                    onChangeText={(value) => updateBulkDraftUser(editingBulkUser.id, { email: value })}
-                  />
-                  <View style={styles.roleGrid}>
-                    {(['student', 'faculty', 'alumni'] as BulkRole[]).map((role) => (
-                      <TouchableOpacity
-                        key={role}
-                        style={[
-                          styles.roleButton,
-                          { borderColor: Colors.border, backgroundColor: Colors.background },
-                          editingBulkUser.role === role && { backgroundColor: Colors.primary, borderColor: Colors.primary },
-                        ]}
-                        onPress={() => updateBulkDraftUser(editingBulkUser.id, { role })}
-                      >
-                        <Text style={[styles.roleButtonText, { color: editingBulkUser.role === role ? '#fff' : Colors.text }]}>
-                          {role.charAt(0).toUpperCase() + role.slice(1)}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                  <TextInput
-                    style={[styles.editInput, { backgroundColor: Colors.background, color: Colors.text, borderColor: Colors.border }]}
-                    placeholder="Department"
-                    placeholderTextColor={Colors.textSecondary}
-                    value={editingBulkUser.department}
-                    onChangeText={(value) => updateBulkDraftUser(editingBulkUser.id, { department: value })}
-                  />
-                  {editingBulkUser.role === 'student' && (
-                    <>
-                      <TextInput
-                        style={[styles.editInput, { backgroundColor: Colors.background, color: Colors.text, borderColor: Colors.border }]}
-                        placeholder="Year"
-                        placeholderTextColor={Colors.textSecondary}
-                        keyboardType="numeric"
-                        value={editingBulkUser.year}
-                        onChangeText={(value) => updateBulkDraftUser(editingBulkUser.id, { year: value })}
-                      />
-                      <TextInput
-                        style={[styles.editInput, { backgroundColor: Colors.background, color: Colors.text, borderColor: Colors.border }]}
-                        placeholder="Semester"
-                        placeholderTextColor={Colors.textSecondary}
-                        keyboardType="numeric"
-                        value={editingBulkUser.semester}
-                        onChangeText={(value) => updateBulkDraftUser(editingBulkUser.id, { semester: value })}
-                      />
-                      <TextInput
-                        style={[styles.editInput, { backgroundColor: Colors.background, color: Colors.text, borderColor: Colors.border }]}
-                        placeholder="Section"
-                        placeholderTextColor={Colors.textSecondary}
-                        autoCapitalize="characters"
-                        value={editingBulkUser.section}
-                        onChangeText={(value) => updateBulkDraftUser(editingBulkUser.id, { section: value.toUpperCase() })}
-                      />
-                    </>
-                  )}
-                  <TextInput
-                    style={[styles.editInput, { backgroundColor: Colors.background, color: Colors.text, borderColor: Colors.border }]}
-                    placeholder="Password (optional, min 6)"
-                    placeholderTextColor={Colors.textSecondary}
-                    secureTextEntry
-                    value={editingBulkUser.password}
-                    onChangeText={(value) => updateBulkDraftUser(editingBulkUser.id, { password: value })}
-                  />
+              <View style={styles.bulkSummaryGrid}>
+                <View style={[styles.bulkSummaryStat, { borderColor: Colors.border, backgroundColor: Colors.surface }]}> 
+                  <Text style={[styles.bulkSummaryStatValue, { color: Colors.text }]}>{bulkDraftUsers.length}</Text>
+                  <Text style={[styles.bulkSummaryStatLabel, { color: Colors.textSecondary }]}>Rows parsed</Text>
                 </View>
+                <View style={[styles.bulkSummaryStat, { borderColor: Colors.border, backgroundColor: Colors.surface }]}> 
+                  <Text style={[styles.bulkSummaryStatValue, { color: Colors.text }]}>{bulkRoleCounts.student}</Text>
+                  <Text style={[styles.bulkSummaryStatLabel, { color: Colors.textSecondary }]}>Students</Text>
+                </View>
+                <View style={[styles.bulkSummaryStat, { borderColor: Colors.border, backgroundColor: Colors.surface }]}> 
+                  <Text style={[styles.bulkSummaryStatValue, { color: Colors.text }]}>{bulkRoleCounts.faculty}</Text>
+                  <Text style={[styles.bulkSummaryStatLabel, { color: Colors.textSecondary }]}>Faculty</Text>
+                </View>
+                <View style={[styles.bulkSummaryStat, { borderColor: Colors.border, backgroundColor: Colors.surface }]}> 
+                  <Text style={[styles.bulkSummaryStatValue, { color: Colors.text }]}>{bulkRoleCounts.alumni}</Text>
+                  <Text style={[styles.bulkSummaryStatLabel, { color: Colors.textSecondary }]}>Alumni</Text>
+                </View>
+              </View>
+
+              {!!bulkRowErrorCount && (
+                <Text style={styles.bulkWarningText}>
+                  {bulkRowErrorCount} row{bulkRowErrorCount === 1 ? '' : 's'} look incomplete and may be skipped during upload.
+                </Text>
               )}
 
-              <TouchableOpacity
-                style={[styles.bulkUploadButton, { backgroundColor: Colors.primary }]}
-                onPress={handleSubmitBulkDrafts}
-                disabled={isBulkSubmitting}
-              >
-                {isBulkSubmitting ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <Text style={styles.bulkUploadButtonText}>Create Previewed Users</Text>
-                )}
-              </TouchableOpacity>
+              <Text style={[styles.bulkSummaryNote, { color: Colors.textSecondary }]}>Row-by-row preview is disabled for bulk uploads. Review the file itself, then confirm to create these users.</Text>
+
+              <View style={styles.bulkSummaryActions}>
+                <TouchableOpacity
+                  style={[styles.bulkSummaryAction, { backgroundColor: Colors.primary }]}
+                  onPress={openBulkConfirm}
+                  disabled={!bulkDraftUsers.length || isBulkSubmitting}
+                >
+                  <Text style={styles.bulkUploadButtonText}>Review & Confirm</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.bulkSummaryAction, styles.bulkSummarySecondaryAction, { borderColor: Colors.border, backgroundColor: Colors.surface }]}
+                  onPress={clearBulkDraft}
+                  disabled={isBulkSubmitting}
+                >
+                  <Text style={[styles.bulkSummarySecondaryActionText, { color: Colors.text }]}>Clear File</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           )}
 
@@ -609,6 +602,20 @@ export default function AdminAddUserScreen() {
                   </Text>
                   <MaterialIcons name="keyboard-arrow-down" size={20} color={Colors.textSecondary} />
                 </TouchableOpacity>
+              </View>
+            )}
+
+            {(isFaculty || newRole === 'admin') && (
+              <View style={styles.editField}>
+                <Text style={[styles.editLabel, { color: Colors.text }]}>Faculty Designation *</Text>
+                <TextInput
+                  style={[styles.editInput, { backgroundColor: Colors.background, color: Colors.text, borderColor: Colors.border }]}
+                  placeholder={newRole === 'admin' ? 'Type principal / vice_principal / hod' : 'Type professor / assistant_professor / lab_instructor'}
+                  placeholderTextColor={Colors.textSecondary}
+                  value={newFacultyDesignation}
+                  onChangeText={setNewFacultyDesignation}
+                  autoCapitalize="none"
+                />
               </View>
             )}
 
@@ -751,6 +758,62 @@ export default function AdminAddUserScreen() {
           setShowSectionPicker(false);
         }}
       />
+
+      <ConfirmBottomSheet
+        visible={showBulkConfirm}
+        title="Confirm bulk upload"
+        message={`You're about to upload ${bulkDraftUsers.length} user${bulkDraftUsers.length === 1 ? '' : 's'} from ${bulkFileName || 'the selected file'} into CampUs. Please confirm only if the file is correct.`}
+        confirmText={isBulkSubmitting ? 'Uploading...' : 'Confirm Upload'}
+        cancelText="Cancel"
+        confirmColor={Colors.primary}
+        icon="cloud-upload"
+        onConfirm={() => {
+          setShowBulkConfirm(false);
+          setShowBulkProgressOverlay(true);
+          setIsBulkSubmitting(true);
+          setBulkProcessingCount(bulkDraftUsers.length);
+          void handleSubmitBulkDrafts();
+        }}
+        onClose={() => setShowBulkConfirm(false)}
+      />
+
+      {(isBulkSubmitting || showBulkProgressOverlay) && (
+        <View style={styles.processingOverlay}>
+          <View style={[styles.processingCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}>
+            <ActivityIndicator size="large" color={Colors.primary} />
+            <Text style={[styles.processingTitle, { color: Colors.text }]}>Processing bulk upload</Text>
+            <Text style={[styles.processingMessage, { color: Colors.textSecondary }]}>
+              Creating {bulkProcessingCount || bulkDraftUsers.length} user{(bulkProcessingCount || bulkDraftUsers.length) === 1 ? '' : 's'} now. Please wait...
+            </Text>
+            <Text style={[styles.processingHint, { color: Colors.textSecondary }]}>Please keep this screen open until upload completes.</Text>
+          </View>
+        </View>
+      )}
+
+      <Modal
+        visible={bulkResultModal.visible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setBulkResultModal((prev) => ({ ...prev, visible: false }))}
+      >
+        <View style={styles.processingOverlay}>
+          <View style={[styles.resultCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}>
+            <MaterialIcons
+              name={bulkResultModal.type === 'success' ? 'check-circle' : 'error-outline'}
+              size={34}
+              color={bulkResultModal.type === 'success' ? '#16a34a' : '#dc2626'}
+            />
+            <Text style={[styles.resultTitle, { color: Colors.text }]}>{bulkResultModal.title}</Text>
+            <Text style={[styles.resultMessage, { color: Colors.textSecondary }]}>{bulkResultModal.message}</Text>
+            <TouchableOpacity
+              style={[styles.resultCloseButton, { backgroundColor: Colors.primary }]}
+              onPress={() => setBulkResultModal((prev) => ({ ...prev, visible: false }))}
+            >
+              <Text style={styles.resultCloseButtonText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -765,17 +828,20 @@ const createStyles = (Colors: any) => StyleSheet.create({
   bulkInfoText: { fontSize: FontSizes.xs, lineHeight: 18 },
   bulkUploadButton: { alignItems: 'center', paddingVertical: 10, borderRadius: BorderRadius.md, marginTop: 8 },
   bulkUploadButtonText: { color: '#fff', fontSize: FontSizes.sm, fontWeight: FontWeights.semibold },
-  bulkPreviewCard: { borderWidth: 1, borderRadius: BorderRadius.lg, padding: 12, gap: 8, marginBottom: 10 },
-  bulkPreviewTitle: { fontSize: FontSizes.sm, fontWeight: FontWeights.bold },
-  bulkPreviewRow: { borderWidth: 1, borderRadius: BorderRadius.md, padding: 10, gap: 3 },
-  bulkPreviewRowHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  bulkPreviewRowTitle: { fontSize: FontSizes.sm, fontWeight: FontWeights.semibold },
-  bulkPreviewActions: { flexDirection: 'row', gap: 14 },
-  bulkActionText: { fontSize: FontSizes.xs, fontWeight: FontWeights.semibold },
-  bulkPreviewText: { fontSize: FontSizes.xs },
-  bulkErrorText: { color: '#dc2626', fontSize: FontSizes.xs, fontWeight: FontWeights.semibold, marginTop: 2 },
-  bulkEditorCard: { borderWidth: 1, borderRadius: BorderRadius.md, padding: 10, gap: 8, marginTop: 4 },
-  bulkEditorTitle: { fontSize: FontSizes.sm, fontWeight: FontWeights.bold },
+  bulkSummaryCard: { borderWidth: 1, borderRadius: BorderRadius.lg, padding: 12, gap: 10, marginBottom: 10 },
+  bulkSummaryHeader: { gap: 4 },
+  bulkSummaryTitle: { fontSize: FontSizes.sm, fontWeight: FontWeights.bold },
+  bulkSummaryFile: { fontSize: FontSizes.xs },
+  bulkSummaryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  bulkSummaryStat: { borderWidth: 1, borderRadius: BorderRadius.md, paddingVertical: 10, paddingHorizontal: 12, minWidth: '47%', gap: 2 },
+  bulkSummaryStatValue: { fontSize: FontSizes.lg, fontWeight: FontWeights.bold },
+  bulkSummaryStatLabel: { fontSize: FontSizes.xs, fontWeight: FontWeights.medium },
+  bulkWarningText: { color: '#dc2626', fontSize: FontSizes.xs, fontWeight: FontWeights.semibold },
+  bulkSummaryNote: { fontSize: FontSizes.xs, lineHeight: 18 },
+  bulkSummaryActions: { flexDirection: 'row', gap: 10 },
+  bulkSummaryAction: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: BorderRadius.md },
+  bulkSummarySecondaryAction: { borderWidth: 1 },
+  bulkSummarySecondaryActionText: { fontSize: FontSizes.sm, fontWeight: FontWeights.semibold },
   editField: { gap: 6 },
   editLabel: { fontSize: FontSizes.xs, fontWeight: FontWeights.semibold },
   editInput: { borderWidth: 1, borderRadius: BorderRadius.lg, paddingHorizontal: 12, paddingVertical: 10, fontSize: FontSizes.sm },
@@ -791,4 +857,70 @@ const createStyles = (Colors: any) => StyleSheet.create({
   passwordHint: { fontSize: FontSizes.xs, marginTop: 4 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 },
   lockedText: { fontSize: FontSizes.md, fontWeight: FontWeights.medium },
+  processingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 1000,
+    elevation: 20,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.lg,
+  },
+  processingCard: {
+    width: '100%',
+    maxWidth: 360,
+    borderRadius: BorderRadius.xl,
+    borderWidth: 1,
+    paddingVertical: Spacing.xl,
+    paddingHorizontal: Spacing.lg,
+    alignItems: 'center',
+    gap: 10,
+  },
+  processingTitle: {
+    fontSize: FontSizes.md,
+    fontWeight: FontWeights.bold,
+  },
+  processingMessage: {
+    fontSize: FontSizes.sm,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  processingHint: {
+    fontSize: FontSizes.xs,
+    textAlign: 'center',
+    opacity: 0.9,
+  },
+  resultCard: {
+    width: '100%',
+    maxWidth: 380,
+    borderRadius: BorderRadius.xl,
+    borderWidth: 1,
+    paddingVertical: Spacing.xl,
+    paddingHorizontal: Spacing.lg,
+    alignItems: 'center',
+    gap: 10,
+  },
+  resultTitle: {
+    fontSize: FontSizes.lg,
+    fontWeight: FontWeights.bold,
+    textAlign: 'center',
+  },
+  resultMessage: {
+    fontSize: FontSizes.sm,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  resultCloseButton: {
+    marginTop: 8,
+    minWidth: 110,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: BorderRadius.md,
+    alignItems: 'center',
+  },
+  resultCloseButtonText: {
+    color: '#fff',
+    fontSize: FontSizes.sm,
+    fontWeight: FontWeights.semibold,
+  },
 });

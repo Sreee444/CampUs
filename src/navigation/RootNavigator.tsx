@@ -98,25 +98,11 @@ export default function RootNavigator() {
     if (!isLoading && navigationRef.current) {
       const currentRoute = navigationRef.current.getCurrentRoute()?.name;
 
-      if (__DEV__) {
-        console.log('[RootNavigator] auth gate check', {
-          isAuthenticated,
-          isPasswordRecovery,
-          isBanned,
-          currentRoute: currentRoute || null,
-        });
-      }
-
       if (!isAuthenticated) {
         // ChangePassword exists in both stacks; after sign-out from forced change,
         // explicitly route to Login so users don't get stuck on the same screen.
         const allowedUnauthScreens = ['Login', 'ResetPassword'];
         if (!currentRoute || !allowedUnauthScreens.includes(currentRoute)) {
-          if (__DEV__) {
-            console.log('[RootNavigator] unauthenticated on non-auth route, resetting to Login', {
-              currentRoute: currentRoute || null,
-            });
-          }
           navigationRef.current.reset({
             index: 0,
             routes: [{ name: 'Login' }],

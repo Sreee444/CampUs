@@ -38,6 +38,14 @@ const isBanActive = (ban: any) => {
   return !Number.isNaN(untilTs) && untilTs > Date.now();
 };
 
+const sortProfilesAlphabetically = (profiles: Profile[]) => {
+  return [...profiles].sort((left, right) => {
+    const leftKey = String(left?.full_name || left?.email || '').trim().toLowerCase();
+    const rightKey = String(right?.full_name || right?.email || '').trim().toLowerCase();
+    return leftKey.localeCompare(rightKey);
+  });
+};
+
 // ===== USER MANAGEMENT =====
 
 export const getAllUsers = async (filters?: {
@@ -73,7 +81,7 @@ export const getAllUsers = async (filters?: {
       : (data as Profile[]).filter((u) => !bannedIds.includes(u.id));
   }
 
-  return (data as Profile[]) || [];
+  return sortProfilesAlphabetically((data as Profile[]) || []);
 };
 
 export const changeUserRole = async (
@@ -116,6 +124,7 @@ export type AdminCreateUserPayload = {
   full_name?: string | null;
   role?: UserRole;
   department?: string | null;
+  faculty_designation?: string | null;
   year?: number | null;
   semester?: number | null;
   section?: string | null;

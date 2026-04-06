@@ -221,7 +221,7 @@ export default function AcademicDetailsScreen() {
   const [yearOfAdmission, setYearOfAdmission] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<
-    'department' | 'year_of_admission' | 'specialization' | 'section' | 'faculty_designation' | null
+    'department' | 'year_of_admission' | 'specialization' | 'section' | null
   >(null);
   const [errors, setErrors] = useState<{
     department?: string;
@@ -248,7 +248,10 @@ export default function AcademicDetailsScreen() {
   const isAlumni = role === 'alumni';
   const isAdmin = isAdminRole(role);
   const isFacultyLike = isFaculty || isAdmin;
-  const isLeadership = isLeadershipDesignation(facultyDesignation);
+  const normalizeDesignationInput = (value: string | null | undefined) =>
+    String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  const normalizedFacultyDesignation = normalizeDesignationInput(facultyDesignation);
+  const isLeadership = isLeadershipDesignation(normalizedFacultyDesignation);
   const isAlumniLocked = isAlumni;
   const isGraduated = (isAlumni ? profile?.academic_status : computedAcademic.academic_status) === 'graduated';
   const currentProfileId = user?.id || profile?.id || '';
@@ -272,7 +275,7 @@ export default function AcademicDetailsScreen() {
     setDepartment(profile.department || null);
     setSpecialization(profile.specialization || null);
     setSection(profile.section || null);
-    setFacultyDesignation(profile.faculty_designation || null);
+    setFacultyDesignation(profile.faculty_designation ? formatFacultyDesignation(profile.faculty_designation) : null);
     setRollNumber(profile.roll_number || '');
     setYearOfAdmission(profile.year_of_admission ?? null);
   }, [profile]);
@@ -329,11 +332,8 @@ export default function AcademicDetailsScreen() {
     if (openDropdown === 'section') {
       return { title: 'Select Section', options: sectionOptions };
     }
-    if (openDropdown === 'faculty_designation') {
-      return { title: 'Select Designation', options: [...designationOptions] as string[] };
-    }
     return { title: 'Select Specialization', options: specializationOptions };
-  }, [openDropdown, admissionYearOptions, designationOptions, specializationOptions, sectionOptions]);
+  }, [openDropdown, admissionYearOptions, specializationOptions, sectionOptions]);
 
   const handleSheetSelect = (value: string) => {
     if (openDropdown === 'department') {
@@ -350,16 +350,6 @@ export default function AcademicDetailsScreen() {
     }
     if (openDropdown === 'section') {
       selectAndClose(() => setSection(value as 'A' | 'B' | 'C'));
-      return;
-    }
-    if (openDropdown === 'faculty_designation') {
-      selectAndClose(() => {
-        setFacultyDesignation(value);
-        if (isLeadershipDesignation(value)) {
-          setDepartment(null);
-          setSpecialization(null);
-        }
-      });
       return;
     }
     if (openDropdown === 'specialization') {
@@ -386,8 +376,11 @@ export default function AcademicDetailsScreen() {
     }
 
     if (isFacultyLike) {
-      if (!facultyDesignation) nextErrors.faculty_designation = 'Select designation';
-      if (!isLeadershipDesignation(facultyDesignation)) {
+      if (!normalizedFacultyDesignation) nextErrors.faculty_designation = 'Enter designation';
+      if (normalizedFacultyDesignation && !designationOptions.includes(normalizedFacultyDesignation as any)) {
+        nextErrors.faculty_designation = `Use one of: ${designationOptions.join(', ')}`;
+      }
+      if (!isLeadershipDesignation(normalizedFacultyDesignation)) {
         if (!department) nextErrors.department = 'Select department';
         if (!specialization) nextErrors.specialization = 'Select specialization';
       }
@@ -416,7 +409,7 @@ export default function AcademicDetailsScreen() {
       if (isFacultyLike) {
         updates.department = isLeadership ? null : (department || undefined);
         updates.specialization = isLeadership ? null : (specialization || undefined);
-        updates.faculty_designation = (facultyDesignation as any) || undefined;
+        updates.faculty_designation = (normalizedFacultyDesignation as any) || undefined;
         updates.section = undefined;
         updates.roll_number = undefined;
         updates.year_of_admission = undefined;
@@ -570,19 +563,15 @@ export default function AcademicDetailsScreen() {
             {isFacultyLike && (
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>Designation</Text>
-                <View style={styles.dropdownContainer}>
-                  <TouchableOpacity
-                    style={[styles.dropdownField, isAlumniLocked && styles.disabledInput]}
-                    disabled={isAlumniLocked}
-                    onPress={() => setOpenDropdown(openDropdown === 'faculty_designation' ? null : 'faculty_designation')}
-                  >
-                    <MaterialIcons name="badge" size={20} color={Colors.textSecondary} style={styles.dropdownLeftIcon} />
-                    <Text style={[styles.dropdownText, !facultyDesignation && styles.dropdownPlaceholder]}>
-                      {facultyDesignation ? formatFacultyDesignation(facultyDesignation) : 'Select designation'}
-                    </Text>
-                    <MaterialIcons name="keyboard-arrow-down" size={22} color={Colors.textSecondary} />
-                  </TouchableOpacity>
-                </View>
+                <TextInput
+                  style={[styles.input, isAlumniLocked && styles.disabledInput]}
+                  editable={!isAlumniLocked}
+                  value={facultyDesignation || ''}
+                  onChangeText={setFacultyDesignation}
+                  placeholder={isAdmin ? 'Type principal / vice_principal / hod' : 'Type professor / assistant_professor / lab_instructor'}
+                  placeholderTextColor={Colors.textSecondary}
+                  autoCapitalize="none"
+                />
                 {!!errors.faculty_designation && <Text style={styles.errorText}>{errors.faculty_designation}</Text>}
               </View>
             )}

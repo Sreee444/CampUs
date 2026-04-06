@@ -15,9 +15,10 @@ import {
   ScrollView,
   ActivityIndicator,
   Image,
+  Alert,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../../navigation/types';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } from '../../theme';
@@ -38,6 +39,7 @@ import {
   cancelConnectionRequest,
   acceptConnectionRequest,
   rejectConnectionRequest,
+  removeConnection,
   getConnectionStatus,
   ConnectionStatusResult,
 } from '../../api/connections';
@@ -74,6 +76,7 @@ export default function PublicProfileScreen() {
   const [connectionsCount, setConnectionsCount] = useState(0);
   const [verificationBadges, setVerificationBadges] = useState<any[]>([]);
   const [mutualConnectionsCount, setMutualConnectionsCount] = useState(0);
+  const [connectionStatusOverride, setConnectionStatusOverride] = useState<ConnectionStatusResult['status'] | null>(null);
   const [reportModalState, setReportModalState] = useState({
     visible: false,
     contentType: 'user' as ReportContentType,
@@ -90,6 +93,13 @@ export default function PublicProfileScreen() {
     loadVerificationBadges();
     loadMutualConnections();
   }, [userId]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      loadConnectionStatus();
+      loadMutualConnections();
+    }, [userId])
+  );
 
   // =====================================
   // DATA LOADING
@@ -122,6 +132,9 @@ export default function PublicProfileScreen() {
     try {
       const status = await getConnectionStatus(userId);
       setConnectionStatus(status);
+      if (status.status !== 'pending_sent') {
+        setConnectionStatusOverride(null);
+      }
     } catch (error) {
       console.error('Error loading connection status:', error);
     }
@@ -217,14 +230,20 @@ export default function PublicProfileScreen() {
     try {
       setActionLoading(true);
       animateButton();
+      setConnectionStatusOverride('none');
+      setConnectionStatus({ status: 'none' });
       const result = await cancelConnectionRequest(userId);
       if (result.success) {
         Toast.show({ type: 'success', text1: 'Request Cancelled' });
-        loadConnectionStatus();
+        navigation.replace('PublicProfile' as never, { userId } as never);
       } else {
+        setConnectionStatusOverride(null);
+        loadConnectionStatus();
         Toast.show({ type: 'error', text1: 'Failed', text2: result.error || 'Could not cancel' });
       }
     } catch {
+      setConnectionStatusOverride(null);
+      loadConnectionStatus();
       Toast.show({ type: 'error', text1: 'Error', text2: 'An error occurred' });
     } finally {
       setActionLoading(false);
@@ -267,6 +286,40 @@ export default function PublicProfileScreen() {
     } finally {
       setActionLoading(false);
     }
+  };
+
+  const handleUnfriend = async () => {
+    if (!connectionStatus.connectionId) return;
+
+    Alert.alert(
+      'Unfriend user?',
+      `You will remove ${profile?.full_name || 'this user'} from your connections.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Unfriend',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setActionLoading(true);
+              const result = await removeConnection(connectionStatus.connectionId!);
+              if (result.success) {
+                Toast.show({ type: 'success', text1: 'Connection removed' });
+                loadConnectionStatus();
+                loadConnectionsCount();
+                loadMutualConnections();
+              } else {
+                Toast.show({ type: 'error', text1: 'Failed', text2: result.error || 'Could not remove connection' });
+              }
+            } catch {
+              Toast.show({ type: 'error', text1: 'Error', text2: 'An error occurred' });
+            } finally {
+              setActionLoading(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   // =====================================
@@ -349,7 +402,7 @@ export default function PublicProfileScreen() {
 
   const renderConnectionButton = () => {
     if (user?.id === userId) return null;
-    const { status } = connectionStatus;
+    const status = connectionStatusOverride || connectionStatus.status;
 
     if (status === 'none' || status === 'rejected') {
       return (
@@ -411,6 +464,21 @@ export default function PublicProfileScreen() {
             <MaterialIcons name="check-circle" size={18} color="#10b981" />
             <Text style={[styles.connectBtnText, { color: '#10b981' }]}>Connected</Text>
           </View>
+          <TouchableOpacity
+            style={[styles.rejectBtn, actionLoading && { opacity: 0.65 }]}
+            onPress={handleUnfriend}
+            disabled={actionLoading}
+            activeOpacity={0.85}
+          >
+            {actionLoading ? (
+              <ActivityIndicator color="#ef4444" size="small" />
+            ) : (
+              <>
+                <MaterialIcons name="person-remove" size={18} color="#ef4444" />
+                <Text style={[styles.connectBtnText, { color: '#ef4444' }]}>Unfriend</Text>
+              </>
+            )}
+          </TouchableOpacity>
         </View>
       );
     }

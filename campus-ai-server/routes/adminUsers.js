@@ -90,12 +90,39 @@ const parseOptionalNumber = (value) => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
+const LEADERSHIP_DESIGNATIONS = ['principal', 'vice_principal'];
+
+const normalizeDesignation = (value) =>
+  String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_')
+    .replace(/_+/g, '_');
+
+const toLeadershipDesignation = (designation) => {
+  const normalized = normalizeDesignation(designation);
+  if (!normalized) return null;
+
+  if (normalized === 'principal') return 'principal';
+  if (
+    normalized === 'vice_principal' ||
+    normalized === 'viceprincipal' ||
+    normalized === 'vice_principle' ||
+    normalized === 'viceprinciple'
+  ) {
+    return 'vice_principal';
+  }
+
+  return null;
+};
+
 const createUserAndProfile = async (payload) => {
   const {
     email,
     full_name,
     role,
     department,
+    faculty_designation,
     year,
     semester,
     section,
@@ -119,6 +146,31 @@ const createUserAndProfile = async (payload) => {
     throw new Error('Password must be at least 6 characters');
   }
 
+  const normalizedDesignation = normalizeDesignation(faculty_designation);
+  if ((safeRole === 'faculty' || safeRole === 'admin') && !normalizedDesignation) {
+    throw new Error('Faculty designation is required');
+  }
+  if (!normalizedDesignation && (safeRole === 'student' || safeRole === 'alumni')) {
+    // keep other roles cleanly designation-free
+  }
+
+  const leadershipDesignation = toLeadershipDesignation(normalizedDesignation);
+  if (leadershipDesignation && LEADERSHIP_DESIGNATIONS.includes(leadershipDesignation)) {
+    const { data: existingDesignation, error: designationError } = await supabaseAdmin
+      .from('profiles')
+      .select('id')
+      .eq('faculty_designation', leadershipDesignation)
+      .maybeSingle();
+
+    if (designationError) {
+      throw new Error('Unable to verify designation ownership');
+    }
+
+    if (existingDesignation?.id) {
+      throw new Error(`${leadershipDesignation.replace('_', ' ')} is already assigned to another user`);
+    }
+  }
+
   const { data: createdUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
     email: normalizedEmail,
     password: passwordToUse,
@@ -137,6 +189,7 @@ const createUserAndProfile = async (payload) => {
     full_name: String(full_name || '').trim() || null,
     role: safeRole,
     department: String(department || '').trim() || null,
+    faculty_designation: normalizedDesignation || null,
     year: parseOptionalNumber(year),
     semester: parseOptionalNumber(semester),
     section: String(section || '').trim().toUpperCase() || null,
@@ -158,6 +211,7 @@ const createUserAndProfile = async (payload) => {
     role: safeRole,
     full_name: profilePayload.full_name,
     department: profilePayload.department,
+    faculty_designation: profilePayload.faculty_designation,
     year: profilePayload.year,
     semester: profilePayload.semester,
     section: profilePayload.section,
@@ -169,6 +223,7 @@ const validateBulkRow = (row = {}) => {
   const fullName = String(row.full_name || '').trim();
   const email = String(row.email || '').trim();
   const department = String(row.department || '').trim();
+  const facultyDesignation = normalizeDesignation(row.faculty_designation || row.designation);
   const section = String(row.section || '').trim();
   const year = parseOptionalNumber(row.year);
   const semester = parseOptionalNumber(row.semester);
@@ -188,6 +243,10 @@ const validateBulkRow = (row = {}) => {
 
   if ((role === 'faculty' || role === 'alumni') && !department) {
     return `department is required for ${role}`;
+  }
+
+  if (role === 'faculty') {
+    if (!facultyDesignation) return 'faculty_designation is required for faculty';
   }
 
   return null;
