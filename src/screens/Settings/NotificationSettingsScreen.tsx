@@ -7,6 +7,7 @@ import {
     SafeAreaView,
     ScrollView,
     Switch,
+    ActivityIndicator,
     Platform,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';

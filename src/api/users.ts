@@ -48,7 +48,7 @@ export const getUsers = async (filters?: {
   const users = (data as Profile[]) || [];
   
   // Sort faculty and admin alphabetically by clean name (without title prefixes)
-  if (filters?.role === 'faculty' || filters?.role === 'admin') {
+  if (filters?.role === 'faculty' || filters?.role === 'admin' || filters?.role === 'developer') {
     return users.sort((a, b) => {
       const nameA = stripNamePrefix(a.full_name) || a.email || '';
       const nameB = stripNamePrefix(b.full_name) || b.email || '';

@@ -18,7 +18,7 @@ export const FACULTY_ONLY_DESIGNATIONS: FacultyDesignation[] = [
 ];
 
 export const getDesignationOptionsByRole = (role?: string | null): FacultyDesignation[] => {
-  if (role === 'admin') return ADMIN_DESIGNATIONS;
+  if (role === 'admin' || role === 'developer') return ADMIN_DESIGNATIONS;
   if (role === 'faculty') return FACULTY_ONLY_DESIGNATIONS;
   return FACULTY_DESIGNATIONS;
 };
@@ -35,7 +35,7 @@ export const isFacultyRole = (role?: string | null): boolean => role === 'facult
 export const isFacultyOrAdminRole = (role?: string | null): boolean =>
   isFacultyRole(role) || isAdminRole(role);
 
-export const canManageEverything = (role?: string | null): boolean => isDeveloper(role);
+export const canManageEverything = (role?: string | null): boolean => isAdminRole(role);
 
 export const canModerateAcademic = (role?: string | null): boolean =>
   isFacultyRole(role) || isAdminRole(role);

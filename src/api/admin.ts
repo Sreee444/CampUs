@@ -100,25 +100,44 @@ export const changeUserRole = async (
     .from("profiles")
     .update(updates)
     .eq("id", userId)
-    .select()
-    .single();
+    .select('id, role, faculty_designation');
 
   if (error) throw error;
-  return data as Profile;
+  if (!Array.isArray(data) || data.length === 0) {
+    throw new Error('Role change was not applied. You may not have permission to update this user.');
+  }
+
+  const updated = data[0] as Profile;
+  if (updated.role !== newRole) {
+    throw new Error('Role change was rejected by database constraints.');
+  }
+
+  return updated;
 };
 
 export const updateUserProfileAdmin = async (
   userId: string,
   updates: Partial<Profile>
 ) => {
+  const sanitizedUpdates: Partial<Profile> = { ...updates };
+  // Developers cannot have faculty_designation per DB check constraint.
+  if ((sanitizedUpdates as any).role === 'developer') {
+    sanitizedUpdates.faculty_designation = null;
+  }
+
   const { data, error } = await (supabase as any)
     .from("profiles")
-    .update(updates)
+    .update(sanitizedUpdates)
     .eq("id", userId)
-    .select()
-    .single();
+    .select('*')
+    .maybeSingle();
 
   if (error) throw error;
+  // Some RLS setups allow update but not selecting the updated row.
+  // In that case data is null even though the update succeeded.
+  if (!data) {
+    return { id: userId, ...sanitizedUpdates } as Profile;
+  }
   return data as Profile;
 };
 
