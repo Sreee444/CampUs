@@ -104,7 +104,11 @@ export default function ChatScreen() {
     try {
       const data = await getConversations(user.id);
       const filtered = (data || []).filter((conversation: any) => conversation.conv_type !== 'mentorship');
-      setConversations(filtered);
+      // Guard against accidental duplicate rows from joins/realtime refresh races.
+      const deduped = filtered.filter((conversation: any, index: number, arr: any[]) => {
+        return arr.findIndex((item: any) => item?.id === conversation?.id) === index;
+      });
+      setConversations(deduped);
     } catch (error) {
       console.error('Chat list error:', error);
     }
@@ -747,7 +751,7 @@ export default function ChatScreen() {
       >
         <FlatList
           data={filteredConversations}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item, index) => `${item?.id || 'conversation'}-${index}`}
           renderItem={renderConversationItem}
           ListHeaderComponent={(
             <>
@@ -1028,14 +1032,14 @@ export default function ChatScreen() {
                   <Text style={styles.emptyConnectionsSubtext}>Try another name or ask admins to make their group public.</Text>
                 </View>
               ) : (
-                discoverResults.map((group) => {
+                discoverResults.map((group, index) => {
                   const status = group.request_status;
                   const isPending = status === 'pending';
                   const isMember = !!group.is_member;
                   const canRequest = !isPending && !isMember;
 
                   return (
-                    <View key={group.id} style={styles.discoverGroupCard}>
+                    <View key={`${group.id || 'group'}-${index}`} style={styles.discoverGroupCard}>
                       <View style={styles.discoverGroupInfo}>
                         <View style={[styles.avatarRingSmall, { borderColor: '#FF0000' }]}>
                           <UserAvatar
@@ -1216,7 +1220,7 @@ export default function ChatScreen() {
                   </TouchableOpacity>
                 </View>
               ) : (
-                filteredConnections.map((connection) => {
+                filteredConnections.map((connection, index) => {
                   const profile = connection.profile;
                   if (!profile) return null;
 
@@ -1225,7 +1229,7 @@ export default function ChatScreen() {
 
                   return (
                     <TouchableOpacity
-                      key={connection.id}
+                      key={`${connection.id || profile.id || 'connection'}-${index}`}
                       style={[
                         styles.connectionItem,
                         profile.id && selectedParticipantIds.includes(profile.id) && styles.connectionItemSelected,

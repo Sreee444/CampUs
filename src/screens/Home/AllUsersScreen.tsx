@@ -11,6 +11,7 @@ import {
   Image,
   Keyboard,
   Alert,
+  ScrollView,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -37,6 +38,7 @@ const ROLE_FILTERS = [
   { label: 'Students', value: 'student' },
   { label: 'Faculty', value: 'faculty' },
   { label: 'Alumni', value: 'alumni' },
+  { label: 'Admin', value: 'admin' },
 ];
 
 export default function AllUsersScreen() {
@@ -60,6 +62,12 @@ export default function AllUsersScreen() {
   const [acceptedConnectionMap, setAcceptedConnectionMap] = useState<Record<string, string>>({});
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pageRef = useRef(0);
+  const activeSearchRef = useRef('');
+
+  useEffect(() => {
+    activeSearchRef.current = activeSearch;
+  }, [activeSearch]);
 
   const loadUsers = useCallback(
     async (reset: boolean = false, overrideSearch?: string) => {
@@ -67,15 +75,16 @@ export default function AllUsersScreen() {
         if (reset) {
           setIsLoading(true);
           setPage(0);
+          pageRef.current = 0;
           setHasMore(true);
         } else {
           setIsLoadingMore(true);
         }
 
-        const currentPage = reset ? 0 : page;
+        const currentPage = reset ? 0 : pageRef.current;
         const from = currentPage * USERS_PER_PAGE;
         const to = from + USERS_PER_PAGE - 1;
-        const querySearch = (overrideSearch ?? activeSearch).trim();
+        const querySearch = (overrideSearch ?? activeSearchRef.current).trim();
 
         let query = supabase
           .from('profiles')
@@ -104,9 +113,8 @@ export default function AllUsersScreen() {
         }
 
         setHasMore(nextUsers.length === USERS_PER_PAGE);
-        if (!reset) {
-          setPage(currentPage + 1);
-        }
+        pageRef.current = currentPage + 1;
+        setPage(pageRef.current);
       } catch (error) {
         console.error('Error loading users:', error);
       } finally {
@@ -114,7 +122,7 @@ export default function AllUsersScreen() {
         setIsLoadingMore(false);
       }
     },
-    [activeSearch, page, selectedRole, user?.id]
+    [selectedRole, user?.id]
   );
 
   useEffect(() => {
@@ -421,7 +429,12 @@ export default function AllUsersScreen() {
           )}
         </View>
 
-        <View style={styles.filtersContainer}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.filtersScroll}
+          contentContainerStyle={styles.filtersContainer}
+        >
           {ROLE_FILTERS.map((filter) => {
             const isSelected = filter.value === selectedRole;
             return (
@@ -436,7 +449,7 @@ export default function AllUsersScreen() {
               </TouchableOpacity>
             );
           })}
-        </View>
+        </ScrollView>
 
         <Text style={styles.resultsCount}>{resultsSummary}</Text>
       </View>
@@ -449,7 +462,7 @@ export default function AllUsersScreen() {
         <FlatList
           data={users}
           renderItem={renderUserCard}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item, index) => `${item?.id || 'user'}-${index}`}
           ListFooterComponent={renderFooter}
           ListEmptyComponent={renderEmpty}
           contentContainerStyle={users.length === 0 ? styles.emptyList : styles.listContent}
@@ -522,10 +535,14 @@ const createStyles = (Colors: any) =>
       color: Colors.text,
       marginLeft: Spacing.xs,
     },
+    filtersScroll: {
+      maxHeight: 40,
+    },
     filtersContainer: {
       flexDirection: 'row',
       gap: Spacing.sm,
-      flexWrap: 'wrap',
+      paddingRight: Spacing.sm,
+      alignItems: 'center',
     },
     filterChip: {
       paddingHorizontal: Spacing.md,

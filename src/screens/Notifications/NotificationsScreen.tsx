@@ -559,7 +559,7 @@ export default function NotificationsScreen() {
         );
     };
 
-    const renderNotificationItem = (item: Notification) => {
+    const renderNotificationItem = (item: Notification, index: number) => {
         const meta = getNotificationMeta(item.type);
         const isTeamInvite = item.type === 'team_invite';
         const isProjectInvite = item.type === 'project_invite';
@@ -568,9 +568,11 @@ export default function NotificationsScreen() {
         const hasInlineInviteActions = isTeamInvite || isProjectInvite || isProjectRequest || isTeamJoinRequest;
         const isProcessing = processingInviteId === item.id;
 
+        const notificationKey = `${item.id || 'notification'}-${item.created_at || 'na'}-${index}`;
+
         return (
             <TouchableOpacity
-                key={item.id}
+            key={notificationKey}
                 style={[
                     styles.notificationItem,
                     !item.is_read && styles.unreadItem,
@@ -667,8 +669,8 @@ export default function NotificationsScreen() {
         );
     };
 
-    const renderRequestItem = (item: ConnectionWithProfile) => (
-        <View key={item.id} style={styles.requestItem}>
+    const renderRequestItem = (item: ConnectionWithProfile, index: number) => (
+        <View key={`${item.id || 'request'}-${item.created_at || 'na'}-${index}`} style={styles.requestItem}>
             <TouchableOpacity
                 style={styles.requesterInfo}
                 onPress={() => {
@@ -793,7 +795,7 @@ export default function NotificationsScreen() {
                                     </Text>
                                 </TouchableOpacity>
                             </View>
-                            {notifications.map(renderNotificationItem)}
+                            {notifications.map((item, index) => renderNotificationItem(item, index))}
                         </>
                     ) : (
                         <View style={styles.emptyState}>
@@ -805,7 +807,7 @@ export default function NotificationsScreen() {
                     requests.length > 0 ? (
                         <View style={styles.requestsList}>
                             <Text style={styles.sectionHeader}>Friend Requests</Text>
-                            {requests.map(renderRequestItem)}
+                            {requests.map((item, index) => renderRequestItem(item, index))}
                         </View>
                     ) : (
                         <View style={styles.emptyState}>

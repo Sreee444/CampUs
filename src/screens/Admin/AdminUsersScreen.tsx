@@ -679,7 +679,7 @@ export default function AdminUsersScreen() {
       ) : (
         <FlatList
           data={filteredUsers}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item, index) => `${item?.id || 'user'}-${index}`}
           renderItem={renderUserRow}
           contentContainerStyle={styles.listContent}
           onEndReached={() => {
