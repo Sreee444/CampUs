@@ -13,7 +13,6 @@ import {
   ActivityIndicator,
   Image,
   RefreshControl,
-  Alert,
   useWindowDimensions,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -37,6 +36,7 @@ import {
 import { supabase } from '../../api/supabase';
 import { getMyConnections, ConnectionWithProfile } from '../../api/connections';
 import { UserAvatar } from '../../components/UserAvatar';
+import ConfirmDialog from '../../components/ConfirmDialog';
 import Toast from 'react-native-toast-message';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -98,6 +98,10 @@ export default function ChatScreen() {
   const [requestingGroupId, setRequestingGroupId] = useState<string | null>(null);
   const [publicGroupsCatalog, setPublicGroupsCatalog] = useState<any[]>([]);
   const [loadingPublicGroupsCatalog, setLoadingPublicGroupsCatalog] = useState(false);
+  const [deleteDialog, setDeleteDialog] = useState<{
+    visible: boolean;
+    conversation: any | null;
+  }>({ visible: false, conversation: null });
 
   const loadConversations = async () => {
     if (!user?.id) return;
@@ -398,35 +402,34 @@ export default function ChatScreen() {
 
   const handleDeleteConversation = (conversation: any) => {
     if (!user?.id) return;
+    setDeleteDialog({ visible: true, conversation });
+  };
 
-    const label = conversation.is_group ? 'Leave this group chat?' : 'Delete this chat from your list?';
-    Alert.alert('Delete Conversation', label, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: conversation.is_group ? 'Leave Group' : 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await deleteConversationForUser(conversation.id, user.id);
-            setConversations((prev) => prev.filter((item) => item.id !== conversation.id));
-            Toast.show({
-              type: 'success',
-              text1: conversation.is_group ? 'Left group chat' : 'Conversation deleted',
-            });
-          } catch (error: any) {
-            const errorMessage = String(error?.message || '');
-            const isOwnerLeaveBlocked = errorMessage.toLowerCase().includes('assign at least one other active member as admin');
-            Toast.show({
-              type: 'error',
-              text1: isOwnerLeaveBlocked ? 'Assign an admin before leaving' : 'Unable to delete conversation',
-              text2: isOwnerLeaveBlocked
-                ? 'Make another active member an admin, then leave the group.'
-                : (error?.message || 'Please try again'),
-            });
-          }
-        },
-      },
-    ]);
+  const confirmDeleteConversation = async () => {
+    if (!user?.id || !deleteDialog.conversation) return;
+
+    const conversation = deleteDialog.conversation;
+
+    try {
+      await deleteConversationForUser(conversation.id, user.id);
+      setConversations((prev) => prev.filter((item) => item.id !== conversation.id));
+      Toast.show({
+        type: 'success',
+        text1: conversation.is_group ? 'Left group chat' : 'Conversation deleted',
+      });
+    } catch (error: any) {
+      const errorMessage = String(error?.message || '');
+      const isOwnerLeaveBlocked = errorMessage.toLowerCase().includes('assign at least one other active member as admin');
+      Toast.show({
+        type: 'error',
+        text1: isOwnerLeaveBlocked ? 'Assign an admin before leaving' : 'Unable to delete conversation',
+        text2: isOwnerLeaveBlocked
+          ? 'Make another active member an admin, then leave the group.'
+          : (error?.message || 'Please try again'),
+      });
+    } finally {
+      setDeleteDialog({ visible: false, conversation: null });
+    }
   };
 
   const filteredConversations = useMemo(() => {
@@ -1315,6 +1318,17 @@ export default function ChatScreen() {
           </View>
         </View>
       </Modal>
+
+      <ConfirmDialog
+        visible={deleteDialog.visible}
+        title={deleteDialog.conversation?.is_group ? 'Leave Group Chat' : 'Delete Conversation'}
+        message={deleteDialog.conversation?.is_group ? 'Leave this group chat?' : 'Delete this chat from your list?'}
+        confirmText={deleteDialog.conversation?.is_group ? 'Leave Group' : 'Delete'}
+        cancelText="Cancel"
+        type="danger"
+        onConfirm={confirmDeleteConversation}
+        onCancel={() => setDeleteDialog({ visible: false, conversation: null })}
+      />
     </SafeAreaView>
   );
 }

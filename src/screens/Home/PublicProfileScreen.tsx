@@ -15,7 +15,6 @@ import {
   ScrollView,
   ActivityIndicator,
   Image,
-  Alert,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
@@ -34,6 +33,7 @@ import Animated, {
 import { supabase } from '../../api/supabase';
 import { Profile, ReportContentType } from '../../types/database';
 import ReportModal from '../../components/ReportModal';
+import ConfirmDialog from '../../components/ConfirmDialog';
 import {
   sendConnectionRequest,
   cancelConnectionRequest,
@@ -77,6 +77,7 @@ export default function PublicProfileScreen() {
   const [verificationBadges, setVerificationBadges] = useState<any[]>([]);
   const [mutualConnectionsCount, setMutualConnectionsCount] = useState(0);
   const [connectionStatusOverride, setConnectionStatusOverride] = useState<ConnectionStatusResult['status'] | null>(null);
+  const [showUnfriendConfirm, setShowUnfriendConfirm] = useState(false);
   const [reportModalState, setReportModalState] = useState({
     visible: false,
     contentType: 'user' as ReportContentType,
@@ -290,36 +291,28 @@ export default function PublicProfileScreen() {
 
   const handleUnfriend = async () => {
     if (!connectionStatus.connectionId) return;
+    setShowUnfriendConfirm(true);
+  };
 
-    Alert.alert(
-      'Unfriend user?',
-      `You will remove ${profile?.full_name || 'this user'} from your connections.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Unfriend',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setActionLoading(true);
-              const result = await removeConnection(connectionStatus.connectionId!);
-              if (result.success) {
-                Toast.show({ type: 'success', text1: 'Connection removed' });
-                loadConnectionStatus();
-                loadConnectionsCount();
-                loadMutualConnections();
-              } else {
-                Toast.show({ type: 'error', text1: 'Failed', text2: result.error || 'Could not remove connection' });
-              }
-            } catch {
-              Toast.show({ type: 'error', text1: 'Error', text2: 'An error occurred' });
-            } finally {
-              setActionLoading(false);
-            }
-          },
-        },
-      ]
-    );
+  const confirmUnfriend = async () => {
+    if (!connectionStatus.connectionId) return;
+    try {
+      setActionLoading(true);
+      const result = await removeConnection(connectionStatus.connectionId);
+      if (result.success) {
+        Toast.show({ type: 'success', text1: 'Connection removed' });
+        loadConnectionStatus();
+        loadConnectionsCount();
+        loadMutualConnections();
+      } else {
+        Toast.show({ type: 'error', text1: 'Failed', text2: result.error || 'Could not remove connection' });
+      }
+    } catch {
+      Toast.show({ type: 'error', text1: 'Error', text2: 'An error occurred' });
+    } finally {
+      setActionLoading(false);
+      setShowUnfriendConfirm(false);
+    }
   };
 
   // =====================================
@@ -802,6 +795,17 @@ export default function PublicProfileScreen() {
         onClose={() => setReportModalState({ ...reportModalState, visible: false })}
         contentType={reportModalState.contentType}
         reportedUserId={reportModalState.contentId}
+      />
+
+      <ConfirmDialog
+        visible={showUnfriendConfirm}
+        title="Unfriend user?"
+        message={`You will remove ${profile?.full_name || 'this user'} from your connections.`}
+        confirmText="Unfriend"
+        cancelText="Cancel"
+        type="danger"
+        onConfirm={confirmUnfriend}
+        onCancel={() => setShowUnfriendConfirm(false)}
       />
     </SafeAreaView>
   );

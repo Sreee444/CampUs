@@ -6,7 +6,6 @@ import {
   StyleSheet,
   SafeAreaView,
   TextInput,
-  Keyboard,
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
@@ -75,7 +74,15 @@ import {
   getPendingGroupJoinRequests,
   reviewGroupJoinRequest,
 } from '../../api/chat';
-import { ConnectionWithProfile, getMyConnections } from '../../api/connections';
+import {
+  ConnectionStatusResult,
+  ConnectionWithProfile,
+  acceptConnectionRequest,
+  getConnectionStatus,
+  getMyConnections,
+  rejectConnectionRequest,
+  sendConnectionRequest,
+} from '../../api/connections';
 import { getEvents } from '../../api/events';
 import { getProjectTeams } from '../../api/projects';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -255,12 +262,13 @@ export default function ChatConversationScreen() {
   const [reactionPickerVisible, setReactionPickerVisible] = useState(false);
   const [reactionTargetMessageId, setReactionTargetMessageId] = useState<string | null>(null);
   const [directPartnerStatus, setDirectPartnerStatus] = useState<'online' | 'away' | 'offline' | null>(null);
+  const [directConnectionStatus, setDirectConnectionStatus] = useState<ConnectionStatusResult>({ status: 'none' });
+  const [isUpdatingDirectRequest, setIsUpdatingDirectRequest] = useState(false);
   const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
   const [backgroundImageUrl, setBackgroundImageUrl] = useState<string | null>(null);
   const [showBackgroundPicker, setShowBackgroundPicker] = useState(false);
   const [isLoadingBackground, setIsLoadingBackground] = useState(false);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [realtimeRetryTick, setRealtimeRetryTick] = useState(0);
   const announcementPulse = useSharedValue(1);
   const announcementSlide = useSharedValue(-100);
@@ -351,22 +359,6 @@ export default function ChatConversationScreen() {
 
     loadBackground();
   }, [conversationId, user?.id, isAIChat]);
-
-  useEffect(() => {
-    if (Platform.OS !== 'android') return;
-
-    const showSub = Keyboard.addListener('keyboardDidShow', (event) => {
-      setKeyboardHeight(event.endCoordinates.height || 0);
-    });
-    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
-      setKeyboardHeight(0);
-    });
-
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, []);
 
   const selectChatTheme = (theme: ChatTheme) => {
     setChatTheme(theme);
@@ -1037,6 +1029,49 @@ export default function ChatConversationScreen() {
           createAiMessage(aiResponse),
         ]);
       } else if (conversationId && user?.id) {
+        if (!isGroup && !isAIChat && directPartnerId) {
+          const status = await getConnectionStatus(directPartnerId);
+          setDirectConnectionStatus(status);
+
+          if (status.status === 'pending_sent') {
+            throw new Error('Chat request is pending. Wait for acceptance before sending more messages.');
+          }
+
+          if (status.status === 'pending_received') {
+            throw new Error('Accept or reject this chat request before sending messages.');
+          }
+
+          if (status.status === 'none' || status.status === 'rejected') {
+            if (!content) {
+              throw new Error('Type your first message to send a chat request.');
+            }
+            if (originalAttachments.length > 0) {
+              throw new Error('Attachments are available only after request acceptance.');
+            }
+
+            const requestResult = await sendConnectionRequest(directPartnerId);
+            if (!requestResult.success) {
+              throw new Error(requestResult.error || 'Failed to send chat request.');
+            }
+
+            // Lock composer immediately after first request message is sent.
+            setDirectConnectionStatus({
+              status: 'pending_sent',
+              connectionId: requestResult.data?.id,
+              connection: requestResult.data,
+            });
+
+            await sendMessage(conversationId, user.id, `Chat request: ${content}`, 'system');
+            await refreshDirectConnectionStatus();
+            Toast.show({
+              type: 'success',
+              text1: 'Chat request sent',
+              text2: 'Wait for the receiver to accept your request.',
+            });
+            return;
+          }
+        }
+
         if (originalAttachments.length > 0) {
           setIsUploadingAttachment(true);
           for (let index = 0; index < originalAttachments.length; index += 1) {
@@ -1062,6 +1097,42 @@ export default function ChatConversationScreen() {
     } finally {
       setIsUploadingAttachment(false);
       setIsSending(false);
+    }
+  };
+
+  const handleAcceptDirectRequest = async () => {
+    if (isUpdatingDirectRequest || !directConnectionStatus.connectionId) return;
+
+    try {
+      setIsUpdatingDirectRequest(true);
+      const result = await acceptConnectionRequest(directConnectionStatus.connectionId);
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to accept request');
+      }
+      await refreshDirectConnectionStatus();
+      Toast.show({ type: 'success', text1: 'Chat request accepted' });
+    } catch (error: any) {
+      Toast.show({ type: 'error', text1: 'Failed to accept request', text2: error?.message || 'Try again' });
+    } finally {
+      setIsUpdatingDirectRequest(false);
+    }
+  };
+
+  const handleRejectDirectRequest = async () => {
+    if (isUpdatingDirectRequest || !directConnectionStatus.connectionId) return;
+
+    try {
+      setIsUpdatingDirectRequest(true);
+      const result = await rejectConnectionRequest(directConnectionStatus.connectionId);
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to reject request');
+      }
+      await refreshDirectConnectionStatus();
+      Toast.show({ type: 'success', text1: 'Chat request rejected' });
+    } catch (error: any) {
+      Toast.show({ type: 'error', text1: 'Failed to reject request', text2: error?.message || 'Try again' });
+    } finally {
+      setIsUpdatingDirectRequest(false);
     }
   };
 
@@ -1581,6 +1652,59 @@ export default function ChatConversationScreen() {
     return otherMessage?.sender || null;
   }, [isGroup, isAIChat, messages, user?.id, groupDetails?.participants]);
 
+  const refreshDirectConnectionStatus = useCallback(async () => {
+    if (isGroup || isAIChat || !user?.id || !directPartnerId) {
+      setDirectConnectionStatus({ status: 'none' });
+      return;
+    }
+
+    try {
+      const status = await getConnectionStatus(directPartnerId);
+      setDirectConnectionStatus(status);
+    } catch {
+      setDirectConnectionStatus({ status: 'none' });
+    }
+  }, [directPartnerId, isAIChat, isGroup, user?.id]);
+
+  useEffect(() => {
+    refreshDirectConnectionStatus();
+  }, [refreshDirectConnectionStatus]);
+
+  useEffect(() => {
+    if (isGroup || isAIChat || !user?.id || !directPartnerId) {
+      return;
+    }
+
+    const connectionChannel = supabase
+      .channel(`direct-connection-${user.id}-${directPartnerId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'connections',
+        },
+        (payload: any) => {
+          const row = payload?.new || payload?.old;
+          if (!row) return;
+
+          const involvesCurrentPair =
+            (row.requester_id === user.id && row.recipient_id === directPartnerId) ||
+            (row.requester_id === directPartnerId && row.recipient_id === user.id);
+
+          if (!involvesCurrentPair) return;
+
+          // Re-sync local gate state immediately when request is accepted/rejected/created.
+          refreshDirectConnectionStatus();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(connectionChannel);
+    };
+  }, [directPartnerId, isAIChat, isGroup, refreshDirectConnectionStatus, user?.id]);
+
   const typingDisplayNames = useMemo(() => {
     if (!typingUserIds.length) return [] as string[];
 
@@ -1609,6 +1733,15 @@ export default function ChatConversationScreen() {
   }, [isGroup, typingDisplayNames]);
 
   const isDirectPartnerTyping = !isGroup && !isAIChat && typingUserIds.length > 0;
+  const isDirectChat = !isGroup && !isAIChat;
+  const canSendNewDirectRequest =
+    directConnectionStatus.status === 'none' || directConnectionStatus.status === 'rejected';
+  const isDirectRequestPending =
+    directConnectionStatus.status === 'pending_sent' || directConnectionStatus.status === 'pending_received';
+  const canSendInCurrentChat =
+    !isDirectChat ||
+    directConnectionStatus.status === 'accepted' ||
+    canSendNewDirectRequest;
 
   const normalizePresenceStatus = (status?: string | null, updatedAt?: string | null) => {
     const fallback: 'online' | 'away' | 'offline' = 'offline';
@@ -2404,7 +2537,21 @@ export default function ChatConversationScreen() {
               </View>
             )}
 
-            {!isAIChat && selectedAttachments.length > 0 && (
+            {isDirectChat && directPartnerId && directConnectionStatus.status === 'pending_sent' && (
+              <View style={[styles.directRequestBanner, { backgroundColor: Colors.warning + '20', borderColor: Colors.warning }]}>
+                <MaterialIcons name="hourglass-top" size={18} color={Colors.warning} />
+                <Text style={[styles.directRequestText, { color: Colors.text }]}>Request sent. You can send more messages after they accept.</Text>
+              </View>
+            )}
+
+            {isDirectChat && directPartnerId && directConnectionStatus.status === 'pending_received' && (
+              <View style={[styles.directRequestBanner, { backgroundColor: Colors.primary + '16', borderColor: Colors.primary }]}>
+                <MaterialIcons name="mark-chat-unread" size={18} color={Colors.primary} />
+                <Text style={[styles.directRequestText, { color: Colors.text }]}>This user sent you a chat request.</Text>
+              </View>
+            )}
+
+            {!isAIChat && selectedAttachments.length > 0 && !isDirectRequestPending && (
               <View style={styles.attachmentTray}>
                 <View style={styles.attachmentTrayHeader}>
                   <Text style={styles.attachmentTrayTitle}>{selectedAttachments.length} selected</Text>
@@ -2432,7 +2579,35 @@ export default function ChatConversationScreen() {
               </View>
             )}
 
-            <View style={[styles.inputContainer, Platform.OS === 'android' && keyboardHeight > 0 ? { marginBottom: keyboardHeight } : null]}>
+            {isDirectChat && isDirectRequestPending ? (
+              <View style={[styles.directComposerLock, { backgroundColor: Colors.surface, borderColor: Colors.border }]}>
+                <MaterialIcons name="lock-outline" size={18} color={Colors.textSecondary} />
+                <Text style={[styles.directComposerLockText, { color: Colors.text }]}>
+                  {directConnectionStatus.status === 'pending_sent'
+                    ? 'Chat request sent. Messaging unlocks after receiver accepts.'
+                    : 'Accept or reject this chat request to continue.'}
+                </Text>
+                {directConnectionStatus.status === 'pending_received' && (
+                  <View style={styles.directComposerLockActions}>
+                    <TouchableOpacity
+                      style={[styles.directRequestButton, { borderColor: Colors.border, backgroundColor: Colors.background }]}
+                      onPress={handleRejectDirectRequest}
+                      disabled={isUpdatingDirectRequest}
+                    >
+                      <Text style={[styles.directRequestButtonText, { color: Colors.textSecondary }]}>Reject</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.directRequestButton, { backgroundColor: Colors.primary }]}
+                      onPress={handleAcceptDirectRequest}
+                      disabled={isUpdatingDirectRequest}
+                    >
+                      <Text style={[styles.directRequestButtonText, { color: '#fff' }]}>Accept</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            ) : (
+            <View style={styles.inputContainer}>
               <View
                 style={[
                   styles.inputMain,
@@ -2454,13 +2629,21 @@ export default function ChatConversationScreen() {
                     }
                     sendTypingSignal();
                   }}
-                  placeholder={isAIChat ? 'Ask about an event, project, date, or pick an option above' : 'Type a message'}
+                  placeholder={
+                    isAIChat
+                      ? 'Ask about an event, project, date, or pick an option above'
+                      : canSendNewDirectRequest
+                        ? 'Type first message to send chat request'
+                        : isDirectRequestPending
+                          ? 'Waiting for request acceptance...'
+                          : 'Type a message'
+                  }
                   placeholderTextColor={Colors.textSecondary}
                   multiline
                   maxLength={500}
                   blurOnSubmit={false}
                   textAlignVertical="top"
-                  editable={!isSending}
+                  editable={!isSending && canSendInCurrentChat}
                 />
 
                 {isGroup && !isAIChat && (
@@ -2476,7 +2659,7 @@ export default function ChatConversationScreen() {
                   <TouchableOpacity
                     style={[styles.attachButton, isUploadingAttachment && styles.attachButtonDisabled]}
                     onPress={handlePickAttachment}
-                    disabled={isUploadingAttachment || isSending}
+                    disabled={isUploadingAttachment || isSending || (isDirectChat && directConnectionStatus.status !== 'accepted')}
                   >
                     {isUploadingAttachment ? (
                       <ActivityIndicator size="small" color={Colors.primary} />
@@ -2491,10 +2674,10 @@ export default function ChatConversationScreen() {
                 style={[
                   styles.sendButton,
                   { backgroundColor: chatTheme.bubbleColor },
-                  (isSending || isUploadingAttachment || (!messageText.trim() && !selectedAttachments.length)) && styles.sendButtonDisabled,
+                  (isSending || isUploadingAttachment || (!messageText.trim() && !selectedAttachments.length) || !canSendInCurrentChat) && styles.sendButtonDisabled,
                 ]}
                 onPress={handleSend}
-                disabled={isSending || isUploadingAttachment || (!messageText.trim() && !selectedAttachments.length)}
+                disabled={isSending || isUploadingAttachment || (!messageText.trim() && !selectedAttachments.length) || !canSendInCurrentChat}
               >
                 {isSending ? (
                   <ActivityIndicator size="small" color={chatTheme.textColor} />
@@ -2503,6 +2686,7 @@ export default function ChatConversationScreen() {
                 )}
               </TouchableOpacity>
             </View>
+            )}
           </KeyboardAvoidingView>
         </ImageBackground>
       )}
@@ -4670,6 +4854,56 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     replyText: {
       fontSize: FontSizes.sm,
       color: Colors.text,
+    },
+    directRequestBanner: {
+      marginHorizontal: Spacing.md,
+      marginBottom: Spacing.xs,
+      borderWidth: 1,
+      borderRadius: BorderRadius.md,
+      paddingHorizontal: Spacing.sm,
+      paddingVertical: Spacing.xs,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.xs,
+    },
+    directRequestText: {
+      flex: 1,
+      fontSize: FontSizes.xs,
+      fontWeight: FontWeights.medium,
+    },
+    directRequestActions: {
+      flexDirection: 'row',
+      gap: Spacing.xs,
+    },
+    directRequestButton: {
+      borderWidth: 1,
+      borderRadius: BorderRadius.md,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+    },
+    directRequestButtonText: {
+      fontSize: FontSizes.xs,
+      fontWeight: FontWeights.semibold,
+    },
+    directComposerLock: {
+      marginHorizontal: Spacing.md,
+      marginBottom: Spacing.sm,
+      borderWidth: 1,
+      borderRadius: BorderRadius.lg,
+      paddingHorizontal: Spacing.sm,
+      paddingVertical: Spacing.sm,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.xs,
+    },
+    directComposerLockText: {
+      flex: 1,
+      fontSize: FontSizes.xs,
+      fontWeight: FontWeights.medium,
+    },
+    directComposerLockActions: {
+      flexDirection: 'row',
+      gap: Spacing.xs,
     },
     attachmentTray: {
       marginHorizontal: Spacing.md,

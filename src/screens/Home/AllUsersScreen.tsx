@@ -10,7 +10,6 @@ import {
   TextInput,
   Image,
   Keyboard,
-  Alert,
   ScrollView,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -27,6 +26,7 @@ import { createDirectConversation } from '../../api/chat';
 import { getMyConnections, removeConnection } from '../../api/connections';
 import Toast from 'react-native-toast-message';
 import { getCleanInitials } from '../../utils/roles';
+import ConfirmDialog from '../../components/ConfirmDialog';
 
 type AllUsersScreenNavigationProp = StackNavigationProp<RootStackParamList>;
 type AllUsersScreenRouteProp = RouteProp<RootStackParamList, 'AllUsers'>;
@@ -61,6 +61,12 @@ export default function AllUsersScreen() {
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [acceptedConnectionMap, setAcceptedConnectionMap] = useState<Record<string, string>>({});
+  const [unfriendDialog, setUnfriendDialog] = useState<{
+    visible: boolean;
+    targetUserId?: string;
+    targetName?: string;
+    connectionId?: string;
+  }>({ visible: false });
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pageRef = useRef(0);
@@ -228,6 +234,25 @@ export default function AllUsersScreen() {
     }
   };
 
+  const confirmUnfriend = async () => {
+    const connectionId = unfriendDialog.connectionId;
+    const targetUserId = unfriendDialog.targetUserId;
+    if (!connectionId || !targetUserId) return;
+
+    const result = await removeConnection(connectionId);
+    if (result.success) {
+      setAcceptedConnectionMap((prev) => {
+        const next = { ...prev };
+        delete next[targetUserId];
+        return next;
+      });
+      Toast.show({ type: 'success', text1: 'Connection removed' });
+    } else {
+      Toast.show({ type: 'error', text1: 'Failed to unfriend', text2: result.error || 'Please try again' });
+    }
+    setUnfriendDialog({ visible: false });
+  };
+
   const renderUserCard = ({ item }: { item: Profile }) => {
     const roleColor = getRoleColor(item.role);
     const connectionId = acceptedConnectionMap[item.id];
@@ -253,31 +278,12 @@ export default function AllUsersScreen() {
 
     const handleUnfriend = () => {
       if (!connectionId) return;
-
-      Alert.alert(
-        'Unfriend user?',
-        `You will remove ${item.full_name || 'this user'} from your connections.`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Unfriend',
-            style: 'destructive',
-            onPress: async () => {
-              const result = await removeConnection(connectionId);
-              if (result.success) {
-                setAcceptedConnectionMap((prev) => {
-                  const next = { ...prev };
-                  delete next[item.id];
-                  return next;
-                });
-                Toast.show({ type: 'success', text1: 'Connection removed' });
-              } else {
-                Toast.show({ type: 'error', text1: 'Failed to unfriend', text2: result.error || 'Please try again' });
-              }
-            },
-          },
-        ]
-      );
+      setUnfriendDialog({
+        visible: true,
+        targetUserId: item.id,
+        targetName: item.full_name || 'this user',
+        connectionId,
+      });
     };
 
     return (
@@ -468,6 +474,17 @@ export default function AllUsersScreen() {
         />
       )}
       </LinearGradient>
+
+      <ConfirmDialog
+        visible={unfriendDialog.visible}
+        title="Unfriend user?"
+        message={`You will remove ${unfriendDialog.targetName || 'this user'} from your connections.`}
+        confirmText="Unfriend"
+        cancelText="Cancel"
+        type="danger"
+        onConfirm={confirmUnfriend}
+        onCancel={() => setUnfriendDialog({ visible: false })}
+      />
     </SafeAreaView>
   );
 }
