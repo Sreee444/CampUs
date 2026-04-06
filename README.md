@@ -309,7 +309,7 @@ npm install
 
 #### For Students
 
-1. **Explore Feed** - View campus announcements and posts
+1. **Explore Feed** - View CampUs announcements and posts
 2. **Join Events** - Register for workshops and seminars
 3. **Find Teams** - Join project teams or create your own
 4. **Connect** - Send connection requests and start chatting
