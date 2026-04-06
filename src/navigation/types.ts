@@ -28,6 +28,7 @@ export type RootStackParamList = {
   HelpCenter: undefined;
   TermsOfService: undefined;
   PrivacyPolicy: undefined;
+  MyReports: undefined;
   ChatConversation: { conversationId: string; name: string; isGroup: boolean; partnerUserId?: string };
   DiscussionTopic: { topicId: string };
   CreateTopic: undefined;
