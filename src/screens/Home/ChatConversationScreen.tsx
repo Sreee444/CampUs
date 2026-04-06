@@ -2716,188 +2716,316 @@ export default function ChatConversationScreen() {
         onRequestClose={() => setShowChatOptions(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.optionsSheet}>
-            <Text style={styles.optionsTitle}>Chat options</Text>
+          <View style={styles.groupSettingsSheet}>
+            <View style={styles.groupSettingsHandle} />
 
-            <TouchableOpacity
-              style={styles.optionRow}
-              onPress={() => {
-                setShowChatOptions(false);
-                setShowMessageSearch((prev) => !prev);
-                if (showMessageSearch) {
-                  setMessageSearchQuery('');
-                }
-              }}
-            >
-              <MaterialIcons name="search" size={20} color={Colors.text} />
-              <Text style={styles.optionText}>{showMessageSearch ? 'Hide Search' : 'Search Messages'}</Text>
-            </TouchableOpacity>
+            <View style={styles.groupSettingsHeaderRow}>
+              <View style={styles.groupSettingsHeaderTextWrap}>
+                <Text style={styles.optionsTitle}>{isGroup ? 'Group Settings' : 'Chat Settings'}</Text>
+                <Text style={styles.groupSettingsSubtitle}>
+                  {isGroup ? 'Manage members, profile, and conversation tools' : 'Manage this conversation'}
+                </Text>
+              </View>
+              <TouchableOpacity style={styles.groupSettingsCloseIcon} onPress={() => setShowChatOptions(false)}>
+                <MaterialIcons name="close" size={20} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
 
             {isGroup && (
-              <TouchableOpacity
-                style={styles.optionRow}
-                onPress={() => {
-                  setShowChatOptions(false);
-                  setShowGroupMembers(true);
-                }}
-              >
-                <MaterialIcons name="groups" size={20} color={Colors.text} />
-                <Text style={styles.optionText}>View Group Members</Text>
-              </TouchableOpacity>
+              <View style={styles.groupSettingsHeroCard}>
+                <View style={styles.groupSettingsHeroLeft}>
+                  <View style={[styles.groupVisibilityRingHeader, { borderColor: groupVisibilityRingColor }]}>
+                    {groupDetails?.group_avatar ? (
+                      <Image source={{ uri: groupDetails.group_avatar }} style={styles.headerAvatarImage} />
+                    ) : (
+                      <View style={[styles.headerAvatar, { backgroundColor: color }]}>
+                        <Text style={styles.headerAvatarText}>{initials}</Text>
+                      </View>
+                    )}
+                    <View style={[styles.groupVisibilityIconBadgeHeader, { backgroundColor: groupVisibilityRingColor }]}>
+                      <MaterialIcons name="groups" size={10} color="#ffffff" />
+                    </View>
+                  </View>
+                  <View style={styles.groupSettingsHeroTextWrap}>
+                    <Text style={styles.groupSettingsHeroTitle} numberOfLines={1}>
+                      {groupDetails?.group_name || name}
+                    </Text>
+                    <Text style={styles.groupSettingsHeroMeta}>
+                      {groupMembers.length} members • {groupDetails?.group_visibility === 'public' ? 'Public' : 'Private'}
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={styles.groupSettingsHeroQuickBtn}
+                  onPress={() => {
+                    setShowChatOptions(false);
+                    setShowGroupMembers(true);
+                  }}
+                >
+                  <MaterialIcons name="groups" size={16} color={Colors.info} />
+                  <Text style={styles.groupSettingsHeroQuickBtnText}>Members</Text>
+                </TouchableOpacity>
+              </View>
             )}
 
-            {isGroup && canManageGroup && (
-              <TouchableOpacity
-                style={styles.optionRow}
-                onPress={openAddMembersModal}
-              >
-                <MaterialIcons name="person-add" size={20} color={Colors.text} />
-                <Text style={styles.optionText}>Add Users to Group</Text>
-              </TouchableOpacity>
-            )}
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.groupSettingsScrollContent}>
+              <Text style={styles.groupSettingsSectionTitle}>{isGroup ? 'Group Management' : 'Conversation'}</Text>
+              <View style={styles.groupSettingsCard}>
+                {isGroup && (
+                  <TouchableOpacity
+                    style={styles.groupSettingsActionRow}
+                    onPress={() => {
+                      setShowChatOptions(false);
+                      setShowGroupMembers(true);
+                    }}
+                  >
+                    <View style={[styles.groupSettingsActionIconWrap, { backgroundColor: Colors.info + '1A' }]}>
+                      <MaterialIcons name="groups" size={18} color={Colors.info} />
+                    </View>
+                    <View style={styles.groupSettingsActionTextWrap}>
+                      <Text style={styles.groupSettingsActionTitle}>View Group Members</Text>
+                      <Text style={styles.groupSettingsActionSubtitle}>Open full-page member and request management</Text>
+                    </View>
+                    <MaterialIcons name="chevron-right" size={20} color={Colors.textSecondary} />
+                  </TouchableOpacity>
+                )}
 
-            {isGroup && canManageGroup && (
-              <TouchableOpacity
-                style={styles.optionRow}
-                onPress={() => {
-                  setShowChatOptions(false);
-                  setShowGroupEdit(true);
-                }}
-              >
-                <MaterialIcons name="edit" size={20} color={Colors.text} />
-                <Text style={styles.optionText}>Edit Group Profile</Text>
-              </TouchableOpacity>
-            )}
+                {isGroup && canManageGroup && (
+                  <TouchableOpacity style={styles.groupSettingsActionRow} onPress={openAddMembersModal}>
+                    <View style={[styles.groupSettingsActionIconWrap, { backgroundColor: Colors.success + '1A' }]}>
+                      <MaterialIcons name="person-add" size={18} color={Colors.success} />
+                    </View>
+                    <View style={styles.groupSettingsActionTextWrap}>
+                      <Text style={styles.groupSettingsActionTitle}>Add Users to Group</Text>
+                      <Text style={styles.groupSettingsActionSubtitle}>Invite your accepted connections</Text>
+                    </View>
+                    <MaterialIcons name="chevron-right" size={20} color={Colors.textSecondary} />
+                  </TouchableOpacity>
+                )}
 
-            {!isGroup && !isAIChat && (
-              <TouchableOpacity
-                style={styles.optionRow}
-                onPress={() => {
-                  setShowChatOptions(false);
-                  if (!directPartnerId) {
-                    Toast.show({
-                      type: 'info',
-                      text1: 'Profile unavailable',
-                      text2: 'Send or receive a message first to open profile.',
-                    });
-                    return;
-                  }
-                  navigation.navigate('PublicProfile', { userId: directPartnerId });
-                }}
-              >
-                <MaterialIcons name="person-outline" size={20} color={Colors.text} />
-                <Text style={styles.optionText}>View User Profile</Text>
-              </TouchableOpacity>
-            )}
+                {isGroup && canManageGroup && (
+                  <TouchableOpacity
+                    style={styles.groupSettingsActionRow}
+                    onPress={() => {
+                      setShowChatOptions(false);
+                      setShowGroupEdit(true);
+                    }}
+                  >
+                    <View style={[styles.groupSettingsActionIconWrap, { backgroundColor: Colors.primary + '1A' }]}>
+                      <MaterialIcons name="edit" size={18} color={Colors.primary} />
+                    </View>
+                    <View style={styles.groupSettingsActionTextWrap}>
+                      <Text style={styles.groupSettingsActionTitle}>Edit Group Profile</Text>
+                      <Text style={styles.groupSettingsActionSubtitle}>Update name, avatar, bio, and visibility</Text>
+                    </View>
+                    <MaterialIcons name="chevron-right" size={20} color={Colors.textSecondary} />
+                  </TouchableOpacity>
+                )}
 
-            <TouchableOpacity
-              style={styles.optionRow}
-              onPress={async () => {
-                setShowChatOptions(false);
-                await loadMessages();
-              }}
-            >
-              <MaterialIcons name="refresh" size={20} color={Colors.text} />
-              <Text style={styles.optionText}>Refresh Conversation</Text>
-            </TouchableOpacity>
+                {!isGroup && !isAIChat && (
+                  <TouchableOpacity
+                    style={styles.groupSettingsActionRow}
+                    onPress={() => {
+                      setShowChatOptions(false);
+                      if (!directPartnerId) {
+                        Toast.show({
+                          type: 'info',
+                          text1: 'Profile unavailable',
+                          text2: 'Send or receive a message first to open profile.',
+                        });
+                        return;
+                      }
+                      navigation.navigate('PublicProfile', { userId: directPartnerId });
+                    }}
+                  >
+                    <View style={[styles.groupSettingsActionIconWrap, { backgroundColor: Colors.info + '1A' }]}>
+                      <MaterialIcons name="person-outline" size={18} color={Colors.info} />
+                    </View>
+                    <View style={styles.groupSettingsActionTextWrap}>
+                      <Text style={styles.groupSettingsActionTitle}>View User Profile</Text>
+                      <Text style={styles.groupSettingsActionSubtitle}>Open participant profile</Text>
+                    </View>
+                    <MaterialIcons name="chevron-right" size={20} color={Colors.textSecondary} />
+                  </TouchableOpacity>
+                )}
+              </View>
 
-            <TouchableOpacity
-              style={styles.optionRow}
-              onPress={() => {
-                setShowChatOptions(false);
-                setShowThemePicker(true);
-              }}
-            >
-              <MaterialIcons name="palette" size={20} color={Colors.text} />
-              <Text style={styles.optionText}>Change Chat Theme</Text>
-            </TouchableOpacity>
+              <Text style={styles.groupSettingsSectionTitle}>Tools</Text>
+              <View style={styles.groupSettingsCard}>
+                <TouchableOpacity
+                  style={styles.groupSettingsActionRow}
+                  onPress={() => {
+                    setShowChatOptions(false);
+                    setShowMessageSearch((prev) => !prev);
+                    if (showMessageSearch) {
+                      setMessageSearchQuery('');
+                    }
+                  }}
+                >
+                  <View style={[styles.groupSettingsActionIconWrap, { backgroundColor: Colors.primary + '1A' }]}>
+                    <MaterialIcons name="search" size={18} color={Colors.primary} />
+                  </View>
+                  <View style={styles.groupSettingsActionTextWrap}>
+                    <Text style={styles.groupSettingsActionTitle}>{showMessageSearch ? 'Hide Search' : 'Search Messages'}</Text>
+                    <Text style={styles.groupSettingsActionSubtitle}>Find content in this conversation</Text>
+                  </View>
+                  <MaterialIcons name="chevron-right" size={20} color={Colors.textSecondary} />
+                </TouchableOpacity>
 
-            {!isAIChat && (
-              <TouchableOpacity
-                style={styles.optionRow}
-                onPress={() => {
-                  setShowChatOptions(false);
-                  setShowBackgroundPicker(true);
-                }}
-              >
-                <MaterialIcons name="wallpaper" size={20} color={Colors.text} />
-                <Text style={styles.optionText}>Chat Background</Text>
-              </TouchableOpacity>
-            )}
+                <TouchableOpacity
+                  style={styles.groupSettingsActionRow}
+                  onPress={async () => {
+                    setShowChatOptions(false);
+                    await loadMessages();
+                  }}
+                >
+                  <View style={[styles.groupSettingsActionIconWrap, { backgroundColor: Colors.info + '1A' }]}>
+                    <MaterialIcons name="refresh" size={18} color={Colors.info} />
+                  </View>
+                  <View style={styles.groupSettingsActionTextWrap}>
+                    <Text style={styles.groupSettingsActionTitle}>Refresh Conversation</Text>
+                    <Text style={styles.groupSettingsActionSubtitle}>Reload latest messages and updates</Text>
+                  </View>
+                  <MaterialIcons name="chevron-right" size={20} color={Colors.textSecondary} />
+                </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.optionRow}
-              onPress={async () => {
-                setShowChatOptions(false);
-                if (conversationId && user?.id && !isAIChat) {
-                  await markConversationAsRead(conversationId, user.id);
-                }
-                Toast.show({ type: 'success', text1: 'Marked as read' });
-              }}
-            >
-              <MaterialIcons name="done-all" size={20} color={Colors.text} />
-              <Text style={styles.optionText}>Mark as Read</Text>
-            </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.groupSettingsActionRow}
+                  onPress={() => {
+                    setShowChatOptions(false);
+                    setShowThemePicker(true);
+                  }}
+                >
+                  <View style={[styles.groupSettingsActionIconWrap, { backgroundColor: Colors.warning + '1A' }]}>
+                    <MaterialIcons name="palette" size={18} color={Colors.warning} />
+                  </View>
+                  <View style={styles.groupSettingsActionTextWrap}>
+                    <Text style={styles.groupSettingsActionTitle}>Change Chat Theme</Text>
+                    <Text style={styles.groupSettingsActionSubtitle}>Customize bubble colors</Text>
+                  </View>
+                  <MaterialIcons name="chevron-right" size={20} color={Colors.textSecondary} />
+                </TouchableOpacity>
 
-            {isGroup && canManageGroup && (
-              <TouchableOpacity
-                style={styles.optionRow}
-                onPress={() => {
-                  setShowChatOptions(false);
-                  setShowCreateAnnouncement(true);
-                }}
-              >
-                <MaterialIcons name="campaign" size={20} color={Colors.warning} />
-                <Text style={styles.optionText}>Create Announcement</Text>
-              </TouchableOpacity>
-            )}
+                {!isAIChat && (
+                  <TouchableOpacity
+                    style={styles.groupSettingsActionRow}
+                    onPress={() => {
+                      setShowChatOptions(false);
+                      setShowBackgroundPicker(true);
+                    }}
+                  >
+                    <View style={[styles.groupSettingsActionIconWrap, { backgroundColor: Colors.success + '1A' }]}>
+                      <MaterialIcons name="wallpaper" size={18} color={Colors.success} />
+                    </View>
+                    <View style={styles.groupSettingsActionTextWrap}>
+                      <Text style={styles.groupSettingsActionTitle}>Chat Background</Text>
+                      <Text style={styles.groupSettingsActionSubtitle}>Set a wallpaper for this chat</Text>
+                    </View>
+                    <MaterialIcons name="chevron-right" size={20} color={Colors.textSecondary} />
+                  </TouchableOpacity>
+                )}
 
-            {isGroup && canManageGroup && (
-              <TouchableOpacity
-                style={styles.optionRow}
-                onPress={handleDeleteGroup}
-              >
-                <MaterialIcons name="delete-forever" size={20} color={Colors.error} />
-                <Text style={[styles.optionText, { color: Colors.error }]}>Delete Group</Text>
-              </TouchableOpacity>
-            )}
+                <TouchableOpacity
+                  style={styles.groupSettingsActionRow}
+                  onPress={async () => {
+                    setShowChatOptions(false);
+                    if (conversationId && user?.id && !isAIChat) {
+                      await markConversationAsRead(conversationId, user.id);
+                    }
+                    Toast.show({ type: 'success', text1: 'Marked as read' });
+                  }}
+                >
+                  <View style={[styles.groupSettingsActionIconWrap, { backgroundColor: Colors.primary + '1A' }]}>
+                    <MaterialIcons name="done-all" size={18} color={Colors.primary} />
+                  </View>
+                  <View style={styles.groupSettingsActionTextWrap}>
+                    <Text style={styles.groupSettingsActionTitle}>Mark as Read</Text>
+                    <Text style={styles.groupSettingsActionSubtitle}>Clear unread indicators now</Text>
+                  </View>
+                  <MaterialIcons name="chevron-right" size={20} color={Colors.textSecondary} />
+                </TouchableOpacity>
 
-            {isGroup && !isAIChat && (
-              <TouchableOpacity
-                style={styles.optionRow}
-                onPress={() => {
-                  setShowChatOptions(false);
-                  setShowCreatePoll(true);
-                }}
-              >
-                <MaterialIcons name="poll" size={20} color={chatTheme.bubbleColor} />
-                <Text style={styles.optionText}>Create Poll</Text>
-              </TouchableOpacity>
-            )}
+                {isGroup && !isAIChat && (
+                  <TouchableOpacity
+                    style={styles.groupSettingsActionRow}
+                    onPress={() => {
+                      setShowChatOptions(false);
+                      setShowCreatePoll(true);
+                    }}
+                  >
+                    <View style={[styles.groupSettingsActionIconWrap, { backgroundColor: chatTheme.bubbleColor + '26' }]}>
+                      <MaterialIcons name="poll" size={18} color={chatTheme.bubbleColor} />
+                    </View>
+                    <View style={styles.groupSettingsActionTextWrap}>
+                      <Text style={styles.groupSettingsActionTitle}>Create Poll</Text>
+                      <Text style={styles.groupSettingsActionSubtitle}>Collect votes from group members</Text>
+                    </View>
+                    <MaterialIcons name="chevron-right" size={20} color={Colors.textSecondary} />
+                  </TouchableOpacity>
+                )}
 
-            {!isAIChat && (
-              <TouchableOpacity
-                style={styles.optionRow}
-                onPress={() => {
-                  setShowChatOptions(false);
-                  setReportModalState({
-                    visible: true,
-                    contentType: isGroup ? 'group_chat' : 'chat',
-                    contentId: conversationId,
-                  });
-                }}
-              >
-                <MaterialIcons name="flag" size={20} color={Colors.error} />
-                <Text style={[styles.optionText, { color: Colors.error }]}>Report {isGroup ? 'Group' : 'Chat'}</Text>
-              </TouchableOpacity>
-            )}
+                {isGroup && canManageGroup && (
+                  <TouchableOpacity
+                    style={styles.groupSettingsActionRow}
+                    onPress={() => {
+                      setShowChatOptions(false);
+                      setShowCreateAnnouncement(true);
+                    }}
+                  >
+                    <View style={[styles.groupSettingsActionIconWrap, { backgroundColor: Colors.warning + '1A' }]}>
+                      <MaterialIcons name="campaign" size={18} color={Colors.warning} />
+                    </View>
+                    <View style={styles.groupSettingsActionTextWrap}>
+                      <Text style={styles.groupSettingsActionTitle}>Create Announcement</Text>
+                      <Text style={styles.groupSettingsActionSubtitle}>Broadcast important updates</Text>
+                    </View>
+                    <MaterialIcons name="chevron-right" size={20} color={Colors.textSecondary} />
+                  </TouchableOpacity>
+                )}
+              </View>
 
-            <TouchableOpacity
-              style={[styles.optionRow, styles.optionCancel]}
-              onPress={() => setShowChatOptions(false)}
-            >
-              <MaterialIcons name="close" size={20} color={Colors.textSecondary} />
-              <Text style={[styles.optionText, { color: Colors.textSecondary }]}>Close</Text>
+              <Text style={styles.groupSettingsSectionTitle}>Safety</Text>
+              <View style={[styles.groupSettingsCard, styles.groupSettingsDangerCard]}>
+                {!isAIChat && (
+                  <TouchableOpacity
+                    style={styles.groupSettingsActionRow}
+                    onPress={() => {
+                      setShowChatOptions(false);
+                      setReportModalState({
+                        visible: true,
+                        contentType: isGroup ? 'group_chat' : 'chat',
+                        contentId: conversationId,
+                      });
+                    }}
+                  >
+                    <View style={[styles.groupSettingsActionIconWrap, { backgroundColor: Colors.error + '18' }]}>
+                      <MaterialIcons name="flag" size={18} color={Colors.error} />
+                    </View>
+                    <View style={styles.groupSettingsActionTextWrap}>
+                      <Text style={[styles.groupSettingsActionTitle, styles.groupSettingsDangerText]}>Report {isGroup ? 'Group' : 'Chat'}</Text>
+                      <Text style={styles.groupSettingsActionSubtitle}>Send a moderation report</Text>
+                    </View>
+                    <MaterialIcons name="chevron-right" size={20} color={Colors.textSecondary} />
+                  </TouchableOpacity>
+                )}
+
+                {isGroup && canManageGroup && (
+                  <TouchableOpacity style={styles.groupSettingsActionRow} onPress={handleDeleteGroup}>
+                    <View style={[styles.groupSettingsActionIconWrap, { backgroundColor: Colors.error + '18' }]}>
+                      <MaterialIcons name="delete-forever" size={18} color={Colors.error} />
+                    </View>
+                    <View style={styles.groupSettingsActionTextWrap}>
+                      <Text style={[styles.groupSettingsActionTitle, styles.groupSettingsDangerText]}>Delete Group</Text>
+                      <Text style={styles.groupSettingsActionSubtitle}>Permanently remove group and history</Text>
+                    </View>
+                    <MaterialIcons name="chevron-right" size={20} color={Colors.textSecondary} />
+                  </TouchableOpacity>
+                )}
+              </View>
+            </ScrollView>
+
+            <TouchableOpacity style={styles.groupSettingsCloseButton} onPress={() => setShowChatOptions(false)}>
+              <Text style={styles.groupSettingsCloseButtonText}>Close</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -3160,11 +3288,11 @@ export default function ChatConversationScreen() {
       <Modal
         visible={showGroupMembers}
         animationType="slide"
-        transparent={false}
+        transparent
         onRequestClose={() => setShowGroupMembers(false)}
       >
-        <SafeAreaView style={{ flex: 1, backgroundColor: Colors.surface }}>
-          <View style={{ flex: 1, paddingHorizontal: Spacing.md, paddingTop: Spacing.md, paddingBottom: Spacing.lg }}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.groupSettingsSheet}>
             <View style={styles.membersHeader}>
               <Text style={styles.optionsTitle}>Group members</Text>
               <TouchableOpacity onPress={() => setShowGroupMembers(false)}>
@@ -3376,7 +3504,7 @@ export default function ChatConversationScreen() {
               })}
             </ScrollView>
           </View>
-        </SafeAreaView>
+        </View>
       </Modal>
 
       <Modal
@@ -5165,6 +5293,168 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       paddingTop: Spacing.md,
       paddingBottom: Spacing.lg,
       gap: Spacing.xs,
+    },
+    groupSettingsSheet: {
+      maxHeight: '88%',
+      backgroundColor: Colors.surface,
+      borderTopLeftRadius: BorderRadius.xl,
+      borderTopRightRadius: BorderRadius.xl,
+      paddingHorizontal: Spacing.md,
+      paddingTop: 10,
+      paddingBottom: Spacing.md,
+    },
+    groupSettingsHandle: {
+      width: 44,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: Colors.border,
+      alignSelf: 'center',
+      marginBottom: Spacing.sm,
+    },
+    groupSettingsHeaderRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: Spacing.sm,
+      gap: Spacing.sm,
+    },
+    groupSettingsHeaderTextWrap: {
+      flex: 1,
+      minWidth: 0,
+    },
+    groupSettingsSubtitle: {
+      fontSize: FontSizes.sm,
+      color: Colors.textSecondary,
+      marginTop: 2,
+    },
+    groupSettingsCloseIcon: {
+      width: 34,
+      height: 34,
+      borderRadius: 17,
+      borderWidth: 1,
+      borderColor: Colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: Colors.card,
+    },
+    groupSettingsHeroCard: {
+      borderRadius: BorderRadius.lg,
+      borderWidth: 1,
+      borderColor: Colors.border,
+      backgroundColor: Colors.card,
+      paddingHorizontal: Spacing.sm,
+      paddingVertical: Spacing.sm,
+      marginBottom: Spacing.md,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: Spacing.sm,
+    },
+    groupSettingsHeroLeft: {
+      flex: 1,
+      minWidth: 0,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.sm,
+    },
+    groupSettingsHeroTextWrap: {
+      flex: 1,
+      minWidth: 0,
+    },
+    groupSettingsHeroTitle: {
+      fontSize: FontSizes.md,
+      color: Colors.text,
+      fontWeight: FontWeights.semibold,
+    },
+    groupSettingsHeroMeta: {
+      marginTop: 2,
+      fontSize: FontSizes.sm,
+      color: Colors.textSecondary,
+    },
+    groupSettingsHeroQuickBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      borderWidth: 1,
+      borderColor: Colors.info,
+      backgroundColor: Colors.info + '18',
+      borderRadius: BorderRadius.full,
+      paddingHorizontal: Spacing.sm,
+      paddingVertical: 7,
+    },
+    groupSettingsHeroQuickBtnText: {
+      fontSize: FontSizes.sm,
+      color: Colors.info,
+      fontWeight: FontWeights.semibold,
+    },
+    groupSettingsScrollContent: {
+      paddingBottom: Spacing.md,
+      gap: Spacing.sm,
+    },
+    groupSettingsSectionTitle: {
+      fontSize: FontSizes.sm,
+      color: Colors.textSecondary,
+      fontWeight: FontWeights.semibold,
+      marginTop: 2,
+      marginLeft: 2,
+    },
+    groupSettingsCard: {
+      borderWidth: 1,
+      borderColor: Colors.border,
+      borderRadius: BorderRadius.lg,
+      backgroundColor: Colors.card,
+      overflow: 'hidden',
+    },
+    groupSettingsDangerCard: {
+      borderColor: Colors.error + '55',
+    },
+    groupSettingsActionRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.sm,
+      paddingHorizontal: Spacing.sm,
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: Colors.border,
+    },
+    groupSettingsActionIconWrap: {
+      width: 34,
+      height: 34,
+      borderRadius: 17,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    groupSettingsActionTextWrap: {
+      flex: 1,
+      minWidth: 0,
+    },
+    groupSettingsActionTitle: {
+      fontSize: FontSizes.md,
+      color: Colors.text,
+      fontWeight: FontWeights.medium,
+    },
+    groupSettingsActionSubtitle: {
+      marginTop: 1,
+      fontSize: FontSizes.xs,
+      color: Colors.textSecondary,
+    },
+    groupSettingsDangerText: {
+      color: Colors.error,
+    },
+    groupSettingsCloseButton: {
+      marginTop: Spacing.sm,
+      borderWidth: 1,
+      borderColor: Colors.border,
+      borderRadius: BorderRadius.md,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 11,
+      backgroundColor: Colors.card,
+    },
+    groupSettingsCloseButtonText: {
+      fontSize: FontSizes.md,
+      color: Colors.textSecondary,
+      fontWeight: FontWeights.semibold,
     },
     membersSheet: {
       maxHeight: '75%',
