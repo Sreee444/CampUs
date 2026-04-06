@@ -24,6 +24,9 @@ type AuthContextValue = {
   isAuthenticated: boolean;
   isLoading: boolean;
   isPasswordRecovery: boolean;
+  showDefaultPasswordPrompt: boolean;
+  dismissDefaultPasswordPrompt: () => void;
+  triggerDefaultPasswordPrompt: () => void;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 };
@@ -58,6 +61,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [banDuration, setBanDuration] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
+  const [showDefaultPasswordPrompt, setShowDefaultPasswordPrompt] = useState(false);
   const startTimeRef = useRef<number>(Date.now());
   const isSigningOutRef = useRef(false);
   const signOutGuardUntilRef = useRef(0);
@@ -429,10 +433,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isAuthenticated: Boolean(user),
       isLoading,
       isPasswordRecovery,
+      showDefaultPasswordPrompt,
+      dismissDefaultPasswordPrompt: () => setShowDefaultPasswordPrompt(false),
+      triggerDefaultPasswordPrompt: () => setShowDefaultPasswordPrompt(true),
       signOut: handleSignOut,
       refreshProfile,
     }),
-    [user, profile, isBanned, banReason, banUntil, banDuration, isLoading, isPasswordRecovery]
+    [user, profile, isBanned, banReason, banUntil, banDuration, isLoading, isPasswordRecovery, showDefaultPasswordPrompt]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

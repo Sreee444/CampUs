@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator, CardStyleInterpolators } from '@react-navigation/stack';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, Modal, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import { RootStackParamList } from './types';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -23,6 +24,7 @@ import HelpCenterScreen from '../screens/Settings/HelpCenterScreen';
 import TermsOfServiceScreen from '../screens/Settings/TermsOfServiceScreen';
 import PrivacyPolicyScreen from '../screens/Settings/PrivacyPolicyScreen';
 import ProjectDetailsScreen from '../screens/Projects/ProjectDetailsScreen';
+import ProjectInviteMembersScreen from '../screens/Projects/ProjectInviteMembersScreen';
 import CreateProjectScreen from '../screens/Projects/CreateProjectScreen';
 import CreateEventScreen from '../screens/Home/CreateEventScreen';
 import EditEventScreen from '../screens/Home/EditEventScreen';
@@ -82,7 +84,8 @@ const Stack = createStackNavigator<RootStackParamList>();
 const SPLASH_MIN_MS = 2000;
 
 export default function RootNavigator() {
-  const { isAuthenticated, isLoading, profile, isBanned, isPasswordRecovery } = useAuth();
+  const { isAuthenticated, isLoading, profile, isBanned, isPasswordRecovery,
+    showDefaultPasswordPrompt, dismissDefaultPasswordPrompt } = useAuth();
   const navigationRef = useRef<any>(null);
   const isStudent = profile?.role === 'student';
   const hasCompletedProfile = Boolean(profile?.full_name?.trim() && profile?.roll_number?.trim());
@@ -174,7 +177,7 @@ export default function RootNavigator() {
     return 'MainTabs';
   };
 
-  return (
+  return (<>
     <NavigationContainer ref={navigationRef}>
       <Stack.Navigator
         initialRouteName={getInitialRoute()}
@@ -240,6 +243,11 @@ export default function RootNavigator() {
             <Stack.Screen
               name="ProjectDetails"
               component={ProjectDetailsScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="ProjectInviteMembers"
+              component={ProjectInviteMembersScreen}
               options={{ animationEnabled: true }}
             />
             <Stack.Screen
@@ -566,5 +574,125 @@ export default function RootNavigator() {
         )}
       </Stack.Navigator>
     </NavigationContainer>
-  );
+
+    {/* Default Password Change Prompt — shown globally after login with default pw */}
+    <Modal
+      visible={showDefaultPasswordPrompt}
+      transparent
+      animationType="slide"
+      onRequestClose={dismissDefaultPasswordPrompt}
+    >
+      <TouchableOpacity
+        style={dpStyles.overlay}
+        activeOpacity={1}
+        onPress={dismissDefaultPasswordPrompt}
+      >
+        <TouchableOpacity activeOpacity={1} style={dpStyles.sheet}>
+          <View style={dpStyles.handle} />
+          <View style={dpStyles.iconWrap}>
+            <MaterialIcons name="lock-open" size={30} color="#4f46e5" />
+          </View>
+          <Text style={dpStyles.title}>You're Using a Default Password</Text>
+          <Text style={dpStyles.body}>
+            You logged in with the system-assigned default password. For your security, we recommend changing it to something personal right away.
+          </Text>
+          <TouchableOpacity
+            style={dpStyles.primaryBtn}
+            onPress={() => {
+              dismissDefaultPasswordPrompt();
+              navigationRef.current?.navigate('ChangePassword');
+            }}
+          >
+            <MaterialIcons name="lock" size={18} color="#fff" style={{ marginRight: 6 }} />
+            <Text style={dpStyles.primaryBtnText}>Change Password Now</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={dpStyles.laterBtn}
+            onPress={dismissDefaultPasswordPrompt}
+          >
+            <Text style={dpStyles.laterBtnText}>Remind Me Later</Text>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </Modal>
+  </>);
 }
+
+const dpStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    backgroundColor: '#ffffff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: 36,
+    alignItems: 'center',
+  },
+  handle: {
+    width: 40,
+    height: 4,
+    backgroundColor: '#e2e8f0',
+    borderRadius: 2,
+    marginBottom: 20,
+  },
+  iconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  body: {
+    fontSize: 14,
+    color: '#6b7280',
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 24,
+    maxWidth: 300,
+  },
+  primaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#4f46e5',
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 14,
+    width: '100%',
+    marginBottom: 12,
+    shadowColor: '#4f46e5',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  primaryBtnText: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  laterBtn: {
+    paddingVertical: 12,
+    width: '100%',
+    alignItems: 'center',
+  },
+  laterBtnText: {
+    color: '#9ca3af',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+});

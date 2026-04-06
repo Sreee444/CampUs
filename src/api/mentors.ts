@@ -19,7 +19,7 @@ export const getMentors = async (filters?: {
     .select(`
       *,
       profile:profiles!mentors_user_id_fkey(
-        id, full_name, avatar_url, bio, role, department, email
+        id, full_name, avatar_url, bio, role, department, email, linkedin_url, github_url
       )
     `)
     .order('created_at', { ascending: false });
@@ -82,7 +82,7 @@ export const getMyMentorProfile = async (userId: string): Promise<Mentor | null>
     .select(`
       *,
       profile:profiles!mentors_user_id_fkey(
-        id, full_name, avatar_url, bio, role, department, email
+        id, full_name, avatar_url, bio, role, department, email, linkedin_url, github_url
       )
     `)
     .eq('user_id', userId)

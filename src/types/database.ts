@@ -42,6 +42,8 @@ export type Profile = {
   is_mentor?: boolean;
   mentor_bio?: string;
   areas_of_expertise?: string[];
+  linkedin_url?: string | null;
+  github_url?: string | null;
 
   // User Status & Verification
   is_verified?: boolean;

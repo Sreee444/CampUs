@@ -9,7 +9,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Alert,
   ActivityIndicator,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -21,8 +20,9 @@ import Toast from 'react-native-toast-message';
 import { RootStackParamList } from '../../navigation/types';
 import { signIn } from '../../api/auth';
 import { supabase } from '../../api/supabase';
-import { getColors, Spacing, FontSizes, FontWeights } from '../../theme';
+import { getColors, FontSizes, FontWeights } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
+import { useAuth } from '../../contexts/AuthContext';
 
 const DEFAULT_PASSWORD = '123456';
 
@@ -33,12 +33,13 @@ export default function LoginScreen() {
   const { isDark } = useTheme();
   const Colors = getColors(isDark);
   const styles = createStyles(Colors);
+  const { triggerDefaultPasswordPrompt } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const mustChangePasswordRef = useRef(false);
+  const usedDefaultPasswordRef = useRef(false);
 
   // ─── Auth State Listener + Session Check on Mount ───────────────────────────
   useEffect(() => {
@@ -65,7 +66,7 @@ export default function LoginScreen() {
     };
   }, []);
 
-  // ─── Post-Login: Check if profile is complete, route accordingly ─────────────
+  // ─── Post-Login: Check profile, then show default-password prompt if needed ──
   const handlePostLoginNavigation = async (userId: string) => {
     try {
       const { data } = await supabase
@@ -80,27 +81,29 @@ export default function LoginScreen() {
         return;
       }
 
-      // Enforce password update on first login with the seeded default password.
-      if (mustChangePasswordRef.current) {
-        mustChangePasswordRef.current = false;
-        navigation.replace('ChangePassword', { forceChange: true });
+      // Determine where to navigate first
+      const goToMain = () => {
+        if (!profile?.full_name || !profile?.department) {
+          navigation.replace('CompleteProfile');
+        } else {
+          navigation.replace('MainTabs', { screen: 'Home' });
+        }
+      };
+
+      // If user logged in with the default password, show a prompt BEFORE navigating
+      if (usedDefaultPasswordRef.current) {
+        usedDefaultPasswordRef.current = false;
+        goToMain();
+        // Small delay so the modal shows after navigation settles
+        setTimeout(() => triggerDefaultPasswordPrompt(), 600);
         return;
       }
 
-      // If profile is incomplete (new users via Google OAuth), send to CompleteProfile
-      if (!profile?.full_name || !profile?.department) {
-        navigation.replace('CompleteProfile');
-      } else {
-        navigation.replace('MainTabs', { screen: 'Home' });
-      }
+      goToMain();
     } catch {
-      // Fallback: navigate to Home even if profile check fails
       navigation.replace('MainTabs', { screen: 'Home' });
     }
   };
-
-  // ─── Google OAuth Handler ────────────────────────────────────────────────────
-  // Removed Google OAuth - use email login only
 
   // ─── Email Login Handler ─────────────────────────────────────────────────────
   const handleLogin = async () => {
@@ -110,12 +113,12 @@ export default function LoginScreen() {
     }
     try {
       setIsLoading(true);
-      mustChangePasswordRef.current = password.trim() === DEFAULT_PASSWORD;
+      usedDefaultPasswordRef.current = password.trim() === DEFAULT_PASSWORD;
       await signIn(email.trim(), password);
       Toast.show({ type: 'success', text1: 'Welcome back!' });
       // onAuthStateChange listener will handle navigation
     } catch (error: any) {
-      mustChangePasswordRef.current = false;
+      usedDefaultPasswordRef.current = false;
       Toast.show({
         type: 'error',
         text1: 'Login failed',
@@ -125,6 +128,7 @@ export default function LoginScreen() {
       setIsLoading(false);
     }
   };
+
 
   return (
     <LinearGradient

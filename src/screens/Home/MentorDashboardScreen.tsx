@@ -10,6 +10,7 @@ import {
     TextInput,
     ActivityIndicator,
     Alert,
+    Linking,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -27,6 +28,7 @@ import {
     updateMentorAvailability,
 } from '../../api/mentors';
 import { getMentorshipChatsForUser, ensureMentorshipChat } from '../../api/mentorshipChat';
+import { updateProfile } from '../../api/auth';
 
 const PURPOSE_LABELS: Record<string, string> = {
     career: 'Career',
@@ -60,6 +62,13 @@ function formatRoleLabel(role?: string) {
         .join(' ');
 }
 
+function normalizeExternalUrl(value?: string) {
+    const trimmed = String(value || '').trim();
+    if (!trimmed) return '';
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+    return `https://${trimmed}`;
+}
+
 export default function MentorDashboardScreen() {
     const navigation = useNavigation();
     const { isDark } = useTheme();
@@ -78,6 +87,8 @@ export default function MentorDashboardScreen() {
     const [expertiseTags, setExpertiseTags] = useState('');
     const [department, setDepartment] = useState('');
     const [company, setCompany] = useState('');
+    const [linkedinUrl, setLinkedinUrl] = useState('');
+    const [githubUrl, setGithubUrl] = useState('');
     const [maxMentees, setMaxMentees] = useState('5');
     const [isSaving, setIsSaving] = useState(false);
 
@@ -130,6 +141,8 @@ export default function MentorDashboardScreen() {
         setExpertiseTags((mentorProfile?.expertise_tags || []).join(', '));
         setDepartment(mentorProfile?.department || profile?.department || '');
         setCompany(mentorProfile?.company || '');
+        setLinkedinUrl(profile?.linkedin_url || mentorProfile?.profile?.linkedin_url || '');
+        setGithubUrl(profile?.github_url || mentorProfile?.profile?.github_url || '');
         setMaxMentees(String(mentorProfile?.max_mentees || 5));
         setShowForm(true);
     };
@@ -167,6 +180,16 @@ export default function MentorDashboardScreen() {
                 company: company.trim() || undefined,
                 max_mentees: parsedMaxMentees,
             });
+
+            try {
+                await updateProfile(user.id, {
+                    linkedin_url: linkedinUrl.trim() || undefined,
+                    github_url: githubUrl.trim() || undefined,
+                });
+            } catch {
+                // Do not block mentor registration if social fields are unavailable.
+            }
+
             Toast.show({ type: 'success', text1: 'Mentor profile created!' });
             setShowForm(false);
             await loadData();
@@ -245,6 +268,10 @@ export default function MentorDashboardScreen() {
     const activeRequests = requests.filter((r) => r.status === 'accepted');
     const closedRequests = requests.filter((r) => r.status === 'rejected' || r.status === 'closed');
     const mentorRoleLabel = formatRoleLabel(mentorProfile?.role);
+    const mentorCompany = String(mentorProfile?.company || '').trim();
+    const mentorDepartment = String(mentorProfile?.department || profile?.department || '').trim();
+    const mentorLinkedin = normalizeExternalUrl(profile?.linkedin_url || mentorProfile?.profile?.linkedin_url);
+    const mentorGithub = normalizeExternalUrl(profile?.github_url || mentorProfile?.profile?.github_url);
 
     if (isLoading) {
         return (
@@ -352,6 +379,28 @@ export default function MentorDashboardScreen() {
                             onChangeText={setCompany}
                         />
 
+                        <Text style={S.fieldLabel}>LinkedIn URL (optional)</Text>
+                        <TextInput
+                            style={S.input}
+                            placeholder="https://linkedin.com/in/your-profile"
+                            placeholderTextColor={Colors.textSecondary}
+                            value={linkedinUrl}
+                            onChangeText={setLinkedinUrl}
+                            keyboardType="url"
+                            autoCapitalize="none"
+                        />
+
+                        <Text style={S.fieldLabel}>GitHub URL (optional)</Text>
+                        <TextInput
+                            style={S.input}
+                            placeholder="https://github.com/your-username"
+                            placeholderTextColor={Colors.textSecondary}
+                            value={githubUrl}
+                            onChangeText={setGithubUrl}
+                            keyboardType="url"
+                            autoCapitalize="none"
+                        />
+
                         <Text style={S.fieldLabel}>Max Mentees</Text>
                         <TextInput
                             style={S.input}
@@ -407,27 +456,76 @@ export default function MentorDashboardScreen() {
                             <Text style={S.profileRolePillText}>{mentorRoleLabel}</Text>
                         </View>
 
+                        <View style={S.profileMetaPanel}>
+                            <View style={S.profileMetaWrap}>
+                            {!!mentorCompany && (
+                                <View style={S.profileMetaRow}>
+                                    <MaterialIcons name="business" size={14} color={Colors.textSecondary} />
+                                    <Text style={S.profileMetaText}>{mentorCompany}</Text>
+                                </View>
+                            )}
+                            {!!mentorDepartment && (
+                                <View style={S.profileMetaRow}>
+                                    <MaterialIcons name="apartment" size={14} color={Colors.textSecondary} />
+                                    <Text style={S.profileMetaText}>{mentorDepartment}</Text>
+                                </View>
+                            )}
+                            </View>
+
+                            {!!(mentorLinkedin || mentorGithub) && (
+                                <View style={S.profileSocialRow}>
+                                    {!!mentorLinkedin && (
+                                        <TouchableOpacity
+                                            style={[S.profileSocialChip, mentorLinkedin && mentorGithub && S.profileSocialChipHalf]}
+                                            onPress={() => Linking.openURL(mentorLinkedin)}
+                                        >
+                                            <MaterialIcons name="language" size={13} color="#4F46E5" />
+                                            <Text style={S.profileSocialText}>LinkedIn</Text>
+                                            <MaterialIcons name="open-in-new" size={12} color="#4F46E5" />
+                                        </TouchableOpacity>
+                                    )}
+                                    {!!mentorGithub && (
+                                        <TouchableOpacity
+                                            style={[S.profileSocialChip, mentorLinkedin && mentorGithub && S.profileSocialChipHalf]}
+                                            onPress={() => Linking.openURL(mentorGithub)}
+                                        >
+                                            <MaterialIcons name="code" size={13} color="#4F46E5" />
+                                            <Text style={S.profileSocialText}>GitHub</Text>
+                                            <MaterialIcons name="open-in-new" size={12} color="#4F46E5" />
+                                        </TouchableOpacity>
+                                    )}
+                                </View>
+                            )}
+                        </View>
+
                         <View style={S.profileStatsRow}>
-                            <View style={S.profileStatCard}>
+                            <View style={[S.profileStatCard, S.profileStatCardBlue]}>
                                 <Text style={S.profileStat}>{activeRequests.length}</Text>
                                 <Text style={S.profileStatLabel}>Active</Text>
                             </View>
-                            <View style={S.profileStatCard}>
+                            <View style={[S.profileStatCard, S.profileStatCardMint]}>
                                 <Text style={S.profileStat}>{pendingRequests.length}</Text>
                                 <Text style={S.profileStatLabel}>Pending</Text>
                             </View>
-                            <View style={S.profileStatCard}>
+                            <View style={[S.profileStatCard, S.profileStatCardAmber]}>
                                 <Text style={S.profileStat}>{mentorProfile.max_mentees}</Text>
                                 <Text style={S.profileStatLabel}>Max Slots</Text>
                             </View>
                         </View>
 
+                        <View style={S.skillsHeaderRow}>
+                            <MaterialIcons name="psychology" size={14} color="#4F46E5" />
+                            <Text style={S.skillsHeaderText}>Expertise</Text>
+                        </View>
                         <View style={S.tagRow}>
                             {(mentorProfile.expertise_tags || []).map((t: string) => (
                                 <View key={t} style={S.tag}>
-                                    <Text style={S.tagText}>{t}</Text>
+                                    <Text style={S.tagText}>{String(t || '').trim()}</Text>
                                 </View>
                             ))}
+                            {(mentorProfile.expertise_tags || []).length === 0 && (
+                                <Text style={S.profileMetaText}>No expertise tags added yet.</Text>
+                            )}
                         </View>
                     </View>
                 )}
@@ -709,9 +807,9 @@ const styles = (Colors: any) =>
         submitBtnText: { color: '#fff', fontWeight: FontWeights.bold },
 
         profileCard: {
-            backgroundColor: 'rgba(255,255,255,0.85)', borderRadius: 20,
+            backgroundColor: 'rgba(255,255,255,0.92)', borderRadius: 22,
             padding: 12, gap: 10,
-            borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)',
+            borderWidth: 1, borderColor: 'rgba(79,70,229,0.14)',
             overflow: 'hidden',
             marginBottom: 16,
         },
@@ -733,22 +831,63 @@ const styles = (Colors: any) =>
             paddingVertical: 5,
         },
         profileRolePillText: { fontSize: 12, color: '#4F46E5', fontWeight: '700' },
+        profileMetaPanel: {
+            borderWidth: 1,
+            borderColor: 'rgba(79,70,229,0.12)',
+            borderRadius: 14,
+            backgroundColor: '#FFFFFF',
+            paddingHorizontal: 9,
+            paddingVertical: 8,
+            gap: 7,
+        },
+        profileMetaWrap: { gap: 6, marginTop: 1 },
+        profileMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+        profileMetaText: { fontSize: 12, color: Colors.textSecondary, fontWeight: '600' },
+        profileMetaLink: { color: '#4F46E5' },
+        profileSocialRow: { flexDirection: 'row', gap: 8 },
+        profileSocialChip: {
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 5,
+            backgroundColor: '#EEF2FF',
+            borderWidth: 1,
+            borderColor: '#C7D2FE',
+            borderRadius: 999,
+            paddingHorizontal: 11,
+            paddingVertical: 5,
+        },
+        profileSocialChipHalf: { flex: 1 },
+        profileSocialText: { fontSize: 12, color: '#4338CA', fontWeight: '700' },
         profileStatsRow: { flexDirection: 'row', gap: 8 },
         profileStatCard: {
             flex: 1,
             borderWidth: 1,
-            borderColor: 'rgba(255,255,255,0.25)',
-            backgroundColor: 'transparent',
+            borderColor: 'rgba(79,70,229,0.12)',
+            backgroundColor: '#FFFFFF',
             borderRadius: 12,
-            paddingVertical: 10,
+            minHeight: 68,
+            paddingVertical: 8,
             alignItems: 'center',
             justifyContent: 'center',
         },
-        profileStat: { fontSize: 20, fontWeight: '700', color: Colors.text, textAlign: 'center' },
-        profileStatLabel: { fontSize: 10, color: Colors.textSecondary, textAlign: 'center' },
-        tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-        tag: { backgroundColor: '#4F46E514', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
-        tagText: { fontSize: 11, color: '#4F46E5', fontWeight: '600' },
+        profileStatCardBlue: { backgroundColor: '#EEF2FF' },
+        profileStatCardMint: { backgroundColor: '#ECFEF4' },
+        profileStatCardAmber: { backgroundColor: '#FFFBEB' },
+        profileStat: { fontSize: 20, fontWeight: '800', color: Colors.text, textAlign: 'center', lineHeight: 23 },
+        profileStatLabel: { fontSize: 10, color: Colors.textSecondary, textAlign: 'center', marginTop: 2, fontWeight: '600' },
+        skillsHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 1 },
+        skillsHeaderText: { fontSize: 12, color: '#4F46E5', fontWeight: '700' },
+        tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+        tag: {
+            backgroundColor: '#F8FAFF',
+            borderWidth: 1,
+            borderColor: '#BFD0FF',
+            paddingHorizontal: 10,
+            paddingVertical: 5,
+            borderRadius: 999,
+        },
+        tagText: { fontSize: 12, color: '#4338CA', fontWeight: '700' },
         profileEditBtn: {
             flexDirection: 'row',
             alignItems: 'center',

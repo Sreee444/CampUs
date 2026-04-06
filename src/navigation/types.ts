@@ -17,6 +17,7 @@ export type RootStackParamList = {
   MainTabs: NavigatorScreenParams<MainTabParamList> | undefined;
   Settings: undefined;
   ProjectDetails: { teamId: string };
+  ProjectInviteMembers: { teamId: string; aiRecommendedUserIds?: string[]; openWithAiPicks?: boolean; aiFallbackMode?: boolean };
   EditProfile: undefined;
   AcademicDetails: undefined;
   SkillsInterests: undefined;

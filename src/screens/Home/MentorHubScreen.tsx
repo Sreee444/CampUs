@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -21,6 +21,7 @@ import { getColors, Spacing, BorderRadius, FontSizes, FontWeights } from '../../
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { UserAvatar } from '../../components/UserAvatar';
+import DropdownSheet from '../../components/DropdownSheet';
 import Toast from 'react-native-toast-message';
 import {
   getMentors,
@@ -29,6 +30,7 @@ import {
   updateMentorshipRequestStatus,
   getMentorshipConversations,
 } from '../../api/mentors';
+import { suggestBestMentors } from '../../api/ai';
 import { assignMentor } from '../../api/projects';
 import { ensureMentorshipChat } from '../../api/mentorshipChat';
 import { supabase } from '../../api/supabase';
@@ -49,8 +51,9 @@ const ROLE_FILTERS = [
   { key: 'All', label: 'All Roles' },
   { key: 'alumni', label: 'Alumni' },
   { key: 'faculty', label: 'Faculty' },
-  { key: 'senior', label: 'Senior' },
 ];
+
+const AI_RESULT_COUNT_OPTIONS = [1, 2, 3, 4, 5];
 
 const ROLE_BADGE_COLORS: Record<string, { bg: string; text: string }> = {
   alumni: { bg: '#EEF2FF', text: '#4F46E5' },
@@ -147,6 +150,19 @@ export default function MentorHubScreen() {
   const [assigningId, setAssigningId] = useState<string | null>(null);
   const [cancellingRequestId, setCancellingRequestId] = useState<string | null>(null);
 
+  // AI mentor picks
+  const [showAiMatchModal, setShowAiMatchModal] = useState(false);
+  const [aiPurpose, setAiPurpose] = useState<MentorshipPurpose>(lockedProjectId ? 'project' : 'career');
+  const [aiProjectId, setAiProjectId] = useState<string | undefined>(lockedProjectId);
+  const [aiNeed, setAiNeed] = useState('');
+  const [isGeneratingAiPicks, setIsGeneratingAiPicks] = useState(false);
+  const [aiSummary, setAiSummary] = useState('');
+  const [aiFallbackMode, setAiFallbackMode] = useState(false);
+  const [aiMentorPickMap, setAiMentorPickMap] = useState<Record<string, { rank: number; score: number; reasons: string[] }>>({});
+  const [showAiOnly, setShowAiOnly] = useState(false);
+  const [aiResultCount, setAiResultCount] = useState(5);
+  const [showAiResultCountDropdown, setShowAiResultCountDropdown] = useState(false);
+
   const switchTab = (tab: 'discover' | 'requests' | 'active') => {
     Animated.timing(tabAnim, { toValue: 0, duration: 100, useNativeDriver: true }).start(() => {
       setActiveTab(tab);
@@ -180,7 +196,8 @@ export default function MentorHubScreen() {
       const [mentorList, requests, convs] = await Promise.all([
         getMentors({
           role: roleFilter === 'All' ? undefined : roleFilter,
-          available: availOnly || undefined,
+          // Availability is calculated from open slots on client side.
+          available: undefined,
         }),
         getMyMentorshipRequests(user.id),
         getMentorshipConversations(user.id).catch(() => []),
@@ -255,12 +272,90 @@ export default function MentorHubScreen() {
     }
   }, [lockedProjectId, isLoading]);
 
+  useEffect(() => {
+    if (lockedProjectId) {
+      setAiPurpose('project');
+      setAiProjectId(lockedProjectId);
+    }
+  }, [lockedProjectId]);
+
   const openModal = (mentor: Mentor) => {
     setSelectedMentor(mentor);
     setPurpose(lockedProjectId ? 'project' : 'career');
     setProjectId(lockedProjectId);
     setDescription('');
     setModalVisible(true);
+  };
+
+  const handleGenerateAiMentorPicks = async () => {
+    if (!user?.id) return;
+
+    const trimmedNeed = aiNeed.trim();
+    if (!trimmedNeed) {
+      Toast.show({ type: 'error', text1: 'Tell AI your need', text2: 'Describe why you need a mentor first.' });
+      return;
+    }
+
+    const finalPurpose = lockedProjectId ? 'project' : aiPurpose;
+    const finalProjectId = lockedProjectId || aiProjectId;
+
+    if (finalPurpose === 'project' && !finalProjectId) {
+      Toast.show({ type: 'error', text1: 'Select a project', text2: 'Project purpose needs a project context.' });
+      return;
+    }
+
+    if (finalPurpose === 'project' && finalProjectId && !creatorProjectIds.has(finalProjectId)) {
+      Toast.show({
+        type: 'error',
+        text1: 'Project ownership required',
+        text2: 'Only your own created projects can be used for project mentor matching.',
+      });
+      return;
+    }
+
+    try {
+      setIsGeneratingAiPicks(true);
+
+      const result = await suggestBestMentors(trimmedNeed, {
+        requestingUserId: user.id,
+        purpose: finalPurpose,
+        projectId: finalPurpose === 'project' ? finalProjectId : undefined,
+        maxMentors: Math.max(8, aiResultCount * 2),
+        resultCount: aiResultCount,
+        candidateMentors: filteredMentors,
+      });
+
+      const nextMap: Record<string, { rank: number; score: number; reasons: string[] }> = {};
+      (result.mentors || []).forEach((mentor, index) => {
+        nextMap[mentor.id] = {
+          rank: index + 1,
+          score: mentor.score || 0,
+          reasons: mentor.reasons || [],
+        };
+      });
+
+      setAiMentorPickMap(nextMap);
+      setAiSummary(result.reply || '');
+      setAiFallbackMode(Boolean(result.usedFallback));
+      setShowAiOnly(true);
+      setShowAiMatchModal(false);
+
+      Toast.show({
+        type: result.usedFallback ? 'info' : 'success',
+        text1: result.usedFallback
+          ? 'Fallback mentor picks ready'
+          : result.fromCache
+            ? 'AI mentor picks loaded'
+            : 'AI mentor picks ready',
+        text2: result.usedFallback
+          ? `${Object.keys(nextMap).length} mentors ranked locally because backend AI is unavailable.`
+          : `${Object.keys(nextMap).length} mentors ranked for your need.`,
+      });
+    } catch (e: any) {
+      Toast.show({ type: 'error', text1: 'AI match failed', text2: e?.message || 'Please try again.' });
+    } finally {
+      setIsGeneratingAiPicks(false);
+    }
   };
 
   const handleSubmit = async () => {
@@ -435,13 +530,64 @@ export default function MentorHubScreen() {
 
   const pendingRequests = myRequests.filter((r) => r.status === 'pending');
   const activeMentorships = myRequests.filter((r) => r.status === 'accepted');
+  const hasOpenSlots = useCallback((mentor: Mentor) => {
+    const active = Number((mentor as any)?.active_mentees_count || 0);
+    const max = Number((mentor as any)?.max_mentees || 0);
+    const slots = Math.max(0, Number((mentor as any)?.available_slots ?? (max - active)));
+    return slots > 0;
+  }, []);
+
   const filteredMentors = mentors.filter((m) => {
     if (roleFilter !== 'All' && m.role !== roleFilter) return false;
-    if (availOnly && !m.available) return false;
+    if (availOnly && !hasOpenSlots(m)) return false;
     return true;
   });
 
+  const displayMentors = useMemo(() => {
+    if (!Object.keys(aiMentorPickMap).length) return filteredMentors;
+
+    const sorted = [...filteredMentors].sort((a, b) => {
+      const aPick = aiMentorPickMap[a.id];
+      const bPick = aiMentorPickMap[b.id];
+
+      if (aPick && bPick) return aPick.rank - bPick.rank;
+      if (aPick) return -1;
+      if (bPick) return 1;
+      return 0;
+    });
+
+    if (!showAiOnly) return sorted;
+    return sorted.filter((mentor) => Boolean(aiMentorPickMap[mentor.id]));
+  }, [filteredMentors, aiMentorPickMap, showAiOnly]);
+
   const currentPurpose = PURPOSES.find(p => p.key === purpose);
+
+  const buildAiPrefillMessage = useCallback((mentorId: string) => {
+    const pick = aiMentorPickMap[mentorId];
+    const purposeLabel = (lockedProjectId ? 'project' : purpose).toUpperCase();
+    const projectName = (lockedProjectId || projectId || aiProjectId)
+      ? myProjects.find((project: any) => project.id === (lockedProjectId || projectId || aiProjectId))?.name
+      : null;
+
+    const reasonLines = (pick?.reasons || []).slice(0, 2);
+    const lines: string[] = [];
+
+    lines.push(`Need: ${aiNeed.trim() || 'I am looking for mentorship guidance.'}`);
+    lines.push(`Purpose: ${purposeLabel}`);
+
+    if (projectName) {
+      lines.push(`Project Context: ${projectName}`);
+    }
+
+    if (reasonLines.length > 0) {
+      lines.push('Why I picked you:');
+      reasonLines.forEach((reason) => lines.push(`- ${reason}`));
+    }
+
+    lines.push('Could you mentor me on this and suggest a practical roadmap?');
+
+    return lines.join('\n');
+  }, [aiMentorPickMap, aiNeed, lockedProjectId, purpose, projectId, aiProjectId, myProjects]);
 
   return (
     <SafeAreaView style={S.container}>
@@ -518,7 +664,19 @@ export default function MentorHubScreen() {
 
         {/* ── DISCOVER ── */}
         {activeTab === 'discover' && (
+          <>
           <ScrollView style={S.scroll} contentContainerStyle={S.scrollContent} showsVerticalScrollIndicator={false}>
+            <TouchableOpacity style={S.aiCtaCard} onPress={() => setShowAiMatchModal(true)} activeOpacity={0.85}>
+              <View style={S.aiCtaIconWrap}>
+                <MaterialIcons name="auto-awesome" size={16} color="#0F766E" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={S.aiCtaTitle}>AI Mentor Match</Text>
+                <Text style={S.aiCtaSub}>Tell AI your need and get ranked mentor picks instantly.</Text>
+              </View>
+              <MaterialIcons name="chevron-right" size={18} color="#0F766E" />
+            </TouchableOpacity>
+
             {/* Filter chips */}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>
               <View style={S.chipRow}>
@@ -533,24 +691,60 @@ export default function MentorHubScreen() {
                     <Text style={[S.chipText, availOnly && S.chipTextActive]}>Available</Text>
                   </View>
                 </TouchableOpacity>
+                {!!Object.keys(aiMentorPickMap).length && (
+                  <TouchableOpacity style={[S.chip, showAiOnly && S.chipActive]} onPress={() => setShowAiOnly((prev) => !prev)}>
+                    <Text style={[S.chipText, showAiOnly && S.chipTextActive]}>{showAiOnly ? 'Showing AI only' : 'Show AI only'}</Text>
+                  </TouchableOpacity>
+                )}
+                {!!Object.keys(aiMentorPickMap).length && (
+                  <TouchableOpacity
+                    style={S.chip}
+                    onPress={() => {
+                      setAiMentorPickMap({});
+                      setAiSummary('');
+                      setAiFallbackMode(false);
+                      setShowAiOnly(false);
+                    }}
+                  >
+                    <Text style={S.chipText}>Clear AI picks</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             </ScrollView>
 
+            {!!Object.keys(aiMentorPickMap).length && (
+              <View style={S.aiSummaryBox}>
+                <View style={S.aiSummaryHeader}>
+                  <MaterialIcons name="psychology" size={14} color="#0F766E" />
+                  <Text style={S.aiSummaryTitle}>AI Mentor Match</Text>
+                  {aiFallbackMode && (
+                    <View style={S.fallbackBadge}>
+                      <Text style={S.fallbackBadgeText}>Fallback mode</Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={S.aiSummaryText} numberOfLines={3}>
+                  {aiSummary || 'Mentors ranked based on your need, profile, and context.'}
+                </Text>
+              </View>
+            )}
+
             {isLoading ? (
               [0, 1, 2].map(i => <SkeletonCard key={i} Colors={Colors} />)
-            ) : filteredMentors.length === 0 ? (
+            ) : displayMentors.length === 0 ? (
               <View style={S.empty}>
                 <MaterialIcons name="person-search" size={52} color={Colors.border} />
                 <Text style={S.emptyTitle}>No mentors found</Text>
                 <Text style={S.emptyText}>Try changing your filters</Text>
               </View>
             ) : (
-              filteredMentors.map((mentor) => (
+              displayMentors.map((mentor) => (
                 <MentorCard
                   key={mentor.id}
                   mentor={mentor}
                   Colors={Colors}
                   S={S}
+                  aiPick={aiMentorPickMap[mentor.id]}
                   onViewProfile={() => {
                     if (mentor?.profile?.id) {
                       navigation.navigate('PublicProfile', { userId: mentor.profile.id });
@@ -562,6 +756,7 @@ export default function MentorHubScreen() {
             )}
             <View style={{ height: 32 }} />
           </ScrollView>
+          </>
         )}
 
         {/* ── REQUESTS ── */}
@@ -731,6 +926,119 @@ export default function MentorHubScreen() {
         )}
       </Animated.View>
 
+      {/* ── AI Mentor Match Modal ── */}
+      <Modal visible={showAiMatchModal} transparent animationType="slide" onRequestClose={() => setShowAiMatchModal(false)}>
+        <View style={S.modalOverlay}>
+          <View style={S.aiModalSheet}>
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ gap: 14 }}
+            >
+              <View style={S.modalHeader}>
+                <Text style={S.modalTitle}>AI Mentor Match</Text>
+                <TouchableOpacity onPress={() => setShowAiMatchModal(false)}>
+                  <MaterialIcons name="close" size={22} color={Colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={S.helperBox}>
+                <MaterialIcons name="auto-awesome" size={12} color="#0F766E" />
+                <Text style={S.helperText}>Tell AI why you need a mentor before matching.</Text>
+              </View>
+
+              <Text style={S.fieldLabel}>Mentorship Purpose</Text>
+              <View style={S.purposePills}>
+                {PURPOSES.map((p) => (
+                  <TouchableOpacity
+                    key={`ai-purpose-${p.key}`}
+                    style={[S.purposePill, aiPurpose === p.key && S.purposePillActive]}
+                    onPress={() => {
+                      if (lockedProjectId) return;
+                      setAiPurpose(p.key);
+                      if (p.key !== 'project') setAiProjectId(undefined);
+                    }}
+                    disabled={!!lockedProjectId}
+                  >
+                    <MaterialIcons name={p.icon as any} size={13} color={aiPurpose === p.key ? '#fff' : Colors.textSecondary} />
+                    <Text style={[S.purposePillText, aiPurpose === p.key && { color: '#fff' }]}>{p.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {(lockedProjectId || aiPurpose === 'project') && (
+                <>
+                  <Text style={S.fieldLabel}>Project Context</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      {myProjects.length === 0
+                        ? <Text style={S.cardSub}>No projects found.</Text>
+                        : myProjects.map((proj: any) => (
+                          <TouchableOpacity
+                            key={`ai-proj-${proj.id}`}
+                            style={[S.chip, aiProjectId === proj.id && S.chipActive]}
+                            onPress={() => setAiProjectId(proj.id)}
+                            disabled={!!lockedProjectId}
+                          >
+                            <Text style={[S.chipText, aiProjectId === proj.id && S.chipTextActive]}>{proj.name}</Text>
+                          </TouchableOpacity>
+                        ))
+                      }
+                    </View>
+                  </ScrollView>
+                </>
+              )}
+
+              <Text style={S.fieldLabel}>Why do you need this mentor?</Text>
+              <TextInput
+                style={S.textArea}
+                placeholder="Example: Need guidance on backend architecture, scaling, and interview-ready project decisions"
+                placeholderTextColor={Colors.textSecondary}
+                value={aiNeed}
+                onChangeText={setAiNeed}
+                multiline
+                textAlignVertical="top"
+              />
+
+              <Text style={S.fieldLabel}>How many results?</Text>
+              <TouchableOpacity
+                style={S.aiCountDropdownBtn}
+                onPress={() => setShowAiResultCountDropdown(true)}
+              >
+                <Text style={S.aiCountDropdownText}>Top {aiResultCount} (max 5)</Text>
+                <MaterialIcons name="keyboard-arrow-down" size={20} color={Colors.textSecondary} />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[S.submitBtn, isGeneratingAiPicks && { opacity: 0.6 }]}
+                onPress={handleGenerateAiMentorPicks}
+                disabled={isGeneratingAiPicks}
+              >
+                {isGeneratingAiPicks
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Text style={S.submitBtnText}>Generate Top {aiResultCount} AI Picks</Text>
+                }
+              </TouchableOpacity>
+            
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      <DropdownSheet
+        visible={showAiResultCountDropdown}
+        title="Select mentor result count"
+        options={AI_RESULT_COUNT_OPTIONS.map((count) => `Top ${count}`)}
+        onSelect={(value) => {
+          const parsed = Number(String(value).replace(/[^0-9]/g, ''));
+          if (!Number.isNaN(parsed) && parsed >= 1 && parsed <= 5) {
+            setAiResultCount(parsed);
+          }
+          setShowAiResultCountDropdown(false);
+        }}
+        onClose={() => setShowAiResultCountDropdown(false)}
+      />
+
       {/* ── Request Modal ── */}
       <Modal visible={modalVisible} transparent animationType="slide" onRequestClose={() => setModalVisible(false)}>
         <View style={S.modalOverlay}>
@@ -808,6 +1116,19 @@ export default function MentorHubScreen() {
               )}
 
               <Text style={S.fieldLabel}>Describe your goal</Text>
+              {selectedMentor && (
+                <TouchableOpacity
+                  style={S.aiPrefillBtn}
+                  onPress={() => {
+                    const text = buildAiPrefillMessage(selectedMentor.id);
+                    setDescription(text);
+                    Toast.show({ type: 'success', text1: 'Request prefilled from AI context' });
+                  }}
+                >
+                  <MaterialIcons name="auto-awesome" size={14} color="#0F766E" />
+                  <Text style={S.aiPrefillBtnText}>Use AI reason for this mentor</Text>
+                </TouchableOpacity>
+              )}
               <TextInput
                 style={S.textArea}
                 placeholder="What do you hope to achieve from this mentorship?"
@@ -832,19 +1153,21 @@ export default function MentorHubScreen() {
 
 // ── Mentor Card Component ──────────────────────────────────────
 
-function MentorCard({ mentor, Colors, S, onRequest, onViewProfile }: any) {
+function MentorCard({ mentor, Colors, S, onRequest, onViewProfile, aiPick }: any) {
   const name = mentor.profile?.full_name || 'Mentor';
   const roleColors = ROLE_BADGE_COLORS[mentor.role] || ROLE_BADGE_COLORS.alumni;
+  const department = String(mentor.profile?.department || mentor.department || '').trim();
+  const company = String(mentor.company || '').replace(/\s*,\s*/g, ', ').replace(/\s{2,}/g, ' ').trim();
+  const subtitle = [department, company].filter(Boolean).join(' · ');
 
   const activeMentees = Number(mentor?.active_mentees_count || 0);
   const maxMentees = Number(mentor?.max_mentees || 0);
   const availableSlots = Math.max(0, Number(mentor?.available_slots ?? (maxMentees - activeMentees)));
   const isFull = availableSlots <= 0;
-  const isDisabled = !mentor.available || isFull;
+  const isDisabled = isFull;
 
   let btnLabel = 'Request Mentorship';
-  if (!mentor.available) btnLabel = 'Unavailable';
-  else if (isFull) btnLabel = 'At Capacity';
+  if (isFull) btnLabel = 'Unavailable';
   else btnLabel = 'Request Mentor';
 
   return (
@@ -858,7 +1181,7 @@ function MentorCard({ mentor, Colors, S, onRequest, onViewProfile }: any) {
               <Text style={[S.roleText, { color: roleColors.text }]}>{mentor.role}</Text>
             </View>
           </View>
-          <Text style={S.cardSub}>{mentor.profile?.department || mentor.department || ''}{mentor.company ? ` · ${mentor.company}` : ''}</Text>
+          {!!subtitle && <Text style={S.cardSub} numberOfLines={2}>{subtitle}</Text>}
           {/* Capacity indicator */}
           <Text style={[S.capacityText, isFull && { color: '#EF4444' }]}>
             {`${availableSlots} slot${availableSlots !== 1 ? 's' : ''} available`}
@@ -870,13 +1193,13 @@ function MentorCard({ mentor, Colors, S, onRequest, onViewProfile }: any) {
               <Text style={S.mentorMetaText}>{mentor?.rating ? Number(mentor.rating).toFixed(1) : 'New'}</Text>
             </View>
             <View style={S.mentorMetaItem}>
-              <MaterialIcons name="calendar-today" size={16} color={mentor.available ? '#10B981' : '#9CA3AF'} />
-              <Text style={S.mentorMetaText}>{mentor.available ? 'Available' : 'Unavailable'}</Text>
+              <MaterialIcons name="calendar-today" size={16} color={isFull ? '#9CA3AF' : '#10B981'} />
+              <Text style={S.mentorMetaText}>{isFull ? 'Unavailable' : 'Available'}</Text>
             </View>
           </View>
         </View>
         {/* Availability dot top-right */}
-        <View style={[S.availDotLg, { backgroundColor: mentor.available ? '#10B981' : '#CBD5E1' }]} />
+        <View style={[S.availDotLg, { backgroundColor: isFull ? '#CBD5E1' : '#10B981' }]} />
       </View>
 
       {mentor.expertise_tags?.length > 0 && (
@@ -885,6 +1208,18 @@ function MentorCard({ mentor, Colors, S, onRequest, onViewProfile }: any) {
             <View key={tag} style={S.tag}>
               <Text style={S.tagText}>{tag}</Text>
             </View>
+          ))}
+        </View>
+      )}
+
+      {aiPick && (
+        <View style={S.aiReasonCard}>
+          <View style={S.aiReasonHeader}>
+            <Text style={S.aiReasonRank}>AI Rank #{aiPick.rank}</Text>
+            <Text style={S.aiReasonScore}>Score {aiPick.score}</Text>
+          </View>
+          {(aiPick.reasons || []).slice(0, 2).map((reason: string, idx: number) => (
+            <Text key={`${mentor.id}-reason-${idx}`} style={S.aiReasonText}>• {reason}</Text>
           ))}
         </View>
       )}
@@ -930,6 +1265,16 @@ const styles = (Colors: any) => StyleSheet.create({
     width: 34, height: 34, borderRadius: 10, backgroundColor: '#EEF2FF',
     alignItems: 'center', justifyContent: 'center',
   },
+  aiHeaderBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: '#ECFEFF',
+    borderWidth: 1,
+    borderColor: '#99F6E4',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
   chatBanner: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
@@ -963,6 +1308,45 @@ const styles = (Colors: any) => StyleSheet.create({
 
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: 12, paddingTop: 12, gap: 10, paddingBottom: 90 },
+  discoverQuickActionWrap: {
+    paddingHorizontal: 12,
+    paddingTop: 2,
+    paddingBottom: 4,
+  },
+  discoverQuickAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#ECFEFF',
+    borderWidth: 1,
+    borderColor: '#99F6E4',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+
+  aiCtaCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#ECFEFF',
+    borderWidth: 1,
+    borderColor: '#99F6E4',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    marginBottom: 2,
+  },
+  aiCtaIconWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#CCFBF1',
+  },
+  aiCtaTitle: { fontSize: 13, fontWeight: '800', color: '#0F766E' },
+  aiCtaSub: { fontSize: 11, color: '#115E59', fontWeight: '600', marginTop: 1 },
 
   chipRow: { flexDirection: 'row', gap: 7, paddingBottom: 2 },
   chip: {
@@ -972,6 +1356,30 @@ const styles = (Colors: any) => StyleSheet.create({
   chipActive: { backgroundColor: '#6366F1' },
   chipText: { fontSize: 12, fontWeight: '600', color: Colors.textSecondary },
   chipTextActive: { color: '#fff' },
+  aiChip: { borderColor: '#99F6E4', backgroundColor: '#ECFEFF' },
+  aiChipText: { fontSize: 12, fontWeight: '700', color: '#0F766E' },
+  aiSummaryBox: {
+    backgroundColor: '#ECFEFF',
+    borderWidth: 1,
+    borderColor: '#99F6E4',
+    borderRadius: 12,
+    padding: 10,
+    marginBottom: 4,
+    gap: 5,
+  },
+  aiSummaryHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  aiSummaryTitle: { fontSize: 12, color: '#0F766E', fontWeight: '700' },
+  aiSummaryText: { fontSize: 12, color: '#115E59', lineHeight: 17, fontWeight: '500' },
+  fallbackBadge: {
+    marginLeft: 'auto',
+    backgroundColor: '#FFEDD5',
+    borderColor: '#FDBA74',
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  fallbackBadgeText: { fontSize: 10, color: '#9A3412', fontWeight: '800' },
 
   card: {
     backgroundColor: 'rgba(255,255,255,0.85)', borderRadius: 20,
@@ -1000,6 +1408,19 @@ const styles = (Colors: any) => StyleSheet.create({
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   tag: { backgroundColor: '#4F46E514', paddingHorizontal: 9, paddingVertical: 4, borderRadius: 999 },
   tagText: { fontSize: 11, color: '#4F46E5', fontWeight: '600' },
+  aiReasonCard: {
+    backgroundColor: '#EEF2FF',
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 4,
+  },
+  aiReasonHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  aiReasonRank: { fontSize: 11, color: '#4338CA', fontWeight: '700' },
+  aiReasonScore: { fontSize: 11, color: '#6366F1', fontWeight: '700' },
+  aiReasonText: { fontSize: 11, color: '#3730A3', lineHeight: 16, fontWeight: '600' },
 
   requestBtn: {
     flex: 1,
@@ -1078,6 +1499,15 @@ const styles = (Colors: any) => StyleSheet.create({
     backgroundColor: Colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24,
     padding: 16, gap: 14,
   },
+  aiModalSheet: {
+    backgroundColor: Colors.surface,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 16,
+    maxHeight: '84%',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
+  },
   modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   modalTitle: { fontSize: FontSizes.lg, fontWeight: FontWeights.bold, color: Colors.text },
 
@@ -1100,11 +1530,44 @@ const styles = (Colors: any) => StyleSheet.create({
 
   helperBox: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 2 },
   helperText: { fontSize: 11, color: '#6B7280', fontStyle: 'italic', lineHeight: 16 },
+  aiPrefillBtn: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#ECFEFF',
+    borderWidth: 1,
+    borderColor: '#99F6E4',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  aiPrefillBtnText: {
+    fontSize: 11,
+    color: '#0F766E',
+    fontWeight: '700',
+  },
 
   textArea: {
     borderWidth: 1, borderColor: Colors.border, borderRadius: BorderRadius.md,
     padding: 11, minHeight: 90, color: Colors.text, fontSize: FontSizes.sm,
     backgroundColor: 'transparent',
+  },
+  aiCountDropdownBtn: {
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: BorderRadius.md,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.surface,
+  },
+  aiCountDropdownText: {
+    fontSize: FontSizes.sm,
+    fontWeight: FontWeights.semibold,
+    color: Colors.text,
   },
   submitBtn: { backgroundColor: '#4F46E5', borderRadius: BorderRadius.md, paddingVertical: 14, alignItems: 'center' },
   submitBtnText: { color: '#fff', fontWeight: FontWeights.bold, fontSize: FontSizes.md },

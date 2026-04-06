@@ -11,6 +11,7 @@ import {
   TextInput,
   Modal,
   Alert,
+  Linking,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
@@ -26,7 +27,6 @@ import {
   deleteProjectTeam,
   updateProjectStatus,
   sendJoinRequest,
-  sendProjectInvite,
   getUserJoinRequestStatus,
   getTeamJoinRequests,
   acceptJoinRequest,
@@ -43,14 +43,23 @@ import { ProjectTeam, ReportContentType } from '../../types/database';
 import { UserAvatar } from '../../components/UserAvatar';
 import ReportModal from '../../components/ReportModal';
 import { ConfirmBottomSheet } from '../../components/ConfirmBottomSheet';
+import DropdownSheet from '../../components/DropdownSheet';
 import { getProjectStatusColor, getTeamFillColor, PROJECT_STATUS_OPTIONS } from '../../utils/semanticColors';
 import { createNotification } from '../../api/notifications';
 import { supabase } from '../../api/supabase';
-import { computeMatchScore, detectSkillRoles, ParticipantWithMatch, sortByMatch } from '../../utils/matchingUtils';
 import { isAdminRole } from '../../utils/roles';
+import { suggestBestProjectMembers } from '../../api/ai';
 
 type ProjectDetailsScreenNavigationProp = StackNavigationProp<RootStackParamList, 'ProjectDetails'>;
 type ProjectDetailsScreenRouteProp = RouteProp<RootStackParamList, 'ProjectDetails'>;
+
+const PROJECT_CATEGORIES = [
+  'Web App', 'Mobile App', 'AI/ML', 'IoT', 'Game',
+  'API/Backend', 'Desktop App', 'Data Science', 'Other',
+];
+
+const AI_RESULT_COUNT_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
 
 interface JoinRequest {
   id: string;
@@ -83,14 +92,7 @@ export default function ProjectDetailsScreen() {
   const [error, setError] = useState('');
   const [joinRequestStatus, setJoinRequestStatus] = useState<any>(null);
   const [pendingJoinRequests, setPendingJoinRequests] = useState<JoinRequest[]>([]);
-  const [showInviteModal, setShowInviteModal] = useState(false);
-  const [inviteSearch, setInviteSearch] = useState('');
-  const [inviteCandidates, setInviteCandidates] = useState<ParticipantWithMatch[]>([]);
-  const [isLoadingInvitees, setIsLoadingInvitees] = useState(false);
-  const [invitingUserId, setInvitingUserId] = useState<string | null>(null);
-  const [invitedUserIds, setInvitedUserIds] = useState<Set<string>>(new Set());
   const [isHandlingInvite, setIsHandlingInvite] = useState(false);
-  const [inviteFilter, setInviteFilter] = useState<'all' | 'best' | 'dept'>('all');
   const [showRemoveMentorConfirmation, setShowRemoveMentorConfirmation] = useState(false);
   const [isRemovingMentor, setIsRemovingMentor] = useState(false);
   const [hasPendingProjectMentorRequest, setHasPendingProjectMentorRequest] = useState(false);
@@ -108,6 +110,8 @@ export default function ProjectDetailsScreen() {
   const [editProjectDescription, setEditProjectDescription] = useState('');
   const [editProjectCategory, setEditProjectCategory] = useState('');
   const [editMaxMembers, setEditMaxMembers] = useState('');
+  const [editGithubUrl, setEditGithubUrl] = useState('');
+  const [editDemoUrl, setEditDemoUrl] = useState('');
 
   // Join request modal
   const [showJoinRequestModal, setShowJoinRequestModal] = useState(false);
@@ -135,6 +139,10 @@ export default function ProjectDetailsScreen() {
   // Project mentorship chat
   const [projectChatId, setProjectChatId] = useState<string | null>(null);
   const [isOpeningProjectChat, setIsOpeningProjectChat] = useState(false);
+  const [isGeneratingAiPicks, setIsGeneratingAiPicks] = useState(false);
+  const [aiResultCount, setAiResultCount] = useState(5);
+  const [showAiCountModal, setShowAiCountModal] = useState(false);
+  const [showAiCountDropdown, setShowAiCountDropdown] = useState(false);
 
   // Member action sheet (3-dot menu)
   const [memberActionTarget, setMemberActionTarget] = useState<any>(null);
@@ -171,11 +179,6 @@ export default function ProjectDetailsScreen() {
     closedProjectStatuses.has(normalizedProjectStatus.replace(/-/g, ' '));
   const isRecruitingOpen = team?.is_recruiting !== false;
   const isRecruitingBlocked = isProjectClosedForRecruitment || !isRecruitingOpen;
-  const requiredRoles = useMemo(
-    () => detectSkillRoles(team?.required_skills ?? []),
-    [team?.required_skills]
-  );
-
   const isInviteMessage = useCallback((message?: string) => {
     return typeof message === 'string' && message.startsWith('[INVITE]');
   }, []);
@@ -285,86 +288,6 @@ export default function ProjectDetailsScreen() {
     }
   };
 
-  useEffect(() => {
-    if (!pendingInvites.length) {
-      setInvitedUserIds(new Set());
-      return;
-    }
-    setInvitedUserIds(new Set(pendingInvites.map((invite) => invite.user_id)));
-  }, [pendingInvites]);
-
-  const getMatchColor = (pct: number) => {
-    if (pct >= 75) return '#10b981';
-    if (pct >= 40) return '#f59e0b';
-    return '#6b7280';
-  };
-
-  // Track whether candidates have been loaded for the current modal open
-  const candidatesLoadedRef = React.useRef(false);
-
-  const loadInviteCandidates = useCallback(async () => {
-    if (!team || !canManageTeam) return;
-
-    try {
-      setIsLoadingInvitees(true);
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id, full_name, email, avatar_url, department, year, skills, role');
-
-      if (error) throw error;
-
-      const memberIds = new Set<string>((team.members || []).map((member: any) => member.id).filter(Boolean));
-      if (team.created_by) {
-        memberIds.add(team.created_by);
-      }
-      if ((team as any).mentor_id) {
-        memberIds.add((team as any).mentor_id);
-      }
-      const pendingIds = new Set(pendingJoinRequests.map((request) => request.user_id));
-      if (user?.id) {
-        memberIds.add(user.id);
-      }
-
-      const filtered = (data || [])
-        .filter((profileItem: any) => !memberIds.has(profileItem.id))
-        .filter((profileItem: any) => !pendingIds.has(profileItem.id))
-        .map((profileItem: any) => ({
-          id: profileItem.id,
-          full_name: profileItem.full_name,
-          avatar_url: profileItem.avatar_url,
-          department: profileItem.department,
-          year: profileItem.year,
-          skills: profileItem.skills ?? [],
-        }));
-
-      const sorted = sortByMatch(filtered, requiredRoles);
-      setInviteCandidates(sorted);
-    } catch (err: any) {
-      Toast.show({
-        type: 'error',
-        text1: 'Failed to load users',
-        text2: err?.message || 'Unable to load invite list',
-      });
-    } finally {
-      setIsLoadingInvitees(false);
-    }
-    // Only re-run when team/required skills change, NOT on every displayMembers change
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [team?.id, requiredRoles, canManageTeam]);
-
-  useEffect(() => {
-    if (showInviteModal) {
-      // Only load once per modal open, not on every dep change
-      if (!candidatesLoadedRef.current) {
-        candidatesLoadedRef.current = true;
-        loadInviteCandidates();
-      }
-    } else {
-      // Reset flag when modal closes so next open reloads
-      candidatesLoadedRef.current = false;
-    }
-  }, [showInviteModal, loadInviteCandidates]);
-
   const handleStatusChange = async (newStatus: string) => {
     if (!team || !canManageTeam) return;
 
@@ -397,6 +320,8 @@ export default function ProjectDetailsScreen() {
     setEditProjectDescription(team.description || '');
     setEditProjectCategory(team.category || '');
     setEditMaxMembers(String(Math.max(safeMaxMembers, safeMembersCount, 2)));
+    setEditGithubUrl((team as any).github_url || '');
+    setEditDemoUrl((team as any).demo_url || '');
     setShowEditProjectModal(true);
   };
 
@@ -443,6 +368,8 @@ export default function ProjectDetailsScreen() {
         description: nextDescription,
         category: nextCategory || null,
         max_members: parsedMaxMembers,
+        github_url: editGithubUrl.trim() || null,
+        demo_url: editDemoUrl.trim() || null,
       } as any);
 
       Toast.show({
@@ -520,7 +447,69 @@ export default function ProjectDetailsScreen() {
       });
       return;
     }
-    setShowInviteModal(true);
+    navigation.navigate('ProjectInviteMembers', { teamId });
+  };
+
+  const handleGenerateAiPicks = async () => {
+    if (!isCreator || !team?.id || !user?.id || isGeneratingAiPicks) return;
+
+    if (isRecruitingBlocked) {
+      Toast.show({
+        type: 'info',
+        text1: 'Invites Disabled',
+        text2: isProjectClosedForRecruitment
+          ? `This project is ${normalizedProjectStatus.replace(/-/g, ' ')}.`
+          : 'Recruitment is currently closed for this project.',
+      });
+      return;
+    }
+
+    if (isTeamFull) {
+      Toast.show({
+        type: 'info',
+        text1: 'Team Full',
+        text2: 'This project has reached the maximum members.',
+      });
+      return;
+    }
+
+    try {
+      setIsGeneratingAiPicks(true);
+      const result = await suggestBestProjectMembers(team.id, {
+        requestingUserId: user.id,
+        maxCandidates: Math.max(8, aiResultCount * 2),
+        resultCount: aiResultCount,
+      });
+
+      const aiUserIds = (result.candidates || []).map((candidate) => candidate.id).filter(Boolean);
+      navigation.navigate('ProjectInviteMembers', {
+        teamId,
+        aiRecommendedUserIds: aiUserIds,
+        openWithAiPicks: true,
+        aiFallbackMode: Boolean(result.usedFallback),
+      });
+
+      Toast.show({
+        type: result.usedFallback ? 'info' : 'success',
+        text1: result.usedFallback
+          ? 'Fallback picks generated'
+          : result.fromCache
+            ? 'AI picks loaded from cache'
+            : 'AI picks generated',
+        text2: result.usedFallback
+          ? `${aiUserIds.length} users ranked locally because backend AI is unavailable.`
+          : `Top ${aiUserIds.length} AI-recommended users are ready to invite.`,
+      });
+    } catch (err: any) {
+      console.error('Failed to generate AI team picks', err);
+      Toast.show({
+        type: 'error',
+        text1: 'AI suggestion failed',
+        text2: err?.message || 'Could not generate suggestions right now',
+      });
+    } finally {
+      setIsGeneratingAiPicks(false);
+    }
   };
 
   const handleSendJoinRequest = async () => {
@@ -588,61 +577,6 @@ export default function ProjectDetailsScreen() {
       });
     } finally {
       setIsSendingRequest(false);
-    }
-  };
-
-  const handleInviteUser = async (userId: string) => {
-    if (!team || !canManageTeam || !user?.id) return;
-
-    if (isRecruitingBlocked) {
-      Toast.show({
-        type: 'error',
-        text1: 'Cannot Invite',
-        text2: isProjectClosedForRecruitment
-          ? `This project is ${normalizedProjectStatus.replace(/-/g, ' ')}`
-          : 'Recruitment is currently closed for this project.',
-      });
-      return;
-    }
-
-    if (isTeamFull) {
-      Toast.show({
-        type: 'error',
-        text1: 'Team Full',
-        text2: 'This project already has the maximum members.',
-      });
-      return;
-    }
-
-    try {
-      setInvitingUserId(userId);
-      const inviteRequest: any = await sendProjectInvite(teamId, userId, profile?.full_name || user.email || 'Team leader');
-
-      await createNotification({
-        user_id: userId,
-        title: 'Project Invitation',
-        body: `${profile?.full_name || user.email || 'A team leader'} invited you to join ${team.name}`,
-        type: 'project_invite',
-        related_id: teamId,
-        metadata: {
-          project_request_id: inviteRequest?.id,
-          requester_user_id: user.id,
-          team_id: teamId,
-        },
-      });
-
-      // Update local state only — avoids modal glitch from full screen reload
-      setInvitedUserIds((prev) => new Set([...prev, userId]));
-      setInviteCandidates((prev) => prev.filter((c) => c.id !== userId));
-      Toast.show({ type: 'success', text1: 'Invitation sent' });
-    } catch (err: any) {
-      Toast.show({
-        type: 'error',
-        text1: 'Invite Failed',
-        text2: err?.message || 'Unable to send invite',
-      });
-    } finally {
-      setInvitingUserId(null);
     }
   };
 
@@ -782,7 +716,6 @@ export default function ProjectDetailsScreen() {
 
       Toast.show({ type: 'info', text1: 'Invite cancelled' });
       await loadTeamData();
-      await loadInviteCandidates();
     } catch (err: any) {
       Toast.show({
         type: 'error',
@@ -1141,29 +1074,6 @@ export default function ProjectDetailsScreen() {
     );
   };
 
-  const filteredInviteCandidates = useMemo(() => {
-    const query = inviteSearch.trim().toLowerCase();
-    let list = inviteCandidates;
-
-    if (inviteFilter === 'best') {
-      list = list.slice(0, 10);
-    }
-
-    if (inviteFilter === 'dept' && profile?.department) {
-      const dept = profile.department.toLowerCase().trim();
-      list = list.filter((candidate) => (candidate.department || '').toLowerCase().trim() === dept);
-    }
-
-    if (!query) return list;
-
-    return list.filter((candidate) => {
-      const name = (candidate.full_name || '').toLowerCase();
-      const dept = (candidate.department || '').toLowerCase();
-      const skills = (candidate.skills || []).join(' ').toLowerCase();
-      return name.includes(query) || dept.includes(query) || skills.includes(query);
-    });
-  }, [inviteCandidates, inviteSearch, inviteFilter, profile?.department]);
-
   return (
     <SafeAreaView style={styles.container}>
       {/* Header */}
@@ -1264,6 +1174,22 @@ export default function ProjectDetailsScreen() {
                     {isTeamFull ? 'Team Full' : isRecruitingBlocked ? 'Recruiting Closed' : 'Invite'}
                   </Text>
                 </TouchableOpacity>
+                {isCreator && (
+                  <TouchableOpacity
+                    style={[styles.actionBtn, { borderColor: '#0f766e' }, isGeneratingAiPicks && { opacity: 0.7 }]}
+                    onPress={() => setShowAiCountModal(true)}
+                    disabled={isGeneratingAiPicks}
+                  >
+                    {isGeneratingAiPicks ? (
+                      <ActivityIndicator size="small" color="#0f766e" />
+                    ) : (
+                      <MaterialIcons name="auto-awesome" size={16} color="#0f766e" />
+                    )}
+                    <Text style={[styles.actionBtnText, { color: '#0f766e' }]}>
+                      {isGeneratingAiPicks ? 'Thinking...' : 'AI Picks'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
                 <TouchableOpacity
                   style={[styles.actionBtn, { borderColor: '#dc2626' }]}
                   onPress={() => setShowDeleteProjectConfirmation(true)}
@@ -1368,6 +1294,45 @@ export default function ProjectDetailsScreen() {
                   </View>
                 ))}
               </View>
+            </View>
+          )}
+
+          {/* Project Links */}
+          {((team as any)?.github_url || (team as any)?.demo_url) && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Project Links</Text>
+              {(team as any)?.github_url && (
+                <TouchableOpacity
+                  style={styles.linkRow}
+                  onPress={() => Linking.openURL((team as any).github_url)}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.linkRowIcon, { backgroundColor: '#eef2ff' }]}>
+                    <MaterialIcons name="code" size={18} color="#4f46e5" />
+                  </View>
+                  <View style={styles.linkRowContent}>
+                    <Text style={styles.linkRowLabel}>GitHub Repository</Text>
+                    <Text style={styles.linkRowUrl} numberOfLines={1}>{(team as any).github_url}</Text>
+                  </View>
+                  <MaterialIcons name="open-in-new" size={16} color={Colors.textSecondary} />
+                </TouchableOpacity>
+              )}
+              {(team as any)?.demo_url && (
+                <TouchableOpacity
+                  style={styles.linkRow}
+                  onPress={() => Linking.openURL((team as any).demo_url)}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.linkRowIcon, { backgroundColor: '#ecfeff' }]}>
+                    <MaterialIcons name="language" size={18} color="#0891b2" />
+                  </View>
+                  <View style={styles.linkRowContent}>
+                    <Text style={styles.linkRowLabel}>Live Demo</Text>
+                    <Text style={styles.linkRowUrl} numberOfLines={1}>{(team as any).demo_url}</Text>
+                  </View>
+                  <MaterialIcons name="open-in-new" size={16} color={Colors.textSecondary} />
+                </TouchableOpacity>
+              )}
             </View>
           )}
 
@@ -1531,8 +1496,6 @@ export default function ProjectDetailsScreen() {
               {displayMembers.map((member) => {
                 const isLeader = member.id === creatorId;
                 const isAdminMember = isAdminRole(member.role);
-                const matchInfo = computeMatchScore(member.skills ?? [], requiredRoles);
-                const matchColor = getMatchColor(matchInfo.percentage);
                 const canShowMenu = isCreator && !isLeader && !isAdminMember;
                 return (
                   <View key={member.id} style={styles.memberCard}>
@@ -1562,12 +1525,6 @@ export default function ProjectDetailsScreen() {
                       </View>
                     </TouchableOpacity>
                     <View style={styles.memberActions}>
-                      <View style={[styles.memberMatchBadge, { borderColor: matchColor }]}>
-                        <Text style={[styles.memberMatchPct, { color: matchColor }]}>
-                          {matchInfo.percentage}%
-                        </Text>
-                        <Text style={styles.memberMatchLabel}>match</Text>
-                      </View>
                       {canShowMenu && (
                         <TouchableOpacity
                           style={styles.memberMenuDots}
@@ -1616,6 +1573,67 @@ export default function ProjectDetailsScreen() {
           <View style={{ height: 40 }} />
         </ScrollView>
       )}
+
+      {/* Status Change Modal */}
+      <Modal
+        visible={showAiCountModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowAiCountModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowAiCountModal(false)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.aiCountModal}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>AI Picks</Text>
+            <Text style={styles.modalSubtitle}>Choose how many top AI results to show (max 10).</Text>
+
+            <TouchableOpacity
+              style={styles.aiCountPickerBtn}
+              onPress={() => setShowAiCountDropdown(true)}
+            >
+              <Text style={styles.aiCountPickerText}>Top {aiResultCount}</Text>
+              <MaterialIcons name="keyboard-arrow-down" size={20} color={Colors.textSecondary} />
+            </TouchableOpacity>
+
+            <View style={styles.aiCountActions}>
+              <TouchableOpacity
+                style={styles.joinModalCancel}
+                onPress={() => setShowAiCountModal(false)}
+              >
+                <Text style={styles.joinModalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.joinModalSend, isGeneratingAiPicks && { opacity: 0.7 }]}
+                onPress={async () => {
+                  setShowAiCountModal(false);
+                  await handleGenerateAiPicks();
+                }}
+                disabled={isGeneratingAiPicks}
+              >
+                <Text style={styles.joinModalSendText}>{isGeneratingAiPicks ? 'Thinking...' : 'Confirm'}</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      <DropdownSheet
+        visible={showAiCountDropdown}
+        title="Select AI result count"
+        options={AI_RESULT_COUNT_OPTIONS.map((count) => `Top ${count}`)}
+        onSelect={(value) => {
+          const parsed = Number(String(value).replace(/[^0-9]/g, ''));
+          if (!Number.isNaN(parsed) && parsed >= 1 && parsed <= 10) {
+            setAiResultCount(parsed);
+          }
+          setShowAiCountDropdown(false);
+        }}
+        onClose={() => setShowAiCountDropdown(false)}
+      />
 
       {/* Status Change Modal */}
       <Modal
@@ -1702,149 +1720,11 @@ export default function ProjectDetailsScreen() {
         </TouchableOpacity>
       </Modal>
 
-      {/* Invite Members Modal */}
-      <Modal
-        visible={showInviteModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowInviteModal(false)}
-      >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowInviteModal(false)}
-        >
-          <TouchableOpacity activeOpacity={1} style={styles.inviteModal}>
-            <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>Invite Members</Text>
-            <Text style={styles.modalSubtitle}>
-              Find users and invite them to join this project.
-            </Text>
-            <TextInput
-              style={styles.inviteSearchInput}
-              placeholder="Search by name, department, or skill"
-              placeholderTextColor={Colors.textSecondary}
-              value={inviteSearch}
-              onChangeText={setInviteSearch}
-            />
-            <View style={styles.inviteFilterTabs}>
-              <TouchableOpacity
-                style={[styles.inviteFilterTab, inviteFilter === 'all' && styles.inviteFilterTabActive]}
-                onPress={() => setInviteFilter('all')}
-              >
-                <Text style={[styles.inviteFilterText, inviteFilter === 'all' && styles.inviteFilterTextActive]}>All</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.inviteFilterTab, inviteFilter === 'best' && styles.inviteFilterTabActive]}
-                onPress={() => setInviteFilter('best')}
-              >
-                <Text style={[styles.inviteFilterText, inviteFilter === 'best' && styles.inviteFilterTextActive]}>Best match</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.inviteFilterTab, inviteFilter === 'dept' && styles.inviteFilterTabActive]}
-                onPress={() => setInviteFilter('dept')}
-              >
-                <Text style={[styles.inviteFilterText, inviteFilter === 'dept' && styles.inviteFilterTextActive]}>Same dept</Text>
-              </TouchableOpacity>
-            </View>
-            {inviteFilter === 'dept' && !profile?.department && (
-              <Text style={styles.inviteFilterHint}>Set your department to filter by department.</Text>
-            )}
-            {isTeamFull ? (
-              <View style={styles.inviteEmpty}>
-                <Text style={styles.inviteEmptyTitle}>Team Full</Text>
-                <Text style={styles.inviteEmptySubtitle}>
-                  This project already has the maximum members.
-                </Text>
-              </View>
-            ) : isLoadingInvitees ? (
-              <View style={styles.inviteLoading}>
-                <ActivityIndicator size="small" color={Colors.primary} />
-                <Text style={styles.inviteLoadingText}>Loading users...</Text>
-              </View>
-            ) : filteredInviteCandidates.length === 0 ? (
-              <View style={styles.inviteEmpty}>
-                <Text style={styles.inviteEmptyTitle}>No users available</Text>
-                <Text style={styles.inviteEmptySubtitle}>
-                  Everyone is already on the team or has a pending request.
-                </Text>
-              </View>
-            ) : (
-              <ScrollView style={styles.inviteList} showsVerticalScrollIndicator={false}>
-                {filteredInviteCandidates.map((candidate) => {
-                  const matchColor = getMatchColor(candidate.match.percentage);
-                  const isInvited = invitedUserIds.has(candidate.id);
-                  const pendingInvite = pendingInvites.find((invite) => invite.user_id === candidate.id);
-                  return (
-                    <View key={candidate.id} style={styles.inviteCard}>
-                      <TouchableOpacity
-                        style={styles.inviteInfo}
-                        onPress={() => navigation.navigate('PublicProfile', { userId: candidate.id })}
-                      >
-                        <UserAvatar
-                          uri={candidate.avatar_url}
-                          name={candidate.full_name || 'User'}
-                          size={44}
-                          role={undefined}
-                          showRing
-                        />
-                        <View style={styles.inviteDetails}>
-                          <Text style={styles.inviteName}>{candidate.full_name || 'Anonymous'}</Text>
-                          <Text style={styles.inviteMeta}>
-                            {[candidate.department, candidate.year ? `Year ${candidate.year}` : null]
-                              .filter(Boolean)
-                              .join(' • ')}
-                          </Text>
-                        </View>
-                      </TouchableOpacity>
-                      <View style={styles.inviteActions}>
-                        <View style={[styles.inviteMatchBadge, { borderColor: matchColor }]}>
-                          <Text style={[styles.inviteMatchPct, { color: matchColor }]}>
-                            {candidate.match.percentage}%
-                          </Text>
-                          <Text style={styles.inviteMatchLabel}>match</Text>
-                        </View>
-                        {isInvited && pendingInvite ? (
-                          <TouchableOpacity
-                            style={styles.inviteCancelButton}
-                            onPress={() => handleCancelInvite(pendingInvite)}
-                          >
-                            <Text style={styles.inviteCancelText}>Cancel Invite</Text>
-                          </TouchableOpacity>
-                        ) : (
-                          <TouchableOpacity
-                            style={[
-                              styles.inviteActionButton,
-                              (invitingUserId === candidate.id || isInvited) && styles.inviteActionButtonDisabled,
-                            ]}
-                            onPress={() => handleInviteUser(candidate.id)}
-                            disabled={invitingUserId === candidate.id || isInvited}
-                          >
-                            {invitingUserId === candidate.id ? (
-                              <ActivityIndicator size="small" color="#fff" />
-                            ) : (
-                              <Text style={styles.inviteActionText}>
-                                {isInvited ? 'Invited' : 'Invite'}
-                              </Text>
-                            )}
-                          </TouchableOpacity>
-                        )}
-                      </View>
-                    </View>
-                  );
-                })}
-                <View style={{ height: 24 }} />
-              </ScrollView>
-            )}
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
-
       {/* Edit Project Modal */}
       <Modal
         visible={showEditProjectModal}
         transparent
-        animationType="fade"
+        animationType="slide"
         onRequestClose={() => setShowEditProjectModal(false)}
       >
         <TouchableOpacity
@@ -1852,59 +1732,132 @@ export default function ProjectDetailsScreen() {
           activeOpacity={1}
           onPress={() => setShowEditProjectModal(false)}
         >
-          <TouchableOpacity activeOpacity={1} style={styles.joinModal}>
+          <TouchableOpacity activeOpacity={1} style={styles.editModal}>
             <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>Edit Project</Text>
-            <Text style={styles.modalSubtitle}>Update basic project details</Text>
-            <Text style={styles.editFieldLabel}>Project Name</Text>
-            <TextInput
-              style={styles.joinInput}
-              placeholder="Project name"
-              placeholderTextColor={Colors.textSecondary}
-              value={editProjectName}
-              onChangeText={setEditProjectName}
-            />
-            <Text style={styles.editFieldLabel}>Description</Text>
-            <TextInput
-              style={[styles.joinInput, { minHeight: 96 }]}
-              placeholder="Project description"
-              placeholderTextColor={Colors.textSecondary}
-              multiline
-              value={editProjectDescription}
-              onChangeText={setEditProjectDescription}
-            />
-            <Text style={styles.editFieldLabel}>Category</Text>
-            <TextInput
-              style={styles.joinInput}
-              placeholder="Category"
-              placeholderTextColor={Colors.textSecondary}
-              value={editProjectCategory}
-              onChangeText={setEditProjectCategory}
-            />
-            <Text style={styles.editFieldLabel}>Max Members</Text>
-            <TextInput
-              style={styles.joinInput}
-              placeholder="Max members"
-              placeholderTextColor={Colors.textSecondary}
-              keyboardType="number-pad"
-              value={editMaxMembers}
-              onChangeText={setEditMaxMembers}
-            />
-            <View style={styles.joinModalActions}>
+            {/* Fixed header */}
+            <View style={styles.editModalHeader}>
+              <View>
+                <Text style={styles.modalTitle}>Edit Project</Text>
+                <Text style={styles.modalSubtitle}>Update project details</Text>
+              </View>
               <TouchableOpacity
-                style={styles.joinModalCancel}
-                onPress={() => setShowEditProjectModal(false)}
-              >
-                <Text style={styles.joinModalCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.joinModalSend}
+                style={[styles.editSaveBtn, isSavingProject && { opacity: 0.6 }]}
                 onPress={handleSaveProjectEdits}
                 disabled={isSavingProject}
               >
-                <Text style={styles.joinModalSendText}>{isSavingProject ? 'Saving...' : 'Save'}</Text>
+                <Text style={styles.editSaveBtnText}>{isSavingProject ? 'Saving…' : 'Save'}</Text>
               </TouchableOpacity>
             </View>
+
+            {/* Scrollable content */}
+            <ScrollView
+              style={styles.editModalScroll}
+              contentContainerStyle={styles.editModalScrollContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              {/* Project Name */}
+              <Text style={styles.editFieldLabel}>Project Name *</Text>
+              <TextInput
+                style={styles.editInput}
+                placeholder="Enter project name"
+                placeholderTextColor={Colors.textSecondary}
+                value={editProjectName}
+                onChangeText={setEditProjectName}
+              />
+
+              {/* Description */}
+              <Text style={styles.editFieldLabel}>Description *</Text>
+              <TextInput
+                style={styles.editInputMultiline}
+                placeholder="Describe your project…"
+                placeholderTextColor={Colors.textSecondary}
+                multiline
+                numberOfLines={4}
+                value={editProjectDescription}
+                onChangeText={setEditProjectDescription}
+              />
+
+              {/* Category — chip selector */}
+              <Text style={styles.editFieldLabel}>Category</Text>
+              <View style={styles.editCategoryGrid}>
+                {PROJECT_CATEGORIES.map((cat) => {
+                  const active = editProjectCategory === cat;
+                  return (
+                    <TouchableOpacity
+                      key={cat}
+                      style={[styles.editCategoryChip, active && styles.editCategoryChipActive]}
+                      onPress={() => setEditProjectCategory(active ? '' : cat)}
+                    >
+                      <Text style={[styles.editCategoryChipText, active && styles.editCategoryChipTextActive]}>
+                        {cat}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {/* Max Members — stepper */}
+              <Text style={styles.editFieldLabel}>Max Members</Text>
+              <View style={styles.editStepper}>
+                <TouchableOpacity
+                  style={[styles.editStepperBtn, Number(editMaxMembers) <= safeMembersCount && styles.editStepperBtnDisabled]}
+                  onPress={() => {
+                    const n = Number(editMaxMembers);
+                    if (n > safeMembersCount) setEditMaxMembers(String(n - 1));
+                  }}
+                  disabled={Number(editMaxMembers) <= safeMembersCount}
+                >
+                  <MaterialIcons name="remove" size={18} color={Number(editMaxMembers) <= safeMembersCount ? Colors.textSecondary : '#4f46e5'} />
+                </TouchableOpacity>
+                <View style={styles.editStepperValue}>
+                  <Text style={styles.editStepperValueText}>{editMaxMembers}</Text>
+                  <Text style={styles.editStepperHint}>/{safeMaxMembers} current max · {safeMembersCount} members</Text>
+                </View>
+                <TouchableOpacity
+                  style={[styles.editStepperBtn, Number(editMaxMembers) >= 10 && styles.editStepperBtnDisabled]}
+                  onPress={() => {
+                    const n = Number(editMaxMembers);
+                    if (n < 10) setEditMaxMembers(String(n + 1));
+                  }}
+                  disabled={Number(editMaxMembers) >= 10}
+                >
+                  <MaterialIcons name="add" size={18} color={Number(editMaxMembers) >= 10 ? Colors.textSecondary : '#4f46e5'} />
+                </TouchableOpacity>
+              </View>
+
+              {/* GitHub URL */}
+              <Text style={styles.editFieldLabel}>GitHub Repository</Text>
+              <View style={styles.editInputRow}>
+                <MaterialIcons name="code" size={18} color="#4f46e5" style={styles.editInputIcon} />
+                <TextInput
+                  style={styles.editInputInner}
+                  placeholder="https://github.com/username/repo"
+                  placeholderTextColor={Colors.textSecondary}
+                  value={editGithubUrl}
+                  onChangeText={setEditGithubUrl}
+                  autoCapitalize="none"
+                  keyboardType="url"
+                />
+              </View>
+
+              {/* Demo URL */}
+              <Text style={styles.editFieldLabel}>Demo / Live URL</Text>
+              <View style={styles.editInputRow}>
+                <MaterialIcons name="language" size={18} color="#0891b2" style={styles.editInputIcon} />
+                <TextInput
+                  style={styles.editInputInner}
+                  placeholder="https://your-demo.com"
+                  placeholderTextColor={Colors.textSecondary}
+                  value={editDemoUrl}
+                  onChangeText={setEditDemoUrl}
+                  autoCapitalize="none"
+                  keyboardType="url"
+                />
+              </View>
+
+              <View style={{ height: 16 }} />
+            </ScrollView>
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
@@ -2269,6 +2222,35 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       fontSize: FontSizes.xs,
       fontWeight: FontWeights.semibold,
     },
+    aiCountModal: {
+      width: '100%',
+      maxWidth: 420,
+      borderRadius: BorderRadius.xl,
+      padding: Spacing.lg,
+      backgroundColor: Colors.card,
+      gap: 12,
+      ...Shadows.md,
+    },
+    aiCountPickerBtn: {
+      borderWidth: 1,
+      borderColor: Colors.border,
+      borderRadius: BorderRadius.lg,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      backgroundColor: Colors.surface,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    aiCountPickerText: {
+      fontSize: FontSizes.md,
+      fontWeight: FontWeights.semibold,
+      color: Colors.text,
+    },
+    aiCountActions: {
+      flexDirection: 'row',
+      gap: Spacing.sm,
+    },
     roleActions: {
       flexDirection: 'row',
       gap: Spacing.sm,
@@ -2627,23 +2609,6 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       color: Colors.textSecondary,
       marginTop: 2,
     },
-    memberMatchBadge: {
-      width: 54,
-      height: 54,
-      borderRadius: 27,
-      borderWidth: 2,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    memberMatchPct: {
-      fontSize: FontSizes.sm,
-      fontWeight: FontWeights.bold,
-    },
-    memberMatchLabel: {
-      fontSize: 10,
-      color: Colors.textSecondary,
-      marginTop: -2,
-    },
     removeMemberButton: {
       width: 32,
       height: 32,
@@ -2799,11 +2764,152 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       padding: Spacing.md,
       fontSize: FontSizes.md,
       color: Colors.text,
-      minHeight: 100,
       textAlignVertical: 'top',
       marginBottom: Spacing.md,
       borderWidth: 1,
       borderColor: Colors.border,
+    },
+    // Edit Project Modal
+    editModal: {
+      backgroundColor: Colors.surface,
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      maxHeight: '90%',
+      paddingTop: Spacing.md,
+    },
+    editModalHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: Spacing.lg,
+      paddingBottom: Spacing.md,
+      borderBottomWidth: 1,
+      borderBottomColor: Colors.border,
+    },
+    editSaveBtn: {
+      backgroundColor: '#4f46e5',
+      paddingHorizontal: 18,
+      paddingVertical: 9,
+      borderRadius: BorderRadius.full,
+    },
+    editSaveBtnText: {
+      color: '#fff',
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.bold,
+    },
+    editModalScroll: {
+      flexGrow: 0,
+    },
+    editModalScrollContent: {
+      paddingHorizontal: Spacing.lg,
+      paddingTop: Spacing.md,
+      paddingBottom: Spacing.xl,
+    },
+    editInput: {
+      backgroundColor: Colors.card,
+      borderRadius: BorderRadius.lg,
+      paddingHorizontal: Spacing.md,
+      paddingVertical: 11,
+      fontSize: FontSizes.md,
+      color: Colors.text,
+      marginBottom: Spacing.md,
+      borderWidth: 1,
+      borderColor: Colors.border,
+    },
+    editInputMultiline: {
+      backgroundColor: Colors.card,
+      borderRadius: BorderRadius.lg,
+      paddingHorizontal: Spacing.md,
+      paddingVertical: 11,
+      fontSize: FontSizes.md,
+      color: Colors.text,
+      marginBottom: Spacing.md,
+      borderWidth: 1,
+      borderColor: Colors.border,
+      minHeight: 96,
+      textAlignVertical: 'top',
+    },
+    editInputRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: Colors.card,
+      borderRadius: BorderRadius.lg,
+      borderWidth: 1,
+      borderColor: Colors.border,
+      paddingHorizontal: Spacing.md,
+      marginBottom: Spacing.md,
+    },
+    editInputIcon: {
+      marginRight: 8,
+    },
+    editInputInner: {
+      flex: 1,
+      fontSize: FontSizes.md,
+      color: Colors.text,
+      paddingVertical: 11,
+    },
+    editCategoryGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+      marginBottom: Spacing.md,
+    },
+    editCategoryChip: {
+      paddingHorizontal: 12,
+      paddingVertical: 7,
+      borderRadius: BorderRadius.full,
+      borderWidth: 1,
+      borderColor: Colors.border,
+      backgroundColor: Colors.card,
+    },
+    editCategoryChipActive: {
+      borderColor: '#4f46e5',
+      backgroundColor: '#eef2ff',
+    },
+    editCategoryChipText: {
+      fontSize: FontSizes.xs,
+      fontWeight: FontWeights.medium,
+      color: Colors.textSecondary,
+    },
+    editCategoryChipTextActive: {
+      color: '#4f46e5',
+      fontWeight: FontWeights.semibold,
+    },
+    editStepper: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      marginBottom: Spacing.md,
+      backgroundColor: Colors.card,
+      borderRadius: BorderRadius.lg,
+      borderWidth: 1,
+      borderColor: Colors.border,
+      padding: Spacing.sm,
+    },
+    editStepperBtn: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: '#eef2ff',
+    },
+    editStepperBtnDisabled: {
+      backgroundColor: Colors.border,
+    },
+    editStepperValue: {
+      flex: 1,
+      alignItems: 'center',
+    },
+    editStepperValueText: {
+      fontSize: FontSizes.xl,
+      fontWeight: FontWeights.bold,
+      color: Colors.text,
+    },
+    editStepperHint: {
+      fontSize: FontSizes.xs,
+      color: Colors.textSecondary,
+      marginTop: 2,
     },
     inviteSearchInput: {
       backgroundColor: Colors.card,
@@ -3115,5 +3221,35 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       height: 1,
       backgroundColor: Colors.border,
       marginVertical: 4,
+    },
+
+    // Project Links (section rows)
+    linkRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      paddingVertical: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: Colors.border,
+    },
+    linkRowIcon: {
+      width: 36,
+      height: 36,
+      borderRadius: 10,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    linkRowContent: {
+      flex: 1,
+    },
+    linkRowLabel: {
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.semibold,
+      color: Colors.text,
+    },
+    linkRowUrl: {
+      fontSize: FontSizes.xs,
+      color: Colors.textSecondary,
+      marginTop: 1,
     },
   });

@@ -15,6 +15,7 @@ import {
   ScrollView,
   ActivityIndicator,
   Image,
+  Linking,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
@@ -360,6 +361,13 @@ export default function PublicProfileScreen() {
 
   const getInitials = () => getCleanInitials(profile?.full_name) || 'U';
 
+  const normalizeExternalUrl = (value?: string | null) => {
+    const trimmed = String(value || '').trim();
+    if (!trimmed) return '';
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+    return `https://${trimmed}`;
+  };
+
   const getRoleConfig = () => {
     return ROLE_CONFIG[profile?.role || ''] || {
       color: '#8b5cf6', icon: 'person', label: profile?.role || 'User',
@@ -509,6 +517,8 @@ export default function PublicProfileScreen() {
   const isFacultyLike = isFaculty || isAdmin;
   const skills = Array.isArray(profile.skills) ? profile.skills : [];
   const interests = Array.isArray(profile.interests) ? profile.interests : [];
+  const githubUrl = normalizeExternalUrl(profile.github_url);
+  const linkedinUrl = normalizeExternalUrl(profile.linkedin_url);
   const academicStatusLabel = profile.academic_status
     ? profile.academic_status.charAt(0).toUpperCase() + profile.academic_status.slice(1)
     : '';
@@ -784,6 +794,39 @@ export default function PublicProfileScreen() {
                   </View>
                 </View>
               ))}
+            </View>
+          )}
+
+          {(linkedinUrl || githubUrl) && (isStudent || isFacultyLike || isAdmin) && (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <MaterialIcons name="link" size={18} color="#4f46e5" />
+                <Text style={styles.sectionTitle}>Social Links</Text>
+              </View>
+
+              {!!linkedinUrl && (
+                <TouchableOpacity style={styles.socialLinkRow} onPress={() => Linking.openURL(linkedinUrl)} activeOpacity={0.8}>
+                  <View style={styles.socialLinkLeft}>
+                    <MaterialIcons name="language" size={16} color="#2563eb" />
+                    <Text style={styles.socialLinkLabel}>LinkedIn</Text>
+                  </View>
+                  <MaterialIcons name="open-in-new" size={16} color={Colors.textSecondary} />
+                </TouchableOpacity>
+              )}
+
+              {!!githubUrl && (
+                <TouchableOpacity
+                  style={[styles.socialLinkRow, { borderBottomWidth: 0 }]}
+                  onPress={() => Linking.openURL(githubUrl)}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.socialLinkLeft}>
+                    <MaterialIcons name="code" size={16} color="#111827" />
+                    <Text style={styles.socialLinkLabel}>GitHub</Text>
+                  </View>
+                  <MaterialIcons name="open-in-new" size={16} color={Colors.textSecondary} />
+                </TouchableOpacity>
+              )}
             </View>
           )}
 
@@ -1165,6 +1208,24 @@ const createStyles = (Colors: any, isDark: boolean) =>
       fontSize: 11,
       fontWeight: FontWeights.semibold,
       color: '#6366f1',
+    },
+    socialLinkRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: 'rgba(0,0,0,0.05)',
+    },
+    socialLinkLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    socialLinkLabel: {
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.semibold,
+      color: Colors.text,
     },
     projectCount: {
       backgroundColor: 'rgba(0,0,0,0.05)',

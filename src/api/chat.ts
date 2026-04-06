@@ -2359,6 +2359,8 @@ export const chatWithAI = async (_userId: string, prompt: string) => {
     if (askedForEvents && !askedForProjects) return 'No events found matching your query.';
     if (askedForProjects && !askedForEvents) return 'No projects found matching your query.';
     if (askedForEvents || askedForProjects) return 'No events or projects found matching your query.';
+    const serverReply = await fetchGeneralAiReply(trimmed);
+    if (serverReply) return serverReply;
     return getGeneralAiResponse(trimmed);
   }
 

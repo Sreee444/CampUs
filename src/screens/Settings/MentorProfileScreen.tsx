@@ -45,6 +45,8 @@ export default function MentorProfileScreen() {
   const [mentorBio, setMentorBio] = useState('');
   const [expertise, setExpertise] = useState<string[]>([]);
   const [customExpertise, setCustomExpertise] = useState('');
+  const [linkedinUrl, setLinkedinUrl] = useState('');
+  const [githubUrl, setGithubUrl] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [toast, setToast] = useState({ visible: false, message: '', type: 'info' as 'success' | 'info' | 'warning' | 'error' });
 
@@ -53,6 +55,8 @@ export default function MentorProfileScreen() {
       setIsMentor(Boolean(profile.is_mentor));
       setMentorBio(profile.mentor_bio || '');
       setExpertise(profile.areas_of_expertise || []);
+      setLinkedinUrl(profile.linkedin_url || '');
+      setGithubUrl(profile.github_url || '');
     }
   }, [profile]);
 
@@ -71,13 +75,28 @@ export default function MentorProfileScreen() {
 
   const handleSave = async () => {
     if (!user?.id) return;
+    const baseUpdates = {
+      is_mentor: isMentor,
+      mentor_bio: mentorBio.trim() || undefined,
+      areas_of_expertise: expertise.length ? expertise : undefined,
+    };
+
+    const socialUpdates = {
+      linkedin_url: linkedinUrl.trim() || undefined,
+      github_url: githubUrl.trim() || undefined,
+    };
+
     try {
       setIsSaving(true);
-      await updateProfile(user.id, {
-        is_mentor: isMentor,
-        mentor_bio: mentorBio.trim() || undefined,
-        areas_of_expertise: expertise.length ? expertise : undefined,
-      });
+      try {
+        await updateProfile(user.id, {
+          ...baseUpdates,
+          ...socialUpdates,
+        });
+      } catch {
+        // Keep mentor fields savable even if social columns are unavailable in some environments.
+        await updateProfile(user.id, baseUpdates);
+      }
       await refreshProfile();
       setToast({ visible: true, message: 'Mentor profile updated', type: 'success' });
       setTimeout(() => navigation.goBack(), 1200);
@@ -126,6 +145,30 @@ export default function MentorProfileScreen() {
             placeholder="Share your background and how you can help"
             placeholderTextColor={Colors.textSecondary}
             multiline
+          />
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.label}>LinkedIn URL</Text>
+          <TextInput
+            style={styles.input}
+            value={linkedinUrl}
+            onChangeText={setLinkedinUrl}
+            placeholder="https://linkedin.com/in/your-profile"
+            placeholderTextColor={Colors.textSecondary}
+            keyboardType="url"
+            autoCapitalize="none"
+          />
+
+          <Text style={styles.label}>GitHub URL</Text>
+          <TextInput
+            style={styles.input}
+            value={githubUrl}
+            onChangeText={setGithubUrl}
+            placeholder="https://github.com/your-username"
+            placeholderTextColor={Colors.textSecondary}
+            keyboardType="url"
+            autoCapitalize="none"
           />
         </View>
 

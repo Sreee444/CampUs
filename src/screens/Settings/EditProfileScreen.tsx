@@ -311,6 +311,26 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       fontSize: FontSizes.sm,
       fontWeight: FontWeights.medium,
     },
+    socialInputRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      height: 52,
+      backgroundColor: '#ffffff',
+      borderRadius: 16,
+      paddingHorizontal: 14,
+      gap: 10,
+      borderWidth: 1,
+      borderColor: 'rgba(194,116,43,0.14)',
+    },
+    socialInputIcon: {
+      flexShrink: 0,
+    },
+    socialInputInner: {
+      flex: 1,
+      fontSize: FontSizes.md,
+      color: Colors.text,
+      height: 52,
+    },
   });
 
 export default function EditProfileScreen() {
@@ -334,6 +354,8 @@ export default function EditProfileScreen() {
   const [bio, setBio] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
   const [avatarVersion, setAvatarVersion] = useState(0);
+  const [linkedinUrl, setLinkedinUrl] = useState('');
+  const [githubUrl, setGithubUrl] = useState('');
 
   const [department, setDepartment] = useState<string | null>(null);
   const [specialization, setSpecialization] = useState<string | null>(null);
@@ -420,6 +442,8 @@ export default function EditProfileScreen() {
     setAvatarVersion(0);
     setDepartment(profile.department || null);
     setSpecialization(profile.specialization || null);
+    setLinkedinUrl(profile.linkedin_url || '');
+    setGithubUrl(profile.github_url || '');
     const profileSection = String(profile.section || '').toUpperCase();
     setSection(
       (sectionOptions.includes(profileSection) ? profileSection : sectionOptions[0] || null) as 'A' | 'B' | 'C' | 'D' | null
@@ -583,6 +607,12 @@ export default function EditProfileScreen() {
         bio: bio.trim() || undefined,
         avatar_url: avatarUrl || undefined,
       };
+
+      // Social links — only for student/faculty/admin
+      if (isStudent || isFaculty || isAdmin) {
+        updates.linkedin_url = linkedinUrl.trim() || null;
+        updates.github_url = githubUrl.trim() || null;
+      }
 
       await updateProfile(userId, updates);
 
@@ -776,6 +806,45 @@ export default function EditProfileScreen() {
               />
               <Text style={styles.helperText}>{bio.length}/{BIO_MAX} characters</Text>
             </View>
+
+            {/* Social Links — students, faculty, admin only */}
+            {(isStudent || isFaculty || isAdmin) && (
+              <>
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>LinkedIn Profile</Text>
+                  <View style={styles.socialInputRow}>
+                    <MaterialIcons name="language" size={18} color="#2563eb" style={styles.socialInputIcon} />
+                    <TextInput
+                      style={styles.socialInputInner}
+                      value={linkedinUrl}
+                      onChangeText={(v) => { setIsDirty(true); setLinkedinUrl(v); }}
+                      placeholder="linkedin.com/in/yourname"
+                      placeholderTextColor={Colors.textSecondary}
+                      autoCapitalize="none"
+                      keyboardType="url"
+                    />
+                  </View>
+                  <Text style={styles.helperText}>Optional · shown on your public profile</Text>
+                </View>
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>GitHub Profile</Text>
+                  <View style={styles.socialInputRow}>
+                    <MaterialIcons name="code" size={18} color="#111827" style={styles.socialInputIcon} />
+                    <TextInput
+                      style={styles.socialInputInner}
+                      value={githubUrl}
+                      onChangeText={(v) => { setIsDirty(true); setGithubUrl(v); }}
+                      placeholder="github.com/yourhandle"
+                      placeholderTextColor={Colors.textSecondary}
+                      autoCapitalize="none"
+                      keyboardType="url"
+                    />
+                  </View>
+                  <Text style={styles.helperText}>Optional · shown on your public profile</Text>
+                </View>
+              </>
+            )}
           </View>
 
           {false && <View style={styles.card}>

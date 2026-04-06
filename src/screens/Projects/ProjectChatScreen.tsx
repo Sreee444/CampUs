@@ -8,7 +8,6 @@ import {
     SafeAreaView,
     FlatList,
     TextInput,
-    Keyboard,
     KeyboardAvoidingView,
     Platform,
     ActivityIndicator,
@@ -74,7 +73,6 @@ export default function ProjectChatScreen() {
     const [backgroundImageUrl, setBackgroundImageUrl] = useState<string | null>(null);
     const [showBackgroundPicker, setShowBackgroundPicker] = useState(false);
     const [isLoadingBackground, setIsLoadingBackground] = useState(false);
-    const [keyboardHeight, setKeyboardHeight] = useState(0);
     const listRef = useRef<FlatList>(null);
     const prevMessageCountRef = useRef(0);
 
@@ -108,22 +106,6 @@ export default function ProjectChatScreen() {
 
         loadBackground();
     }, [chatId, user?.id]);
-
-    useEffect(() => {
-        if (Platform.OS !== 'android') return;
-
-        const showSub = Keyboard.addListener('keyboardDidShow', (event) => {
-            setKeyboardHeight(event.endCoordinates.height || 0);
-        });
-        const hideSub = Keyboard.addListener('keyboardDidHide', () => {
-            setKeyboardHeight(0);
-        });
-
-        return () => {
-            showSub.remove();
-            hideSub.remove();
-        };
-    }, []);
 
     const selectChatTheme = async (theme: ChatTheme) => {
         setChatTheme(theme);
@@ -442,7 +424,7 @@ export default function ProjectChatScreen() {
                 />
 
                 {/* Input */}
-                <View style={[S.inputContainer, backgroundImageUrl && { backgroundColor: withHexAlpha(Colors.surface, 0.88) }, Platform.OS === 'android' && keyboardHeight > 0 ? { marginBottom: keyboardHeight } : null]}>
+                <View style={[S.inputContainer, backgroundImageUrl && { backgroundColor: withHexAlpha(Colors.surface, 0.88) }]}>
                     {!!selectedAttachmentUri && (
                         <View style={S.attachmentPreviewRow}>
                             <Image source={{ uri: selectedAttachmentUri }} style={S.attachmentPreviewImage} />
