@@ -19,6 +19,9 @@ import ChangePasswordScreen from '../screens/Settings/ChangePasswordScreen';
 import LinkedAccountsScreen from '../screens/Settings/LinkedAccountsScreen';
 import NotificationSettingsScreen from '../screens/Settings/NotificationSettingsScreen';
 import PrivacyScreen from '../screens/Settings/PrivacyScreen';
+import HelpCenterScreen from '../screens/Settings/HelpCenterScreen';
+import TermsOfServiceScreen from '../screens/Settings/TermsOfServiceScreen';
+import PrivacyPolicyScreen from '../screens/Settings/PrivacyPolicyScreen';
 import ProjectDetailsScreen from '../screens/Projects/ProjectDetailsScreen';
 import CreateProjectScreen from '../screens/Projects/CreateProjectScreen';
 import CreateEventScreen from '../screens/Home/CreateEventScreen';
@@ -274,6 +277,21 @@ export default function RootNavigator() {
             <Stack.Screen
               name="Privacy"
               component={PrivacyScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="HelpCenter"
+              component={HelpCenterScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="TermsOfService"
+              component={TermsOfServiceScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="PrivacyPolicy"
+              component={PrivacyPolicyScreen}
               options={{ animationEnabled: true }}
             />
             <Stack.Screen

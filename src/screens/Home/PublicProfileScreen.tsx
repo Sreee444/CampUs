@@ -515,6 +515,7 @@ export default function PublicProfileScreen() {
   const isStudent = role === 'student';
   const isFaculty = role === 'faculty';
   const isAlumni = role === 'alumni';
+  const isDeveloper = role === 'developer';
   const isAdmin = isAdminRole(role);
   const isFacultyLike = isFaculty || isAdmin;
   const skills = Array.isArray(profile.skills) ? profile.skills : [];
@@ -590,9 +591,9 @@ export default function PublicProfileScreen() {
             </View>
 
             {/* Department */}
-            {profile.department && !isLeadership ? (
+            {!isDeveloper && profile.department && !isLeadership ? (
               <Text style={styles.heroDepartment}>{profile.department}</Text>
-            ) : (profile.faculty_designation ? (
+            ) : (!isDeveloper && profile.faculty_designation ? (
               <Text style={styles.heroDepartment}>{formatFacultyDesignation(profile.faculty_designation)}</Text>
             ) : null)}
 

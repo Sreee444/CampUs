@@ -126,13 +126,13 @@ export default function SettingsScreen() {
         navigation.navigate('Privacy');
         break;
       case 'Help Center':
-        showToast('Help documentation coming soon', 'info');
+        navigation.navigate('HelpCenter');
         break;
       case 'Terms of Service':
-        showToast('Terms & Conditions coming soon', 'info');
+        navigation.navigate('TermsOfService');
         break;
       case 'Privacy Policy':
-        showToast('Privacy Policy coming soon', 'info');
+        navigation.navigate('PrivacyPolicy');
         break;
       default:
         showToast(`${label} feature under development`, 'info');

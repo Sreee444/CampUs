@@ -83,6 +83,7 @@ export default function ProfileScreen() {
   const isStudent = role === 'student';
   const isFaculty = role === 'faculty';
   const isAlumni = role === 'alumni';
+  const isDeveloper = role === 'developer';
   const isAdmin = isAdminRole(role);
   const isFacultyLike = isFaculty || isAdmin;
   const isLeadership = isLeadershipDesignation(profile?.faculty_designation);
@@ -169,9 +170,9 @@ export default function ProfileScreen() {
 
             <Text style={styles.profileName}>{profile?.full_name || 'User'}</Text>
             <Text style={styles.profileRole}>{getRoleDisplayLabel(profile?.role, profile?.faculty_designation)}</Text>
-            {profile?.department && !isLeadership ? (
+            {!isDeveloper && profile?.department && !isLeadership ? (
               <Text style={styles.profileDepartment}>{profile.department}</Text>
-            ) : (isFacultyLike && profile?.faculty_designation ? (
+            ) : (!isDeveloper && isFacultyLike && profile?.faculty_designation ? (
               <Text style={styles.profileDepartment}>{formatFacultyDesignation(profile.faculty_designation)}</Text>
             ) : null)}
           </View>
@@ -449,16 +450,18 @@ export default function ProfileScreen() {
             <MaterialIcons name="arrow-forward-ios" size={16} color="#94a3b8" />
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.actionItem} onPress={() => navigation.navigate('AcademicDetails')}>
-            <View style={styles.actionIcon}>
-              <MaterialIcons name="school" size={20} color="#10b981" />
-            </View>
-            <View style={styles.actionInfo}>
-              <Text style={styles.actionTitle}>Academic Records</Text>
-              <Text style={styles.actionSubtitle}>View your achievements</Text>
-            </View>
-            <MaterialIcons name="arrow-forward-ios" size={16} color="#94a3b8" />
-          </TouchableOpacity>
+          {!isDeveloper && (
+            <TouchableOpacity style={styles.actionItem} onPress={() => navigation.navigate('AcademicDetails')}>
+              <View style={styles.actionIcon}>
+                <MaterialIcons name="school" size={20} color="#10b981" />
+              </View>
+              <View style={styles.actionInfo}>
+                <Text style={styles.actionTitle}>Academic Records</Text>
+                <Text style={styles.actionSubtitle}>View your achievements</Text>
+              </View>
+              <MaterialIcons name="arrow-forward-ios" size={16} color="#94a3b8" />
+            </TouchableOpacity>
+          )}
 
           <TouchableOpacity style={styles.actionItem} onPress={() => navigation.navigate('SkillsInterests')}>
             <View style={styles.actionIcon}>

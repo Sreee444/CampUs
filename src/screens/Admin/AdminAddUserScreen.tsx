@@ -189,6 +189,8 @@ export default function AdminAddUserScreen() {
 
     try {
       setIsProcessing(true);
+      setBulkProcessingCount(1);
+      setShowBulkProgressOverlay(true);
       const created = await createUserByAdmin({
         email: trimmedEmail,
         full_name: trimmedName,
@@ -205,16 +207,18 @@ export default function AdminAddUserScreen() {
         role: newRole,
       });
       resetForm();
-      Toast.show({ type: 'success', text1: 'User created', text2: `${trimmedName} added successfully` });
+      showBulkResult('success', 'User created', `${trimmedName} added successfully.`);
     } catch (error: any) {
       console.error('[AdminAddUser] create user failed:', {
         email: trimmedEmail,
         role: newRole,
         error: error?.message || error,
       });
-      Toast.show({ type: 'error', text1: 'Failed to create user', text2: error?.message });
+      showBulkResult('error', 'Failed to create user', error?.message || 'Please try again');
     } finally {
       setIsProcessing(false);
+      setBulkProcessingCount(0);
+      setShowBulkProgressOverlay(false);
     }
   };
 
@@ -777,13 +781,13 @@ export default function AdminAddUserScreen() {
         onClose={() => setShowBulkConfirm(false)}
       />
 
-      {(isBulkSubmitting || showBulkProgressOverlay) && (
+      {(isProcessing || isBulkSubmitting || showBulkProgressOverlay) && (
         <View style={styles.processingOverlay}>
           <View style={[styles.processingCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}>
             <ActivityIndicator size="large" color={Colors.primary} />
-            <Text style={[styles.processingTitle, { color: Colors.text }]}>Processing bulk upload</Text>
+            <Text style={[styles.processingTitle, { color: Colors.text }]}>Processing user creation</Text>
             <Text style={[styles.processingMessage, { color: Colors.textSecondary }]}>
-              Creating {bulkProcessingCount || bulkDraftUsers.length} user{(bulkProcessingCount || bulkDraftUsers.length) === 1 ? '' : 's'} now. Please wait...
+              Creating {bulkProcessingCount || bulkDraftUsers.length || 1} user{(bulkProcessingCount || bulkDraftUsers.length || 1) === 1 ? '' : 's'} now. Please wait...
             </Text>
             <Text style={[styles.processingHint, { color: Colors.textSecondary }]}>Please keep this screen open until upload completes.</Text>
           </View>
