@@ -65,9 +65,9 @@ export default function PublicProfileScreen() {
   const { user } = useAuth();
   const Colors = getColors(isDark);
   const styles = createStyles(Colors, isDark);
-  const isLeadership = isLeadershipDesignation(profile?.faculty_designation);
 
   const [profile, setProfile] = useState<Profile | null>(null);
+  const isLeadership = isLeadershipDesignation(profile?.faculty_designation);
   const [isLoading, setIsLoading] = useState(true);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatusResult>({ status: 'none' });
   const [actionLoading, setActionLoading] = useState(false);

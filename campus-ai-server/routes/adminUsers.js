@@ -135,7 +135,7 @@ const createUserAndProfile = async (payload) => {
   }
 
   const safeRole = String(role || 'student').trim().toLowerCase();
-  const allowedRoles = ['student', 'faculty', 'alumni', 'admin'];
+  const allowedRoles = ['student', 'faculty', 'alumni', 'admin', 'developer'];
   if (!allowedRoles.includes(safeRole)) {
     throw new Error('Invalid role provided');
   }
@@ -147,7 +147,7 @@ const createUserAndProfile = async (payload) => {
   }
 
   const normalizedDesignation = normalizeDesignation(faculty_designation);
-  if ((safeRole === 'faculty' || safeRole === 'admin') && !normalizedDesignation) {
+  if ((safeRole === 'faculty' || safeRole === 'admin' || safeRole === 'developer') && !normalizedDesignation) {
     throw new Error('Faculty designation is required');
   }
   if (!normalizedDesignation && (safeRole === 'student' || safeRole === 'alumni')) {
@@ -230,8 +230,8 @@ const validateBulkRow = (row = {}) => {
 
   if (!fullName) return 'full_name is required';
   if (!email) return 'email is required';
-  if (!['student', 'faculty', 'alumni'].includes(role)) {
-    return 'role must be one of: student, faculty, alumni';
+  if (!['student', 'faculty', 'alumni', 'admin', 'developer'].includes(role)) {
+    return 'role must be one of: student, faculty, alumni, admin, developer';
   }
 
   if (role === 'student') {
@@ -245,7 +245,7 @@ const validateBulkRow = (row = {}) => {
     return `department is required for ${role}`;
   }
 
-  if (role === 'faculty') {
+  if (role === 'faculty' || role === 'admin' || role === 'developer') {
     if (!facultyDesignation) return 'faculty_designation is required for faculty';
   }
 

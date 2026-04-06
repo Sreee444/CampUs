@@ -34,7 +34,6 @@ import TeamFormationScreen from '../screens/Home/TeamFormationScreen';
 import ChatConversationScreen from '../screens/Home/ChatConversationScreen';
 import DiscussionTopicScreen from '../screens/Home/DiscussionTopicScreen';
 import CreateTopicScreen from '../screens/Home/CreateTopicScreen';
-import PublicProfileScreen from '../screens/Home/PublicProfileScreen';
 import AllUsersScreen from '../screens/Home/AllUsersScreen';
 import DiscussionsScreen from '../screens/Home/DiscussionsScreen';
 import CreateTeamScreen from '../screens/Home/CreateTeamScreen';
@@ -85,7 +84,9 @@ const SPLASH_MIN_MS = 2000;
 export default function RootNavigator() {
   const { isAuthenticated, isLoading, profile, isBanned, isPasswordRecovery } = useAuth();
   const navigationRef = useRef<any>(null);
+  const isStudent = profile?.role === 'student';
   const hasCompletedProfile = Boolean(profile?.full_name?.trim() && profile?.roll_number?.trim());
+  const requiresStudentOnboarding = Boolean(isStudent && !hasCompletedProfile);
 
   // Keep splash visible for at least SPLASH_MIN_MS after auth finishes loading
   const [showSplash, setShowSplash] = useState(true);
@@ -131,7 +132,7 @@ export default function RootNavigator() {
       // Profile completion gate
       if (isBanned) {
         targetRoute = 'Banned';
-      } else if (!profile || !hasCompletedProfile) {
+      } else if (requiresStudentOnboarding) {
         targetRoute = 'CompleteProfile';
       } else {
         targetRoute = 'MainTabs';
@@ -156,7 +157,7 @@ export default function RootNavigator() {
         });
       }
     }
-  }, [isAuthenticated, isLoading, profile?.full_name, profile?.roll_number, isBanned, isPasswordRecovery]);
+  }, [isAuthenticated, isLoading, profile?.role, profile?.full_name, profile?.roll_number, isBanned, isPasswordRecovery, requiresStudentOnboarding]);
 
   // Show splash while auth is loading OR during the 2-second hold
   if (isLoading || showSplash) {
@@ -168,8 +169,8 @@ export default function RootNavigator() {
     if (!isAuthenticated) return 'Login';
     if (isPasswordRecovery) return 'ChangePassword';
     if (isBanned) return 'Banned';
-    // Go to CompleteProfile if name or register number is missing
-    if (!profile || !hasCompletedProfile) return 'CompleteProfile';
+    // Go to CompleteProfile only for students with missing required fields
+    if (requiresStudentOnboarding) return 'CompleteProfile';
     return 'MainTabs';
   };
 
@@ -219,11 +220,13 @@ export default function RootNavigator() {
           // App Stack
           <>
             {/* RoleSelection removed */}
-            <Stack.Screen
-              name="CompleteProfile"
-              component={CompleteProfileScreen}
-              options={{ animationEnabled: true }}
-            />
+            {isStudent && (
+              <Stack.Screen
+                name="CompleteProfile"
+                component={CompleteProfileScreen}
+                options={{ animationEnabled: true }}
+              />
+            )}
             <Stack.Screen
               name="MainTabs"
               component={MainTabNavigator}
@@ -351,7 +354,7 @@ export default function RootNavigator() {
             />
             <Stack.Screen
               name="PublicProfile"
-              component={PublicProfileScreen}
+              getComponent={() => require('../screens/Home/PublicProfileScreen').default}
               options={{ animationEnabled: true }}
             />
             <Stack.Screen

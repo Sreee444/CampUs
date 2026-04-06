@@ -14,6 +14,7 @@ import AdminHeader from '../../components/admin/AdminHeader';
 import AdminFilterChips from '../../components/admin/AdminFilterChips';
 
 const ACTION_LABELS: Record<AdminLogAction, { label: string; color: string; icon: string }> = {
+    user_created: { label: 'User Created', color: '#0ea5e9', icon: 'person-add' },
     ban_user: { label: 'Ban', color: '#ef4444', icon: 'block' },
     unban_user: { label: 'Unban', color: '#10b981', icon: 'person-add' },
     role_change: { label: 'Role Change', color: '#3b82f6', icon: 'manage-accounts' },

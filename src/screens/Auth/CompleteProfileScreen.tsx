@@ -55,7 +55,8 @@ export default function CompleteProfileScreen() {
   const { user, profile, refreshProfile } = useAuth();
   const canLeaveOnboardingRef = React.useRef(false);
   const hasHydratedFormRef = React.useRef(false);
-  const requiresCompletion = !profile?.full_name?.trim() || !profile?.roll_number?.trim();
+  const requiresCompletion =
+    profile?.role === 'student' && (!profile?.full_name?.trim() || !profile?.roll_number?.trim());
 
   const currentYear = new Date().getFullYear();
   const admissionYearOptions = useMemo(
@@ -218,7 +219,6 @@ export default function CompleteProfileScreen() {
     const nextErrors: typeof errors = {};
     if (!fullName.trim()) nextErrors.fullName = 'Full name is required';
     if (!department) nextErrors.department = 'Select your department';
-    if (!specialization) nextErrors.specialization = 'Select specialization';
     if (sectionOptions.length > 1 && !section) nextErrors.section = 'Select your section';
     if (!yearOfAdmission) nextErrors.yearOfAdmission = 'Select year of admission';
     if (!rollNumber.trim()) {
@@ -429,9 +429,9 @@ export default function CompleteProfileScreen() {
               error={errors.department}
             />
 
-            {/* Specialization — depends on department */}
+            {/* Specialization (optional) — depends on department */}
             <DropdownRow
-              label="Specialization *"
+              label="Specialization (optional)"
               icon="psychology"
               value={specialization}
               placeholder={department ? 'Select specialization' : 'Select department first'}

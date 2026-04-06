@@ -289,6 +289,7 @@ export default function AdminUsersScreen() {
 
   useEffect(() => {
     const loadDesignationOwners = async () => {
+      type LeadershipRow = { id: string | null; faculty_designation: string | null };
       const { data, error } = await supabase
         .from('profiles')
         .select('id, faculty_designation')
@@ -297,7 +298,7 @@ export default function AdminUsersScreen() {
       if (error) return;
 
       const owners: Record<string, string> = {};
-      for (const row of data || []) {
+      for (const row of (data as LeadershipRow[] | null) || []) {
         if (row?.faculty_designation && row?.id) {
           owners[row.faculty_designation] = row.id;
         }
