@@ -3217,8 +3217,6 @@ export default function ChatConversationScreen() {
               </View>
             </View>
 
-            <Text style={styles.membersSectionLabel}>Members</Text>
-
             {canManageGroup && (
               <View style={styles.joinRequestsSection}>
                 <View style={styles.joinRequestsHeader}>
@@ -3237,50 +3235,84 @@ export default function ChatConversationScreen() {
                     <Text style={styles.emptyMembersHintText}>No pending requests.</Text>
                   </View>
                 ) : (
-                  pendingGroupJoinRequests.map((request) => (
-                    <View key={request.id} style={styles.joinRequestCard}>
-                      <View style={styles.memberMainInfo}>
-                        <UserAvatar
-                          uri={request.requester?.avatar_url}
-                          name={request.requester?.full_name || 'User'}
-                          size={38}
-                          showRing={false}
-                          role={request.requester?.role}
-                        />
-                        <View style={styles.memberTextWrap}>
-                          <Text style={styles.memberName} numberOfLines={1} ellipsizeMode="tail">{request.requester?.full_name || 'User'}</Text>
-                          <Text style={styles.memberMeta}>
-                            {request.requester?.department || request.requester?.role || 'Requested to join'}
-                          </Text>
+                  pendingGroupJoinRequests.map((request) => {
+                    const requesterName = request.requester?.full_name || request.requester?.email || 'User';
+                    const roleLabel = request.requester?.role
+                      ? `${request.requester.role.charAt(0).toUpperCase()}${request.requester.role.slice(1)}`
+                      : '';
+                    const departmentLabel = request.requester?.department || '';
+                    const requestedOn = request.created_at
+                      ? new Date(request.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                      : 'Pending';
+
+                    return (
+                      <View key={request.id} style={styles.joinRequestCard}>
+                        <View style={styles.joinRequestHeaderRow}>
+                          <View style={styles.joinRequestMainInfo}>
+                            <UserAvatar
+                              uri={request.requester?.avatar_url}
+                              name={request.requester?.full_name || request.requester?.email || request.requester_id || 'User'}
+                              size={40}
+                              showRing={false}
+                              role={request.requester?.role}
+                            />
+                            <View style={styles.joinRequestIdentityWrap}>
+                              <Text style={styles.joinRequestName} numberOfLines={1} ellipsizeMode="tail">
+                                {requesterName}
+                              </Text>
+                              <View style={styles.joinRequestMetaRow}>
+                                {!!roleLabel && (
+                                  <View style={styles.joinRequestMetaLine}>
+                                    <View style={styles.joinRequestRolePill}>
+                                      <Text style={styles.joinRequestRolePillText}>{roleLabel}</Text>
+                                    </View>
+                                  </View>
+                                )}
+                                {!!departmentLabel && (
+                                  <View style={styles.joinRequestMetaLine}>
+                                    <Text style={styles.joinRequestDepartment} numberOfLines={1} ellipsizeMode="tail">
+                                      {departmentLabel}
+                                    </Text>
+                                  </View>
+                                )}
+                                {!roleLabel && !departmentLabel && (
+                                  <Text style={styles.joinRequestDepartment}>Requested to join</Text>
+                                )}
+                              </View>
+                            </View>
+                          </View>
+                          <Text style={styles.joinRequestDateLabel}>{requestedOn}</Text>
+                        </View>
+
+                        <View style={styles.joinRequestActions}>
+                          <TouchableOpacity
+                            style={[styles.joinRequestButton, styles.joinRequestAccept]}
+                            onPress={() => handleReviewJoinRequest(request.id, 'accept')}
+                            disabled={activeJoinReviewId === request.id}
+                          >
+                            {activeJoinReviewId === request.id ? (
+                              <ActivityIndicator size="small" color="#ffffff" />
+                            ) : (
+                              <Text style={[styles.joinRequestButtonText, styles.joinRequestButtonTextLight]}>Accept</Text>
+                            )}
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            style={[styles.joinRequestButton, styles.joinRequestReject]}
+                            onPress={() => handleReviewJoinRequest(request.id, 'reject')}
+                            disabled={activeJoinReviewId === request.id}
+                          >
+                            <Text style={[styles.joinRequestButtonText, styles.joinRequestButtonTextDanger]}>Reject</Text>
+                          </TouchableOpacity>
                         </View>
                       </View>
-
-                      <View style={styles.joinRequestActions}>
-                        <TouchableOpacity
-                          style={[styles.joinRequestButton, styles.joinRequestAccept]}
-                          onPress={() => handleReviewJoinRequest(request.id, 'accept')}
-                          disabled={activeJoinReviewId === request.id}
-                        >
-                          {activeJoinReviewId === request.id ? (
-                            <ActivityIndicator size="small" color="#ffffff" />
-                          ) : (
-                            <Text style={styles.joinRequestButtonText}>Accept</Text>
-                          )}
-                        </TouchableOpacity>
-
-                        <TouchableOpacity
-                          style={[styles.joinRequestButton, styles.joinRequestReject]}
-                          onPress={() => handleReviewJoinRequest(request.id, 'reject')}
-                          disabled={activeJoinReviewId === request.id}
-                        >
-                          <Text style={styles.joinRequestButtonText}>Reject</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  ))
+                    );
+                  })
                 )}
               </View>
             )}
+
+            <Text style={styles.membersSectionLabel}>Members</Text>
 
             <ScrollView showsVerticalScrollIndicator={false}>
               {groupMembers.map((member) => {
@@ -5258,35 +5290,103 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     joinRequestCard: {
       borderWidth: 1,
       borderColor: Colors.border,
-      borderRadius: BorderRadius.md,
+      borderRadius: BorderRadius.lg,
       backgroundColor: Colors.card,
       padding: Spacing.sm,
       marginBottom: Spacing.sm,
       gap: Spacing.sm,
+      borderLeftWidth: 3,
+      borderLeftColor: Colors.primary,
+    },
+    joinRequestHeaderRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      justifyContent: 'space-between',
+      gap: Spacing.sm,
+    },
+    joinRequestMainInfo: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flex: 1,
+      minWidth: 0,
+      gap: Spacing.sm,
+    },
+    joinRequestIdentityWrap: {
+      flex: 1,
+      minWidth: 0,
+    },
+    joinRequestName: {
+      fontSize: FontSizes.md,
+      color: Colors.text,
+      fontWeight: FontWeights.semibold,
+    },
+    joinRequestMetaRow: {
+      marginTop: 4,
+      flexDirection: 'column',
+      alignItems: 'flex-start',
+      gap: 4,
+    },
+    joinRequestMetaLine: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      minWidth: 0,
+    },
+    joinRequestRolePill: {
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderWidth: 1,
+      borderColor: Colors.info,
+      backgroundColor: Colors.info + '16',
+      borderRadius: 999,
+    },
+    joinRequestRolePillText: {
+      fontSize: FontSizes.xs,
+      color: Colors.info,
+      fontWeight: FontWeights.semibold,
+    },
+    joinRequestDepartment: {
+      flexShrink: 1,
+      fontSize: FontSizes.sm,
+      color: Colors.text,
+      opacity: 0.9,
+    },
+    joinRequestDateLabel: {
+      fontSize: FontSizes.xs,
+      color: Colors.textSecondary,
+      marginTop: 2,
     },
     joinRequestActions: {
       flexDirection: 'row',
       gap: Spacing.sm,
-      justifyContent: 'flex-end',
     },
     joinRequestButton: {
       borderRadius: BorderRadius.md,
+      flex: 1,
+      minHeight: 36,
       paddingHorizontal: Spacing.md,
-      paddingVertical: 7,
-      minWidth: 78,
       alignItems: 'center',
       justifyContent: 'center',
     },
     joinRequestAccept: {
       backgroundColor: Colors.success,
+      borderWidth: 1,
+      borderColor: Colors.success,
     },
     joinRequestReject: {
-      backgroundColor: Colors.error,
+      backgroundColor: Colors.surface,
+      borderWidth: 1,
+      borderColor: Colors.error,
     },
     joinRequestButtonText: {
       fontSize: FontSizes.sm,
-      color: '#ffffff',
       fontWeight: FontWeights.semibold,
+    },
+    joinRequestButtonTextLight: {
+      color: '#ffffff',
+    },
+    joinRequestButtonTextDanger: {
+      color: Colors.error,
     },
     memberItem: {
       flexDirection: 'row',

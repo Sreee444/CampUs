@@ -1160,7 +1160,31 @@ export const getPendingGroupJoinRequests = async (conversationId: string, actorI
     .order('created_at', { ascending: true });
 
   if (error) throwGroupJoinRequestTableMissing(error);
-  return (data || []) as GroupJoinRequest[];
+
+  const requests = (data || []) as GroupJoinRequest[];
+  const requesterIds = Array.from(
+    new Set(
+      requests
+        .filter((request: any) => !request?.requester && !!request?.requester_id)
+        .map((request: any) => request.requester_id)
+    )
+  ) as string[];
+
+  if (requesterIds.length === 0) {
+    return requests;
+  }
+
+  const { data: requesterProfiles } = await supabase
+    .from('profiles')
+    .select('id, full_name, email, avatar_url, department, role')
+    .in('id', requesterIds);
+
+  const requesterMap = new Map((requesterProfiles || []).map((profile: any) => [profile.id, profile]));
+
+  return requests.map((request: any) => ({
+    ...request,
+    requester: request?.requester || requesterMap.get(request.requester_id) || undefined,
+  })) as GroupJoinRequest[];
 };
 
 export const reviewGroupJoinRequest = async (
