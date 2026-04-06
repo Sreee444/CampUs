@@ -125,6 +125,7 @@ export default function ProjectInviteMembersScreen() {
   const [showSemesterPicker, setShowSemesterPicker] = useState(false);
   const [showSectionPicker, setShowSectionPicker] = useState(false);
   const [invitingUserId, setInvitingUserId] = useState<string | null>(null);
+  const [showPendingRequestsModal, setShowPendingRequestsModal] = useState(false);
 
   const requiredRoles = useMemo(
     () => detectSkillRoles(team?.required_skills ?? []),
@@ -479,7 +480,22 @@ export default function ProjectInviteMembersScreen() {
           <MaterialIcons name="arrow-back-ios" size={20} color={Colors.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Invite Members</Text>
-        <View style={styles.headerSpacer} />
+        <TouchableOpacity
+          style={styles.headerActionButton}
+          onPress={() => setShowPendingRequestsModal(true)}
+          disabled={pendingInvites.length === 0}
+        >
+          <MaterialIcons
+            name="mail-outline"
+            size={22}
+            color={pendingInvites.length > 0 ? Colors.primary : Colors.textSecondary}
+          />
+          {pendingInvites.length > 0 && (
+            <View style={[styles.headerBadge, { backgroundColor: Colors.primary }]}>
+              <Text style={styles.headerBadgeText}>{pendingInvites.length}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
       </View>
 
       <View style={styles.content}>
@@ -562,41 +578,6 @@ export default function ProjectInviteMembersScreen() {
                 <Text style={styles.filterSummaryText}>Section: {activeFilters.section}</Text>
               )}
             </View>
-
-            {filteredPendingInvites.length > 0 && (
-              <View style={styles.sectionWrap}>
-                <View style={styles.sectionHeader}>
-                  <Text style={styles.sectionTitle}>Requests</Text>
-                  <Text style={styles.sectionCount}>{filteredPendingInvites.length}</Text>
-                </View>
-
-                {filteredPendingInvites.map((invite) => (
-                  <View key={invite.id} style={styles.card}>
-                    <TouchableOpacity
-                      style={styles.info}
-                      onPress={() => navigation.navigate('PublicProfile', { userId: invite.user_id })}
-                    >
-                      <UserAvatar
-                        uri={invite.user?.avatar_url}
-                        name={invite.user?.full_name || 'User'}
-                        size={44}
-                        showRing
-                      />
-                      <View style={styles.details}>
-                        <Text style={styles.name}>{invite.user?.full_name || 'Anonymous'}</Text>
-                        <Text style={styles.meta}>{invite.user?.email || 'Invite pending approval'}</Text>
-                      </View>
-                    </TouchableOpacity>
-
-                    <View style={styles.actions}>
-                      <TouchableOpacity style={styles.cancelBtn} onPress={() => handleCancelInvite(invite)}>
-                        <Text style={styles.cancelText}>Cancel Request</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                ))}
-              </View>
-            )}
 
             {isLoadingInvitees ? (
               <View style={styles.centeredSmall}>
@@ -819,6 +800,71 @@ export default function ProjectInviteMembersScreen() {
           setShowSectionPicker(false);
         }}
       />
+
+      <Modal
+        visible={showPendingRequestsModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowPendingRequestsModal(false)}
+      >
+        <TouchableOpacity
+          activeOpacity={1}
+          style={styles.pendingModalOverlay}
+          onPress={() => setShowPendingRequestsModal(false)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.pendingModalCard}>
+            <View style={styles.pendingModalHeader}>
+              <View>
+                <Text style={styles.pendingModalTitle}>Pending Requests</Text>
+                <Text style={styles.pendingModalSubtitle}>{pendingInvites.length} request{pendingInvites.length === 1 ? '' : 's'} sent</Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowPendingRequestsModal(false)}>
+                <MaterialIcons name="close" size={22} color={Colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.pendingModalList} showsVerticalScrollIndicator={false}>
+              {pendingInvites.length === 0 ? (
+                <View style={styles.pendingEmptyWrap}>
+                  <MaterialIcons name="mail-outline" size={42} color={Colors.textSecondary} />
+                  <Text style={styles.pendingEmptyTitle}>No pending requests</Text>
+                  <Text style={styles.pendingEmptySubtitle}>Requests you send will appear here until they are accepted or cancelled.</Text>
+                </View>
+              ) : (
+                pendingInvites.map((invite) => (
+                  <View key={invite.id} style={styles.pendingCard}>
+                    <TouchableOpacity
+                      style={styles.pendingInfo}
+                      onPress={() => navigation.navigate('PublicProfile', { userId: invite.user_id })}
+                    >
+                      <UserAvatar
+                        uri={invite.user?.avatar_url}
+                        name={invite.user?.full_name || 'User'}
+                        size={44}
+                        showRing
+                      />
+                      <View style={styles.pendingDetails}>
+                        <Text style={styles.pendingName}>{invite.user?.full_name || 'Anonymous'}</Text>
+                        <Text style={styles.pendingMeta}>{invite.user?.email || 'Invite pending approval'}</Text>
+                      </View>
+                    </TouchableOpacity>
+
+                    <View style={styles.pendingActions}>
+                      <View style={styles.pendingStatusBadge}>
+                        <MaterialIcons name="schedule" size={12} color="#b45309" />
+                        <Text style={styles.pendingStatusText}>Pending</Text>
+                      </View>
+                      <TouchableOpacity style={styles.pendingCancelBtn} onPress={() => handleCancelInvite(invite)}>
+                        <Text style={styles.pendingCancelText}>Cancel</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ))
+              )}
+            </ScrollView>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1052,6 +1098,31 @@ const createStyles = (Colors: any) =>
       fontWeight: FontWeights.semibold,
       fontSize: FontSizes.sm,
     },
+    headerActionButton: {
+      width: 40,
+      height: 40,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: BorderRadius.full,
+    },
+    headerBadge: {
+      position: 'absolute',
+      right: -1,
+      top: 2,
+      minWidth: 18,
+      height: 18,
+      borderRadius: 9,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 4,
+      borderWidth: 2,
+      borderColor: Colors.card,
+    },
+    headerBadgeText: {
+      color: '#fff',
+      fontSize: 10,
+      fontWeight: FontWeights.bold,
+    },
     clearFilterBtn: {
       paddingHorizontal: 10,
       height: 36,
@@ -1085,6 +1156,114 @@ const createStyles = (Colors: any) =>
       fontSize: FontSizes.xs,
       fontWeight: FontWeights.semibold,
       color: Colors.textSecondary,
+    },
+    pendingModalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.35)',
+      justifyContent: 'flex-end',
+      padding: Spacing.md,
+    },
+    pendingModalCard: {
+      backgroundColor: Colors.card,
+      borderRadius: BorderRadius.xl,
+      padding: Spacing.md,
+      maxHeight: '80%',
+      ...Shadows.md,
+    },
+    pendingModalHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: Spacing.sm,
+    },
+    pendingModalTitle: {
+      fontSize: FontSizes.md,
+      fontWeight: FontWeights.bold,
+      color: Colors.text,
+    },
+    pendingModalSubtitle: {
+      fontSize: FontSizes.xs,
+      color: Colors.textSecondary,
+      marginTop: 2,
+    },
+    pendingModalList: {
+      maxHeight: '100%',
+    },
+    pendingCard: {
+      backgroundColor: Colors.surface,
+      borderRadius: BorderRadius.lg,
+      padding: Spacing.md,
+      marginBottom: Spacing.sm,
+      borderWidth: 1,
+      borderColor: Colors.border,
+      gap: 10,
+    },
+    pendingInfo: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+    },
+    pendingDetails: {
+      flex: 1,
+      minWidth: 0,
+    },
+    pendingName: {
+      fontSize: FontSizes.md,
+      fontWeight: FontWeights.semibold,
+      color: Colors.text,
+    },
+    pendingMeta: {
+      marginTop: 2,
+      fontSize: FontSizes.sm,
+      color: Colors.textSecondary,
+    },
+    pendingActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 10,
+    },
+    pendingStatusBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingHorizontal: 8,
+      paddingVertical: 5,
+      borderRadius: BorderRadius.full,
+      backgroundColor: '#FEF3C7',
+    },
+    pendingStatusText: {
+      fontSize: FontSizes.xs,
+      color: '#b45309',
+      fontWeight: FontWeights.semibold,
+    },
+    pendingCancelBtn: {
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: BorderRadius.full,
+      backgroundColor: '#fee2e2',
+    },
+    pendingCancelText: {
+      fontSize: FontSizes.xs,
+      color: '#ef4444',
+      fontWeight: FontWeights.semibold,
+    },
+    pendingEmptyWrap: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 24,
+      gap: 6,
+    },
+    pendingEmptyTitle: {
+      fontSize: FontSizes.sm,
+      fontWeight: FontWeights.semibold,
+      color: Colors.text,
+    },
+    pendingEmptySubtitle: {
+      fontSize: FontSizes.xs,
+      color: Colors.textSecondary,
+      textAlign: 'center',
+      lineHeight: 18,
     },
     list: {
       marginTop: Spacing.xs,
