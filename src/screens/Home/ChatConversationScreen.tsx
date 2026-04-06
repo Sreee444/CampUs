@@ -3160,11 +3160,11 @@ export default function ChatConversationScreen() {
       <Modal
         visible={showGroupMembers}
         animationType="slide"
-        transparent
+        transparent={false}
         onRequestClose={() => setShowGroupMembers(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.membersSheet}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: Colors.surface }}>
+          <View style={{ flex: 1, paddingHorizontal: Spacing.md, paddingTop: Spacing.md, paddingBottom: Spacing.lg }}>
             <View style={styles.membersHeader}>
               <Text style={styles.optionsTitle}>Group members</Text>
               <TouchableOpacity onPress={() => setShowGroupMembers(false)}>
@@ -3376,7 +3376,7 @@ export default function ChatConversationScreen() {
               })}
             </ScrollView>
           </View>
-        </View>
+        </SafeAreaView>
       </Modal>
 
       <Modal
