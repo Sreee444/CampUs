@@ -1,5 +1,5 @@
-import React, { useMemo, useState, useEffect } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, TextInput, ScrollView, TouchableOpacity, ActivityIndicator, Platform, Modal } from 'react-native';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, SafeAreaView, TextInput, ScrollView, TouchableOpacity, ActivityIndicator, Platform, Modal, KeyboardAvoidingView } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -77,6 +77,7 @@ export default function AdminAddUserScreen() {
     title: '',
     message: '',
   });
+  const formScrollRef = useRef<ScrollView | null>(null);
 
   const addLimits = useMemo(
     () => getDepartmentAcademicLimits(newDept),
@@ -124,6 +125,13 @@ export default function AdminAddUserScreen() {
   const isAlumni = newRole === 'alumni';
   const showDepartment = isStudent || isFaculty || isAlumni;
   const showStudentFields = isStudent;
+
+  const keepFacultyDesignationVisible = () => {
+    // Delay until keyboard animation starts so scroll lands at the right spot.
+    setTimeout(() => {
+      formScrollRef.current?.scrollToEnd({ animated: true });
+    }, 120);
+  };
 
   useEffect(() => {
     if (!showStudentFields) {
@@ -464,14 +472,25 @@ export default function AdminAddUserScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: Colors.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: Colors.background }]}> 
       <AdminHeader
         title="Add User"
         subtitle="Create accounts and assign initial access"
         onBack={() => navigation.goBack()}
       />
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.formContent}>
+      <KeyboardAvoidingView
+        style={styles.keyboardWrapper}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 92 : 0}
+      >
+      <ScrollView
+        ref={formScrollRef}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+        contentContainerStyle={styles.formContent}
+      >
         <View style={[styles.formCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}>
           <View style={[styles.bulkInfoCard, { backgroundColor: Colors.background, borderColor: Colors.border }]}> 
             <Text style={[styles.bulkInfoTitle, { color: Colors.text }]}>Bulk Upload (CSV/Excel)</Text>
@@ -619,6 +638,7 @@ export default function AdminAddUserScreen() {
                   value={newFacultyDesignation}
                   onChangeText={setNewFacultyDesignation}
                   autoCapitalize="none"
+                  onFocus={keepFacultyDesignationVisible}
                 />
               </View>
             )}
@@ -710,6 +730,7 @@ export default function AdminAddUserScreen() {
           </TouchableOpacity>
         </View>
       </ScrollView>
+      </KeyboardAvoidingView>
 
       <DropdownSheet
         visible={showDepartmentPicker}
@@ -824,6 +845,7 @@ export default function AdminAddUserScreen() {
 
 const createStyles = (Colors: any) => StyleSheet.create({
   container: { flex: 1, ...(Platform.OS === 'web' && { height: '100vh', width: '100vw' } as any) },
+  keyboardWrapper: { flex: 1 },
   formContent: { padding: Spacing.md, paddingBottom: Spacing.xxl },
   formCard: { borderRadius: BorderRadius.xl, borderWidth: 1, padding: Spacing.md, gap: 12 },
   editGrid: { gap: 12 },
