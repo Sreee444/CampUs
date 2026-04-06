@@ -55,7 +55,7 @@ export default function CompleteProfileScreen() {
   const { user, profile, refreshProfile } = useAuth();
   const canLeaveOnboardingRef = React.useRef(false);
   const hasHydratedFormRef = React.useRef(false);
-  const requiresCompletion = !profile?.full_name?.trim();
+  const requiresCompletion = !profile?.full_name?.trim() || !profile?.roll_number?.trim();
 
   const currentYear = new Date().getFullYear();
   const admissionYearOptions = useMemo(
@@ -71,7 +71,7 @@ export default function CompleteProfileScreen() {
 
   const [department, setDepartment] = useState<string | null>(null);
   const [specialization, setSpecialization] = useState<string | null>(null);
-  const [section, setSection] = useState<'A' | 'B' | 'C' | null>(null);
+  const [section, setSection] = useState<'A' | 'B' | 'C' | 'D' | null>(null);
   const [rollNumber, setRollNumber] = useState('');
   const [yearOfAdmission, setYearOfAdmission] = useState<number | null>(null);
 
@@ -110,7 +110,7 @@ export default function CompleteProfileScreen() {
 
   useEffect(() => {
     if (!sectionOptions.includes(section || '')) {
-      setSection((sectionOptions[0] || 'A') as 'A' | 'B' | 'C');
+      setSection((sectionOptions[0] || 'A') as 'A' | 'B' | 'C' | 'D');
     }
   }, [section, sectionOptions]);
 
@@ -177,7 +177,7 @@ export default function CompleteProfileScreen() {
       setYearOfAdmission(Number(value));
       setErrors((e) => ({ ...e, yearOfAdmission: undefined }));
     } else if (openDropdown === 'section') {
-      setSection(value as 'A' | 'B' | 'C');
+      setSection(value as 'A' | 'B' | 'C' | 'D');
       setErrors((e) => ({ ...e, section: undefined }));
     } else if (openDropdown === 'specialization') {
       setSpecialization(value);
@@ -222,9 +222,9 @@ export default function CompleteProfileScreen() {
     if (sectionOptions.length > 1 && !section) nextErrors.section = 'Select your section';
     if (!yearOfAdmission) nextErrors.yearOfAdmission = 'Select year of admission';
     if (!rollNumber.trim()) {
-      nextErrors.rollNumber = 'Roll number is required';
+      nextErrors.rollNumber = 'Register number is required';
     } else if (!ROLL_NUMBER_REGEX.test(rollNumber.trim())) {
-      nextErrors.rollNumber = 'Invalid format (e.g. CSE/23/001)';
+      nextErrors.rollNumber = 'Invalid format (e.g. 23/CS/001)';
     }
 
     setErrors(nextErrors);
@@ -249,7 +249,6 @@ export default function CompleteProfileScreen() {
         year_of_admission: yearOfAdmission || undefined,
         year: computedAcademic.year || undefined,
         semester: computedAcademic.semester || undefined,
-        batch: computedAcademic.batch || undefined,
         academic_status: computedAcademic.academic_status,
         skills: skills.length ? skills : undefined,
         interests: selectedInterests.length ? selectedInterests : undefined,
@@ -441,7 +440,7 @@ export default function CompleteProfileScreen() {
               disabled={!department}
             />
 
-            {/* Section + Roll Number in two columns */}
+            {/* Section + Register Number in two columns */}
             <View style={styles.twoCol}>
               <View style={[styles.col, { marginRight: 6 }]}>
                 <View style={styles.inputGroup}>
@@ -469,12 +468,12 @@ export default function CompleteProfileScreen() {
 
               <View style={[styles.col, { marginLeft: 6 }]}>
                 <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Roll Number *</Text>
+                  <Text style={styles.label}>Register Number *</Text>
                   <View style={styles.inputRow}>
                     <MaterialIcons name="badge" size={20} color="#94a3b8" style={styles.inputIcon} />
                     <TextInput
                       style={styles.input}
-                      placeholder="CSE/23/001"
+                      placeholder="23/CS/001"
                       value={rollNumber}
                       onChangeText={(v) => { setRollNumber(v); setErrors((e) => ({ ...e, rollNumber: undefined })); }}
                       placeholderTextColor="#94a3b8"

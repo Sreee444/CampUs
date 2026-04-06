@@ -337,7 +337,7 @@ export default function EditProfileScreen() {
 
   const [department, setDepartment] = useState<string | null>(null);
   const [specialization, setSpecialization] = useState<string | null>(null);
-  const [section, setSection] = useState<'A' | 'B' | 'C' | null>(null);
+  const [section, setSection] = useState<'A' | 'B' | 'C' | 'D' | null>(null);
   const [facultyDesignation, setFacultyDesignation] = useState<string | null>(null);
   const [rollNumber, setRollNumber] = useState('');
   const [yearOfAdmission, setYearOfAdmission] = useState<number | null>(null);
@@ -346,7 +346,7 @@ export default function EditProfileScreen() {
   const [isUploading, setIsUploading] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<
-    'department' | 'year_of_admission' | 'specialization' | 'section' | null
+    'department' | 'year_of_admission' | 'specialization' | 'section' | 'faculty_designation' | null
   >(null);
   const [errors, setErrors] = useState<{
     department?: string;
@@ -404,7 +404,7 @@ export default function EditProfileScreen() {
 
   useEffect(() => {
     if (!sectionOptions.includes(section || '')) {
-      setSection((sectionOptions[0] || 'A') as 'A' | 'B' | 'C');
+      setSection((sectionOptions[0] || 'A') as 'A' | 'B' | 'C' | 'D');
     }
   }, [section, sectionOptions]);
 
@@ -422,7 +422,7 @@ export default function EditProfileScreen() {
     setSpecialization(profile.specialization || null);
     const profileSection = String(profile.section || '').toUpperCase();
     setSection(
-      (sectionOptions.includes(profileSection) ? profileSection : sectionOptions[0] || null) as 'A' | 'B' | 'C' | null
+      (sectionOptions.includes(profileSection) ? profileSection : sectionOptions[0] || null) as 'A' | 'B' | 'C' | 'D' | null
     );
     setFacultyDesignation(profile.faculty_designation ? formatFacultyDesignation(profile.faculty_designation) : null);
     setRollNumber(profile.roll_number || '');
@@ -437,6 +437,7 @@ export default function EditProfileScreen() {
     if (!isFacultyLike) return;
 
     const loadLeadershipOwners = async () => {
+      type LeadershipRow = { id: string | null; faculty_designation: string | null };
       const { data, error } = await supabase
         .from('profiles')
         .select('id, faculty_designation')
@@ -445,7 +446,7 @@ export default function EditProfileScreen() {
       if (error) return;
 
       const owners: Record<string, string> = {};
-      for (const row of data || []) {
+      for (const row of (data as LeadershipRow[] | null) || []) {
         if (row?.faculty_designation && row?.id) {
           owners[row.faculty_designation] = row.id;
         }
@@ -614,8 +615,11 @@ export default function EditProfileScreen() {
     if (openDropdown === 'section') {
       return { title: 'Select Section', options: sectionOptions };
     }
+    if (openDropdown === 'faculty_designation') {
+      return { title: 'Select Designation', options: designationOptions };
+    }
     return { title: 'Select Specialization', options: specializationOptions };
-  }, [openDropdown, admissionYearOptions, specializationOptions, sectionOptions]);
+  }, [openDropdown, admissionYearOptions, designationOptions, specializationOptions, sectionOptions]);
 
   const handleSheetSelect = (value: string) => {
     if (openDropdown === 'department') {
@@ -631,7 +635,11 @@ export default function EditProfileScreen() {
       return;
     }
     if (openDropdown === 'section') {
-      selectAndClose(() => setSection(value as 'A' | 'B' | 'C'));
+      selectAndClose(() => setSection(value as 'A' | 'B' | 'C' | 'D'));
+      return;
+    }
+    if (openDropdown === 'faculty_designation') {
+      selectAndClose(() => setFacultyDesignation(value));
       return;
     }
     if (openDropdown === 'specialization') {

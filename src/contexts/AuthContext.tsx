@@ -320,14 +320,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const needsAcademicRefresh =
           userProfile.semester !== computed.semester ||
           userProfile.year !== computed.year ||
-          userProfile.batch !== computed.batch ||
           userProfile.academic_status !== computed.academic_status;
 
         if (needsAcademicRefresh) {
           const updatedProfile = await updateProfile(userId, {
             semester: computed.semester ?? undefined,
             year: computed.year ?? undefined,
-            batch: computed.batch ?? undefined,
             academic_status: computed.academic_status,
           });
           setProfile(updatedProfile);

@@ -215,7 +215,7 @@ export default function AcademicDetailsScreen() {
 
   const [department, setDepartment] = useState<string | null>(null);
   const [specialization, setSpecialization] = useState<string | null>(null);
-  const [section, setSection] = useState<'A' | 'B' | 'C' | null>(null);
+  const [section, setSection] = useState<'A' | 'B' | 'C' | 'D' | null>(null);
   const [facultyDesignation, setFacultyDesignation] = useState<string | null>(null);
   const [rollNumber, setRollNumber] = useState('');
   const [yearOfAdmission, setYearOfAdmission] = useState<number | null>(null);
@@ -289,7 +289,7 @@ export default function AcademicDetailsScreen() {
 
   useEffect(() => {
     if (!sectionOptions.includes(section || '')) {
-      setSection((sectionOptions[0] || 'A') as 'A' | 'B' | 'C');
+      setSection((sectionOptions[0] || 'A') as 'A' | 'B' | 'C' | 'D');
     }
   }, [section, sectionOptions]);
 
@@ -297,6 +297,7 @@ export default function AcademicDetailsScreen() {
     if (!isFacultyLike) return;
 
     const loadLeadershipOwners = async () => {
+      type LeadershipRow = { id: string | null; faculty_designation: string | null };
       const { data, error } = await supabase
         .from('profiles')
         .select('id, faculty_designation')
@@ -305,7 +306,7 @@ export default function AcademicDetailsScreen() {
       if (error) return;
 
       const owners: Record<string, string> = {};
-      for (const row of data || []) {
+      for (const row of (data as LeadershipRow[] | null) || []) {
         if (row?.faculty_designation && row?.id) {
           owners[row.faculty_designation] = row.id;
         }
@@ -349,7 +350,7 @@ export default function AcademicDetailsScreen() {
       return;
     }
     if (openDropdown === 'section') {
-      selectAndClose(() => setSection(value as 'A' | 'B' | 'C'));
+      selectAndClose(() => setSection(value as 'A' | 'B' | 'C' | 'D'));
       return;
     }
     if (openDropdown === 'specialization') {
@@ -401,7 +402,6 @@ export default function AcademicDetailsScreen() {
         updates.year_of_admission = yearOfAdmission || undefined;
         updates.year = computedAcademic.year || undefined;
         updates.semester = computedAcademic.semester || undefined;
-        updates.batch = computedAcademic.batch || undefined;
         updates.academic_status = computedAcademic.academic_status;
         updates.faculty_designation = undefined;
       }
@@ -415,14 +415,12 @@ export default function AcademicDetailsScreen() {
         updates.year_of_admission = undefined;
         updates.year = undefined;
         updates.semester = undefined;
-        updates.batch = undefined;
         updates.academic_status = undefined;
       }
 
       if (isAlumni) {
         updates.department = department || undefined;
         updates.specialization = specialization || undefined;
-        updates.batch = profile?.batch || undefined;
         updates.academic_status = profile?.academic_status || undefined;
         updates.faculty_designation = undefined;
         updates.section = undefined;

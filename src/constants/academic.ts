@@ -14,7 +14,7 @@ export const DEPARTMENT_OPTIONS = [
   'Integrated MCA',
 ] as const;
 
-export const SECTION_OPTIONS = ['A', 'B', 'C'] as const;
+export const SECTION_OPTIONS = ['A', 'B', 'C', 'D'] as const;
 
 const DEFAULT_SINGLE_SECTION = ['A'] as const;
 
