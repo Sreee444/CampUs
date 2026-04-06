@@ -3248,7 +3248,15 @@ export default function ChatConversationScreen() {
                     return (
                       <View key={request.id} style={styles.joinRequestCard}>
                         <View style={styles.joinRequestHeaderRow}>
-                          <View style={styles.joinRequestMainInfo}>
+                          <TouchableOpacity
+                            style={styles.joinRequestMainInfo}
+                            onPress={() => {
+                              if (request.requester_id) {
+                                navigation.navigate('PublicProfile', { userId: request.requester_id });
+                              }
+                            }}
+                            activeOpacity={0.8}
+                          >
                             <UserAvatar
                               uri={request.requester?.avatar_url}
                               name={request.requester?.full_name || request.requester?.email || request.requester_id || 'User'}
@@ -3280,7 +3288,7 @@ export default function ChatConversationScreen() {
                                 )}
                               </View>
                             </View>
-                          </View>
+                          </TouchableOpacity>
                           <Text style={styles.joinRequestDateLabel}>{requestedOn}</Text>
                         </View>
 
