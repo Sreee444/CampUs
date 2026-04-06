@@ -47,6 +47,55 @@ type ChatScreenNavigationProp = CompositeNavigationProp<
 
 const MIN_REALTIME_SEARCH_LENGTH = 2;
 const POLL_MESSAGE_PREFIX = '__poll__:';
+const PUBLIC_GROUP_ACTIVE_WINDOW_HOURS = 72;
+
+type PublicGroupSortOption = 'recent' | 'members' | 'name';
+
+const PUBLIC_GROUP_SORT_OPTIONS: Array<{
+  key: PublicGroupSortOption;
+  label: string;
+  icon: keyof typeof MaterialIcons.glyphMap;
+}> = [
+  { key: 'recent', label: 'Recent', icon: 'schedule' },
+  { key: 'members', label: 'Members', icon: 'groups' },
+  { key: 'name', label: 'Name', icon: 'sort-by-alpha' },
+];
+
+const getGroupMemberCount = (group: any) => {
+  const candidate = Number(group?.member_count ?? group?.members_count ?? 0);
+  return Number.isFinite(candidate) ? Math.max(0, candidate) : 0;
+};
+
+const getGroupLastActivityValue = (group: any) => {
+  const raw = group?.last_activity_at || group?.last_message_at || group?.updated_at || null;
+  if (!raw) return 0;
+  const timestamp = new Date(raw).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+};
+
+const isGroupRecentlyActive = (group: any) => {
+  const lastActivity = getGroupLastActivityValue(group);
+  if (!lastActivity) return false;
+  const activeWindowMs = PUBLIC_GROUP_ACTIVE_WINDOW_HOURS * 60 * 60 * 1000;
+  return Date.now() - lastActivity <= activeWindowMs;
+};
+
+const sortPublicGroups = (groups: any[], sortBy: PublicGroupSortOption) => {
+  const items = [...groups];
+  switch (sortBy) {
+    case 'members':
+      return items.sort((a, b) => {
+        const memberDiff = getGroupMemberCount(b) - getGroupMemberCount(a);
+        if (memberDiff !== 0) return memberDiff;
+        return getGroupLastActivityValue(b) - getGroupLastActivityValue(a);
+      });
+    case 'name':
+      return items.sort((a, b) => (a?.group_name || '').localeCompare(b?.group_name || ''));
+    case 'recent':
+    default:
+      return items.sort((a, b) => getGroupLastActivityValue(b) - getGroupLastActivityValue(a));
+  }
+};
 
 const formatPreviewMessageContent = (content?: string) => {
   if (!content) return 'No messages yet';
@@ -94,9 +143,11 @@ export default function ChatScreen() {
   const [showDiscoverGroupsModal, setShowDiscoverGroupsModal] = useState(false);
   const [discoverQuery, setDiscoverQuery] = useState('');
   const [discoverResults, setDiscoverResults] = useState<any[]>([]);
+  const [discoverSortBy, setDiscoverSortBy] = useState<PublicGroupSortOption>('recent');
   const [loadingDiscoverGroups, setLoadingDiscoverGroups] = useState(false);
   const [requestingGroupId, setRequestingGroupId] = useState<string | null>(null);
   const [publicGroupsCatalog, setPublicGroupsCatalog] = useState<any[]>([]);
+  const [catalogSortBy, setCatalogSortBy] = useState<PublicGroupSortOption>('recent');
   const [loadingPublicGroupsCatalog, setLoadingPublicGroupsCatalog] = useState(false);
   const [deleteDialog, setDeleteDialog] = useState<{
     visible: boolean;
@@ -434,7 +485,7 @@ export default function ChatScreen() {
 
   const filteredConversations = useMemo(() => {
     if (activeFilter === 'public_groups') {
-      return publicGroupsCatalog;
+      return sortPublicGroups(publicGroupsCatalog, catalogSortBy);
     }
 
     let results = conversations;
@@ -458,7 +509,12 @@ export default function ChatScreen() {
       const lastMessage = (conversation.last_message?.content || '').toLowerCase();
       return name.toLowerCase().includes(query) || lastMessage.includes(query);
     });
-  }, [conversations, activeSearch, user?.id, activeFilter, publicGroupsCatalog]);
+  }, [conversations, activeSearch, user?.id, activeFilter, publicGroupsCatalog, catalogSortBy]);
+
+  const sortedDiscoverResults = useMemo(
+    () => sortPublicGroups(discoverResults, discoverSortBy),
+    [discoverResults, discoverSortBy]
+  );
 
   const filteredConnections = useMemo(() => {
     if (!connectionSearchQuery.trim()) {
@@ -526,6 +582,8 @@ export default function ChatScreen() {
       const isPending = status === 'pending';
       const canRequest = !isMember && !isPending;
       const showRequestLoader = requestingGroupId === conversation.id;
+      const memberCount = getGroupMemberCount(conversation);
+      const recentlyActive = isGroupRecentlyActive(conversation);
 
       return (
         <View style={styles.publicGroupCard}>
@@ -539,7 +597,7 @@ export default function ChatScreen() {
               />
             </View>
             <View style={styles.discoverGroupTextWrap}>
-              <Text style={styles.discoverGroupName}>{conversation.group_name || 'Group'}</Text>
+              <Text style={styles.discoverGroupName} numberOfLines={1} ellipsizeMode="tail">{conversation.group_name || 'Group'}</Text>
               <View style={styles.publicGroupMetaRow}>
                 <View style={[styles.typeChip, styles.typeChipGroup]}>
                   <Text style={[styles.typeChipText, styles.typeChipTextGroup]}>Public group</Text>
@@ -558,6 +616,20 @@ export default function ChatScreen() {
               <Text style={styles.discoverGroupBio} numberOfLines={2}>
                 {conversation.group_bio || 'No group bio yet'}
               </Text>
+              <View style={styles.publicGroupStatsRow}>
+                <View style={styles.publicGroupStatItem}>
+                  <MaterialIcons name="groups" size={14} color={Colors.primary} />
+                  <Text style={styles.publicGroupStatText}>
+                    {memberCount} member{memberCount === 1 ? '' : 's'}
+                  </Text>
+                </View>
+                {recentlyActive && (
+                  <View style={styles.publicGroupHotBadge}>
+                    <MaterialIcons name="trending-up" size={12} color={Colors.warning} />
+                    <Text style={styles.publicGroupHotBadgeText}>Active</Text>
+                  </View>
+                )}
+              </View>
             </View>
           </View>
 
@@ -676,13 +748,12 @@ export default function ChatScreen() {
         <View style={styles.conversationInfo}>
           <View style={styles.conversationHeader}>
             <View style={styles.conversationNameRow}>
-              <Text style={styles.conversationName} numberOfLines={1}>{name}</Text>
+              <Text style={styles.conversationName} numberOfLines={1} ellipsizeMode="tail">{name}</Text>
             </View>
             <View style={styles.conversationMetaRight}>
               <Text style={[styles.conversationTime, unreadCount > 0 && styles.conversationTimeUnread]}>{lastMessageTime}</Text>
               {unreadCount > 0 && (
                 <View style={styles.unreadBadge}>
-                  <MaterialIcons name="chat-bubble" size={10} color="#ffffff" style={styles.unreadBadgeIcon} />
                   <Text style={styles.unreadText}>{unreadLabel}</Text>
                 </View>
               )}
@@ -826,6 +897,36 @@ export default function ChatScreen() {
                     );
                   })}
                 </ScrollView>
+
+                {isPublicFilterActive && (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={styles.filterRowScroll}
+                    contentContainerStyle={styles.sortRowContent}
+                    keyboardShouldPersistTaps="handled"
+                  >
+                    {PUBLIC_GROUP_SORT_OPTIONS.map((option) => {
+                      const isActive = catalogSortBy === option.key;
+                      return (
+                        <TouchableOpacity
+                          key={option.key}
+                          style={[styles.sortChip, isActive && styles.sortChipActive]}
+                          onPress={() => setCatalogSortBy(option.key)}
+                        >
+                          <MaterialIcons
+                            name={option.icon}
+                            size={13}
+                            color={isActive ? '#ffffff' : '#6B7280'}
+                          />
+                          <Text style={[styles.sortChipText, isActive && styles.sortChipTextActive]}>
+                            {option.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                )}
 
                   <View style={styles.resultsRow}>
                     <View style={styles.resultsDot} />
@@ -1017,6 +1118,33 @@ export default function ChatScreen() {
                   </TouchableOpacity>
                 )}
               </View>
+
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.sortRowContent}
+                keyboardShouldPersistTaps="handled"
+              >
+                {PUBLIC_GROUP_SORT_OPTIONS.map((option) => {
+                  const isActive = discoverSortBy === option.key;
+                  return (
+                    <TouchableOpacity
+                      key={`discover_sort_${option.key}`}
+                      style={[styles.sortChip, isActive && styles.sortChipActive]}
+                      onPress={() => setDiscoverSortBy(option.key)}
+                    >
+                      <MaterialIcons
+                        name={option.icon}
+                        size={13}
+                        color={isActive ? '#ffffff' : '#6B7280'}
+                      />
+                      <Text style={[styles.sortChipText, isActive && styles.sortChipTextActive]}>
+                        {option.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
             </View>
 
             <ScrollView style={styles.modalScrollView} keyboardShouldPersistTaps="handled">
@@ -1024,18 +1152,20 @@ export default function ChatScreen() {
                 <View style={styles.modalLoading}>
                   <ActivityIndicator size="large" color={Colors.primary} />
                 </View>
-              ) : discoverResults.length === 0 ? (
+              ) : sortedDiscoverResults.length === 0 ? (
                 <View style={styles.emptyConnections}>
                   <MaterialIcons name="groups" size={52} color={Colors.textSecondary} />
                   <Text style={styles.emptyConnectionsText}>No public groups found</Text>
                   <Text style={styles.emptyConnectionsSubtext}>Try another name or ask admins to make their group public.</Text>
                 </View>
               ) : (
-                discoverResults.map((group, index) => {
+                sortedDiscoverResults.map((group, index) => {
                   const status = group.request_status;
                   const isPending = status === 'pending';
                   const isMember = !!group.is_member;
                   const canRequest = !isPending && !isMember;
+                  const memberCount = getGroupMemberCount(group);
+                  const recentlyActive = isGroupRecentlyActive(group);
 
                   return (
                     <View key={`${group.id || 'group'}-${index}`} style={styles.discoverGroupCard}>
@@ -1049,11 +1179,25 @@ export default function ChatScreen() {
                           />
                         </View>
                         <View style={styles.discoverGroupTextWrap}>
-                          <Text style={styles.discoverGroupName}>{group.group_name || 'Group'}</Text>
+                          <Text style={styles.discoverGroupName} numberOfLines={1} ellipsizeMode="tail">{group.group_name || 'Group'}</Text>
                           <Text style={styles.discoverGroupMeta}>Public group</Text>
                           <Text style={styles.discoverGroupBio} numberOfLines={2}>
                             {group.group_bio || 'No group bio yet'}
                           </Text>
+                          <View style={styles.publicGroupStatsRow}>
+                            <View style={styles.publicGroupStatItem}>
+                              <MaterialIcons name="groups" size={14} color={Colors.primary} />
+                              <Text style={styles.publicGroupStatText}>
+                                {memberCount} member{memberCount === 1 ? '' : 's'}
+                              </Text>
+                            </View>
+                            {recentlyActive && (
+                              <View style={styles.publicGroupHotBadge}>
+                                <MaterialIcons name="trending-up" size={12} color={Colors.warning} />
+                                <Text style={styles.publicGroupHotBadgeText}>Active</Text>
+                              </View>
+                            )}
+                          </View>
                         </View>
                       </View>
 
@@ -1484,6 +1628,35 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   filterChipCountActive: {
     color: 'rgba(255,255,255,0.75)',
   },
+  sortRowContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  sortChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: BorderRadius.full,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+  },
+  sortChipActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  sortChipText: {
+    fontSize: FontSizes.xs,
+    color: '#6B7280',
+    fontWeight: FontWeights.medium,
+  },
+  sortChipTextActive: {
+    color: '#FFFFFF',
+    fontWeight: FontWeights.semibold,
+  },
   conversationsListContent: {
     paddingHorizontal: 18,
     paddingTop: 4,
@@ -1492,11 +1665,11 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   conversationItem: {
     flexDirection: 'row',
     position: 'relative',
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingVertical: 14,
     marginBottom: 10,
     borderRadius: 20,
-    gap: 12,
+    gap: 8,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.8)',
@@ -1517,7 +1690,7 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   avatarWrapper: {
     position: 'relative',
-    marginRight: 12,
+    marginRight: 6,
   },
   avatarRing: {
     borderWidth: 2,
@@ -1574,16 +1747,17 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   conversationInfo: {
     flex: 1,
+    minWidth: 0,
   },
   conversationMenuButton: {
-    width: 30,
+    width: 22,
     alignItems: 'center',
     justifyContent: 'flex-start',
     paddingTop: 2,
   },
   conversationHeader: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 6,
   },
@@ -1591,22 +1765,26 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
-    marginRight: 8,
+    minWidth: 0,
+    marginRight: 4,
   },
   conversationName: {
+    flex: 1,
     flexShrink: 1,
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '600',
     color: '#111827',
   },
   conversationMetaRight: {
+    justifyContent: 'center',
     alignItems: 'flex-end',
-    minWidth: 52,
-    marginLeft: 8,
+    minWidth: 36,
+    marginLeft: 4,
   },
   conversationTime: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#6B7280',
+    textAlign: 'right',
   },
   conversationTimeUnread: {
     color: '#16A34A',
@@ -1658,24 +1836,21 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     marginRight: 4,
   },
   unreadBadge: {
-    minWidth: 24,
+    minWidth: 22,
     height: 22,
     borderRadius: 999,
     backgroundColor: '#25D366',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 6,
+    paddingHorizontal: 5,
     marginTop: 4,
-    flexDirection: 'row',
-    gap: 3,
-  },
-  unreadBadgeIcon: {
-    marginTop: 0.5,
   },
   unreadText: {
-    fontSize: 11,
-    fontWeight: '600',
+    fontSize: 10,
+    fontWeight: '700',
     color: '#ffffff',
+    textAlign: 'center',
+    includeFontPadding: false,
   },
   aiChatFabTouch: {
     position: 'absolute',
@@ -2103,11 +2278,13 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   discoverGroupTextWrap: {
     flex: 1,
+    minWidth: 0,
   },
   discoverGroupName: {
     fontSize: FontSizes.md,
     fontWeight: FontWeights.semibold,
     color: Colors.text,
+    flexShrink: 1,
   },
   discoverGroupMeta: {
     fontSize: FontSizes.xs,
@@ -2183,6 +2360,37 @@ const createStyles = (Colors: ReturnType<typeof getColors>) => StyleSheet.create
     fontSize: FontSizes.xs,
     fontWeight: FontWeights.semibold,
     color: Colors.warning,
+  },
+  publicGroupStatsRow: {
+    marginTop: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  publicGroupStatItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  publicGroupStatText: {
+    fontSize: FontSizes.xs,
+    color: Colors.textSecondary,
+    fontWeight: FontWeights.medium,
+  },
+  publicGroupHotBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.warning + '22',
+  },
+  publicGroupHotBadgeText: {
+    fontSize: FontSizes.xs,
+    color: Colors.warning,
+    fontWeight: FontWeights.semibold,
   },
   publicGroupPrimaryActionButton: {
     minWidth: 116,

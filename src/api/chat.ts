@@ -997,6 +997,23 @@ export const getPublicGroupsForUser = async (userId: string, rawQuery = '') => {
   if (membershipResult.error) throw membershipResult.error;
   if (requestResult.error) throwGroupJoinRequestTableMissing(requestResult.error);
 
+  const [memberCountResult, recentMessagesResult] = await Promise.all([
+    supabase
+      .from('conversation_participants')
+      .select('conversation_id')
+      .is('left_at', null)
+      .in('conversation_id', groupIds),
+    supabase
+      .from('messages')
+      .select('conversation_id, created_at')
+      .in('conversation_id', groupIds)
+      .eq('is_deleted', false)
+      .order('created_at', { ascending: false }),
+  ]);
+
+  if (memberCountResult.error) throw memberCountResult.error;
+  if (recentMessagesResult.error) throw recentMessagesResult.error;
+
   const membershipSet = new Set<string>((membershipResult.data || []).map((row: any) => row.conversation_id));
 
   const latestRequestMap = new Map<string, string>();
@@ -1005,10 +1022,30 @@ export const getPublicGroupsForUser = async (userId: string, rawQuery = '') => {
     latestRequestMap.set(row.conversation_id, row.status || 'pending');
   });
 
+  const memberCountMap = new Map<string, number>();
+  (memberCountResult.data || []).forEach((row: any) => {
+    if (!row?.conversation_id) return;
+    memberCountMap.set(
+      row.conversation_id,
+      (memberCountMap.get(row.conversation_id) || 0) + 1
+    );
+  });
+
+  const recentMessageMap = new Map<string, string>();
+  (recentMessagesResult.data || []).forEach((row: any) => {
+    if (!row?.conversation_id || !row?.created_at) return;
+    if (!recentMessageMap.has(row.conversation_id)) {
+      recentMessageMap.set(row.conversation_id, row.created_at);
+    }
+  });
+
   return groupRows.map((group: any) => ({
     ...group,
     is_member: membershipSet.has(group.id),
     request_status: latestRequestMap.get(group.id) || null,
+    member_count: memberCountMap.get(group.id) || 0,
+    last_message_at: recentMessageMap.get(group.id) || null,
+    last_activity_at: recentMessageMap.get(group.id) || group.updated_at || null,
   }));
 };
 

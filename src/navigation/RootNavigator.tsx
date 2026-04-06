@@ -23,6 +23,7 @@ import PrivacyScreen from '../screens/Settings/PrivacyScreen';
 import HelpCenterScreen from '../screens/Settings/HelpCenterScreen';
 import TermsOfServiceScreen from '../screens/Settings/TermsOfServiceScreen';
 import PrivacyPolicyScreen from '../screens/Settings/PrivacyPolicyScreen';
+import MyReportsScreen from '../screens/Home/MyReportsScreen';
 import ProjectDetailsScreen from '../screens/Projects/ProjectDetailsScreen';
 import ProjectInviteMembersScreen from '../screens/Projects/ProjectInviteMembersScreen';
 import CreateProjectScreen from '../screens/Projects/CreateProjectScreen';
@@ -303,6 +304,11 @@ export default function RootNavigator() {
             <Stack.Screen
               name="PrivacyPolicy"
               component={PrivacyPolicyScreen}
+              options={{ animationEnabled: true }}
+            />
+            <Stack.Screen
+              name="MyReports"
+              component={MyReportsScreen}
               options={{ animationEnabled: true }}
             />
             <Stack.Screen

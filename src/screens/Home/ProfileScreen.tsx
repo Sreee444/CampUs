@@ -468,6 +468,17 @@ export default function ProfileScreen() {
             <MaterialIcons name="arrow-forward-ios" size={16} color="#94a3b8" />
           </TouchableOpacity>
 
+          <TouchableOpacity style={styles.actionItem} onPress={() => navigation.navigate('MyReports')}>
+            <View style={[styles.actionIcon, { backgroundColor: '#fee2e2' }]}>
+              <MaterialIcons name="report" size={20} color="#b91c1c" />
+            </View>
+            <View style={styles.actionInfo}>
+              <Text style={styles.actionTitle}>My Reports</Text>
+              <Text style={styles.actionSubtitle}>Track report status and moderation updates</Text>
+            </View>
+            <MaterialIcons name="arrow-forward-ios" size={16} color="#94a3b8" />
+          </TouchableOpacity>
+
           <TouchableOpacity style={styles.actionItem} onPress={shareProfile}>
             <View style={styles.actionIcon}>
               <MaterialIcons name="share" size={20} color="#6366f1" />
