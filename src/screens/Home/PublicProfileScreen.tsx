@@ -44,7 +44,7 @@ import {
   ConnectionStatusResult,
 } from '../../api/connections';
 import { getUserVerifications, getMutualConnections, createDirectConversation } from '../../api/chat';
-import { formatFacultyDesignation, getRoleDisplayLabel, isAdminRole, isLeadershipDesignation } from '../../utils/roles';
+import { formatFacultyDesignation, getRoleDisplayLabel, isAdminRole, isLeadershipDesignation, getCleanInitials } from '../../utils/roles';
 
 type PublicProfileScreenNavigationProp = StackNavigationProp<RootStackParamList, 'PublicProfile'>;
 type PublicProfileScreenRouteProp = RouteProp<RootStackParamList, 'PublicProfile'>;
@@ -365,11 +365,7 @@ export default function PublicProfileScreen() {
   // HELPERS
   // =====================================
 
-  const getInitials = () => {
-    if (!profile?.full_name) return 'U';
-    const parts = profile.full_name.trim().split(' ');
-    return ((parts[0]?.[0] || '') + (parts[1]?.[0] || '')).toUpperCase();
-  };
+  const getInitials = () => getCleanInitials(profile?.full_name) || 'U';
 
   const getRoleConfig = () => {
     return ROLE_CONFIG[profile?.role || ''] || {

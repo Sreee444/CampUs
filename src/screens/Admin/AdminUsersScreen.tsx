@@ -17,7 +17,7 @@ import { UserAvatar } from '../../components/UserAvatar';
 import { useAuth } from '../../contexts/AuthContext';
 import { RootStackParamList } from '../../navigation/types';
 import Toast from 'react-native-toast-message';
-import { formatFacultyDesignation, getDesignationOptionsByRole, isAdminRole, isLeadershipDesignation } from '../../utils/roles';
+import { formatFacultyDesignation, getDesignationOptionsByRole, isAdminRole, isLeadershipDesignation, stripNamePrefix } from '../../utils/roles';
 import AdminHeader from '../../components/admin/AdminHeader';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import DropdownSheet from '../../components/DropdownSheet';
@@ -224,7 +224,9 @@ export default function AdminUsersScreen() {
       if (activeFilters.section && normalize(u.section) !== normalize(activeFilters.section)) return false;
 
       if (!q) return true;
-      const haystack = [u.full_name, u.email, u.department, u.specialization, u.batch]
+      // Search by clean name (without prefixes), email, department, specialization, and batch
+      const cleanName = stripNamePrefix(u.full_name);
+      const haystack = [cleanName, u.email, u.department, u.specialization, u.batch]
         .map((value) => normalize(value))
         .join(' ');
       return haystack.includes(q);

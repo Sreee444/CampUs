@@ -1,6 +1,6 @@
 import { supabase } from "./supabase";
 import { Profile, Report, UserBan, UserRole } from "../types/database";
-import { canModerateAcademic } from "../utils/roles";
+import { canModerateAcademic, stripNamePrefix } from "../utils/roles";
 import { BASE_URL } from "../config/api";
 
 export type TimeRange = '7d' | '30d' | '90d';
@@ -40,8 +40,11 @@ const isBanActive = (ban: any) => {
 
 const sortProfilesAlphabetically = (profiles: Profile[]) => {
   return [...profiles].sort((left, right) => {
-    const leftKey = String(left?.full_name || left?.email || '').trim().toLowerCase();
-    const rightKey = String(right?.full_name || right?.email || '').trim().toLowerCase();
+    // Sort by clean name (without prefixes like Dr, Mr, Mrs) for proper alphabetical ordering
+    const leftName = stripNamePrefix(left?.full_name) || left?.email || '';
+    const rightName = stripNamePrefix(right?.full_name) || right?.email || '';
+    const leftKey = String(leftName).trim().toLowerCase();
+    const rightKey = String(rightName).trim().toLowerCase();
     return leftKey.localeCompare(rightKey);
   });
 };

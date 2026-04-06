@@ -20,7 +20,7 @@ import { RootStackParamList, MainTabParamList } from '../../navigation/types';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { formatFacultyDesignation, getRoleDisplayLabel, isAdminRole, isFacultyOrAdminRole, isLeadershipDesignation } from '../../utils/roles';
+import { formatFacultyDesignation, getRoleDisplayLabel, isAdminRole, isFacultyOrAdminRole, isLeadershipDesignation, getCleanInitials } from '../../utils/roles';
 import { getUserStats } from '../../api/users';
 import { LinearGradient } from 'expo-linear-gradient';
 import { UserAvatar } from '../../components/UserAvatar';
@@ -69,13 +69,7 @@ export default function ProfileScreen() {
     }
   };
 
-  const getInitials = () => {
-    if (!profile?.full_name) return 'U';
-    const parts = profile.full_name.trim().split(' ');
-    const first = parts[0]?.[0] || '';
-    const second = parts[1]?.[0] || '';
-    return (first + second).toUpperCase();
-  };
+  const getInitials = () => getCleanInitials(profile?.full_name) || 'U';
 
   const interests = Array.isArray(profile?.interests) ? profile.interests : [];
   const skills = Array.isArray(profile?.skills) ? profile.skills : [];

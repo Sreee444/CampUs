@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, Image, StyleSheet } from 'react-native';
+import { getCleanInitials } from '../utils/roles';
 
 // Role ring colors - softer, more refined
 const ROLE_COLORS: Record<string, string> = {
@@ -33,7 +34,7 @@ export function UserAvatar({
     role,
     showRing = false,
 }: UserAvatarProps) {
-    const initials = getInitials(name);
+    const initials = getCleanInitials(name);
     const ringColor = role ? (ROLE_COLORS[role.toLowerCase()] ?? '#14b8a6') : '#14b8a6';
     const bgColor = role ? (ROLE_BG[role.toLowerCase()] ?? '#e0f7fa') : '#e0f7fa';
     const ringWidth = showRing ? 2 : 0;
@@ -92,14 +93,6 @@ export function UserAvatar({
             )}
         </View>
     );
-}
-
-function getInitials(name?: string | null): string {
-    if (!name) return '?';
-    const parts = name.trim().split(' ');
-    const first = parts[0]?.[0] ?? '';
-    const second = parts[1]?.[0] ?? '';
-    return (first + second).toUpperCase() || '?';
 }
 
 const styles = StyleSheet.create({

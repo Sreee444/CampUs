@@ -4,6 +4,7 @@ import { supabase } from './supabase';
 import { Mentor, MentorshipPurpose, MentorshipStatus, StructuredMentorshipRequest } from '../types/database';
 import { createNotification } from './notifications';
 import { getMentorshipChatsForUser } from './mentorshipChat';
+import { stripNamePrefix } from '../utils/roles';
 
 // ─── Mentor Registration & Discovery ─────────────────────────
 
@@ -57,15 +58,22 @@ export const getMentors = async (filters?: {
     activeCountByMentor[row.mentor_id] = (activeCountByMentor[row.mentor_id] || 0) + 1;
   });
 
-  return mentors.map((mentor) => {
-    const activeMenteesCount = activeCountByMentor[mentor.id] || 0;
-    const maxMentees = Number(mentor.max_mentees || 0);
-    return {
-      ...mentor,
-      active_mentees_count: activeMenteesCount,
-      available_slots: Math.max(0, maxMentees - activeMenteesCount),
-    };
-  }) as Mentor[];
+  // Sort mentors alphabetically by clean name (without title prefixes)
+  return mentors
+    .map((mentor) => {
+      const activeMenteesCount = activeCountByMentor[mentor.id] || 0;
+      const maxMentees = Number(mentor.max_mentees || 0);
+      return {
+        ...mentor,
+        active_mentees_count: activeMenteesCount,
+        available_slots: Math.max(0, maxMentees - activeMenteesCount),
+      };
+    })
+    .sort((a, b) => {
+      const nameA = stripNamePrefix(a.profile?.full_name) || a.profile?.email || '';
+      const nameB = stripNamePrefix(b.profile?.full_name) || b.profile?.email || '';
+      return String(nameA).toLowerCase().localeCompare(String(nameB).toLowerCase());
+    }) as Mentor[];
 };
 
 export const getMyMentorProfile = async (userId: string): Promise<Mentor | null> => {

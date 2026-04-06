@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { supabase } from "./supabase";
 import { Profile } from "../types/database";
+import { stripNamePrefix } from "../utils/roles";
 
 const isTransientNetworkError = (error: any) => {
   const message = String(error?.message || '').toLowerCase();
@@ -43,7 +44,19 @@ export const getUsers = async (filters?: {
 
   const { data, error } = await query;
   if (error) throw error;
-  return data as Profile[];
+  
+  const users = (data as Profile[]) || [];
+  
+  // Sort faculty and admin alphabetically by clean name (without title prefixes)
+  if (filters?.role === 'faculty' || filters?.role === 'admin') {
+    return users.sort((a, b) => {
+      const nameA = stripNamePrefix(a.full_name) || a.email || '';
+      const nameB = stripNamePrefix(b.full_name) || b.email || '';
+      return String(nameA).toLowerCase().localeCompare(String(nameB).toLowerCase());
+    });
+  }
+  
+  return users;
 };
 
 // Get mentors
@@ -59,7 +72,13 @@ export const getMentors = async (expertise?: string[]) => {
 
   const { data, error } = await query;
   if (error) throw error;
-  return data as Profile[];
+  
+  // Sort mentors alphabetically by clean name (without title prefixes)
+  return ((data as Profile[]) || []).sort((a, b) => {
+    const nameA = stripNamePrefix(a.full_name) || a.email || '';
+    const nameB = stripNamePrefix(b.full_name) || b.email || '';
+    return String(nameA).toLowerCase().localeCompare(String(nameB).toLowerCase());
+  });
 };
 
 // Get user by ID

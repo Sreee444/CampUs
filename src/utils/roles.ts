@@ -68,3 +68,40 @@ export const formatFacultyDesignation = (designation?: FacultyDesignation | stri
 
 export const canCreateMentorProjects = (role?: UserRole | string | null): boolean =>
   role === 'faculty' || role === 'alumni' || role === 'developer';
+
+/**
+ * Strips common title prefixes (Mr., Mrs., Ms., Dr., Prof., etc.) from a name
+ * Examples:
+ * - "Dr. John Smith" -> "John Smith"
+ * - "Mr. Ram Kumar" -> "Ram Kumar"
+ * - "Prof. Sarah Johnson" -> "Sarah Johnson"
+ */
+export const stripNamePrefix = (name?: string | null): string => {
+  if (!name) return '';
+  
+  const cleaned = name.trim();
+  // Common title prefixes to strip (case-insensitive, with optional period)
+  const prefixRegex = /^(mr|mrs|ms|dr|prof|professor|sir|madam|miss|master|bhagwan|shri|shree|sri|smt|sant)\s*\.?\s+/i;
+  
+  return cleaned.replace(prefixRegex, '').trim();
+};
+
+/**
+ * Extracts initials from a name, automatically stripping title prefixes first
+ * Examples:
+ * - "Dr. John Smith" -> "JS"
+ * - "Mr. Ram Kumar" -> "RK"
+ * - "John Smith" -> "JS"
+ */
+export const getCleanInitials = (name?: string | null): string => {
+  if (!name) return '?';
+  
+  const cleanedName = stripNamePrefix(name);
+  if (!cleanedName) return '?';
+  
+  const parts = cleanedName.split(/\s+/).filter(Boolean);
+  const first = parts[0]?.[0] ?? '';
+  const second = parts[1]?.[0] ?? '';
+  
+  return (first + second).toUpperCase() || '?';
+};

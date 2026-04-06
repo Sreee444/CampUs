@@ -25,6 +25,7 @@ import { RootStackParamList, MainTabParamList } from '../../navigation/types';
 import { getColors, Spacing, BorderRadius, FontSizes, FontWeights, Shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
+import { getCleanInitials } from '../../utils/roles';
 import {
   getConversations,
   createGroupConversation,
@@ -384,12 +385,7 @@ export default function ChatScreen() {
     return other?.full_name || other?.email || 'Unknown';
   };
 
-  const getInitials = (name: string) => {
-    const parts = name.trim().split(' ');
-    const first = parts[0]?.[0] || '';
-    const second = parts[1]?.[0] || '';
-    return (first + second).toUpperCase() || 'C';
-  };
+  const getInitials = (name: string) => getCleanInitials(name) || 'C';
 
   const getColorFromString = (value: string) => {
     let hash = 0;

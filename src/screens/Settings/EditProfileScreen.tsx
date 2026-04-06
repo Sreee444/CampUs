@@ -26,6 +26,7 @@ import DropdownSheet from '../../components/DropdownSheet';
 import { removeAvatar, updateProfile, uploadAvatar } from '../../api/auth';
 import { Profile } from '../../types/database';
 import * as ImagePicker from 'expo-image-picker';
+import { getCleanInitials } from '../../utils/roles';
 import {
   DEPARTMENT_OPTIONS,
   getDepartmentAcademicLimits,
@@ -455,11 +456,7 @@ export default function EditProfileScreen() {
     loadLeadershipOwners();
   }, [isFacultyLike]);
 
-  const getInitials = () => {
-    if (!fullName) return 'U';
-    const [first = '', second = ''] = fullName.trim().split(' ');
-    return `${first[0] || ''}${second[0] || ''}`.toUpperCase();
-  };
+  const getInitials = () => getCleanInitials(fullName) || 'U';
 
   const handlePickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();

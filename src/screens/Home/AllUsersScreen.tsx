@@ -26,6 +26,7 @@ import { Profile } from '../../types/database';
 import { createDirectConversation } from '../../api/chat';
 import { getMyConnections, removeConnection } from '../../api/connections';
 import Toast from 'react-native-toast-message';
+import { getCleanInitials } from '../../utils/roles';
 
 type AllUsersScreenNavigationProp = StackNavigationProp<RootStackParamList>;
 type AllUsersScreenRouteProp = RouteProp<RootStackParamList, 'AllUsers'>;
@@ -195,13 +196,7 @@ export default function AllUsersScreen() {
     return `${users.length} users found`;
   }, [activeSearch, users.length]);
 
-  const getInitials = (name?: string) => {
-    if (!name) return 'U';
-    const parts = name.trim().split(' ');
-    const first = parts[0]?.[0] || '';
-    const second = parts[1]?.[0] || '';
-    return (first + second).toUpperCase();
-  };
+  const getInitials = (name?: string) => getCleanInitials(name) || 'U';
 
   const getRoleColor = (role?: string) => {
     switch (role) {

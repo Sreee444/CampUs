@@ -31,6 +31,7 @@ import ConfirmDialog from '../../components/ConfirmDialog';
 import { UserAvatar } from '../../components/UserAvatar';
 import ChatMessageBubble from '../../components/ChatMessageBubble';
 import PinnedMessagesModal from '../../components/PinnedMessagesModal';
+import { getCleanInitials } from '../../utils/roles';
 import { supabase } from '../../api/supabase';
 import {
   addMessageReaction,
@@ -1529,12 +1530,7 @@ export default function ChatConversationScreen() {
     }
   };
 
-  const getInitials = (displayName: string) => {
-    const parts = displayName.trim().split(' ');
-    const first = parts[0]?.[0] || '';
-    const second = parts[1]?.[0] || '';
-    return (first + second).toUpperCase() || 'C';
-  };
+  const getInitials = (displayName: string) => getCleanInitials(displayName) || 'C';
 
   const getAvatarColor = (displayName: string) => {
     let hash = 0;
