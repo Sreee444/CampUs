@@ -519,9 +519,12 @@ export default function CalendarScreen() {
   const handleAddToCalendar = async (event: Event) => {
     try {
       const startDate = new Date(event.start_date);
-      const endDate = new Date(event.end_date);
-      const startCal = toGoogleCalendarDate(event.start_date);
-      const endCal = toGoogleCalendarDate(event.end_date);
+      const parsedEndDate = event.end_date ? new Date(event.end_date) : new Date(NaN);
+      const endDate = Number.isNaN(parsedEndDate.getTime())
+        ? new Date(startDate.getTime() + 60 * 60 * 1000)
+        : parsedEndDate;
+      const startCal = toGoogleCalendarDate(startDate.toISOString());
+      const endCal = toGoogleCalendarDate(endDate.toISOString());
 
       if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || !startCal || !endCal) {
         Toast.show({ type: 'error', text1: 'Invalid event date/time' });
@@ -534,11 +537,6 @@ export default function CalendarScreen() {
         event.venue || ''
       )}&dates=${startCal}/${endCal}`;
 
-      const canOpen = await Linking.canOpenURL(calendarUrl);
-      if (!canOpen) {
-        Toast.show({ type: 'error', text1: 'Could not open calendar' });
-        return;
-      }
       await Linking.openURL(calendarUrl);
 
       Toast.show({
