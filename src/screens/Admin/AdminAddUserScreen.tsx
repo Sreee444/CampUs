@@ -21,6 +21,9 @@ import { UserRole } from '../../types/database';
 
 type NavProp = StackNavigationProp<RootStackParamList>;
 type BulkRole = 'student' | 'faculty' | 'alumni' | 'admin';
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i;
+const hasLetterInLocalPart = (email: string) => /[a-z]/i.test((email.split('@')[0] || '').trim());
+const isValidEmailForCampus = (email: string) => EMAIL_REGEX.test(email) && hasLetterInLocalPart(email);
 
 type BulkDraftUser = {
   id: string;
@@ -165,6 +168,11 @@ export default function AdminAddUserScreen() {
       return;
     }
 
+    if (!isValidEmailForCampus(trimmedEmail)) {
+      Toast.show({ type: 'error', text1: 'Enter a valid email (username must include a letter)' });
+      return;
+    }
+
     if (useCustomPassword && customPassword.trim().length < 6) {
       Toast.show({ type: 'error', text1: 'Password must be at least 6 characters' });
       return;
@@ -261,6 +269,8 @@ export default function AdminAddUserScreen() {
 
     if (!fullName) return 'full_name is required';
     if (!email) return 'email is required';
+    if (!EMAIL_REGEX.test(email)) return 'email format is invalid';
+    if (!hasLetterInLocalPart(email)) return 'email username must include a letter';
 
     if (row.role === 'student') {
       if (!department) return 'department is required for student';

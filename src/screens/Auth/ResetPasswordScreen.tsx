@@ -21,6 +21,8 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { resetPassword } from '../../api/auth';
 
 type ResetPasswordScreenNavigationProp = StackNavigationProp<RootStackParamList, 'ResetPassword'>;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i;
+const hasLetterInLocalPart = (email: string) => /[a-z]/i.test((email.split('@')[0] || '').trim());
 
 export default function ResetPasswordScreen() {
   const navigation = useNavigation<ResetPasswordScreenNavigationProp>();
@@ -40,8 +42,20 @@ export default function ResetPasswordScreen() {
   }, [cooldown]);
 
   const handleReset = async () => {
-    if (!email.trim()) {
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (!normalizedEmail) {
       Toast.show({ type: 'error', text1: 'Enter your email' });
+      return;
+    }
+
+    if (!EMAIL_REGEX.test(normalizedEmail)) {
+      Toast.show({ type: 'error', text1: 'Enter a valid email address' });
+      return;
+    }
+
+    if (!hasLetterInLocalPart(normalizedEmail)) {
+      Toast.show({ type: 'error', text1: 'Email username must include a letter' });
       return;
     }
 
@@ -56,7 +70,7 @@ export default function ResetPasswordScreen() {
 
     try {
       setIsSending(true);
-      await resetPassword(email.trim());
+      await resetPassword(normalizedEmail);
       Toast.show({ type: 'success', text1: 'Reset link sent' });
       setCooldown(60);
       navigation.reset({

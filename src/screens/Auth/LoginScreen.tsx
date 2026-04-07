@@ -25,6 +25,8 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 
 const DEFAULT_PASSWORD = '123456';
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i;
+const hasLetterInLocalPart = (email: string) => /[a-z]/i.test((email.split('@')[0] || '').trim());
 
 type LoginScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Login'>;
 
@@ -107,14 +109,26 @@ export default function LoginScreen() {
 
   // ─── Email Login Handler ─────────────────────────────────────────────────────
   const handleLogin = async () => {
-    if (!email.trim() || !password.trim()) {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail || !password.trim()) {
       Toast.show({ type: 'error', text1: 'Enter email and password' });
       return;
     }
+
+    if (!EMAIL_REGEX.test(normalizedEmail)) {
+      Toast.show({ type: 'error', text1: 'Enter a valid email address' });
+      return;
+    }
+
+    if (!hasLetterInLocalPart(normalizedEmail)) {
+      Toast.show({ type: 'error', text1: 'Email username must include a letter' });
+      return;
+    }
+
     try {
       setIsLoading(true);
       usedDefaultPasswordRef.current = password.trim() === DEFAULT_PASSWORD;
-      await signIn(email.trim(), password);
+      await signIn(normalizedEmail, password);
       Toast.show({ type: 'success', text1: 'Welcome back!' });
       // onAuthStateChange listener will handle navigation
     } catch (error: any) {

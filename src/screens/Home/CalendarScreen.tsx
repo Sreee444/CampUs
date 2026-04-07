@@ -75,6 +75,24 @@ const toGoogleCalendarDate = (value: string) => {
   return parsed.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
 };
 
+const isValidIsoDateOnly = (value: string) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split('-').map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return (
+    parsed.getUTCFullYear() === year &&
+    parsed.getUTCMonth() === month - 1 &&
+    parsed.getUTCDate() === day
+  );
+};
+
+const formatDateForDisplay = (value: string) => {
+  const normalized = String(value || '').trim().slice(0, 10);
+  if (!isValidIsoDateOnly(normalized)) return value;
+  const [year, month, day] = normalized.split('-');
+  return `${day}-${month}-${year.slice(2)}`;
+};
+
 export default function CalendarScreen() {
   const navigation = useNavigation<any>();
   const { isDark } = useTheme();
@@ -447,6 +465,21 @@ export default function CalendarScreen() {
       return;
     }
 
+    if (title.length < 3) {
+      Toast.show({ type: 'error', text1: 'Title must be at least 3 characters' });
+      return;
+    }
+
+    if (title.length > 120) {
+      Toast.show({ type: 'error', text1: 'Title cannot exceed 120 characters' });
+      return;
+    }
+
+    if (!isValidIsoDateOnly(date)) {
+      Toast.show({ type: 'error', text1: 'Date must be valid (DD-MM-YY)' });
+      return;
+    }
+
     try {
       setIsCreatingExam(true);
       if (editingExamId) {
@@ -518,10 +551,22 @@ export default function CalendarScreen() {
 
   const handleAddToCalendar = async (event: Event) => {
     try {
+      const title = String(event.title || '').trim();
+      if (!title) {
+        Toast.show({ type: 'error', text1: 'Event title is missing' });
+        return;
+      }
+
       const startDate = new Date(event.start_date);
-      const endDate = new Date(event.end_date);
-      const startCal = toGoogleCalendarDate(event.start_date);
-      const endCal = toGoogleCalendarDate(event.end_date);
+      const parsedEndDate = event.end_date ? new Date(event.end_date) : new Date(NaN);
+      const fallbackEndDate = Number.isNaN(parsedEndDate.getTime())
+        ? new Date(startDate.getTime() + 60 * 60 * 1000)
+        : parsedEndDate;
+      const endDate = fallbackEndDate.getTime() <= startDate.getTime()
+        ? new Date(startDate.getTime() + 60 * 60 * 1000)
+        : fallbackEndDate;
+      const startCal = toGoogleCalendarDate(startDate.toISOString());
+      const endCal = toGoogleCalendarDate(endDate.toISOString());
 
       if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || !startCal || !endCal) {
         Toast.show({ type: 'error', text1: 'Invalid event date/time' });
@@ -529,16 +574,11 @@ export default function CalendarScreen() {
       }
 
       const calendarUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(
-        event.title
+        title
       )}&details=${encodeURIComponent(event.description || '')}&location=${encodeURIComponent(
         event.venue || ''
       )}&dates=${startCal}/${endCal}`;
 
-      const canOpen = await Linking.canOpenURL(calendarUrl);
-      if (!canOpen) {
-        Toast.show({ type: 'error', text1: 'Could not open calendar' });
-        return;
-      }
       await Linking.openURL(calendarUrl);
 
       Toast.show({
@@ -1119,7 +1159,7 @@ export default function CalendarScreen() {
                   <View style={styles.datePickerLabelWrap}>
                     <MaterialIcons name="calendar-today" size={16} color={Colors.textSecondary} />
                     <Text style={[styles.datePickerLabel, { color: examDate ? Colors.text : Colors.textSecondary }]}> 
-                      {examDate || 'Select exam date'}
+                      {examDate ? formatDateForDisplay(examDate) : 'Select exam date (DD-MM-YY)'}
                     </Text>
                   </View>
                   <MaterialIcons name="expand-more" size={20} color={Colors.textSecondary} />
