@@ -37,9 +37,9 @@ const ACADEMIC_STATUS_OPTIONS = [
   { label: 'Graduated', value: 'graduated' },
 ];
 
-type RoleFilter = 'all' | 'student' | 'faculty' | 'alumni' | 'admin' | 'developer';
+type RoleFilter = 'all' | 'student' | 'faculty' | 'alumni' | 'admin';
 type UserModalTab = 'profile' | 'role' | 'safety';
-type QuickScope = 'loaded' | 'banned' | 'student' | 'faculty' | 'alumni' | 'admin' | 'developer';
+type QuickScope = 'loaded' | 'banned' | 'student' | 'faculty' | 'alumni' | 'admin';
 
 type UserListFilters = {
   role: RoleFilter;
@@ -239,7 +239,6 @@ export default function AdminUsersScreen() {
     faculty: baseFilteredDataset.filter((u) => u.role === 'faculty').length,
     alumni: baseFilteredDataset.filter((u) => u.role === 'alumni').length,
     admin: baseFilteredDataset.filter((u) => u.role === 'admin').length,
-    developer: baseFilteredDataset.filter((u) => u.role === 'developer').length,
   }), [baseFilteredDataset, bannedIds]);
 
   const quickScopeOptions = React.useMemo(() => ([
@@ -249,7 +248,6 @@ export default function AdminUsersScreen() {
     { key: 'faculty' as QuickScope, label: 'Faculty', count: quickScopeCounts.faculty },
     { key: 'alumni' as QuickScope, label: 'Alumni', count: quickScopeCounts.alumni },
     { key: 'admin' as QuickScope, label: 'Admin', count: quickScopeCounts.admin },
-    { key: 'developer' as QuickScope, label: 'Developer', count: quickScopeCounts.developer },
   ]), [quickScopeCounts]);
 
   const selectedQuickScopeOption = React.useMemo(
@@ -265,7 +263,6 @@ export default function AdminUsersScreen() {
       case 'faculty':
       case 'alumni':
       case 'admin':
-      case 'developer':
         return baseFilteredDataset.filter((u) => u.role === quickScope);
       case 'loaded':
       default:
@@ -1149,7 +1146,7 @@ export default function AdminUsersScreen() {
             <ScrollView>
               <Text style={[styles.sheetSectionLabel, { color: Colors.textSecondary }]}>Role</Text>
               <View style={styles.roleGrid}>
-                {(['all', 'student', 'faculty', 'alumni', 'admin', 'developer'] as RoleFilter[]).map((role) => (
+                {(['all', 'student', 'faculty', 'alumni', 'admin'] as RoleFilter[]).map((role) => (
                   <TouchableOpacity
                     key={role}
                     style={[

@@ -651,6 +651,19 @@ export const rejectJoinRequest = async (requestId: string) => {
   return true;
 };
 
+// Cancel own pending join request (requester action)
+export const cancelJoinRequest = async (requestId: string, userId: string) => {
+  const { error } = await supabase
+    .from("project_team_join_requests")
+    .update({ status: "rejected" })
+    .eq("id", requestId)
+    .eq("user_id", userId)
+    .eq("status", "pending");
+
+  if (error) throw error;
+  return true;
+};
+
 // Remove team member
 // - Creator/Admin can remove any non-creator, non-admin member
 // - A user can remove themselves (leave team), except if they are the creator

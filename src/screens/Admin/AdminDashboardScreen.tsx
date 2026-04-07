@@ -214,7 +214,8 @@ export default function AdminDashboardScreen() {
 
   const roleBreakdown = useMemo(() => {
     if (!metrics?.usersByRole || !metrics?.totalUsers) return [];
-    const entries = Object.entries(metrics.usersByRole) as Array<[string, number]>;
+    const entries = (Object.entries(metrics.usersByRole) as Array<[string, number]>)
+      .filter(([role]) => role !== 'developer');
     return entries.map(([role, count]) => ({
       role,
       count,

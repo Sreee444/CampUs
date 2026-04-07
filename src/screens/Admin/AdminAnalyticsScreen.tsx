@@ -118,7 +118,9 @@ export default function AdminAnalyticsScreen() {
           {/* User Distribution */}
           <Text style={[styles.sectionTitle, { color: Colors.text }]}>User Distribution</Text>
           <View style={[styles.card, { backgroundColor: Colors.surface }]}>
-            {Object.entries(metrics.usersByRole).map(([role, count]) => {
+            {Object.entries(metrics.usersByRole)
+              .filter(([role]) => role !== 'developer')
+              .map(([role, count]) => {
               const pct = metrics.totalUsers > 0 ? Math.round((count / metrics.totalUsers) * 100) : 0;
               const color = roleColors[role] ?? '#94a3b8';
               return (
