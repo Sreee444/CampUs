@@ -31,6 +31,7 @@ import {
   getTeamJoinRequests,
   acceptJoinRequest,
   rejectJoinRequest,
+  cancelJoinRequest,
   acceptProjectInvite,
   rejectProjectInvite,
   cancelProjectInvite,
@@ -117,6 +118,7 @@ export default function ProjectDetailsScreen() {
   const [showJoinRequestModal, setShowJoinRequestModal] = useState(false);
   const [joinMessage, setJoinMessage] = useState('');
   const [isSendingRequest, setIsSendingRequest] = useState(false);
+  const [isCancellingJoinRequest, setIsCancellingJoinRequest] = useState(false);
 
   // Report modal state
   const [reportModalState, setReportModalState] = useState({
@@ -725,6 +727,33 @@ export default function ProjectDetailsScreen() {
     }
   };
 
+  const handleCancelJoinRequest = async () => {
+    if (!user?.id || !joinRequestStatus?.id) return;
+
+    try {
+      setIsCancellingJoinRequest(true);
+      await cancelJoinRequest(joinRequestStatus.id, user.id);
+
+      Toast.show({
+        type: 'success',
+        text1: 'Request Cancelled',
+        text2: 'Your join request has been cancelled.',
+      });
+
+      setJoinRequestStatus(null);
+      await loadTeamData();
+    } catch (err: any) {
+      console.error('Failed to cancel join request', err);
+      Toast.show({
+        type: 'error',
+        text1: 'Cancel Failed',
+        text2: err?.message || 'Unable to cancel your join request',
+      });
+    } finally {
+      setIsCancellingJoinRequest(false);
+    }
+  };
+
   // ─── Change Team Leader ──────────────────────────────────────────────────────
   const handleChangeLeader = (newLeaderId: string, newLeaderName: string) => {
     if (!isCreator || !team) return;
@@ -1048,10 +1077,20 @@ export default function ProjectDetailsScreen() {
 
     if (joinRequestStatus?.status === 'pending') {
       return (
-        <View style={styles.pendingBadge}>
-          <MaterialIcons name="schedule" size={16} color="#f59e0b" />
-          <Text style={styles.pendingText}>Request Pending</Text>
-        </View>
+        <TouchableOpacity
+          style={[styles.pendingBadge, isCancellingJoinRequest && styles.pendingBadgeDisabled]}
+          onPress={handleCancelJoinRequest}
+          disabled={isCancellingJoinRequest}
+        >
+          {isCancellingJoinRequest ? (
+            <ActivityIndicator size="small" color="#f59e0b" />
+          ) : (
+            <MaterialIcons name="schedule" size={16} color="#f59e0b" />
+          )}
+          <Text style={styles.pendingText}>
+            {isCancellingJoinRequest ? 'Cancelling...' : 'Pending - Tap to Cancel'}
+          </Text>
+        </TouchableOpacity>
       );
     }
 
@@ -2300,6 +2339,9 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       paddingVertical: 10,
       borderRadius: BorderRadius.lg,
       backgroundColor: '#fef3c7',
+    },
+    pendingBadgeDisabled: {
+      opacity: 0.7,
     },
     pendingText: {
       fontSize: FontSizes.sm,

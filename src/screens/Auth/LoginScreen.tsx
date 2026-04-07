@@ -167,7 +167,7 @@ export default function LoginScreen() {
                   <MaterialIcons name="mail-outline" size={20} color={Colors.textSecondary} style={styles.inputIcon} />
                   <TextInput
                     style={[styles.input, { color: Colors.text }]}
-                    placeholder="student@campus.edu"
+                    placeholder="Enter your college email"
                     value={email}
                     onChangeText={setEmail}
                     keyboardType="email-address"

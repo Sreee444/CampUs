@@ -1738,6 +1738,10 @@ export default function ChatConversationScreen() {
     directConnectionStatus.status === 'none' || directConnectionStatus.status === 'rejected';
   const isDirectRequestPending =
     directConnectionStatus.status === 'pending_sent' || directConnectionStatus.status === 'pending_received';
+  const shouldShowFirstDirectRequestHint =
+    isDirectChat &&
+    canSendNewDirectRequest &&
+    messages.filter((message) => message.sender_id !== 'ai').length === 0;
   const canSendInCurrentChat =
     !isDirectChat ||
     directConnectionStatus.status === 'accepted' ||
@@ -2261,7 +2265,7 @@ export default function ChatConversationScreen() {
             <UserAvatar
               uri={directPartnerProfile.avatar_url}
               name={directPartnerProfile.full_name || name}
-              size={40}
+              size={34}
               role={directPartnerProfile.role}
               showRing={false}
             />
@@ -2293,22 +2297,13 @@ export default function ChatConversationScreen() {
                 <Text style={styles.headerStatus}>
                   {groupTypingLabel || `${groupMembers.length} members`}
                 </Text>
-                <Text
-                  style={[
-                    styles.groupBioPreview,
-                    !groupDetails?.group_bio && styles.groupBioPreviewEmpty,
-                  ]}
-                  numberOfLines={1}
-                >
-                  {groupDetails?.group_bio || 'No group bio yet'}
-                </Text>
                 <View style={styles.groupPreviewRow}>
                   {groupMembers.slice(0, 3).map((participant, index) => (
                     <View key={participant.id} style={[styles.groupPreviewAvatar, { marginLeft: index === 0 ? 0 : -8 }]}>
                       <UserAvatar
                         uri={participant.user?.avatar_url}
                         name={participant.user?.full_name || 'Member'}
-                        size={20}
+                        size={16}
                         showRing={false}
                       />
                     </View>
@@ -2632,7 +2627,7 @@ export default function ChatConversationScreen() {
                   placeholder={
                     isAIChat
                       ? 'Ask about an event, project, date, or pick an option above'
-                      : canSendNewDirectRequest
+                      : shouldShowFirstDirectRequestHint
                         ? 'Type first message to send chat request'
                         : isDirectRequestPending
                           ? 'Waiting for request acceptance...'
@@ -4211,11 +4206,11 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       flexDirection: 'row',
       alignItems: 'center',
       paddingHorizontal: 10,
-      paddingVertical: 8,
+      paddingVertical: 12,
       backgroundColor: Colors.surface,
       borderBottomWidth: 1,
       borderBottomColor: Colors.border,
-      gap: 10,
+      gap: 9,
     },
     backButton: {
       padding: 4,
@@ -4224,25 +4219,25 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       flex: 1,
       flexDirection: 'row',
       alignItems: 'center',
-      gap: Spacing.sm,
+      gap: 9,
       minWidth: 0,
     },
     headerAvatar: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
+      width: 36,
+      height: 36,
+      borderRadius: 18,
       alignItems: 'center',
       justifyContent: 'center',
     },
     headerAvatarImage: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
+      width: 36,
+      height: 36,
+      borderRadius: 18,
       backgroundColor: Colors.card,
     },
     groupVisibilityRingHeader: {
       borderWidth: 2,
-      borderRadius: 22,
+      borderRadius: 19,
       padding: 1,
       position: 'relative',
     },
@@ -4250,9 +4245,9 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       position: 'absolute',
       right: -3,
       bottom: -3,
-      width: 16,
-      height: 16,
-      borderRadius: 8,
+      width: 14,
+      height: 14,
+      borderRadius: 7,
       alignItems: 'center',
       justifyContent: 'center',
       borderWidth: 1,
@@ -4270,43 +4265,33 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
     },
     headerName: {
       flexShrink: 1,
-      fontSize: FontSizes.md,
+      fontSize: FontSizes.lg,
       fontWeight: FontWeights.semibold,
       color: Colors.text,
     },
     headerStatus: {
-      fontSize: 12,
+      fontSize: 13,
       color: Colors.textSecondary,
-      marginTop: 2,
+      marginTop: 1,
     },
     directStatusRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 6,
-      marginTop: 2,
+      gap: 5,
+      marginTop: 1,
     },
     onlineDot: {
-      width: 8,
-      height: 8,
-      borderRadius: 4,
+      width: 6,
+      height: 6,
+      borderRadius: 3,
       backgroundColor: '#22C55E',
     },
     groupHeaderMeta: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: Spacing.sm,
-      marginTop: 2,
+      gap: 6,
+      marginTop: 1,
       flexWrap: 'wrap',
-    },
-    groupBioPreview: {
-      fontSize: FontSizes.xs,
-      color: Colors.textSecondary,
-      flexShrink: 1,
-      maxWidth: 180,
-    },
-    groupBioPreviewEmpty: {
-      fontStyle: 'italic',
-      opacity: 0.85,
     },
     groupPreviewRow: {
       flexDirection: 'row',
@@ -4319,10 +4304,10 @@ const createStyles = (Colors: ReturnType<typeof getColors>) =>
       borderColor: Colors.surface,
     },
     moreButton: {
-      padding: 4,
+      padding: 3,
     },
     pinnedButton: {
-      padding: 4,
+      padding: 3,
       position: 'relative',
     },
     pinnedBadge: {

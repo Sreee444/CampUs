@@ -20,7 +20,7 @@ import { formatFacultyDesignation, getDesignationOptionsByRole, isAdminRole } fr
 import { UserRole } from '../../types/database';
 
 type NavProp = StackNavigationProp<RootStackParamList>;
-type BulkRole = 'student' | 'faculty' | 'alumni' | 'admin' | 'developer';
+type BulkRole = 'student' | 'faculty' | 'alumni' | 'admin';
 
 type BulkDraftUser = {
   id: string;
@@ -295,7 +295,7 @@ export default function AdminAddUserScreen() {
         counts[row.role] += 1;
         return counts;
       },
-      { student: 0, faculty: 0, alumni: 0, admin: 0, developer: 0 } as Record<BulkRole, number>
+      { student: 0, faculty: 0, alumni: 0, admin: 0 } as Record<BulkRole, number>
     ),
     [bulkDraftUsers]
   );
@@ -370,7 +370,7 @@ export default function AdminAddUserScreen() {
         .map((rawRow) => {
           const row = toHeaderMap(rawRow);
           const role = firstValue(row, ['role']).toLowerCase();
-          const safeRole: BulkRole = ['faculty', 'alumni', 'admin', 'developer'].includes(role) ? (role as BulkRole) : 'student';
+          const safeRole: BulkRole = ['faculty', 'alumni', 'admin'].includes(role) ? (role as BulkRole) : 'student';
 
           return {
             id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -495,7 +495,7 @@ export default function AdminAddUserScreen() {
         <View style={[styles.formCard, { backgroundColor: Colors.surface, borderColor: Colors.border }]}>
           <View style={[styles.bulkInfoCard, { backgroundColor: Colors.background, borderColor: Colors.border }]}> 
             <Text style={[styles.bulkInfoTitle, { color: Colors.text }]}>Bulk Upload (CSV/Excel)</Text>
-            <Text style={[styles.bulkInfoText, { color: Colors.textSecondary }]}>Supported roles: student, faculty, alumni, admin, developer</Text>
+            <Text style={[styles.bulkInfoText, { color: Colors.textSecondary }]}>Supported roles: student, faculty, alumni, admin</Text>
             <Text style={[styles.bulkInfoText, { color: Colors.textSecondary }]}>Student required: full_name, email, role, department, year, semester, section</Text>
             <Text style={[styles.bulkInfoText, { color: Colors.textSecondary }]}>Faculty required: full_name, email, role, department, faculty_designation</Text>
             <Text style={[styles.bulkInfoText, { color: Colors.textSecondary }]}>Alumni required: full_name, email, role, department</Text>
@@ -596,7 +596,7 @@ export default function AdminAddUserScreen() {
             <View style={styles.editField}>
               <Text style={[styles.editLabel, { color: Colors.text }]}>Role</Text>
               <View style={styles.roleGrid}>
-                {(['student', 'faculty', 'alumni', 'admin', 'developer'] as UserRole[]).map((role) => (
+                {(['student', 'faculty', 'alumni', 'admin'] as UserRole[]).map((role) => (
                   <TouchableOpacity
                     key={role}
                     style={[
