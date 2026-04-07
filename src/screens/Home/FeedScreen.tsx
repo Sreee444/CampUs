@@ -64,6 +64,16 @@ function getGreeting() {
   return "Good Night";
 }
 
+function toDisplayName(value?: string | null) {
+  if (!value) return 'Student';
+  return value
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
+}
+
 const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'heic'];
 
 const isImageAttachment = (url: string) => {
@@ -560,7 +570,8 @@ export default function FeedScreen() {
     }
   };
 
-  const firstName = profile?.full_name?.split(' ')[0] || user?.email?.split('@')[0] || 'Student';
+  const rawName = profile?.full_name || user?.email?.split('@')[0] || 'Student';
+  const fullName = toDisplayName(rawName);
   const scrollY = useRef(new Animated.Value(0)).current;
   const feedScrollX = useRef(new Animated.Value(0)).current;
   const eventScrollX = useRef(new Animated.Value(0)).current;
@@ -670,7 +681,7 @@ export default function FeedScreen() {
                 />
                 <View style={{ marginLeft: 12 }}>
                   <Animated.Text style={[styles.greeting, { opacity: greetingOpacity }]}>{getGreeting()} 👋</Animated.Text>
-                  <Animated.Text style={[styles.userName]}>{firstName}</Animated.Text>
+                  <Animated.Text style={[styles.userName]}>{fullName}</Animated.Text>
                 </View>
               </View>
               <TouchableOpacity
