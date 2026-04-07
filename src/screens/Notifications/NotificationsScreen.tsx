@@ -194,6 +194,96 @@ export default function NotificationsScreen() {
         loadData();
     };
 
+    const resolveTeamInviteRequest = async (notif: Notification) => {
+        if (!user?.id) {
+            throw new Error('You must be signed in.');
+        }
+
+        const meta = (notif as any).metadata ?? {};
+        const metaRequestId = meta.team_request_id;
+        const teamId = meta.team_id ?? notif.related_id;
+        const eventId = meta.event_id;
+
+        if (metaRequestId) {
+            const { data: byId, error: byIdError } = await (supabase as any)
+                .from('team_requests')
+                .select('id, team_id, event_id, target_user_id, type, status')
+                .eq('id', metaRequestId)
+                .maybeSingle();
+
+            if (byIdError) throw byIdError;
+            if (
+                byId &&
+                byId.target_user_id === user.id &&
+                byId.type === 'invite' &&
+                byId.status === 'pending'
+            ) {
+                return {
+                    requestId: byId.id,
+                    teamId: byId.team_id,
+                    eventId: byId.event_id,
+                };
+            }
+        }
+
+        let query = (supabase as any)
+            .from('team_requests')
+            .select('id, team_id, event_id')
+            .eq('target_user_id', user.id)
+            .eq('type', 'invite')
+            .eq('status', 'pending')
+            .order('created_at', { ascending: false })
+            .limit(5);
+
+        if (teamId) {
+            query = query.eq('team_id', teamId);
+        }
+
+        if (eventId) {
+            query = query.eq('event_id', eventId);
+        }
+
+        const { data: pending, error } = await query;
+        if (error) throw error;
+
+        if (!pending || pending.length === 0) {
+            const { data: anyPending, error: anyPendingError } = await (supabase as any)
+                .from('team_requests')
+                .select('id, team_id, event_id')
+                .eq('target_user_id', user.id)
+                .eq('type', 'invite')
+                .eq('status', 'pending')
+                .order('created_at', { ascending: false })
+                .limit(20);
+
+            if (anyPendingError) throw anyPendingError;
+
+            if (!anyPending || anyPending.length === 0) {
+                throw new Error('This invitation is no longer pending.');
+            }
+
+            if (anyPending.length > 1) {
+                throw new Error('Multiple team invites found. Open Team Invitations to choose one.');
+            }
+
+            return {
+                requestId: anyPending[0].id,
+                teamId: anyPending[0].team_id,
+                eventId: anyPending[0].event_id,
+            };
+        }
+
+        if (pending.length > 1 && !teamId && !eventId) {
+            throw new Error('Multiple team invites found. Open Team Invitations to choose one.');
+        }
+
+        return {
+            requestId: pending[0].id,
+            teamId: pending[0].team_id,
+            eventId: pending[0].event_id,
+        };
+    };
+
     const handleNotificationPress = async (notification: Notification) => {
         if (!notification.is_read) {
             try {
@@ -266,16 +356,7 @@ export default function NotificationsScreen() {
         if (!user?.id) return;
         try {
             setProcessingInviteId(notif.id);
-            const meta = (notif as any).metadata ?? {};
-            const requestId = meta.team_request_id;
-            const teamId = meta.team_id ?? notif.related_id;
-            const eventId = meta.event_id;
-
-            if (!requestId || !teamId || !eventId) {
-                // Fallback: just navigate to the invitations screen
-                navigation.navigate('TeamInvitations');
-                return;
-            }
+            const { requestId, teamId, eventId } = await resolveTeamInviteRequest(notif);
 
             await acceptInvite({ requestId, teamId, eventId, userId: user.id });
             await markNotifRead(notif.id);
@@ -284,7 +365,14 @@ export default function NotificationsScreen() {
             setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
             setToast({ visible: true, message: '🎉 You joined the team!', type: 'success' });
         } catch (err: any) {
-            setToast({ visible: true, message: err.message ?? 'Failed to accept', type: 'error' });
+            const message = err?.message ?? 'Failed to accept';
+            if (typeof message === 'string' && message.toLowerCase().includes('no longer pending')) {
+                await markNotifRead(notif.id);
+                setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
+                setToast({ visible: true, message: 'Invite has expired and was removed.', type: 'info' });
+            } else {
+                setToast({ visible: true, message, type: 'error' });
+            }
         } finally {
             setProcessingInviteId(null);
         }
@@ -293,17 +381,20 @@ export default function NotificationsScreen() {
     const handleDeclineInvite = async (notif: Notification) => {
         try {
             setProcessingInviteId(notif.id);
-            const meta = (notif as any).metadata ?? {};
-            const requestId = meta.team_request_id;
-
-            if (requestId) {
-                await rejectInvite(requestId);
-            }
+            const { requestId } = await resolveTeamInviteRequest(notif);
+            await rejectInvite(requestId);
             await markNotifRead(notif.id);
             setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
             setToast({ visible: true, message: 'Invitation declined', type: 'info' });
         } catch (err: any) {
-            setToast({ visible: true, message: err.message ?? 'Failed to decline', type: 'error' });
+            const message = err?.message ?? 'Failed to decline';
+            if (typeof message === 'string' && message.toLowerCase().includes('no longer pending')) {
+                await markNotifRead(notif.id);
+                setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
+                setToast({ visible: true, message: 'Invite has expired and was removed.', type: 'info' });
+            } else {
+                setToast({ visible: true, message, type: 'error' });
+            }
         } finally {
             setProcessingInviteId(null);
         }

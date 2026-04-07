@@ -156,16 +156,19 @@ export async function acceptInvite(params: {
         throw new Error('This invitation is no longer valid.');
     }
 
-    // 2. Check registration exists and has no team yet
+    // 2. Check registration exists and has no team yet.
+    // Some legacy rows may have null/non-standard statuses; only cancelled should block joining.
     const { data: reg } = await (supabase as any)
         .from('event_registrations')
-        .select('id, team_id')
+        .select('id, team_id, status')
         .eq('event_id', eventId)
         .eq('user_id', userId)
-        .eq('status', 'registered')
         .maybeSingle();
 
     if (!reg) throw new Error('You must be registered for this event to join a team.');
+    if (reg.status === 'cancelled') {
+        throw new Error('Your event registration is cancelled. Please re-register first.');
+    }
     if (reg.team_id) throw new Error('You are already in a team for this event.');
 
     // 3. Fresh team capacity check
