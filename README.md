@@ -157,6 +157,8 @@ Department of Computer Science and Engineering, SJCET Palai.
 
 ---
 
-## 📬 Note
+## Project Showcase & Features
 
-Demo/download credentials can be added here later under a **“Download & Demo Access”** section.
+- **Project Portfolio Website:** [https://campussweb.vercel.app/](https://campussweb.vercel.app/)
+
+---
